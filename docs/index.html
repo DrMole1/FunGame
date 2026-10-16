@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+    <title>FunGame</title>
+    <style>
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #12141a; }
+      #unity-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; background: #231F20; }
+      #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+                 gap: 16px; color: #e8eaf0; font: 600 18px system-ui, -apple-system, "Segoe UI", sans-serif; background: #12141a; }
+      #bar { width: 260px; height: 8px; border-radius: 4px; background: #2a2e38; overflow: hidden; }
+      #fill { width: 0; height: 100%; background: #4a8fff; transition: width .2s; }
+      #error { color: #ff8a80; max-width: 480px; text-align: center; font-weight: 400; }
+    </style>
+    <!-- WebRTC peer-to-peer pour le multijoueur (signalisation via le serveur public PeerJS). -->
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  </head>
+  <body>
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+    <div id="loading">
+      <div>Chargement de FunGame…</div>
+      <div id="bar"><div id="fill"></div></div>
+      <div id="error"></div>
+    </div>
+    <script src="Build/docs.loader.js"></script>
+    <script>
+      var canvas = document.querySelector("#unity-canvas");
+      canvas.addEventListener("click", function () { canvas.focus(); });
+      createUnityInstance(canvas, {
+        dataUrl: "Build/docs.data",
+        frameworkUrl: "Build/docs.framework.js",
+        codeUrl: "Build/docs.wasm",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "DefaultCompany",
+        productName: "FunGame",
+        productVersion: "0.1",
+      }, function (progress) {
+        document.querySelector("#fill").style.width = (100 * progress) + "%";
+      }).then(function () {
+        document.querySelector("#loading").remove();
+        canvas.focus();
+      }).catch(function (message) {
+        document.querySelector("#error").textContent = message;
+      });
+    </script>
+  </body>
+</html>
