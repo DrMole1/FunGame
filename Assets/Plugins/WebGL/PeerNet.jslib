@@ -42,7 +42,7 @@ var PeerNetLib = {
       });
       conn.on('data', function (data) {
         if (typeof data !== 'string') return;
-        if (PN.isHost && data.charAt(0) === 'S') {
+        if (PN.isHost && data.charAt(0) === 'S' && data.charAt(1) === '|') {
           for (var k in PN.conns) {
             if (k !== conn.peer && PN.conns[k].open) PN.conns[k].send(data);
           }

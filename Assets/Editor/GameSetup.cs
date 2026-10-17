@@ -9,6 +9,7 @@ public static class GameSetup
 {
     const string MaterialsDir = "Assets/Resources/Materials";
     const string ArtDir = "Assets/Resources/Art";
+    const string DecorDir = ArtDir + "/Decor";
 
     [MenuItem("FunGame/Configurer le jeu")]
     public static void Setup()
@@ -16,6 +17,7 @@ public static class GameSetup
         CreateMaterials();
         CreateFonts();
         ImportArt();
+        ImportDecor();
         SetupScene();
         AssetDatabase.SaveAssets();
         Debug.Log("FunGame configuré.");
@@ -34,6 +36,7 @@ public static class GameSetup
         CreateMaterial("Unlit", "Unlit/Color", null);
         CreateMaterial("Outline", "FunGame/Outline", null);
         CreateMaterial("Text3D", "FunGame/Text3D", null);
+        CreateMaterial("InfestedWall", "FunGame/InfestedWall", null);
 
         // Sol du chapiteau : terre gravillonnée (texture 4K réduite pour le build WebGL).
         const string groundPath = "Assets/Materials/Basemap/zGround022_4K-PNG_Color.png";
@@ -95,6 +98,7 @@ public static class GameSetup
         foreach (string guid in AssetDatabase.FindAssets("t:Model", new[] { ArtDir }))
         {
             string path = AssetDatabase.GUIDToAssetPath(guid);
+            if (path.StartsWith(DecorDir)) continue;
             var importer = (ModelImporter)AssetImporter.GetAtPath(path);
             string name = Path.GetFileNameWithoutExtension(path);
             importer.animationType = ModelImporterAnimationType.None;
@@ -136,6 +140,23 @@ public static class GameSetup
                 texImporter.maxTextureSize = 512;
                 texImporter.SaveAndReimport();
             }
+            importer.SaveAndReimport();
+        }
+    }
+
+    // Décors Meshy sans texture (membres, pièces d'échecs) : le jeu leur applique ses propres matériaux.
+    static void ImportDecor()
+    {
+        if (!AssetDatabase.IsValidFolder(DecorDir)) return;
+        foreach (string guid in AssetDatabase.FindAssets("t:Model", new[] { DecorDir }))
+        {
+            var importer = (ModelImporter)AssetImporter.GetAtPath(AssetDatabase.GUIDToAssetPath(guid));
+            if (importer.materialImportMode == ModelImporterMaterialImportMode.None && !importer.importAnimation) continue;
+            importer.animationType = ModelImporterAnimationType.None;
+            importer.importAnimation = false;
+            importer.importCameras = false;
+            importer.importLights = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
             importer.SaveAndReimport();
         }
     }

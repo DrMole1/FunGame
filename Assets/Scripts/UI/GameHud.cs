@@ -16,10 +16,41 @@ public class GameHud : MonoBehaviour
     readonly Text[] slotName = new Text[GameRules.InventorySize];
     readonly Text[] slotNumber = new Text[GameRules.InventorySize];
     float toastTimer;
+    RawImage damageFlash;
+    float flashTimer;
+    const float FlashDuration = 0.7f;
+
+    // Bords rouges opaques, centre transparent.
+    static Texture2D Vignette(int size)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var pixels = new Color32[size * size];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float dx = (x + 0.5f) / size * 2f - 1f, dy = (y + 0.5f) / size * 2f - 1f;
+                float d = Mathf.Sqrt(dx * dx + dy * dy) / 1.414f;
+                float a = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.25f, 1f, d));
+                pixels[y * size + x] = new Color(1f, 1f, 1f, 0.25f + 0.75f * a);
+            }
+        tex.SetPixels32(pixels);
+        tex.Apply();
+        return tex;
+    }
 
     public void Init(System.Action onRestart, System.Action onQuit)
     {
         var canvas = UiKit.CreateCanvas(transform, "HudCanvas", 50);
+
+        // Flash rouge des dégâts : vignette plein écran (sous le reste de l'interface).
+        var flash = new GameObject("FlashDegats", typeof(RectTransform), typeof(RawImage));
+        flash.transform.SetParent(canvas.transform, false);
+        UiKit.Stretch((RectTransform)flash.transform);
+        damageFlash = flash.GetComponent<RawImage>();
+        damageFlash.texture = Vignette(128);
+        damageFlash.raycastTarget = false;
+        damageFlash.color = Color.clear;
+
         root = new GameObject("Hud", typeof(RectTransform));
         root.transform.SetParent(canvas.transform, false);
         UiKit.Stretch((RectTransform)root.transform);
@@ -95,7 +126,12 @@ public class GameHud : MonoBehaviour
     public void Show(bool visible)
     {
         root.SetActive(visible);
-        if (!visible) HideGameOver();
+        if (!visible)
+        {
+            HideGameOver();
+            flashTimer = 0f;
+            damageFlash.color = Color.clear;
+        }
     }
 
     public void SetHealth(int hp, bool dead)
@@ -127,6 +163,8 @@ public class GameHud : MonoBehaviour
         }
     }
 
+    public void FlashDamage() => flashTimer = FlashDuration;
+
     public void SetPrompt(string text) => promptText.text = text;
     public void SetSpectate(string text) => spectateText.text = text;
 
@@ -153,6 +191,15 @@ public class GameHud : MonoBehaviour
 
     void Update()
     {
+        if (flashTimer > 0f)
+        {
+            // Montée rapide puis fondu, avec un léger battement, le tout en moins d'une seconde.
+            flashTimer = Mathf.Max(0f, flashTimer - Time.unscaledDeltaTime);
+            float k = flashTimer / FlashDuration;
+            float alpha = Mathf.Min(1f, (1f - k) * 8f) * k * (0.85f + 0.15f * Mathf.Sin(k * 25f));
+            damageFlash.color = new Color(0.85f, 0.02f, 0.02f, 0.7f * alpha);
+        }
+
         if (toastTimer > 0f)
         {
             toastTimer -= Time.unscaledDeltaTime;

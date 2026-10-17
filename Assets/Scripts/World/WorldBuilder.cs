@@ -6,25 +6,27 @@ using UnityEngine;
 public static class WorldBuilder
 {
     public const float Cell = 5f;
-    public const int Grid = 13;              // 13 x 13 cellules, centrées sur le Hub
-    public const int HubMin = 4, HubMax = 8; // cellules réservées au Hub
-    public const float WallHeight = 4f;
+    // 27 x 27 cellules de 5 m centrées sur le Hub : un coin du labyrinthe est à plus de 100 m du chenil opposé.
+    public const int Grid = 27;
+    public const int HubMin = Grid / 2 - 2, HubMax = Grid / 2 + 2; // 5 x 5 cellules réservées au Hub
+    public const float WallHeight = 4f;      // hauteur des couloirs (les salles ont leur propre hauteur)
     public const float Wall = 0.3f;
     public const float HubRadius = 12f;
     const float HubWallHeight = 5f;
     const float DoorWidth = 2.4f, DoorHeight = 2.8f;
-    const int DoorI = 6, DoorJ = HubMax + 1;  // première cellule du labyrinthe derrière la porte
+    const int DoorI = Grid / 2, DoorJ = HubMax + 1; // première cellule du labyrinthe derrière la porte
     const int ChunkSize = 4;
+    const float StepHeight = 0.2f, StepDepth = 0.3f;
 
     // Angles (degrés, 0 = porte au nord) des emplacements du Hub.
     public static readonly float[] KennelAngles = { 55f, 78f, 101f, 124f, -55f, -78f, -101f, -124f };
-    const float TerminalAngle = 150f, LogAngle = 180f, QuotaAngle = -28f, CashAngle = 28f;
+    const float TerminalAngle = 150f, LogAngle = 180f, QuotaAngle = -28f, CashAngle = 28f, RoundBoardAngle = -142f;
 
     public class HubRefs
     {
         public HubDoor door;
         public Transform buttonAnchor, terminalAnchor;
-        public TextMesh timerText, quotaText, cashText, logText, terminalText;
+        public TextMesh timerText, quotaText, cashText, logText, terminalText, roundBoardText;
         public Vector3[] kennelPositions;
         public Quaternion[] kennelRotations;
     }
@@ -134,6 +136,8 @@ public static class WorldBuilder
         refs.cashText = Screen(root, "Rendu de Cagnotte", CashAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
         refs.logText = Screen(root, "Ecran de Logs", LogAngle, HubRadius - 0.9f, 2.6f, new Vector2(8f, 3.6f), 0.027f, TextAnchor.MiddleLeft);
         refs.timerText.color = new Color(1f, 0.35f, 0.3f);
+        refs.roundBoardText = Screen(root, "Tableau de Manche", RoundBoardAngle, HubRadius - 0.45f, 2.7f, new Vector2(4.4f, 2.8f), 0.026f);
+        refs.roundBoardText.color = new Color(1f, 0.9f, 0.6f);
 
         // Terminal.
         refs.terminalAnchor = new GameObject("TerminalAnchor").transform;
@@ -159,11 +163,11 @@ public static class WorldBuilder
             mat.transform.localRotation = refs.kennelRotations[i];
         }
 
-        // Décor : podium et ballons de cirque.
-        var podium = GameArt.Prim(PrimitiveType.Cylinder, root, Polar(-150f, 9f, 0.3f), new Vector3(2.2f, 0.3f, 2.2f), redMat, true);
+        // Décor : podium et ballons de cirque (entre le Rendu de Quota et les chenils, sans masquer d'écran).
+        var podium = GameArt.Prim(PrimitiveType.Cylinder, root, Polar(-41f, 9.2f, 0.3f), new Vector3(2.2f, 0.3f, 2.2f), redMat, true);
         GameArt.Prim(PrimitiveType.Sphere, root, podium.transform.localPosition + Vector3.up * 1.05f, Vector3.one * 1.5f, GameArt.Lit("Ball", new Color(0.2f, 0.35f, 0.85f), GameArt.Stripes(new Color(0.2f, 0.35f, 0.85f), cream), 0.5f), true);
-        GameArt.Prim(PrimitiveType.Sphere, root, Polar(-165f, 10.2f, 0.45f), Vector3.one * 0.9f, gold, true);
-        GameArt.Prim(PrimitiveType.Sphere, root, Polar(-137f, 10.4f, 0.35f), Vector3.one * 0.7f, redMat, true);
+        GameArt.Prim(PrimitiveType.Sphere, root, Polar(-24f, 10.8f, 0.45f), Vector3.one * 0.9f, gold, true);
+        GameArt.Prim(PrimitiveType.Sphere, root, Polar(-33f, 10.7f, 0.35f), Vector3.one * 0.7f, redMat, true);
 
         return refs;
     }
@@ -203,11 +207,28 @@ public static class WorldBuilder
 
     // ================= Labyrinthe =================
 
+    enum RoomStyle { Columns, Spheres, Chaotic, Blocks }
+
+    class Room
+    {
+        public RectInt rect;
+        public float floor, ceil; // hauteur du plancher et du plafond (absolues)
+        public RoomStyle style;
+        public bool chess;
+        public readonly List<Vector2Int> cells = new List<Vector2Int>();
+    }
+
     class Maze
     {
         public bool[,] eastWall = new bool[Grid, Grid];  // mur entre (i, j) et (i + 1, j)
         public bool[,] northWall = new bool[Grid, Grid]; // mur entre (i, j) et (i, j + 1)
         public int[,] room = new int[Grid, Grid];        // -1 = couloir
+        public readonly List<Room> rooms = new List<Room>();
+
+        public Room RoomAt(int i, int j) => InGrid(i, j) && room[i, j] >= 0 ? rooms[room[i, j]] : null;
+        public float Floor(int i, int j) => RoomAt(i, j)?.floor ?? 0f;
+        // Hauteur du plafond ; hors labyrinthe (bords, Hub) : hauteur des couloirs.
+        public float Ceil(int i, int j) => !InGrid(i, j) || Reserved(i, j) ? WallHeight : RoomAt(i, j)?.ceil ?? WallHeight;
     }
 
     static bool Reserved(int i, int j) => i >= HubMin && i <= HubMax && j >= HubMin && j <= HubMax;
@@ -238,6 +259,8 @@ public static class WorldBuilder
     }
 
     static readonly int[] DI = { 1, -1, 0, 0 }, DJ = { 0, 0, 1, -1 };
+
+    static T Pick<T>(System.Random rnd, params T[] values) => values[rnd.Next(values.Length)];
 
     static Maze Generate(System.Random rnd)
     {
@@ -280,11 +303,12 @@ public static class WorldBuilder
                 if (j < Grid - 1 && !Reserved(i, j + 1) && rnd.NextDouble() < 0.12) m.northWall[i, j] = false;
             }
 
-        // Salles : blocs de 2x2 ou 3x2 cellules ouverts.
-        int rooms = 0;
-        for (int attempt = 0; attempt < 80 && rooms < 9; attempt++)
+        // Salles : blocs de 2x2 à 4x3 cellules ouverts, chacune avec sa hauteur de plancher et de plafond.
+        for (int attempt = 0; attempt < 700 && m.rooms.Count < 34; attempt++)
         {
-            int w = rnd.NextDouble() < 0.35 ? 3 : 2, h = 2;
+            int w, h;
+            if (rnd.NextDouble() < 0.15) { w = 4; h = 3; }
+            else { w = rnd.NextDouble() < 0.4 ? 3 : 2; h = 2; }
             if (rnd.NextDouble() < 0.5) { int t = w; w = h; h = t; }
             int i0 = rnd.Next(0, Grid - w + 1), j0 = rnd.Next(0, Grid - h + 1);
             bool ok = true;
@@ -292,18 +316,27 @@ public static class WorldBuilder
                 for (int j = j0 - 1; j <= j0 + h && ok; j++)
                 {
                     bool inside = i >= i0 && i < i0 + w && j >= j0 && j < j0 + h;
-                    if (inside && (Reserved(i, j) || (i == DoorI && j == DoorJ))) ok = false;
-                    if (InGrid(i, j) && m.room[i, j] >= 0) ok = false; // une cellule d'écart entre salles
+                    // Une cellule d'écart avec le Hub, la porte et les autres salles.
+                    if (InGrid(i, j) && (Reserved(i, j) || (i == DoorI && j == DoorJ) || m.room[i, j] >= 0)) ok = false;
+                    if (inside && !InGrid(i, j)) ok = false;
                 }
             if (!ok) continue;
+
+            var room = new Room { rect = new RectInt(i0, j0, w, h), style = (RoomStyle)rnd.Next(4) };
+            // Les salles chaotiques restent de plain-pied : leurs plateformes font le relief.
+            room.floor = room.style == RoomStyle.Chaotic ? 0f : Pick(rnd, 0f, 0f, 0.8f, 1.6f);
+            room.ceil = room.floor + (room.style == RoomStyle.Chaotic ? Pick(rnd, 7f, 9f) : Pick(rnd, 4f, 6f, 8f));
+            room.chess = rnd.NextDouble() < 0.2;
+            int index = m.rooms.Count;
+            m.rooms.Add(room);
             for (int i = i0; i < i0 + w; i++)
                 for (int j = j0; j < j0 + h; j++)
                 {
-                    m.room[i, j] = rooms;
+                    m.room[i, j] = index;
+                    room.cells.Add(new Vector2Int(i, j));
                     if (i < i0 + w - 1) m.eastWall[i, j] = false;
                     if (j < j0 + h - 1) m.northWall[i, j] = false;
                 }
-            rooms++;
         }
         return m;
     }
@@ -339,7 +372,6 @@ public static class WorldBuilder
         }
 
         float half = Grid * Cell * 0.5f;
-        float h = WallHeight;
 
         // Sols et plafonds.
         for (int i = 0; i < Grid; i++)
@@ -350,18 +382,24 @@ public static class WorldBuilder
                 float e = Cell * 0.5f;
                 Chunk ch = ChunkOf(i, j);
                 ch.floor.WorldQuad(c + new Vector3(-e, 0, -e), c + new Vector3(e, 0, -e), c + new Vector3(e, 0, e), c + new Vector3(-e, 0, e), Vector3.up, 0.5f);
-                Vector3 top = c + Vector3.up * h;
+                Vector3 top = c + Vector3.up * m.Ceil(i, j);
                 ch.ceiling.WorldQuad(top + new Vector3(-e, 0, -e), top + new Vector3(e, 0, -e), top + new Vector3(e, 0, e), top + new Vector3(-e, 0, e), Vector3.down, 0.25f);
             }
         AddCollider(new Vector3(0f, -0.5f, 0f), new Vector3(Grid * Cell, 1f, Grid * Cell));
-        // Plafond partout sauf au-dessus du Hub (qui a son propre toit).
-        float hubHalf = (HubMax - HubMin + 1) * Cell * 0.5f, band = half - hubHalf;
-        AddCollider(new Vector3(0f, h + 0.5f, -half + band * 0.5f), new Vector3(Grid * Cell, 1f, band));
-        AddCollider(new Vector3(0f, h + 0.5f, half - band * 0.5f), new Vector3(Grid * Cell, 1f, band));
-        AddCollider(new Vector3(-half + band * 0.5f, h + 0.5f, 0f), new Vector3(band, 1f, hubHalf * 2f));
-        AddCollider(new Vector3(half - band * 0.5f, h + 0.5f, 0f), new Vector3(band, 1f, hubHalf * 2f));
+        // Plafonds : une collision par suite de cellules de même hauteur sur chaque rangée (rien au-dessus du Hub).
+        for (int j = 0; j < Grid; j++)
+            for (int i = 0; i < Grid;)
+            {
+                if (Reserved(i, j)) { i++; continue; }
+                float ceil = m.Ceil(i, j);
+                int start = i;
+                while (i < Grid && !Reserved(i, j) && Mathf.Approximately(m.Ceil(i, j), ceil)) i++;
+                float x0 = -half + start * Cell, x1 = -half + i * Cell;
+                AddCollider(new Vector3((x0 + x1) * 0.5f, ceil + 0.5f, CellCenter(0, j).z), new Vector3(x1 - x0, 1f, Cell));
+            }
 
-        // Murs : un segment par arête, entre deux poteaux.
+        // Murs : un segment par arête, entre deux poteaux, aussi haut que le plus haut des deux côtés.
+        // Entre une salle haute et un couloir ouvert, un linteau ferme le haut de l'ouverture.
         var posts = new HashSet<Vector2Int>();
         for (int i = -1; i < Grid; i++)
             for (int j = 0; j < Grid; j++)
@@ -372,12 +410,23 @@ public static class WorldBuilder
                 if (!leftIn || !rightIn) wall = true;
                 else if (Reserved(i, j) && Reserved(i + 1, j)) wall = false;
                 else wall = m.eastWall[i, j] || Reserved(i, j) || Reserved(i + 1, j);
-                if (!wall) continue;
                 bool roomWall = (leftIn && m.room[i, j] >= 0) || (rightIn && m.room[i + 1, j] >= 0);
+                float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i + 1, j));
                 float x = -half + (i + 1) * Cell;
                 float z = -half + j * Cell + Cell * 0.5f;
                 Chunk ch = ChunkOf(leftIn ? i : i + 1, j);
-                (roomWall ? ch.checker : ch.concrete).Box(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell - Wall), roomWall ? 0.5f : 0.25f, 0b0000_0011);
+                MeshBuilder mb = roomWall ? ch.checker : ch.concrete;
+                float tex = roomWall ? 0.5f : 0.25f;
+                if (!wall)
+                {
+                    float low = Mathf.Min(m.Ceil(i, j), m.Ceil(i + 1, j));
+                    if (h - low < 0.01f) continue;
+                    var lintel = new Vector3(x, (low + h) * 0.5f, z);
+                    mb.Box(lintel, new Vector3(Wall, h - low, Cell - Wall), tex, 0b0000_1011);
+                    AddCollider(lintel, new Vector3(Wall, h - low, Cell + Wall));
+                    continue;
+                }
+                mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell - Wall), tex, 0b0000_0011);
                 AddCollider(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell + Wall));
                 posts.Add(new Vector2Int(i + 1, j)); posts.Add(new Vector2Int(i + 1, j + 1));
             }
@@ -390,14 +439,23 @@ public static class WorldBuilder
                 if (!lowIn || !highIn) wall = true;
                 else if (Reserved(i, j) && Reserved(i, j + 1)) wall = false;
                 else wall = m.northWall[i, j] || Reserved(i, j) || Reserved(i, j + 1);
-                if (!wall) continue;
                 bool roomWall = (lowIn && m.room[i, j] >= 0) || (highIn && m.room[i, j + 1] >= 0);
+                float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i, j + 1));
                 float x = -half + i * Cell + Cell * 0.5f;
                 float z = -half + (j + 1) * Cell;
                 Chunk ch = ChunkOf(i, lowIn ? j : j + 1);
                 MeshBuilder mb = roomWall ? ch.checker : ch.concrete;
                 float tex = roomWall ? 0.5f : 0.25f;
 
+                if (!wall)
+                {
+                    float low = Mathf.Min(m.Ceil(i, j), m.Ceil(i, j + 1));
+                    if (h - low < 0.01f) continue;
+                    var lintel = new Vector3(x, (low + h) * 0.5f, z);
+                    mb.Box(lintel, new Vector3(Cell - Wall, h - low, Wall), tex, 0b0011_1000);
+                    AddCollider(lintel, new Vector3(Cell + Wall, h - low, Wall));
+                    continue;
+                }
                 if (i == DoorI && j == HubMax)
                 {
                     // Mur du Hub côté labyrinthe : ouverture de la porte.
@@ -421,8 +479,40 @@ public static class WorldBuilder
             }
         foreach (var p in posts)
         {
+            float h = Mathf.Max(Mathf.Max(m.Ceil(p.x - 1, p.y - 1), m.Ceil(p.x, p.y - 1)), Mathf.Max(m.Ceil(p.x - 1, p.y), m.Ceil(p.x, p.y)));
             var c = new Vector3(-half + p.x * Cell, h * 0.5f, -half + p.y * Cell);
             ChunkOf(p.x, p.y).concrete.Box(c, new Vector3(Wall, h, Wall), 0.25f, 0b0011_0011);
+        }
+
+        // Salles surélevées : dalle au niveau du plancher et escalier à chaque entrée.
+        foreach (Room room in m.rooms)
+        {
+            if (room.floor <= 0f) continue;
+            int steps = Mathf.RoundToInt(room.floor / StepHeight);
+            float depth = steps * StepDepth;
+            foreach (var cell in room.cells)
+            {
+                Vector3 c = CellCenter(cell.x, cell.y);
+                float minX = c.x - Cell * 0.5f, maxX = c.x + Cell * 0.5f, minZ = c.z - Cell * 0.5f, maxZ = c.z + Cell * 0.5f;
+                Chunk ch = ChunkOf(cell.x, cell.y);
+                for (int d = 0; d < 4; d++)
+                {
+                    int ni = cell.x + DI[d], nj = cell.y + DJ[d];
+                    if (HasWall(m, cell.x, cell.y, d) || m.RoomAt(ni, nj) == room) continue;
+                    switch (d)
+                    {
+                        case 0: maxX -= depth; break;
+                        case 1: minX += depth; break;
+                        case 2: maxZ -= depth; break;
+                        default: minZ += depth; break;
+                    }
+                    AddStairs(ch.floor, colliders.transform, c, d, steps, room.floor);
+                }
+                var slab = new Vector3((minX + maxX) * 0.5f, room.floor * 0.5f, (minZ + maxZ) * 0.5f);
+                var size = new Vector3(maxX - minX, room.floor, maxZ - minZ);
+                ch.floor.Box(slab, size, 0.5f, 0b0011_0111);
+                AddCollider(slab, size);
+            }
         }
 
         // Meshes par bloc de cellules (l'éclairage par objet reste local).
@@ -433,40 +523,121 @@ public static class WorldBuilder
                 string n = "Bloc_" + x + "_" + y;
                 if (!ch.floor.IsEmpty) GameArt.MeshObject(n + "_Sol", root, ch.floor.Build(n), GameArt.CheckerFloor);
                 if (!ch.ceiling.IsEmpty) GameArt.MeshObject(n + "_Plafond", root, ch.ceiling.Build(n), GameArt.DarkConcrete);
-                if (!ch.concrete.IsEmpty) GameArt.MeshObject(n + "_Beton", root, ch.concrete.Build(n), GameArt.Concrete);
+                if (!ch.concrete.IsEmpty)
+                {
+                    // Sans sonde de réflexion : les carapaces resteraient pâles en reflétant le damier.
+                    var walls = GameArt.MeshObject(n + "_Beton", root, ch.concrete.Build(n), GameArt.InfestedWall);
+                    walls.GetComponent<MeshRenderer>().reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+                }
                 if (!ch.checker.IsEmpty) GameArt.MeshObject(n + "_Damier", root, ch.checker.Build(n), GameArt.CheckerWall);
             }
 
-        Decorate(m, root, rnd, refs);
+        // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, plateformes).
+        Physics.SyncTransforms();
+        Decorate(m, root, colliders.transform, rnd, refs);
+        AddReflectionProbes(root, chunks);
         return refs;
+    }
+
+    // Escalier montant depuis le côté 'dir' de la cellule vers le plancher de la salle. Les marches sont visuelles ;
+    // la collision est une rampe (le personnage monte sans buter sur les marches).
+    static void AddStairs(MeshBuilder mb, Transform colliders, Vector3 cellCenter, int dir, int steps, float floor)
+    {
+        Vector3 outward = new Vector3(DI[dir], 0f, DJ[dir]);
+        Vector3 inward = -outward;
+        Vector3 edge = cellCenter + outward * (Cell * 0.5f);
+        float width = Cell - Wall;
+        float rise = floor / steps;
+        for (int k = 1; k <= steps; k++)
+        {
+            float h = k * rise;
+            Vector3 center = edge + inward * ((k - 0.5f) * StepDepth) + Vector3.up * (h * 0.5f);
+            Vector3 size = dir < 2 ? new Vector3(StepDepth, h, width) : new Vector3(width, h, StepDepth);
+            mb.Box(center, size, 0.5f, 0b0011_0111);
+        }
+
+        float depth = steps * StepDepth;
+        Vector3 bottom = edge + Vector3.up * 0.05f, top = edge + inward * depth + Vector3.up * floor;
+        Vector3 slope = top - bottom;
+        var ramp = new GameObject("Rampe").transform;
+        ramp.SetParent(colliders, false);
+        ramp.localRotation = Quaternion.LookRotation(slope.normalized, Vector3.up);
+        ramp.localPosition = (bottom + top) * 0.5f - ramp.localRotation * Vector3.up * 0.1f;
+        var box = ramp.gameObject.AddComponent<BoxCollider>();
+        box.size = new Vector3(width, 0.2f, slope.magnitude);
+    }
+
+    // Sondes de réflexion (une par bloc), rendues une seule fois une fois le décor posé :
+    // le damier astiqué y reflète les murs, les lampes et les yeux.
+    static void AddReflectionProbes(Transform root, int chunks)
+    {
+        const float height = 10f;
+        for (int x = 0; x < chunks; x++)
+            for (int y = 0; y < chunks; y++)
+            {
+                Vector3 min = CellCenter(x * ChunkSize, y * ChunkSize) - new Vector3(Cell, 0f, Cell) * 0.5f;
+                Vector3 max = CellCenter(Mathf.Min(x * ChunkSize + ChunkSize - 1, Grid - 1), Mathf.Min(y * ChunkSize + ChunkSize - 1, Grid - 1))
+                    + new Vector3(Cell, 0f, Cell) * 0.5f + Vector3.up * height;
+                var probe = new GameObject("Reflets_" + x + "_" + y).AddComponent<ReflectionProbe>();
+                probe.transform.SetParent(root, false);
+                probe.transform.localPosition = new Vector3((min.x + max.x) * 0.5f, 1.5f, (min.z + max.z) * 0.5f);
+                probe.size = max - min + Vector3.one * 0.2f;
+                probe.center = new Vector3(0f, (min.y + max.y) * 0.5f - 1.5f, 0f);
+                probe.boxProjection = true;
+                probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Realtime;
+                probe.refreshMode = UnityEngine.Rendering.ReflectionProbeRefreshMode.ViaScripting;
+                probe.timeSlicingMode = UnityEngine.Rendering.ReflectionProbeTimeSlicingMode.NoTimeSlicing;
+                probe.resolution = 64;
+                probe.hdr = false;
+                probe.clearFlags = UnityEngine.Rendering.ReflectionProbeClearFlags.SolidColor;
+                probe.backgroundColor = Color.black;
+                probe.cullingMask = ~((1 << 2) | (1 << 5)); // sans les joueurs ni l'UI
+                probe.farClipPlane = 30f;
+                probe.RenderProbe();
+            }
     }
 
     // ================= Entités et décor =================
 
-    static void Decorate(Maze m, Transform root, System.Random rnd, MazeRefs refs)
+    static readonly string[] Limbs = { "Arm", "Hand", "Head", "Bust" };
+    static readonly string[] ChessPieces = { "Pawn", "Rook", "Knight", "Bishop", "Queen", "King" };
+
+    static void Decorate(Maze m, Transform root, Transform structure, System.Random rnd, MazeRefs refs)
     {
         var props = new GameObject("Decor").transform;
         props.SetParent(root, false);
-        var roomCells = new Dictionary<int, List<Vector2Int>>();
+
+        // Hauteur du sol (dalle, marche ou plateforme) sous un point, sans compter le décor.
+        float FloorAt(Vector3 p, float from)
+        {
+            float best = 0f;
+            foreach (var hit in Physics.RaycastAll(new Vector3(p.x, from, p.z), Vector3.down, from + 1f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                if (hit.transform.IsChildOf(structure) && hit.point.y > best) best = hit.point.y;
+            return best;
+        }
 
         for (int i = 0; i < Grid; i++)
             for (int j = 0; j < Grid; j++)
             {
                 if (Reserved(i, j)) continue;
                 Vector3 c = CellCenter(i, j);
-                int r = m.room[i, j];
-                if (r >= 0)
-                {
-                    if (!roomCells.TryGetValue(r, out var list)) roomCells[r] = list = new List<Vector2Int>();
-                    list.Add(new Vector2Int(i, j));
-                }
+                Room room = m.RoomAt(i, j);
+                float floor = m.Floor(i, j), ceil = m.Ceil(i, j);
 
                 bool nearDoor = Mathf.Abs(i - DoorI) + Mathf.Abs(j - DoorJ) <= 1;
-                if (!nearDoor) refs.itemSpots.Add(c + new Vector3(Rand(rnd, -1.2f, 1.2f), 0f, Rand(rnd, -1.2f, 1.2f)));
-                if (r >= 0) refs.itemSpots.Add(c + new Vector3(Rand(rnd, -1.8f, 1.8f), 0f, Rand(rnd, -1.8f, 1.8f)));
+                if (!nearDoor)
+                {
+                    Vector3 p = c + new Vector3(Rand(rnd, -1.2f, 1.2f), 0f, Rand(rnd, -1.2f, 1.2f));
+                    refs.itemSpots.Add(new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z));
+                }
+                if (room != null)
+                {
+                    Vector3 p = c + new Vector3(Rand(rnd, -1.8f, 1.8f), 0f, Rand(rnd, -1.8f, 1.8f));
+                    refs.itemSpots.Add(new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z));
+                }
 
                 // Lasers dans les couloirs droits (murs parallèles de part et d'autre).
-                if (r < 0 && !nearDoor && rnd.NextDouble() < 0.45)
+                if (room == null && !nearDoor && rnd.NextDouble() < 0.45)
                 {
                     bool alongZ = HasWall(m, i, j, 0) && HasWall(m, i, j, 1) && !HasWall(m, i, j, 2) && !HasWall(m, i, j, 3);
                     bool alongX = HasWall(m, i, j, 2) && HasWall(m, i, j, 3) && !HasWall(m, i, j, 0) && !HasWall(m, i, j, 1);
@@ -474,7 +645,7 @@ public static class WorldBuilder
                 }
 
                 // Éclairage : salles, et quelques néons dans les couloirs.
-                if (r < 0 && rnd.NextDouble() < 0.18) AddLamp(props, c, 6.5f, 1.1f, rnd);
+                if (room == null && rnd.NextDouble() < 0.18) AddLamp(props, c + Vector3.up * ceil, 6.5f, 1.1f, rnd);
 
                 // Yeux dans les murs, le sol et le plafond.
                 if (rnd.NextDouble() < 0.28)
@@ -484,35 +655,95 @@ public static class WorldBuilder
                     {
                         Vector3 n = -new Vector3(DI[dir], 0, DJ[dir]);
                         Vector3 along = new Vector3(DJ[dir], 0, DI[dir]);
-                        Vector3 p = c - n * (Cell * 0.5f - Wall * 0.5f) + along * Rand(rnd, -1.6f, 1.6f) + Vector3.up * Rand(rnd, 1f, 3.2f);
+                        Vector3 p = c - n * (Cell * 0.5f - Wall * 0.5f) + along * Rand(rnd, -1.6f, 1.6f) + Vector3.up * Rand(rnd, floor + 1f, ceil - 0.8f);
                         AddEye(props, p, n, Rand(rnd, 0.5f, 1.1f));
                     }
                 }
-                if (rnd.NextDouble() < 0.06) AddEye(props, c + new Vector3(Rand(rnd, -1.5f, 1.5f), WallHeight, Rand(rnd, -1.5f, 1.5f)), Vector3.down, Rand(rnd, 0.7f, 1.3f));
-                if (rnd.NextDouble() < 0.04) AddEye(props, c + new Vector3(Rand(rnd, -1.5f, 1.5f), -0.15f, Rand(rnd, -1.5f, 1.5f)), Vector3.up, Rand(rnd, 0.6f, 1f));
+                if (rnd.NextDouble() < 0.06) AddEye(props, c + new Vector3(Rand(rnd, -1.5f, 1.5f), ceil, Rand(rnd, -1.5f, 1.5f)), Vector3.down, Rand(rnd, 0.7f, 1.3f));
+                if (rnd.NextDouble() < 0.04)
+                {
+                    Vector3 p = c + new Vector3(Rand(rnd, -1.5f, 1.5f), 0f, Rand(rnd, -1.5f, 1.5f));
+                    AddEye(props, new Vector3(p.x, FloorAt(p, ceil - 0.1f) - 0.15f, p.z), Vector3.up, Rand(rnd, 0.6f, 1f));
+                }
+
+                // Membres noirs figés qui sortent des murs, du sol et du plafond.
+                if (rnd.NextDouble() < (room != null ? 0.3 : 0.12))
+                {
+                    double kind = rnd.NextDouble();
+                    if (kind < 0.6)
+                    {
+                        int dir = rnd.Next(4);
+                        if (HasWall(m, i, j, dir))
+                        {
+                            Vector3 n = -new Vector3(DI[dir], 0, DJ[dir]);
+                            Vector3 along = new Vector3(DJ[dir], 0, DI[dir]);
+                            Vector3 p = c - n * (Cell * 0.5f - Wall * 0.5f) + along * Rand(rnd, -1.5f, 1.5f) + Vector3.up * Rand(rnd, floor + 0.8f, Mathf.Min(ceil - 0.6f, floor + 3f));
+                            AddLimb(props, Pick(rnd, Limbs), p, n, rnd, false);
+                        }
+                    }
+                    else if (kind < 0.8)
+                        AddLimb(props, Pick(rnd, "Arm", "Hand", "Head"), c + new Vector3(Rand(rnd, -1.6f, 1.6f), ceil, Rand(rnd, -1.6f, 1.6f)), Vector3.down, rnd, false);
+                    else
+                    {
+                        Vector3 p = c + new Vector3(Rand(rnd, -1.4f, 1.4f), 0f, Rand(rnd, -1.4f, 1.4f));
+                        AddLimb(props, Pick(rnd, Limbs), new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z), Vector3.up, rnd, true);
+                    }
+                }
             }
 
-        foreach (var kv in roomCells)
+        foreach (Room room in m.rooms)
         {
-            var cells = kv.Value;
             Vector3 center = Vector3.zero;
-            foreach (var c in cells) center += CellCenter(c.x, c.y);
-            center /= cells.Count;
-            AddLamp(props, center, 9f, 1.4f, rnd);
+            foreach (var c in room.cells) center += CellCenter(c.x, c.y);
+            center /= room.cells.Count;
+            float height = room.ceil - room.floor;
+            AddLamp(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
 
-            // Pions (moodboard) ou blocs de béton.
-            int style = rnd.Next(3);
-            foreach (var c in cells)
+            // Intérieur de la salle (marge pour les murs et les escaliers).
+            float minX = CellCenter(room.rect.xMin, 0).x - Cell * 0.5f + 1.2f, maxX = CellCenter(room.rect.xMax - 1, 0).x + Cell * 0.5f - 1.2f;
+            float minZ = CellCenter(0, room.rect.yMin).z - Cell * 0.5f + 1.2f, maxZ = CellCenter(0, room.rect.yMax - 1).z + Cell * 0.5f - 1.2f;
+            if (room.floor > 0f)
             {
-                Vector3 p = CellCenter(c.x, c.y) + new Vector3(Rand(rnd, -1.3f, 1.3f), 0f, Rand(rnd, -1.3f, 1.3f));
-                if (style == 0) AddPawn(props, p);
-                else if (style == 1) AddBlock(props, p, rnd);
-                else if (rnd.NextDouble() < 0.6) AddEye(props, p + Vector3.down * 0.2f, Vector3.up, Rand(rnd, 0.9f, 1.4f));
+                float stairs = Mathf.RoundToInt(room.floor / StepHeight) * StepDepth;
+                minX += stairs; maxX -= stairs; minZ += stairs; maxZ -= stairs;
             }
+            Vector3 RandomInside(float y) => new Vector3(Rand(rnd, minX, maxX), y, Rand(rnd, minZ, maxZ));
+
+            switch (room.style)
+            {
+                case RoomStyle.Columns:
+                    for (int k = 0; k < room.cells.Count; k++)
+                        AddColumn(props, RandomInside(room.floor), Rand(rnd, 0.35f, 0.6f), height, rnd);
+                    break;
+                case RoomStyle.Spheres:
+                    for (int k = 0; k < 2 + room.cells.Count / 2; k++)
+                        AddBigSphere(props, RandomInside(room.floor), Rand(rnd, 0.6f, Mathf.Min(1.8f, height * 0.25f)), room.floor, room.ceil, rnd);
+                    break;
+                case RoomStyle.Chaotic:
+                    AddPlatforms(props, room, minX, maxX, minZ, maxZ, rnd, refs);
+                    break;
+                default:
+                    foreach (var c in room.cells)
+                    {
+                        Vector3 p = CellCenter(c.x, c.y) + new Vector3(Rand(rnd, -1.3f, 1.3f), room.floor, Rand(rnd, -1.3f, 1.3f));
+                        if (rnd.NextDouble() < 0.6) AddBlock(props, p, room.floor, room.ceil, rnd);
+                        else AddEye(props, p + Vector3.down * 0.2f, Vector3.up, Rand(rnd, 0.9f, 1.4f));
+                    }
+                    break;
+            }
+
+            // Pièces d'échecs, rares.
+            if (room.chess)
+            {
+                int count = 1 + rnd.Next(3);
+                for (int k = 0; k < count; k++)
+                    AddChessPiece(props, Pick(rnd, ChessPieces), RandomInside(room.floor), rnd);
+            }
+
             for (int e = 0; e < 2; e++)
             {
-                Vector2Int c = cells[rnd.Next(cells.Count)];
-                AddEye(props, CellCenter(c.x, c.y) + new Vector3(Rand(rnd, -1f, 1f), WallHeight, Rand(rnd, -1f, 1f)), Vector3.down, Rand(rnd, 0.8f, 1.5f));
+                Vector2Int c = room.cells[rnd.Next(room.cells.Count)];
+                AddEye(props, CellCenter(c.x, c.y) + new Vector3(Rand(rnd, -1f, 1f), room.ceil, Rand(rnd, -1f, 1f)), Vector3.down, Rand(rnd, 0.8f, 1.5f));
             }
         }
     }
@@ -549,11 +780,12 @@ public static class WorldBuilder
         go.AddComponent<Laser>().Init(a, b, beam);
     }
 
-    static void AddLamp(Transform parent, Vector3 floorPos, float range, float intensity, System.Random rnd)
+    // Néon fixé au plafond ('ceilingPos' : point du plafond).
+    static void AddLamp(Transform parent, Vector3 ceilingPos, float range, float intensity, System.Random rnd)
     {
         var go = new GameObject("Lampe");
         go.transform.SetParent(parent, false);
-        go.transform.localPosition = floorPos + Vector3.up * (WallHeight - 0.05f);
+        go.transform.localPosition = ceilingPos + Vector3.down * 0.05f;
         var bulb = GameArt.Prim(PrimitiveType.Cube, go.transform, Vector3.zero, new Vector3(0.9f, 0.05f, 0.25f), GameArt.Unlit("Neon", new Color(0.95f, 0.95f, 0.9f)));
         var l = AddLight(go.transform, Vector3.down * 0.4f, new Color(0.85f, 0.87f, 0.9f), intensity, range);
         if (rnd.NextDouble() < 0.45) go.AddComponent<FlickerLight>().Init(l, bulb.GetComponent<Renderer>());
@@ -591,28 +823,157 @@ public static class WorldBuilder
         go.AddComponent<Eye>().Init(ball, lid.transform);
     }
 
-    static void AddPawn(Transform parent, Vector3 pos)
+    // Membre (bras, main, tête, buste) peint en noir uni, figé, sortant d'une surface de normale 'normal'.
+    static void AddLimb(Transform parent, string model, Vector3 surfacePoint, Vector3 normal, System.Random rnd, bool solid)
     {
-        var go = new GameObject("Pion");
-        go.transform.SetParent(parent, false);
-        go.transform.localPosition = pos;
-        Material stone = GameArt.Lit("PawnStone", new Color(0.78f, 0.78f, 0.74f), null, 0.35f);
-        Material glass = GameArt.Lit("PawnGlass", new Color(0.92f, 0.92f, 0.95f), null, 0.95f);
-        GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, 0.1f, 0f), new Vector3(0.9f, 0.1f, 0.9f), stone);
-        GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, 0.55f, 0f), new Vector3(0.45f, 0.45f, 0.45f), stone);
-        GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, 1.05f, 0f), new Vector3(0.7f, 0.05f, 0.7f), stone);
-        GameArt.Prim(PrimitiveType.Sphere, go.transform, new Vector3(0f, 1.45f, 0f), Vector3.one * 0.8f, glass);
-        var col = go.AddComponent<CapsuleCollider>();
-        col.center = new Vector3(0f, 0.9f, 0f);
-        col.height = 1.8f;
-        col.radius = 0.4f;
+        var prefab = Resources.Load<GameObject>("Art/Decor/" + model);
+        if (prefab == null) return;
+        // Axe qui sort de la surface dans le modèle Meshy (la main est couchée, poignet vers -Z).
+        Vector3 outAxis = model == "Hand" ? Vector3.forward : Vector3.up;
+        float length = model switch { "Arm" => Rand(rnd, 1.5f, 2.1f), "Hand" => Rand(rnd, 0.8f, 1.2f), "Head" => Rand(rnd, 0.6f, 0.9f), _ => Rand(rnd, 1.1f, 1.5f) };
+        float sink = model == "Arm" || model == "Hand" ? 0.2f : 0.12f;
+
+        var holder = new GameObject(model);
+        holder.transform.SetParent(parent, false);
+        var go = Object.Instantiate(prefab, holder.transform);
+        go.transform.localPosition = Vector3.zero;
+        go.transform.localRotation = Quaternion.identity;
+        foreach (var col in go.GetComponentsInChildren<Collider>()) Object.Destroy(col);
+        Material black = GameArt.Unlit("Limb", new Color(0.01f, 0.01f, 0.01f));
+        foreach (var r in go.GetComponentsInChildren<Renderer>())
+        {
+            var mats = new Material[r.sharedMaterials.Length];
+            for (int k = 0; k < mats.Length; k++) mats[k] = black;
+            r.sharedMaterials = mats;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+        }
+
+        Bounds b = GameArt.LocalBounds(holder.transform);
+        float extent = Mathf.Max(0.001f, Vector3.Dot(b.size, outAxis));
+        go.transform.localScale *= length / extent;
+        b = GameArt.LocalBounds(holder.transform);
+        float baseAlong = Vector3.Dot(b.min, outAxis) + Vector3.Dot(b.size, outAxis) * sink;
+        Vector3 anchor = b.center - outAxis * Vector3.Dot(b.center, outAxis) + outAxis * baseAlong;
+        go.transform.localPosition = -anchor;
+
+        // Orienté selon la normale, tourné au hasard autour d'elle et un peu penché.
+        Quaternion tilt = Quaternion.Euler(Rand(rnd, -20f, 20f), 0f, Rand(rnd, -20f, 20f));
+        holder.transform.localRotation = Quaternion.AngleAxis(Rand(rnd, 0f, 360f), normal) * Quaternion.FromToRotation(outAxis, normal) * tilt;
+        holder.transform.localPosition = surfacePoint;
+
+        if (solid)
+        {
+            Bounds local = GameArt.LocalBounds(holder.transform);
+            var box = holder.AddComponent<BoxCollider>();
+            box.center = local.center;
+            box.size = local.size * 0.75f;
+        }
     }
 
-    static void AddBlock(Transform parent, Vector3 pos, System.Random rnd)
+    // Pièce d'échecs (modèle Meshy) de la taille d'un joueur, en noir ou blanc astiqué.
+    static void AddChessPiece(Transform parent, string model, Vector3 pos, System.Random rnd)
+    {
+        var holder = GameArt.SpawnModel("Decor/" + model, parent, 1.8f);
+        if (holder == null) return;
+        holder.name = "Echecs_" + model;
+        holder.transform.localPosition = pos;
+        holder.transform.localRotation = Quaternion.Euler(0f, Rand(rnd, 0f, 360f), 0f);
+        bool white = rnd.NextDouble() < 0.5;
+        Material mat = white ? GameArt.Lit("ChessWhite", new Color(0.9f, 0.9f, 0.88f), null, 0.85f)
+                             : GameArt.Lit("ChessBlack", new Color(0.04f, 0.04f, 0.045f), null, 0.85f);
+        foreach (var r in holder.GetComponentsInChildren<Renderer>())
+        {
+            var mats = new Material[r.sharedMaterials.Length];
+            for (int k = 0; k < mats.Length; k++) mats[k] = mat;
+            r.sharedMaterials = mats;
+        }
+        var col = holder.AddComponent<CapsuleCollider>();
+        col.center = new Vector3(0f, 0.9f, 0f);
+        col.height = 1.8f;
+        col.radius = 0.32f;
+    }
+
+    // Colonne noir et blanc du sol au plafond.
+    static void AddColumn(Transform parent, Vector3 pos, float radius, float height, System.Random rnd)
+    {
+        var go = new GameObject("Colonne");
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = pos;
+        bool dark = rnd.NextDouble() < 0.5;
+        Material shaft = dark ? GameArt.Lit("ColumnBlack", new Color(0.05f, 0.05f, 0.05f), null, 0.85f) : GameArt.Lit("ColumnWhite", new Color(0.88f, 0.88f, 0.86f), null, 0.8f);
+        Material ring = dark ? GameArt.Lit("ColumnWhite", new Color(0.88f, 0.88f, 0.86f), null, 0.8f) : GameArt.Lit("ColumnBlack", new Color(0.05f, 0.05f, 0.05f), null, 0.85f);
+        GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, height * 0.5f, 0f), new Vector3(radius * 2f, height * 0.5f, radius * 2f), shaft, true);
+        GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, 0.15f, 0f), new Vector3(radius * 2.6f, 0.15f, radius * 2.6f), ring);
+        GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, height - 0.15f, 0f), new Vector3(radius * 2.6f, 0.15f, radius * 2.6f), ring);
+    }
+
+    // Grande sphère posée (à moitié enfoncée dans le sol) ou suspendue au plafond.
+    static void AddBigSphere(Transform parent, Vector3 pos, float radius, float floor, float ceil, System.Random rnd)
+    {
+        Material mat = rnd.NextDouble() < 0.5 ? GameArt.Lit("SphereBlack", new Color(0.03f, 0.03f, 0.03f), null, 0.9f)
+                                              : GameArt.Lit("SphereWhite", new Color(0.9f, 0.9f, 0.9f), null, 0.9f);
+        bool hanging = ceil - floor > 5f && rnd.NextDouble() < 0.5;
+        float y = hanging ? Rand(rnd, floor + 2.6f + radius, ceil - radius - 0.3f) : floor + radius * Rand(rnd, 0.3f, 0.9f);
+        var sphere = GameArt.Prim(PrimitiveType.Sphere, parent, new Vector3(pos.x, y, pos.z), Vector3.one * radius * 2f, mat, true);
+        sphere.name = "Sphere";
+        if (hanging)
+        {
+            float cable = ceil - (y + radius);
+            GameArt.Prim(PrimitiveType.Cylinder, parent, new Vector3(pos.x, y + radius + cable * 0.5f, pos.z), new Vector3(0.04f, cable * 0.5f, 0.04f), GameArt.Metal);
+        }
+    }
+
+    // Salle chaotique : plateformes en escalier, de travers, à atteindre en sautant. L'objet le plus haut est au sommet.
+    static void AddPlatforms(Transform parent, Room room, float minX, float maxX, float minZ, float maxZ, System.Random rnd, MazeRefs refs)
+    {
+        Material mat = GameArt.CheckerWall;
+        Material pillar = GameArt.Concrete;
+        int count = 4 + rnd.Next(3) + room.cells.Count / 3;
+        Vector3 p = new Vector3(Rand(rnd, minX, maxX), room.floor, Rand(rnd, minZ, maxZ));
+        float top = room.floor;
+        float maxTop = room.ceil - 2.4f;
+        for (int k = 0; k < count; k++)
+        {
+            top = Mathf.Min(top + Rand(rnd, 0.6f, 0.85f), maxTop);
+            var size = new Vector3(Rand(rnd, 1.3f, 2f), 0.25f, Rand(rnd, 1.3f, 2f));
+            var plat = GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(p.x, top - size.y * 0.5f, p.z), size, mat, true);
+            plat.name = "Plateforme";
+            plat.transform.localRotation = Quaternion.Euler(0f, Rand(rnd, -35f, 35f), 0f);
+            // Certaines reposent sur un pilier, les autres flottent.
+            if (rnd.NextDouble() < 0.5)
+            {
+                float hgt = top - size.y - room.floor;
+                if (hgt > 0.1f) GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(p.x, room.floor + hgt * 0.5f, p.z), new Vector3(0.35f, hgt, 0.35f), pillar, true).name = "Pilier";
+            }
+
+            // Prochaine plateforme : un saut plus loin, en restant dans la salle.
+            float angle = Rand(rnd, 0f, Mathf.PI * 2f);
+            float dist = Rand(rnd, 1.9f, 2.5f);
+            Vector3 next = p + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * dist;
+            if (next.x < minX || next.x > maxX) next.x = p.x - (next.x - p.x);
+            if (next.z < minZ || next.z > maxZ) next.z = p.z - (next.z - p.z);
+            next.x = Mathf.Clamp(next.x, minX, maxX);
+            next.z = Mathf.Clamp(next.z, minZ, maxZ);
+            if (k < count - 1) p = next;
+        }
+        // Objet à ramasser au sommet (accès difficile).
+        refs.itemSpots.Add(new Vector3(p.x, top, p.z));
+        // Quelques blocs renversés au sol.
+        for (int k = 0; k < 2; k++)
+        {
+            var size = new Vector3(Rand(rnd, 0.8f, 1.6f), Rand(rnd, 0.6f, 1.4f), Rand(rnd, 0.8f, 1.6f));
+            var block = GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(Rand(rnd, minX, maxX), room.floor + size.y * 0.4f, Rand(rnd, minZ, maxZ)), size, pillar, true);
+            block.name = "Bloc";
+            block.transform.localRotation = Quaternion.Euler(Rand(rnd, -25f, 25f), Rand(rnd, 0f, 360f), Rand(rnd, -25f, 25f));
+        }
+    }
+
+    static void AddBlock(Transform parent, Vector3 pos, float floor, float ceil, System.Random rnd)
     {
         var size = new Vector3(Rand(rnd, 0.8f, 1.8f), Rand(rnd, 0.5f, 1.6f), Rand(rnd, 0.8f, 1.8f));
         bool hanging = rnd.NextDouble() < 0.4;
-        Vector3 p = pos + Vector3.up * (hanging ? WallHeight - size.y * 0.5f : size.y * 0.5f);
+        Vector3 p = new Vector3(pos.x, hanging ? ceil - size.y * 0.5f : floor + size.y * 0.5f, pos.z);
         GameArt.Prim(PrimitiveType.Cube, parent, p, size, GameArt.Concrete, true).name = "Bloc";
     }
 }

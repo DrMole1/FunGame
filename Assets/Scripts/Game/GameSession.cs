@@ -14,6 +14,7 @@ using UnityEngine;
 //   RV|cible -> RA|cible|sauveteur                              réanimation depuis un Chenil
 //   DE|cause                                                    mort d'un joueur
 //   LG|texte                                                    ligne de l'Écran de Logs
+//   SC|manche|id,golds,morts;id,golds,morts...                  Tableau de Manche
 public class GameSession : MonoBehaviour
 {
     enum Phase { Waiting = 0, Running = 1, GameOver = 2 }
@@ -49,6 +50,10 @@ public class GameSession : MonoBehaviour
     readonly HashSet<int> picked = new HashSet<int>();
     readonly List<string> logs = new List<string>();
     string terminalUser = "";
+    // Tableau de Manche : golds gagnés et morts de chaque joueur pendant la manche en cours.
+    class RoundStats { public int golds, deaths; }
+    readonly Dictionary<string, RoundStats> roundStats = new Dictionary<string, RoundStats>();
+    int statsRound = 1;
 
     float syncTimer, regenAcc, screenTimer;
     int pendingPickups;
@@ -113,7 +118,8 @@ public class GameSession : MonoBehaviour
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = Color.black;
             cam.nearClipPlane = 0.1f;
-            cam.farClipPlane = 80f;
+            // Au-delà, le brouillard du labyrinthe masque tout : inutile de le dessiner.
+            cam.farClipPlane = 45f;
         }
     }
 
@@ -130,6 +136,8 @@ public class GameSession : MonoBehaviour
         picked.Clear();
         logs.Clear();
         terminalUser = "";
+        roundStats.Clear();
+        statsRound = 1;
         ApplyWorld();
     }
 
@@ -162,6 +170,8 @@ public class GameSession : MonoBehaviour
         timeLeft = GameRules.RoundDuration;
         logs.Clear();
         terminalUser = "";
+        roundStats.Clear();
+        statsRound = 1;
         status.ClearInventory();
         status.SetDead(false);
         status.SetHp(GameRules.MaxHp);
@@ -280,6 +290,34 @@ public class GameSession : MonoBehaviour
         RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, inHub ? HubAmbient : MazeAmbient, k);
         RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog, k);
         playerLight.enabled = net.InGame && !status.Dead && !WorldBuilder.IsInHub(player.transform.position);
+        UpdateInsectFlee();
+    }
+
+    // Les insectes des murs (shader InfestedWall) fuient les joueurs vivants du labyrinthe ;
+    // un joueur qui marche discrètement les dérange moins. Le rayon varie en douceur.
+    const float InsectFleeRadius = 3.2f, InsectFleeSneakRadius = 1.8f;
+    readonly Vector4[] insectFlee = new Vector4[GameRules.MaxPlayers];
+    readonly Dictionary<PlayerPresence, float> insectRadius = new Dictionary<PlayerPresence, float>();
+
+    void UpdateInsectFlee()
+    {
+        int n = 0;
+        float k = 1f - Mathf.Exp(-3f * Time.deltaTime);
+        foreach (var p in PlayerPresence.All)
+        {
+            bool active = net.InGame && p.Alive && !WorldBuilder.IsInHub(p.Position);
+            float goal = !active ? 0f : p.Sneaking ? InsectFleeSneakRadius : InsectFleeRadius;
+            insectRadius.TryGetValue(p, out float radius);
+            radius = Mathf.Lerp(radius, goal, k);
+            insectRadius[p] = radius;
+            if (radius > 0.05f && n < insectFlee.Length)
+            {
+                Vector3 pos = p.Position + Vector3.up * 0.3f;
+                insectFlee[n++] = new Vector4(pos.x, pos.y, pos.z, radius);
+            }
+        }
+        for (int i = n; i < insectFlee.Length; i++) insectFlee[i] = Vector4.zero;
+        Shader.SetGlobalVectorArray("_InsectFlee", insectFlee);
     }
 
     // Un joueur mort voit la caméra d'un autre joueur (clic pour changer).
@@ -316,6 +354,50 @@ public class GameSession : MonoBehaviour
         hub.logText.text = string.Join("\n", logs);
         string user = terminalUser.Length > 0 && net.Roster.TryGetValue(terminalUser, out var u) ? u.name : null;
         hub.terminalText.text = TerminalUI.Menu + (user != null ? "\n\n> Utilisé par " + user : "");
+        hub.roundBoardText.text = RoundBoardText();
+    }
+
+    // Classement des joueurs connectés : golds gagnés pendant la manche, puis morts.
+    string RoundBoardText()
+    {
+        var rows = new List<(string name, int golds, int deaths)>();
+        foreach (var kv in net.Roster)
+        {
+            roundStats.TryGetValue(kv.Key, out var s);
+            rows.Add((kv.Value.name, s?.golds ?? 0, s?.deaths ?? 0));
+        }
+        rows.Sort((a, b) => a.golds != b.golds ? b.golds.CompareTo(a.golds) : a.deaths.CompareTo(b.deaths));
+        var sb = new StringBuilder("<size=110>Manche " + statsRound + "</size>\n");
+        for (int i = 0; i < rows.Count; i++)
+            sb.Append('\n').Append(i + 1).Append(". ").Append(rows[i].name).Append(" : ")
+              .Append(rows[i].golds).Append(" golds · ").Append(rows[i].deaths).Append(rows[i].deaths > 1 ? " morts" : " mort");
+        return sb.ToString();
+    }
+
+    RoundStats StatsOf(string id)
+    {
+        if (!roundStats.TryGetValue(id, out var s)) roundStats[id] = s = new RoundStats();
+        return s;
+    }
+
+    string StatsMsg()
+    {
+        var sb = new StringBuilder("SC|" + statsRound + "|");
+        bool first = true;
+        foreach (var kv in roundStats)
+        {
+            if (!first) sb.Append(';');
+            first = false;
+            sb.Append(kv.Key).Append(',').Append(kv.Value.golds).Append(',').Append(kv.Value.deaths);
+        }
+        return sb.ToString();
+    }
+
+    void ResetRoundStats(int newRound)
+    {
+        roundStats.Clear();
+        statsRound = newRound;
+        net.ToAll(StatsMsg());
     }
 
     void RefreshHud()
@@ -401,7 +483,6 @@ public class GameSession : MonoBehaviour
         presence.Alive = true;
         avatar.SetDead(false);
         player.SetFrozen(false);
-        if (player.TryGetComponent(out NameTag tag)) tag.Show(true);
         player.Teleport(position, Mathf.Atan2(-position.x, -position.z) * Mathf.Rad2Deg);
         spectateId = null;
         if (orbit != null) orbit.target = player.transform;
@@ -414,6 +495,7 @@ public class GameSession : MonoBehaviour
         if (status.Dead || phase == Phase.GameOver || !net.InGame) return;
         if (WorldBuilder.IsInHub(player.transform.position)) return;
         status.SetHp(status.Hp - amount);
+        hud.FlashDamage();
         if (status.Hp <= 0) KillLocal(cause);
     }
 
@@ -426,7 +508,6 @@ public class GameSession : MonoBehaviour
         presence.Alive = false;
         avatar.SetDead(true);
         player.SetFrozen(true);
-        if (player.TryGetComponent(out NameTag tag)) tag.Show(false);
         terminal.Close();
         if (cause != null) net.ToHost("DE|" + cause);
         RefreshHud();
@@ -533,6 +614,7 @@ public class GameSession : MonoBehaviour
         net.ToPeer(to, "IL|" + round + "|" + ids);
         foreach (string line in logs) net.ToPeer(to, "LG|" + line);
         net.ToPeer(to, "TS|" + terminalUser);
+        net.ToPeer(to, StatsMsg());
     }
 
     void Log(string text)
@@ -568,6 +650,7 @@ public class GameSession : MonoBehaviour
             timeLeft = GameRules.RoundDuration;
             picked.Clear();
             Log("Le quota de la manche " + done + " est validé ! Nouveau quota : " + quota);
+            ResetRoundStats(round);
             ApplyWorld();
             BroadcastState();
         }
@@ -590,6 +673,7 @@ public class GameSession : MonoBehaviour
         phase = Phase.Waiting;
         timeLeft = GameRules.RoundDuration;
         picked.Clear();
+        ResetRoundStats(1);
         ApplyWorld();
         BroadcastState();
         OnRestart();
@@ -673,6 +757,8 @@ public class GameSession : MonoBehaviour
                 if (def == null) break;
                 progress += def.sellPrice;
                 cash += def.sellPrice;
+                StatsOf(from).golds += def.sellPrice;
+                net.ToAll(StatsMsg());
                 Log("Le joueur " + NameOf(from) + " a vendu " + def.name + " pour " + def.sellPrice + " golds.");
                 BroadcastState();
                 break;
@@ -737,7 +823,21 @@ public class GameSession : MonoBehaviour
                 }
                 break;
             case "DE" when host && f.Length >= 2:
+                StatsOf(from).deaths++;
+                net.ToAll(StatsMsg());
                 Log("Le joueur " + NameOf(from) + " est mort par " + f[1] + ".");
+                break;
+            case "SC" when f.Length >= 3:
+                // L'hôte tient déjà ses statistiques à jour.
+                if (host) break;
+                statsRound = NetworkGame.I(f[1]);
+                roundStats.Clear();
+                foreach (string entry in f[2].Split(';'))
+                {
+                    string[] p = entry.Split(',');
+                    if (p.Length >= 3) roundStats[p[0]] = new RoundStats { golds = NetworkGame.I(p[1]), deaths = NetworkGame.I(p[2]) };
+                }
+                UpdateScreens();
                 break;
             case "LG" when raw.Length > 3:
                 logs.Add(raw.Substring(3));

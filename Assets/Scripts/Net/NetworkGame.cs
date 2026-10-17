@@ -382,13 +382,7 @@ public class NetworkGame : MonoBehaviour
 
         GameObject go = localPlayer.gameObject;
         go.GetComponent<CharacterAvatar>().SetCharacter(library, me.character);
-        if (!go.TryGetComponent(out NameTag tag))
-        {
-            tag = go.AddComponent<NameTag>();
-            tag.height = library.height * 0.5f + 0.35f;
-        }
-        tag.Set(myName, HueColor(me.hue));
-        tag.Show(true);
+        // Le joueur ne voit pas son propre pseudo (seulement celui des autres).
         localPlayer.SetFrozen(false);
         PlayerController.InputLocked = false;
         OrbitCamera.ControlsEnabled = true;

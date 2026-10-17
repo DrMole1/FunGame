@@ -98,9 +98,23 @@ public static class GameArt
 
     // ---------- Matériaux du décor ----------
 
-    public static Material CheckerFloor => Lit("CheckerFloor", Color.white, Checker(256, 2, new Color(0.92f, 0.92f, 0.9f), new Color(0.05f, 0.05f, 0.05f)), 0.55f);
-    public static Material CheckerWall => Lit("CheckerWall", new Color(0.85f, 0.85f, 0.85f), Checker(256, 2, Color.white, new Color(0.08f, 0.08f, 0.08f)), 0.3f);
+    // Damier astiqué : très lisse, les lampes s'y reflètent.
+    public static Material CheckerFloor => Lit("CheckerFloor", Color.white, Checker(256, 2, new Color(0.92f, 0.92f, 0.9f), new Color(0.05f, 0.05f, 0.05f)), 0.88f);
+    public static Material CheckerWall => Lit("CheckerWall", new Color(0.85f, 0.85f, 0.85f), Checker(256, 2, Color.white, new Color(0.08f, 0.08f, 0.08f)), 0.8f);
     public static Material Concrete => Lit("Concrete", new Color(0.62f, 0.62f, 0.6f), Noise("concrete", 128, 0.75f, 0.2f, 11), 0.05f);
+    // Murs des couloirs : shader d'insectes grouillants (Resources/Materials/InfestedWall, créé par GameSetup).
+    public static Material InfestedWall
+    {
+        get
+        {
+            if (cache.TryGetValue("InfestedWall", out var m) && m != null) return m;
+            var template = Resources.Load<Material>("Materials/InfestedWall");
+            if (template == null) return Concrete;
+            m = new Material(template) { name = "InfestedWall" };
+            m.mainTexture = Noise("concrete", 128, 0.75f, 0.2f, 11);
+            return cache["InfestedWall"] = m;
+        }
+    }
     public static Material DarkConcrete => Lit("DarkConcrete", new Color(0.3f, 0.3f, 0.3f), Noise("concrete", 128, 0.75f, 0.2f, 11), 0.05f);
     public static Material Metal => Lit("Metal", new Color(0.25f, 0.25f, 0.27f), null, 0.6f);
 

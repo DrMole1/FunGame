@@ -22,6 +22,7 @@ public class PlayerController : MonoBehaviour
     Vector3 inputDir;
     Gait gait;
     bool jumpRequested, grounded;
+    Vector3 groundNormal = Vector3.up;
     float airborneLock;
 
     public AnimState CurrentAnimState => avatar != null ? avatar.State : AnimState.Idle;
@@ -119,6 +120,11 @@ public class PlayerController : MonoBehaviour
             vel.y = jumpForce;
             jumpRequested = false;
         }
+        else if (grounded && airborneLock <= 0f && groundNormal.y > 0.5f && groundNormal.y < 0.995f && vel.y <= 0.5f)
+        {
+            // Rampes et escaliers : on suit la pente sans glisser à l'arrêt.
+            vel = Vector3.ProjectOnPlane(move, groundNormal);
+        }
         rb.velocity = vel;
 
         // Le personnage s'oriente dans la direction du mouvement.
@@ -144,8 +150,10 @@ public class PlayerController : MonoBehaviour
     bool IsGrounded()
     {
         float r = col.radius * 0.85f;
-        return Physics.SphereCast(transform.position, r, Vector3.down, out _, HalfHeight - r + 0.08f,
+        bool hit = Physics.SphereCast(transform.position, r, Vector3.down, out RaycastHit info, HalfHeight - r + 0.08f,
             Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+        groundNormal = hit ? info.normal : Vector3.up;
+        return hit;
     }
 
     bool HasGroundAhead(Vector3 move)
