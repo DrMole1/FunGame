@@ -15,6 +15,14 @@ public static class UiKit
 
     public static Font Font => GameArt.Font;
 
+    // Noir sur fond clair, blanc sur fond sombre. Un fond semi-transparent est considéré posé sur un panneau sombre.
+    public static Color ReadableOn(Color background)
+    {
+        Color c = Color.Lerp(PanelColor, background, background.a);
+        float luminance = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+        return luminance > 0.45f ? Color.black : Color.white;
+    }
+
     public static Canvas CreateCanvas(Transform parent, string name, int order)
     {
         if (Object.FindObjectOfType<EventSystem>() == null)
@@ -164,7 +172,7 @@ public static class UiKit
         btn.colors = colors;
         btn.onClick.AddListener(onClick);
 
-        var label = Label(go.transform, text, 18, FontStyle.Bold, Color.white, height);
+        var label = Label(go.transform, text, 18, FontStyle.Bold, ReadableOn(color), height);
         Stretch(label.rectTransform);
         return go;
     }

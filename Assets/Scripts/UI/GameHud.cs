@@ -14,6 +14,7 @@ public class GameHud : MonoBehaviour
     Text healthText, promptText, toastText, spectateText, gameOverText;
     readonly Image[] slotBg = new Image[GameRules.InventorySize];
     readonly Text[] slotName = new Text[GameRules.InventorySize];
+    readonly Text[] slotNumber = new Text[GameRules.InventorySize];
     float toastTimer;
 
     public void Init(System.Action onRestart, System.Action onQuit)
@@ -58,6 +59,7 @@ public class GameHud : MonoBehaviour
             slotBg[i] = slot.GetComponent<Image>();
             var num = UiKit.Label(slot.transform, (i + 1).ToString(), 14, FontStyle.Bold, UiKit.MutedText, 20, TextAnchor.UpperLeft);
             UiKit.Stretch(num.rectTransform, 5f);
+            slotNumber[i] = num;
             slotName[i] = UiKit.Label(slot.transform, "", 11, FontStyle.Bold, Color.white, size);
             UiKit.Stretch(slotName[i].rectTransform, 4f);
             slotName[i].rectTransform.offsetMax = new Vector2(-4, -14);
@@ -102,6 +104,10 @@ public class GameHud : MonoBehaviour
         healthFill.rectTransform.localScale = new Vector3(Mathf.Max(0.001f, k), 1f, 1f);
         healthFill.color = Color.Lerp(new Color(0.85f, 0.15f, 0.15f), new Color(0.25f, 0.8f, 0.3f), k);
         healthText.text = dead ? "MORT" : "PV : " + hp + " / " + GameRules.MaxHp;
+        // Le texte est centré : il est sur le remplissage dès que la jauge dépasse la moitié.
+        Color behind = k >= 0.5f ? healthFill.color : new Color(0f, 0f, 0f, 0.6f);
+        healthText.color = UiKit.ReadableOn(behind);
+        healthText.GetComponent<Shadow>().enabled = healthText.color != Color.black;
     }
 
     public void SetInventory(PlayerStatus status)
@@ -112,8 +118,11 @@ public class GameHud : MonoBehaviour
             ItemDef def = Items.Get(t);
             bool selected = status.Selected == i;
             slotName[i].text = def != null ? def.shortName : "";
-            slotName[i].color = selected ? new Color(0.12f, 0.08f, 0f) : def != null ? Color.Lerp(def.color, Color.white, 0.35f) : Color.white;
             slotBg[i].color = selected ? SlotSelectedColor : SlotColor;
+            // Case sélectionnée sur fond jaune clair : textes en noir.
+            bool light = UiKit.ReadableOn(slotBg[i].color) == Color.black;
+            slotName[i].color = light ? Color.black : def != null ? Color.Lerp(def.color, Color.white, 0.35f) : Color.white;
+            slotNumber[i].color = light ? Color.black : UiKit.MutedText;
             slotBg[i].rectTransform.localScale = Vector3.one * (selected ? 1.15f : 1f);
         }
     }
