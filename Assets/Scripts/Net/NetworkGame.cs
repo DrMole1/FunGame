@@ -3,12 +3,16 @@ using System.Globalization;
 using System.Text;
 using UnityEngine;
 
-// Gère le lobby, la connexion (hôte / client) et la synchronisation des joueurs.
+// Gère le lobby, la connexion (hôte / client), la liste des joueurs et la synchronisation des déplacements.
+// La logique de partie (quota, objets, Terminal...) est dans GameSession.
 // Protocole texte, champs séparés par '|' :
-//   J|nom|teinte              client -> hôte : je rejoins la partie
-//   P|id|nom|teinte|perso     hôte -> clients : un joueur est présent (l'hôte choisit le personnage)
-//   S|id|x|y|z|yaw|anim       état d'un joueur (l'hôte relaie ceux des clients, cf. PeerNet.jslib)
-//   L|id                      hôte -> clients : un joueur est parti
+//   J|nom|teinte|skin                 client -> hôte : je rejoins la partie
+//   P|id|nom|teinte|skin|chenil       hôte -> clients : un joueur est présent (ou a changé de skin)
+//   K|skin                            client -> hôte : changement de skin en jeu
+//   S|id|x|y|z|yaw|anim|pv|flags      état d'un joueur (l'hôte relaie ceux des clients, cf. PeerNet.jslib)
+//   L|id                              hôte -> clients : un joueur est parti
+//   KK / FULL                         hôte -> client : expulsé / partie complète
+// Les autres messages sont transmis à GameSession.
 public class NetworkGame : MonoBehaviour
 {
     public const string ObjectName = "NetworkManager";
@@ -16,29 +20,45 @@ public class NetworkGame : MonoBehaviour
     const string CodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     const float SendInterval = 1f / 15f;
     const float ConnectTimeout = 15f;
+    public const int FlagDead = 1, FlagSneak = 2;
 
     enum State { Lobby, Hosting, Joining, InGame }
 
-    class PlayerInfo
+    public class PlayerInfo
     {
         public string name;
         public float hue;
         public int character;
+        public int slot;
     }
 
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    public static NetworkGame Instance { get; private set; }
 
     State state = State.Lobby;
     bool isHost;
     string myId, hostId, roomCode, myName;
     float myHue, sendTimer, connectTimer;
+    int mySkin;
 
     PlayerController localPlayer;
     CharacterLibrary library;
-    Vector3 spawnOrigin;
     LobbyUI ui;
+    GameSession session;
     readonly Dictionary<string, PlayerInfo> roster = new Dictionary<string, PlayerInfo>();
     readonly Dictionary<string, RemotePlayer> remotes = new Dictionary<string, RemotePlayer>();
+
+    public bool IsHost => isHost;
+    public bool InGame => state == State.InGame;
+    public string MyId => myId;
+    public string MyName => myName;
+    public int MySkin => mySkin;
+    public int SkinCount => library.Count;
+    public string SkinName(int i) => "Perso " + (i + 1);
+    public PlayerController LocalPlayer => localPlayer;
+    public IReadOnlyDictionary<string, PlayerInfo> Roster => roster;
+    public IReadOnlyDictionary<string, RemotePlayer> Remotes => remotes;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Boot()
@@ -49,17 +69,25 @@ public class NetworkGame : MonoBehaviour
 
     void Awake()
     {
+        Instance = this;
         gameObject.name = ObjectName;
         Application.runInBackground = true;
 
         localPlayer = FindObjectOfType<PlayerController>(true);
         library = localPlayer.GetComponent<CharacterLibrary>();
-        spawnOrigin = localPlayer.transform.position;
-        localPlayer.gameObject.SetActive(false);
-        OrbitCamera.ControlsEnabled = false;
+        SetLayerRecursive(localPlayer.gameObject, 2); // Ignore Raycast : invisible pour la visée et la caméra
+        if (!localPlayer.TryGetComponent(out PlayerStatus _)) localPlayer.gameObject.AddComponent<PlayerStatus>();
+        if (!localPlayer.TryGetComponent(out PlayerInteractor _)) localPlayer.gameObject.AddComponent<PlayerInteractor>();
+        var presence = localPlayer.gameObject.AddComponent<PlayerPresence>();
+        presence.IsLocal = true;
 
+        session = gameObject.AddComponent<GameSession>();
+        session.Init(this, localPlayer);
+
+        mySkin = Mathf.Clamp(PlayerPrefs.GetInt("skin", 0), 0, Mathf.Max(0, library.Count - 1));
         ui = gameObject.AddComponent<LobbyUI>();
         ui.Init(this, PlayerPrefs.GetString("playerName", ""), RoomFromUrl());
+        ShowLobbyPreview();
     }
 
     void Update()
@@ -74,18 +102,40 @@ public class NetworkGame : MonoBehaviour
         if (state != State.InGame) return;
 
         Transform t = localPlayer.transform;
-        if (t.position.y < -20f) Respawn();
+        if (t.position.y < -20f) session.RespawnInHub();
 
         sendTimer += Time.unscaledDeltaTime;
         if (sendTimer >= SendInterval)
         {
             sendTimer = 0f;
             Vector3 p = t.position;
+            int flags = (session.LocalDead ? FlagDead : 0) | (localPlayer.Sneaking ? FlagSneak : 0);
             string msg = "S|" + myId + "|" + F(p.x) + "|" + F(p.y) + "|" + F(p.z) + "|" + F(t.eulerAngles.y)
-                + "|" + (int)localPlayer.CurrentAnimState;
+                + "|" + (int)localPlayer.CurrentAnimState + "|" + session.LocalHp + "|" + flags;
             if (isHost) PeerNet.Broadcast(msg);
             else PeerNet.Send(hostId, msg);
         }
+    }
+
+    // ---------- Envoi ----------
+
+    // L'hôte traite ses propres requêtes localement, comme celles des clients.
+    public void ToHost(string msg)
+    {
+        if (isHost) Dispatch(myId, msg);
+        else PeerNet.Send(hostId, msg);
+    }
+
+    public void ToAll(string msg)
+    {
+        PeerNet.Broadcast(msg);
+        Dispatch(myId, msg);
+    }
+
+    public void ToPeer(string id, string msg)
+    {
+        if (id == myId) Dispatch(myId, msg);
+        else PeerNet.Send(id, msg);
     }
 
     // ---------- Actions du lobby ----------
@@ -121,6 +171,33 @@ public class NetworkGame : MonoBehaviour
 
     public void CopyInviteLink() => PeerNet.CopyText(InviteLink());
 
+    // Choix du skin : dans le lobby (aperçu) ou en jeu (synchronisé).
+    public void SelectSkin(int index)
+    {
+        if (library.Count == 0) return;
+        mySkin = (index % library.Count + library.Count) % library.Count;
+        PlayerPrefs.SetInt("skin", mySkin);
+        PlayerPrefs.Save();
+        localPlayer.GetComponent<CharacterAvatar>().SetCharacter(library, mySkin);
+        if (state == State.InGame) ToHost("K|" + mySkin);
+    }
+
+    // Commande /kick de l'hôte. Retourne le nom exact du joueur expulsé, ou null.
+    public string Kick(string playerName)
+    {
+        if (!isHost) return null;
+        foreach (var kv in roster)
+        {
+            if (kv.Key == myId || !string.Equals(kv.Value.name, playerName, System.StringComparison.OrdinalIgnoreCase)) continue;
+            PeerNet.Send(kv.Key, "KK");
+            PeerNet.Kick(kv.Key);
+            string n = kv.Value.name;
+            OnPeerDisconnected(kv.Key);
+            return n;
+        }
+        return null;
+    }
+
     void BeginSession(string playerName)
     {
         myName = SanitizeName(playerName);
@@ -137,9 +214,11 @@ public class NetworkGame : MonoBehaviour
         myId = id;
         if (state == State.Hosting)
         {
-            var me = new PlayerInfo { name = myName, hue = myHue, character = PickCharacter() };
+            var me = new PlayerInfo { name = myName, hue = myHue, character = mySkin, slot = 0 };
             roster[myId] = me;
-            EnterGame(me.character);
+            session.StartAsHost();
+            EnterGame(me);
+            session.OnPlayerJoined(myId);
         }
         // En mode Joining, on attend OnPeerConnected de l'hôte.
     }
@@ -164,9 +243,9 @@ public class NetworkGame : MonoBehaviour
     void OnPeerConnected(string peerId)
     {
         // Côté hôte, on attend le message J du nouveau joueur.
-        // Côté client, on entre en jeu à la réception de notre propre P (personnage attribué par l'hôte).
+        // Côté client, on entre en jeu à la réception de notre propre P.
         if (state == State.Joining && peerId == hostId)
-            PeerNet.Send(hostId, "J|" + myName + "|" + F(myHue));
+            PeerNet.Send(hostId, "J|" + myName + "|" + F(myHue) + "|" + mySkin);
     }
 
     void OnPeerDisconnected(string peerId)
@@ -174,7 +253,12 @@ public class NetworkGame : MonoBehaviour
         if (state != State.InGame) return;
         if (isHost)
         {
-            if (roster.Remove(peerId)) PeerNet.Broadcast("L|" + peerId);
+            if (roster.TryGetValue(peerId, out var info))
+            {
+                roster.Remove(peerId);
+                PeerNet.Broadcast("L|" + peerId);
+                session.OnPlayerLeft(peerId, info.name);
+            }
             RemoveRemote(peerId);
         }
         else if (peerId == hostId)
@@ -187,63 +271,129 @@ public class NetworkGame : MonoBehaviour
     {
         int nl = payload.IndexOf('\n');
         if (nl < 0 || (state != State.InGame && state != State.Joining)) return;
+        // Un client n'accepte que les messages de l'hôte.
         string from = payload.Substring(0, nl);
-        string[] f = payload.Substring(nl + 1).Split('|');
+        if (!isHost && from != hostId) return;
+        Dispatch(from, payload.Substring(nl + 1));
+    }
 
+    void Dispatch(string from, string msg)
+    {
+        string[] f = msg.Split('|');
         switch (f[0])
         {
-            case "J" when isHost && f.Length >= 3:
-            {
-                if (state != State.InGame) break;
-                var info = new PlayerInfo { name = SanitizeName(f[1]), hue = P(f[2]), character = PickCharacter() };
-                foreach (var kv in roster)
-                    PeerNet.Send(from, PlayerMsg(kv.Key, kv.Value));
-                roster[from] = info;
-                PeerNet.Broadcast(PlayerMsg(from, info));
-                SpawnRemote(from, info);
+            case "J" when isHost && from != myId && f.Length >= 4:
+                HandleJoin(from, f);
                 break;
-            }
-            case "P" when !isHost && f.Length >= 5:
+            case "P" when f.Length >= 6:
             {
-                var info = new PlayerInfo { name = f[2], hue = P(f[3]), character = I(f[4]) };
+                var info = new PlayerInfo { name = f[2], hue = P(f[3]), character = I(f[4]), slot = I(f[5]) };
+                if (isHost) break; // l'hôte a déjà mis à jour sa liste
+                roster[f[1]] = info;
                 if (f[1] != myId)
-                    SpawnRemote(f[1], info);
+                {
+                    if (remotes.TryGetValue(f[1], out var existing)) existing.SetCharacter(library, info.character);
+                    else SpawnRemote(f[1], info);
+                }
                 else if (state == State.Joining)
-                    EnterGame(info.character);
+                    EnterGame(info);
+                session.OnRosterChanged();
                 break;
             }
-            case "S" when f.Length >= 7:
+            case "K" when isHost && f.Length >= 2:
+                if (roster.TryGetValue(from, out var pi))
+                {
+                    pi.character = Mathf.Clamp(I(f[1]), 0, library.Count - 1);
+                    if (remotes.TryGetValue(from, out var rp0)) rp0.SetCharacter(library, pi.character);
+                    PeerNet.Broadcast(PlayerMsg(from, pi));
+                }
+                break;
+            case "S" when f.Length >= 9:
                 // L'hôte n'accepte d'un client que son propre état.
                 if (isHost && f[1] != from) break;
                 if (remotes.TryGetValue(f[1], out var rp))
-                    rp.SetTarget(new Vector3(P(f[2]), P(f[3]), P(f[4])), P(f[5]), (AnimState)Mathf.Clamp(I(f[6]), 0, 3));
+                    rp.SetTarget(new Vector3(P(f[2]), P(f[3]), P(f[4])), P(f[5]), (AnimState)Mathf.Clamp(I(f[6]), 0, 4), I(f[7]), I(f[8]));
                 break;
             case "L" when !isHost && f.Length >= 2:
+                if (roster.TryGetValue(f[1], out var left))
+                {
+                    roster.Remove(f[1]);
+                    session.OnPlayerLeft(f[1], left.name);
+                }
                 RemoveRemote(f[1]);
+                break;
+            case "KK" when !isHost:
+                ReturnToLobby("Vous avez été expulsé de la partie par l'hôte.");
+                break;
+            case "FULL" when !isHost:
+                ReturnToLobby("La partie est complète (" + GameRules.MaxPlayers + " joueurs maximum).");
+                break;
+            default:
+                session.HandleMessage(from, f, msg);
                 break;
         }
     }
 
+    void HandleJoin(string from, string[] f)
+    {
+        if (state != State.InGame || roster.ContainsKey(from)) return;
+        if (roster.Count >= GameRules.MaxPlayers)
+        {
+            PeerNet.Send(from, "FULL");
+            PeerNet.Kick(from);
+            return;
+        }
+        var info = new PlayerInfo
+        {
+            name = UniqueName(SanitizeName(f[1])),
+            hue = P(f[2]),
+            character = Mathf.Clamp(I(f[3]), 0, Mathf.Max(0, library.Count - 1)),
+            slot = FreeSlot(),
+        };
+        foreach (var kv in roster)
+            PeerNet.Send(from, PlayerMsg(kv.Key, kv.Value));
+        session.SendSnapshot(from);
+        roster[from] = info;
+        PeerNet.Broadcast(PlayerMsg(from, info));
+        SpawnRemote(from, info);
+        session.OnPlayerJoined(from);
+    }
+
     // ---------- Partie ----------
 
-    void EnterGame(int character)
+    void ShowLobbyPreview()
+    {
+        GameObject go = localPlayer.gameObject;
+        go.SetActive(true);
+        go.GetComponent<CharacterAvatar>().SetCharacter(library, mySkin);
+        go.GetComponent<CharacterAvatar>().SetDead(false);
+        localPlayer.SetFrozen(true);
+        localPlayer.Teleport(new Vector3(0f, library.height * 0.5f, -4f), 0f);
+        if (go.TryGetComponent(out NameTag tag)) tag.Show(false);
+        PlayerController.InputLocked = true;
+        OrbitCamera.ControlsEnabled = false;
+    }
+
+    void EnterGame(PlayerInfo me)
     {
         state = State.InGame;
         sendTimer = 0f;
+        myName = me.name;
 
         GameObject go = localPlayer.gameObject;
-        Color color = HueColor(myHue);
-        go.GetComponent<CharacterAvatar>().SetCharacter(library, character);
+        go.GetComponent<CharacterAvatar>().SetCharacter(library, me.character);
         if (!go.TryGetComponent(out NameTag tag))
         {
             tag = go.AddComponent<NameTag>();
             tag.height = library.height * 0.5f + 0.35f;
         }
-        tag.Set(myName, color);
-        go.SetActive(true);
-        Respawn();
-
+        tag.Set(myName, HueColor(me.hue));
+        tag.Show(true);
+        localPlayer.SetFrozen(false);
+        PlayerController.InputLocked = false;
         OrbitCamera.ControlsEnabled = true;
+
+        session.OnLocalEnter();
         ui.ShowHud(roomCode, isHost);
         UpdatePlayerCount();
     }
@@ -257,25 +407,17 @@ public class NetworkGame : MonoBehaviour
         roster.Clear();
         state = State.Lobby;
         isHost = false;
-        localPlayer.gameObject.SetActive(false);
-        OrbitCamera.ControlsEnabled = false;
+        session.ResetSession();
+        ShowLobbyPreview();
         ui.ShowLobby(message);
-    }
-
-    void Respawn()
-    {
-        Vector2 c = Random.insideUnitCircle * 3f;
-        localPlayer.transform.position = spawnOrigin + new Vector3(c.x, 0.5f, c.y);
-        var rb = localPlayer.GetComponent<Rigidbody>();
-        rb.position = localPlayer.transform.position;
-        rb.velocity = Vector3.zero;
     }
 
     void SpawnRemote(string id, PlayerInfo info)
     {
         if (remotes.ContainsKey(id)) return;
-        remotes[id] = RemotePlayer.Create(id, info.name, HueColor(info.hue), library, info.character, spawnOrigin);
+        remotes[id] = RemotePlayer.Create(id, info.name, HueColor(info.hue), library, info.character, new Vector3(0f, library.height * 0.5f, 0f));
         UpdatePlayerCount();
+        session.OnRosterChanged();
     }
 
     void RemoveRemote(string id)
@@ -286,17 +428,34 @@ public class NetworkGame : MonoBehaviour
             remotes.Remove(id);
         }
         UpdatePlayerCount();
+        session.OnRosterChanged();
     }
 
     void UpdatePlayerCount() => ui.SetPlayerCount(remotes.Count + 1);
 
-    // Hôte : un personnage différent par joueur tant que c'est possible, sinon au hasard.
-    int PickCharacter()
+    int FreeSlot()
     {
-        var free = new List<int>();
-        for (int i = 0; i < library.Count; i++) free.Add(i);
-        foreach (var info in roster.Values) free.Remove(info.character);
-        return free.Count > 0 ? free[Random.Range(0, free.Count)] : Random.Range(0, library.Count);
+        for (int s = 0; s < GameRules.MaxPlayers; s++)
+        {
+            bool used = false;
+            foreach (var p in roster.Values) if (p.slot == s) used = true;
+            if (!used) return s;
+        }
+        return 0;
+    }
+
+    // Deux joueurs ne peuvent pas porter le même pseudo (utile pour /kick).
+    string UniqueName(string n)
+    {
+        string candidate = n;
+        for (int k = 2; ; k++)
+        {
+            bool taken = false;
+            foreach (var p in roster.Values)
+                if (string.Equals(p.name, candidate, System.StringComparison.OrdinalIgnoreCase)) taken = true;
+            if (!taken) return candidate;
+            candidate = n + k;
+        }
     }
 
     // ---------- Utilitaires ----------
@@ -329,9 +488,9 @@ public class NetworkGame : MonoBehaviour
         return sb.ToString();
     }
 
-    static string SanitizeName(string n)
+    public static string SanitizeName(string n)
     {
-        n = (n ?? "").Replace("|", "").Replace("\n", "").Replace("\r", "").Trim();
+        n = (n ?? "").Replace("|", "").Replace("\n", "").Replace("\r", "").Replace("<", "").Replace(">", "").Trim();
         if (n.Length > 16) n = n.Substring(0, 16);
         return n.Length == 0 ? "Joueur" : n;
     }
@@ -352,9 +511,16 @@ public class NetworkGame : MonoBehaviour
         }
     }
 
-    static string PlayerMsg(string id, PlayerInfo info) => "P|" + id + "|" + info.name + "|" + F(info.hue) + "|" + info.character;
-    static Color HueColor(float hue) => Color.HSVToRGB(hue, 0.6f, 0.95f);
-    static string F(float v) => v.ToString("0.###", Inv);
-    static float P(string s) => float.TryParse(s, NumberStyles.Float, Inv, out float v) ? v : 0f;
-    static int I(string s) => int.TryParse(s, NumberStyles.Integer, Inv, out int v) ? v : 0;
+    static void SetLayerRecursive(GameObject go, int layer)
+    {
+        go.layer = layer;
+        foreach (Transform child in go.transform) SetLayerRecursive(child.gameObject, layer);
+    }
+
+    static string PlayerMsg(string id, PlayerInfo info) =>
+        "P|" + id + "|" + info.name + "|" + F(info.hue) + "|" + info.character + "|" + info.slot;
+    public static Color HueColor(float hue) => Color.HSVToRGB(hue, 0.6f, 0.95f);
+    public static string F(float v) => v.ToString("0.###", Inv);
+    public static float P(string s) => float.TryParse(s, NumberStyles.Float, Inv, out float v) ? v : 0f;
+    public static int I(string s) => int.TryParse(s, NumberStyles.Integer, Inv, out int v) ? v : 0;
 }

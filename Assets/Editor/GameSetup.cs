@@ -1,0 +1,155 @@
+using System.IO;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+
+// Prépare le projet pour le GDD V0.1 : matériaux de base (Resources), import des modèles Meshy
+// (Resources/Art) et nettoyage de la scène (le Hub et le labyrinthe sont générés au lancement).
+public static class GameSetup
+{
+    const string MaterialsDir = "Assets/Resources/Materials";
+    const string ArtDir = "Assets/Resources/Art";
+
+    [MenuItem("FunGame/Configurer le jeu")]
+    public static void Setup()
+    {
+        CreateMaterials();
+        ImportArt();
+        SetupScene();
+        AssetDatabase.SaveAssets();
+        Debug.Log("FunGame configuré.");
+    }
+
+    static void CreateMaterials()
+    {
+        EnsureFolder(MaterialsDir);
+        CreateMaterial("Lit", "Standard", null);
+        CreateMaterial("LitEmissive", "Standard", m =>
+        {
+            m.EnableKeyword("_EMISSION");
+            m.SetColor("_EmissionColor", Color.white);
+            m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+        });
+        CreateMaterial("Unlit", "Unlit/Color", null);
+        CreateMaterial("Outline", "FunGame/Outline", null);
+        CreateMaterial("Text3D", "FunGame/Text3D", null);
+    }
+
+    static void CreateMaterial(string name, string shaderName, System.Action<Material> configure)
+    {
+        string path = MaterialsDir + "/" + name + ".mat";
+        Shader shader = Shader.Find(shaderName);
+        if (shader == null)
+        {
+            Debug.LogError("Shader introuvable : " + shaderName);
+            return;
+        }
+        var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (mat == null)
+        {
+            mat = new Material(shader);
+            AssetDatabase.CreateAsset(mat, path);
+        }
+        mat.shader = shader;
+        configure?.Invoke(mat);
+        EditorUtility.SetDirty(mat);
+    }
+
+    // Modèles statiques Meshy : pas d'animation, matériaux et textures extraits à côté du modèle.
+    static void ImportArt()
+    {
+        if (!AssetDatabase.IsValidFolder(ArtDir)) return;
+        foreach (string guid in AssetDatabase.FindAssets("t:Model", new[] { ArtDir }))
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            var importer = (ModelImporter)AssetImporter.GetAtPath(path);
+            string name = Path.GetFileNameWithoutExtension(path);
+            importer.animationType = ModelImporterAnimationType.None;
+            importer.importAnimation = false;
+            importer.importCameras = false;
+            importer.importLights = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.ImportStandard;
+            importer.materialLocation = ModelImporterMaterialLocation.InPrefab;
+            string texDir = ArtDir + "/" + name + "_Textures";
+            EnsureFolder(texDir);
+            string texPath = texDir + "/" + name + "_BaseColor.png";
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(texPath) == null) importer.ExtractTextures(texDir);
+            AssetDatabase.Refresh();
+
+            // Tous les FBX Meshy nomment leur matériau "Material.001" et leur texture "texture_0" :
+            // on donne à chaque modèle sa propre texture et son propre matériau.
+            string extracted = texDir + "/texture_0.png";
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(extracted) != null && AssetDatabase.LoadAssetAtPath<Texture2D>(texPath) == null)
+                AssetDatabase.MoveAsset(extracted, texPath);
+            string matPath = ArtDir + "/" + name + ".mat";
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+            if (mat == null)
+            {
+                mat = new Material(Shader.Find("Standard"));
+                AssetDatabase.CreateAsset(mat, matPath);
+            }
+            mat.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+            mat.color = Color.white;
+            mat.SetFloat("_Glossiness", 0.25f);
+            EditorUtility.SetDirty(mat);
+            foreach (var source in importer.GetExternalObjectMap().Keys)
+                if (source.type == typeof(Material)) importer.RemoveRemap(source);
+            importer.AddRemap(new AssetImporter.SourceAssetIdentifier(typeof(Material), "Material.001"), mat);
+            // Textures 2K de Meshy réduites : objets petits à l'écran, build WebGL léger.
+            foreach (string texGuid in AssetDatabase.FindAssets("t:Texture2D", new[] { texDir }))
+            {
+                var texImporter = (TextureImporter)AssetImporter.GetAtPath(AssetDatabase.GUIDToAssetPath(texGuid));
+                if (texImporter.maxTextureSize == 512) continue;
+                texImporter.maxTextureSize = 512;
+                texImporter.SaveAndReimport();
+            }
+            importer.SaveAndReimport();
+        }
+    }
+
+    static void SetupScene()
+    {
+        var scene = EditorSceneManager.GetActiveScene();
+        foreach (string objName in new[] { "Arena", "Directional Light" })
+        {
+            var go = GameObject.Find(objName);
+            if (go != null) Object.DestroyImmediate(go);
+        }
+
+        // Brouillard activé dans la scène pour que ses variantes de shader soient incluses dans le build.
+        RenderSettings.fog = true;
+        RenderSettings.fogMode = FogMode.ExponentialSquared;
+        RenderSettings.fogColor = Color.black;
+        RenderSettings.fogDensity = 0.03f;
+        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+        RenderSettings.ambientLight = new Color(0.4f, 0.35f, 0.3f);
+        RenderSettings.skybox = null;
+
+        var player = Object.FindObjectOfType<PlayerController>(true);
+        if (player != null)
+        {
+            player.gameObject.layer = 2;
+            if (player.TryGetComponent(out Collider col) && col.sharedMaterial == null)
+                col.sharedMaterial = AssetDatabase.LoadAssetAtPath<PhysicMaterial>("Assets/Materials/NoFriction.physicMaterial");
+            EditorUtility.SetDirty(player.gameObject);
+        }
+        var cam = Camera.main;
+        if (cam != null)
+        {
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = Color.black;
+            EditorUtility.SetDirty(cam);
+        }
+
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+    }
+
+    static void EnsureFolder(string path)
+    {
+        if (AssetDatabase.IsValidFolder(path)) return;
+        string parent = Path.GetDirectoryName(path).Replace('\\', '/');
+        EnsureFolder(parent);
+        AssetDatabase.CreateFolder(parent, Path.GetFileName(path));
+    }
+}

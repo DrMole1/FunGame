@@ -95,6 +95,20 @@ var PeerNetLib = {
     PN.reset();
   },
 
+  PeerNet_Kick: function (idPtr) {
+    var id = UTF8ToString(idPtr);
+    var c = PN.conns[id];
+    if (!c) return;
+    // On retire la connexion tout de suite (pas de second OnPeerDisconnected) et on la ferme
+    // après un court délai pour laisser partir le message d'expulsion.
+    delete PN.conns[id];
+    setTimeout(function () { try { c.close(); } catch (e) {} }, 400);
+  },
+
+  PeerNet_TimezoneOffset: function () {
+    return new Date().getTimezoneOffset();
+  },
+
   PeerNet_CopyText: function (textPtr) {
     var text = UTF8ToString(textPtr);
     if (navigator.clipboard && navigator.clipboard.writeText) {
