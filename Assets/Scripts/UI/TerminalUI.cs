@@ -122,7 +122,7 @@ public class TerminalUI : MonoBehaviour
         }
         else if (lower == "/buy")
         {
-            var sb = new System.Text.StringBuilder("Objets achetables (cagnotte : " + session.Cash + " golds) :");
+            var sb = new System.Text.StringBuilder("Objets achetables :");
             foreach (var def in Items.Buyable())
                 sb.Append("\n  ID ").Append((int)def.type).Append(" - ").Append(def.name).Append(" : ").Append(def.buyPrice).Append(" golds");
             sb.Append("\nÉcrire l'ID de l'objet à acheter.");
@@ -175,7 +175,7 @@ public class TerminalUI : MonoBehaviour
         }
         if (session.Cash < def.buyPrice)
         {
-            Print("Cagnotte insuffisante (" + session.Cash + " golds) pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
+            Print("Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
             return;
         }
         waitingBuy = true;
@@ -188,7 +188,7 @@ public class TerminalUI : MonoBehaviour
         waitingBuy = false;
         if (!IsOpen || def == null) return;
         Print(ok ? "Vous avez acheté " + def.name + " pour " + def.buyPrice + " golds !" + Quit
-                 : "Cagnotte insuffisante (" + cash + " golds) pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
+                 : "Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
     }
 
     void Print(string text)

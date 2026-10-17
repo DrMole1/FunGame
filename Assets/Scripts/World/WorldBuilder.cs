@@ -129,9 +129,9 @@ public static class WorldBuilder
 
         // Écrans.
         refs.timerText = Screen(root, "Compteur de Temps", 0f, HubRadius - 0.75f, 4.05f, new Vector2(3.2f, 1.1f), 0.075f);
-        refs.quotaText = Screen(root, "Rendu de Quota", QuotaAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.06f);
-        refs.cashText = Screen(root, "Rendu de Cagnotte", CashAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.06f);
-        refs.logText = Screen(root, "Ecran de Logs", LogAngle, HubRadius - 0.9f, 2.6f, new Vector2(8f, 3.6f), 0.04f, TextAnchor.MiddleLeft);
+        refs.quotaText = Screen(root, "Rendu de Quota", QuotaAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
+        refs.cashText = Screen(root, "Rendu de Cagnotte", CashAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
+        refs.logText = Screen(root, "Ecran de Logs", LogAngle, HubRadius - 0.9f, 2.6f, new Vector2(8f, 3.6f), 0.027f, TextAnchor.MiddleLeft);
         refs.timerText.color = new Color(1f, 0.35f, 0.3f);
 
         // Terminal.
@@ -139,7 +139,7 @@ public static class WorldBuilder
         refs.terminalAnchor.SetParent(root, false);
         refs.terminalAnchor.localPosition = Polar(TerminalAngle, HubRadius - 1.8f, 0f);
         refs.terminalAnchor.localRotation = FacingCenter(TerminalAngle);
-        refs.terminalText = Screen(root, "Ecran du Terminal", TerminalAngle, HubRadius - 0.45f, 2.6f, new Vector2(3.4f, 2f), 0.03f, TextAnchor.MiddleLeft);
+        refs.terminalText = Screen(root, "Ecran du Terminal", TerminalAngle, HubRadius - 0.45f, 2.6f, new Vector2(3.4f, 2f), 0.02f, TextAnchor.MiddleLeft);
         refs.terminalText.color = new Color(0.45f, 1f, 0.5f);
 
         // Bouton Rouge au centre.

@@ -11,7 +11,7 @@ public class GameHud : MonoBehaviour
 
     GameObject root, gameOverPanel, restartButton;
     Image healthFill;
-    Text healthText, promptText, toastText, infoText, spectateText, gameOverText;
+    Text healthText, promptText, toastText, spectateText, gameOverText;
     readonly Image[] slotBg = new Image[GameRules.InventorySize];
     readonly Text[] slotName = new Text[GameRules.InventorySize];
     float toastTimer;
@@ -35,8 +35,6 @@ public class GameHud : MonoBehaviour
         toastText.color = new Color(1f, 0.85f, 0.45f);
         spectateText = Floating(r, new Vector2(0.5f, 0f), new Vector2(0, 196), new Vector2(1000, 54), 18);
 
-        infoText = Floating(r, new Vector2(1f, 1f), new Vector2(-16, -16), new Vector2(420, 60), 17);
-        infoText.alignment = TextAnchor.UpperRight;
 
         // Jauge de vie.
         var hp = UiKit.Panel(r, "JaugeDeVie", new Vector2(320, 34), new Color(0f, 0f, 0f, 0.6f));
@@ -60,7 +58,7 @@ public class GameHud : MonoBehaviour
             slotBg[i] = slot.GetComponent<Image>();
             var num = UiKit.Label(slot.transform, (i + 1).ToString(), 14, FontStyle.Bold, UiKit.MutedText, 20, TextAnchor.UpperLeft);
             UiKit.Stretch(num.rectTransform, 5f);
-            slotName[i] = UiKit.Label(slot.transform, "", 14, FontStyle.Bold, Color.white, size);
+            slotName[i] = UiKit.Label(slot.transform, "", 11, FontStyle.Bold, Color.white, size);
             UiKit.Stretch(slotName[i].rectTransform, 4f);
             slotName[i].rectTransform.offsetMax = new Vector2(-4, -14);
         }
@@ -114,14 +112,13 @@ public class GameHud : MonoBehaviour
             ItemDef def = Items.Get(t);
             bool selected = status.Selected == i;
             slotName[i].text = def != null ? def.shortName : "";
-            slotName[i].color = def != null ? Color.Lerp(def.color, Color.white, 0.35f) : Color.white;
+            slotName[i].color = selected ? new Color(0.12f, 0.08f, 0f) : def != null ? Color.Lerp(def.color, Color.white, 0.35f) : Color.white;
             slotBg[i].color = selected ? SlotSelectedColor : SlotColor;
             slotBg[i].rectTransform.localScale = Vector3.one * (selected ? 1.15f : 1f);
         }
     }
 
     public void SetPrompt(string text) => promptText.text = text;
-    public void SetInfo(string text) => infoText.text = text;
     public void SetSpectate(string text) => spectateText.text = text;
 
     public void Toast(string message)

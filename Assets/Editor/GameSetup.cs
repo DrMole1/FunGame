@@ -14,6 +14,7 @@ public static class GameSetup
     public static void Setup()
     {
         CreateMaterials();
+        CreateFonts();
         ImportArt();
         SetupScene();
         AssetDatabase.SaveAssets();
@@ -33,6 +34,20 @@ public static class GameSetup
         CreateMaterial("Unlit", "Unlit/Color", null);
         CreateMaterial("Outline", "FunGame/Outline", null);
         CreateMaterial("Text3D", "FunGame/Text3D", null);
+    }
+
+    static void CreateFonts()
+    {
+        const string path = "Assets/Resources/GameFonts.asset";
+        var fonts = AssetDatabase.LoadAssetAtPath<GameFonts>(path);
+        if (fonts == null)
+        {
+            fonts = ScriptableObject.CreateInstance<GameFonts>();
+            AssetDatabase.CreateAsset(fonts, path);
+        }
+        fonts.main = AssetDatabase.LoadAssetAtPath<Font>("Assets/Font/PUSAB___.otf");
+        if (fonts.main == null) Debug.LogError("Police PUSAB introuvable dans Assets/Font.");
+        EditorUtility.SetDirty(fonts);
     }
 
     static void CreateMaterial(string name, string shaderName, System.Action<Material> configure)

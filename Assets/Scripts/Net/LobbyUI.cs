@@ -146,7 +146,7 @@ public class LobbyUI : MonoBehaviour
         UiKit.Column(pausePanel, 16, 8);
         Transform p = pausePanel.transform;
 
-        roomText = UiKit.Label(p, "", 18, FontStyle.Normal, Color.white, 26, TextAnchor.MiddleLeft);
+        roomText = UiKit.Label(p, "", 14, FontStyle.Normal, Color.white, 26, TextAnchor.MiddleLeft);
         countText = UiKit.Label(p, "", 15, FontStyle.Normal, UiKit.MutedText, 20, TextAnchor.MiddleLeft);
         var copy = UiKit.Button(p, "Copier le lien d'invitation", UiKit.PrimaryColor, 38, () =>
         {

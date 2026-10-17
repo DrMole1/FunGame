@@ -316,8 +316,6 @@ public class GameSession : MonoBehaviour
         hub.logText.text = string.Join("\n", logs);
         string user = terminalUser.Length > 0 && net.Roster.TryGetValue(terminalUser, out var u) ? u.name : null;
         hub.terminalText.text = TerminalUI.Menu + (user != null ? "\n\n> Utilisé par " + user : "");
-        if (net.InGame)
-            hud.SetInfo("Manche " + round + "  ·  " + time + "\nQuota : " + progress + " / " + quota + "  ·  Cagnotte : " + cash + " golds");
     }
 
     void RefreshHud()
@@ -603,8 +601,8 @@ public class GameSession : MonoBehaviour
         terminal.Close(false);
         if (!status.Dead) KillLocal(null);
         OrbitCamera.LockCursor(false);
-        hud.ShowGameOver("Le quota de la manche " + round + " n'a pas été atteint (" + progress + " / " + quota + ").\n" +
-                         "Manches réussies : " + (round - 1) + (net.IsHost ? "" : "\nEn attente de l'hôte pour une nouvelle partie…"),
+        // Manche, temps, quota et cagnotte ne s'affichent que sur les écrans du chapiteau.
+        hud.ShowGameOver("Le quota n'a pas été atteint." + (net.IsHost ? "" : "\nEn attente de l'hôte pour une nouvelle partie…"),
             net.IsHost);
     }
 

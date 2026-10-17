@@ -138,13 +138,8 @@ public class TerminalStation : Interactable
     {
         var go = new GameObject("Terminal");
         go.transform.SetParent(anchor, false);
-        var model = GameArt.SpawnModel("Terminal", go.transform, 1.4f);
-        if (model != null)
-        {
-            // L'écran du modèle Meshy regarde vers son -Z : on le tourne vers le centre du Hub.
-            model.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-        }
-        else
+        // Le clavier et l'écran du modèle Meshy sont vers son +Z, comme l'ancre qui regarde le centre du Hub.
+        if (GameArt.SpawnModel("Terminal", go.transform, 1.4f) == null)
         {
             GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, 0.4f, 0f), new Vector3(1.4f, 0.8f, 0.7f), GameArt.Metal);
             GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, 1.1f, 0.05f), new Vector3(0.7f, 0.6f, 0.5f), GameArt.Lit("Beige", new Color(0.8f, 0.75f, 0.6f)));
@@ -176,8 +171,8 @@ public class Kennel : Interactable
         var go = new GameObject("Chenil");
         go.transform.SetParent(parent, false);
         go.transform.SetPositionAndRotation(pos, rot);
-        var model = GameArt.SpawnModel("Kennel", go.transform, 1.3f);
-        if (model == null)
+        // L'ouverture du modèle Meshy est vers son +Z, comme le chenil qui regarde le centre du Hub.
+        if (GameArt.SpawnModel("Kennel", go.transform, 1.3f) == null)
         {
             Material wood = GameArt.Lit("KennelWood", new Color(0.85f, 0.78f, 0.62f));
             Material roof = GameArt.Lit("KennelRoof", new Color(0.65f, 0.1f, 0.1f));
@@ -187,11 +182,6 @@ public class Kennel : Interactable
             var r2 = GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0.32f, 1.05f, 0f), new Vector3(0.8f, 0.08f, 1.2f), roof);
             r2.transform.localRotation = Quaternion.Euler(0f, 0f, -35f);
             GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, 0.35f, 0.551f), new Vector3(0.5f, 0.6f, 0.01f), GameArt.Lit("KennelHole", new Color(0.05f, 0.04f, 0.03f)));
-        }
-        else
-        {
-            // Le modèle Meshy a l'entrée vers son -Z : on le tourne vers le centre du Hub.
-            model.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
         }
 
         var kennel = go.AddComponent<Kennel>();
@@ -209,7 +199,7 @@ public class Kennel : Interactable
         board.localRotation = Quaternion.Euler(0f, 180f, 0f);
         GameArt.Prim(PrimitiveType.Cube, board, new Vector3(0f, 0f, 0.03f), new Vector3(1.9f, 1.05f, 0.04f), GameArt.Unlit("ScreenBg", new Color(0.02f, 0.03f, 0.04f)));
         GameArt.Prim(PrimitiveType.Cube, board, new Vector3(0f, -0.9f, 0.05f), new Vector3(0.06f, 0.8f, 0.06f), GameArt.Lit("HubGold", new Color(0.85f, 0.65f, 0.2f)));
-        kennel.sign = GameArt.CreateText(board, "Texte", new Vector3(0f, 0f, -0.01f), 0.022f, Color.white);
+        kennel.sign = GameArt.CreateText(board, "Texte", new Vector3(0f, 0f, -0.01f), 0.028f, Color.white);
         return kennel;
     }
 

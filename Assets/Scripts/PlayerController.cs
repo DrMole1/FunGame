@@ -17,6 +17,8 @@ public class PlayerController : MonoBehaviour
     CapsuleCollider col;
     CharacterAvatar avatar;
     PlayerStatus status;
+    // PlayerStatus est ajouté par NetworkGame après l'Awake de ce composant.
+    PlayerStatus Status => status != null ? status : (status = GetComponent<PlayerStatus>());
     Vector3 inputDir;
     Gait gait;
     bool jumpRequested, grounded;
@@ -30,7 +32,6 @@ public class PlayerController : MonoBehaviour
         rb = GetComponent<Rigidbody>();
         col = GetComponent<CapsuleCollider>();
         avatar = GetComponent<CharacterAvatar>();
-        status = GetComponent<PlayerStatus>();
         rb.freezeRotation = true;
         rb.interpolation = RigidbodyInterpolation.Interpolate;
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
@@ -39,7 +40,7 @@ public class PlayerController : MonoBehaviour
             cameraTransform = Camera.main.transform;
     }
 
-    bool CanControl => !InputLocked && (status == null || !status.Dead);
+    bool CanControl => !InputLocked && (Status == null || !Status.Dead);
 
     void Update()
     {
@@ -83,13 +84,13 @@ public class PlayerController : MonoBehaviour
         }
         airborneLock -= Time.deltaTime;
 
-        if (avatar != null && (status == null || !status.Dead))
+        if (avatar != null && (Status == null || !Status.Dead))
             avatar.SetState(ComputeAnimState(grounded && airborneLock <= 0f));
     }
 
     float CurrentSpeed()
     {
-        int items = status != null ? status.ItemCount : 0;
+        int items = Status != null ? Status.ItemCount : 0;
         switch (gait)
         {
             case Gait.Run: return moveSpeed * GameRules.RunMultiplier(items);

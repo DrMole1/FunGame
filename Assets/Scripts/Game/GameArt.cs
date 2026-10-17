@@ -10,7 +10,16 @@ public static class GameArt
     static Material lit, litEmissive, unlit, outline, text3D;
     static Font font;
 
-    public static Font Font => font != null ? font : (font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"));
+    public static Font Font
+    {
+        get
+        {
+            if (font != null) return font;
+            var fonts = Resources.Load<GameFonts>("GameFonts");
+            font = fonts != null && fonts.main != null ? fonts.main : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            return font;
+        }
+    }
 
     static Material Template(ref Material field, string path, string fallbackShader)
     {
