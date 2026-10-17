@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Pseudo affiché au-dessus d'un cube, toujours tourné vers la caméra.
+// Pseudo affiché au-dessus d'un joueur, toujours tourné vers la caméra.
 public class NameTag : MonoBehaviour
 {
     public float height = 1.05f;

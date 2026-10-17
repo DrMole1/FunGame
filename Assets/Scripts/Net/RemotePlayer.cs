@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Cube d'un autre joueur : suit en douceur les positions reçues du réseau.
+// Personnage d'un autre joueur : suit en douceur les positions et l'animation reçues du réseau.
 public class RemotePlayer : MonoBehaviour
 {
     public string PlayerId { get; private set; }
@@ -8,31 +8,35 @@ public class RemotePlayer : MonoBehaviour
     Vector3 targetPos;
     float targetYaw;
     bool hasTarget;
+    CharacterAvatar avatar;
 
-    public static RemotePlayer Create(string id, string playerName, Color color, Material template, Vector3 position)
+    public static RemotePlayer Create(string id, string playerName, Color color, CharacterLibrary library, int character, Vector3 position)
     {
-        GameObject go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        go.name = "Remote_" + playerName;
+        var go = new GameObject("Remote_" + playerName);
         go.transform.position = position;
 
-        var rend = go.GetComponent<Renderer>();
-        rend.material = new Material(template) { color = color };
-
-        // Cinématique : les autres joueurs sont des obstacles qui poussent le cube local.
+        // Cinématique : les autres joueurs sont des obstacles qui poussent le joueur local.
+        CharacterAvatar.EnsureCapsule(go, library);
         var rb = go.AddComponent<Rigidbody>();
         rb.isKinematic = true;
 
         var rp = go.AddComponent<RemotePlayer>();
         rp.PlayerId = id;
         rp.targetPos = position;
-        go.AddComponent<NameTag>().Set(playerName, color);
+        rp.avatar = go.AddComponent<CharacterAvatar>();
+        rp.avatar.SetCharacter(library, character);
+
+        var tag = go.AddComponent<NameTag>();
+        tag.height = library.height * 0.5f + 0.35f;
+        tag.Set(playerName, color);
         return rp;
     }
 
-    public void SetTarget(Vector3 pos, float yaw)
+    public void SetTarget(Vector3 pos, float yaw, AnimState anim)
     {
         targetPos = pos;
         targetYaw = yaw;
+        avatar.SetState(anim);
         if (!hasTarget)
         {
             hasTarget = true;

@@ -21,3 +21,6 @@
 *.opendb
 *.VC.db
 crashlytics-build.properties
+
+# Meshy MCP
+meshy_output/

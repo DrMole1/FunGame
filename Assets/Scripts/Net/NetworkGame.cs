@@ -5,10 +5,10 @@ using UnityEngine;
 
 // Gère le lobby, la connexion (hôte / client) et la synchronisation des joueurs.
 // Protocole texte, champs séparés par '|' :
-//   J|nom|teinte        client -> hôte : je rejoins la partie
-//   P|id|nom|teinte     hôte -> clients : un joueur est présent
-//   S|id|x|y|z|yaw      état d'un joueur (l'hôte relaie ceux des clients, cf. PeerNet.jslib)
-//   L|id                hôte -> clients : un joueur est parti
+//   J|nom|teinte              client -> hôte : je rejoins la partie
+//   P|id|nom|teinte|perso     hôte -> clients : un joueur est présent (l'hôte choisit le personnage)
+//   S|id|x|y|z|yaw|anim       état d'un joueur (l'hôte relaie ceux des clients, cf. PeerNet.jslib)
+//   L|id                      hôte -> clients : un joueur est parti
 public class NetworkGame : MonoBehaviour
 {
     public const string ObjectName = "NetworkManager";
@@ -23,6 +23,7 @@ public class NetworkGame : MonoBehaviour
     {
         public string name;
         public float hue;
+        public int character;
     }
 
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
@@ -32,7 +33,8 @@ public class NetworkGame : MonoBehaviour
     string myId, hostId, roomCode, myName;
     float myHue, sendTimer, connectTimer;
 
-    CubeController localPlayer;
+    PlayerController localPlayer;
+    CharacterLibrary library;
     Vector3 spawnOrigin;
     LobbyUI ui;
     readonly Dictionary<string, PlayerInfo> roster = new Dictionary<string, PlayerInfo>();
@@ -50,7 +52,8 @@ public class NetworkGame : MonoBehaviour
         gameObject.name = ObjectName;
         Application.runInBackground = true;
 
-        localPlayer = FindObjectOfType<CubeController>(true);
+        localPlayer = FindObjectOfType<PlayerController>(true);
+        library = localPlayer.GetComponent<CharacterLibrary>();
         spawnOrigin = localPlayer.transform.position;
         localPlayer.gameObject.SetActive(false);
         OrbitCamera.ControlsEnabled = false;
@@ -78,7 +81,8 @@ public class NetworkGame : MonoBehaviour
         {
             sendTimer = 0f;
             Vector3 p = t.position;
-            string msg = "S|" + myId + "|" + F(p.x) + "|" + F(p.y) + "|" + F(p.z) + "|" + F(t.eulerAngles.y);
+            string msg = "S|" + myId + "|" + F(p.x) + "|" + F(p.y) + "|" + F(p.z) + "|" + F(t.eulerAngles.y)
+                + "|" + (int)localPlayer.CurrentAnimState;
             if (isHost) PeerNet.Broadcast(msg);
             else PeerNet.Send(hostId, msg);
         }
@@ -133,8 +137,9 @@ public class NetworkGame : MonoBehaviour
         myId = id;
         if (state == State.Hosting)
         {
-            roster[myId] = new PlayerInfo { name = myName, hue = myHue };
-            EnterGame();
+            var me = new PlayerInfo { name = myName, hue = myHue, character = PickCharacter() };
+            roster[myId] = me;
+            EnterGame(me.character);
         }
         // En mode Joining, on attend OnPeerConnected de l'hôte.
     }
@@ -159,11 +164,9 @@ public class NetworkGame : MonoBehaviour
     void OnPeerConnected(string peerId)
     {
         // Côté hôte, on attend le message J du nouveau joueur.
+        // Côté client, on entre en jeu à la réception de notre propre P (personnage attribué par l'hôte).
         if (state == State.Joining && peerId == hostId)
-        {
             PeerNet.Send(hostId, "J|" + myName + "|" + F(myHue));
-            EnterGame();
-        }
     }
 
     void OnPeerDisconnected(string peerId)
@@ -183,7 +186,7 @@ public class NetworkGame : MonoBehaviour
     void OnNetData(string payload)
     {
         int nl = payload.IndexOf('\n');
-        if (nl < 0 || state != State.InGame) return;
+        if (nl < 0 || (state != State.InGame && state != State.Joining)) return;
         string from = payload.Substring(0, nl);
         string[] f = payload.Substring(nl + 1).Split('|');
 
@@ -191,7 +194,8 @@ public class NetworkGame : MonoBehaviour
         {
             case "J" when isHost && f.Length >= 3:
             {
-                var info = new PlayerInfo { name = SanitizeName(f[1]), hue = P(f[2]) };
+                if (state != State.InGame) break;
+                var info = new PlayerInfo { name = SanitizeName(f[1]), hue = P(f[2]), character = PickCharacter() };
                 foreach (var kv in roster)
                     PeerNet.Send(from, PlayerMsg(kv.Key, kv.Value));
                 roster[from] = info;
@@ -199,15 +203,20 @@ public class NetworkGame : MonoBehaviour
                 SpawnRemote(from, info);
                 break;
             }
-            case "P" when !isHost && f.Length >= 4:
+            case "P" when !isHost && f.Length >= 5:
+            {
+                var info = new PlayerInfo { name = f[2], hue = P(f[3]), character = I(f[4]) };
                 if (f[1] != myId)
-                    SpawnRemote(f[1], new PlayerInfo { name = f[2], hue = P(f[3]) });
+                    SpawnRemote(f[1], info);
+                else if (state == State.Joining)
+                    EnterGame(info.character);
                 break;
-            case "S" when f.Length >= 6:
+            }
+            case "S" when f.Length >= 7:
                 // L'hôte n'accepte d'un client que son propre état.
                 if (isHost && f[1] != from) break;
                 if (remotes.TryGetValue(f[1], out var rp))
-                    rp.SetTarget(new Vector3(P(f[2]), P(f[3]), P(f[4])), P(f[5]));
+                    rp.SetTarget(new Vector3(P(f[2]), P(f[3]), P(f[4])), P(f[5]), (AnimState)Mathf.Clamp(I(f[6]), 0, 3));
                 break;
             case "L" when !isHost && f.Length >= 2:
                 RemoveRemote(f[1]);
@@ -217,15 +226,19 @@ public class NetworkGame : MonoBehaviour
 
     // ---------- Partie ----------
 
-    void EnterGame()
+    void EnterGame(int character)
     {
         state = State.InGame;
         sendTimer = 0f;
 
         GameObject go = localPlayer.gameObject;
         Color color = HueColor(myHue);
-        go.GetComponent<Renderer>().material.color = color;
-        if (!go.TryGetComponent(out NameTag tag)) tag = go.AddComponent<NameTag>();
+        go.GetComponent<CharacterAvatar>().SetCharacter(library, character);
+        if (!go.TryGetComponent(out NameTag tag))
+        {
+            tag = go.AddComponent<NameTag>();
+            tag.height = library.height * 0.5f + 0.35f;
+        }
         tag.Set(myName, color);
         go.SetActive(true);
         Respawn();
@@ -261,8 +274,7 @@ public class NetworkGame : MonoBehaviour
     void SpawnRemote(string id, PlayerInfo info)
     {
         if (remotes.ContainsKey(id)) return;
-        var template = localPlayer.GetComponent<Renderer>().sharedMaterial;
-        remotes[id] = RemotePlayer.Create(id, info.name, HueColor(info.hue), template, spawnOrigin);
+        remotes[id] = RemotePlayer.Create(id, info.name, HueColor(info.hue), library, info.character, spawnOrigin);
         UpdatePlayerCount();
     }
 
@@ -277,6 +289,15 @@ public class NetworkGame : MonoBehaviour
     }
 
     void UpdatePlayerCount() => ui.SetPlayerCount(remotes.Count + 1);
+
+    // Hôte : un personnage différent par joueur tant que c'est possible, sinon au hasard.
+    int PickCharacter()
+    {
+        var free = new List<int>();
+        for (int i = 0; i < library.Count; i++) free.Add(i);
+        foreach (var info in roster.Values) free.Remove(info.character);
+        return free.Count > 0 ? free[Random.Range(0, free.Count)] : Random.Range(0, library.Count);
+    }
 
     // ---------- Utilitaires ----------
 
@@ -331,8 +352,9 @@ public class NetworkGame : MonoBehaviour
         }
     }
 
-    static string PlayerMsg(string id, PlayerInfo info) => "P|" + id + "|" + info.name + "|" + F(info.hue);
+    static string PlayerMsg(string id, PlayerInfo info) => "P|" + id + "|" + info.name + "|" + F(info.hue) + "|" + info.character;
     static Color HueColor(float hue) => Color.HSVToRGB(hue, 0.6f, 0.95f);
     static string F(float v) => v.ToString("0.###", Inv);
     static float P(string s) => float.TryParse(s, NumberStyles.Float, Inv, out float v) ? v : 0f;
+    static int I(string s) => int.TryParse(s, NumberStyles.Integer, Inv, out int v) ? v : 0;
 }
