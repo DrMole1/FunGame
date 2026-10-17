@@ -59,11 +59,12 @@ public static class WorldBuilder
         Material creamMat = GameArt.Lit("HubCream", cream, null, 0.25f);
         Material gold = GameArt.Lit("HubGold", new Color(0.85f, 0.65f, 0.2f), null, 0.6f);
 
-        // Sol (planches) et collision.
+        // Sol (terre gravillonnée, matériau créé par GameSetup) et collision.
         var floor = new MeshBuilder();
-        floor.Disc(Vector3.zero, HubRadius + 0.3f, 48, 0.35f);
-        Texture2D wood = GameArt.Noise("wood", 128, 0.7f, 0.25f, 3);
-        GameArt.MeshObject("Floor", root, floor.Build("HubFloor"), GameArt.Lit("HubFloor", new Color(0.62f, 0.42f, 0.26f), wood, 0.15f));
+        floor.Disc(Vector3.zero, HubRadius + 0.3f, 48, 0.25f);
+        Material floorMat = Resources.Load<Material>("Materials/HubFloor");
+        if (floorMat == null) floorMat = GameArt.Lit("HubFloor", new Color(0.62f, 0.42f, 0.26f), GameArt.Noise("wood", 128, 0.7f, 0.25f, 3), 0.15f);
+        GameArt.MeshObject("Floor", root, floor.Build("HubFloor"), floorMat);
         var floorCol = new GameObject("FloorCollider").AddComponent<BoxCollider>();
         floorCol.transform.SetParent(root, false);
         floorCol.center = new Vector3(0f, -0.5f, 0f);

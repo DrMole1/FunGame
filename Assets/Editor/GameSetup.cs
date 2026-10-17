@@ -34,6 +34,24 @@ public static class GameSetup
         CreateMaterial("Unlit", "Unlit/Color", null);
         CreateMaterial("Outline", "FunGame/Outline", null);
         CreateMaterial("Text3D", "FunGame/Text3D", null);
+
+        // Sol du chapiteau : terre gravillonnée (texture 4K réduite pour le build WebGL).
+        const string groundPath = "Assets/Materials/Basemap/zGround022_4K-PNG_Color.png";
+        var groundImporter = (TextureImporter)AssetImporter.GetAtPath(groundPath);
+        if (groundImporter != null && groundImporter.maxTextureSize != 1024)
+        {
+            groundImporter.maxTextureSize = 1024;
+            groundImporter.SaveAndReimport();
+        }
+        var ground = AssetDatabase.LoadAssetAtPath<Texture2D>(groundPath);
+        if (ground == null) Debug.LogError("Texture de sol introuvable : " + groundPath);
+        CreateMaterial("HubFloor", "Standard", m =>
+        {
+            m.mainTexture = ground;
+            m.color = new Color(1f, 0.92f, 0.82f);
+            m.SetFloat("_Glossiness", 0.08f);
+            m.SetFloat("_Metallic", 0f);
+        });
     }
 
     static void CreateFonts()
