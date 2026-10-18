@@ -14,6 +14,9 @@ public static class GameRules
     public const int LogLines = 8;
     public const float Gravity = -9.81f;
 
+    // Après un /tp, le personnage de l'hôte ne prend aucun dégât pendant 5 secondes.
+    public const float TeleportInvincibility = 5f;
+
     public const float CameraMinDistance = 2f;
     public const float CameraMaxDistance = 5f;
 

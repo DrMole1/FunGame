@@ -45,7 +45,6 @@ public static class GameSetup
         CreateMaterial("Mist", "FunGame/Mist", null);
         CreateMaterial("Ectoplasm", "FunGame/Ectoplasm", null);
         CreateMaterial("GhostAura", "FunGame/GhostAura", null);
-        CreateMaterial("Veil", "FunGame/Veil", null);
 
         // Sol du chapiteau : terre gravillonnée (texture 4K réduite pour le build WebGL).
         const string groundPath = "Assets/Materials/Basemap/zGround022_4K-PNG_Color.png";

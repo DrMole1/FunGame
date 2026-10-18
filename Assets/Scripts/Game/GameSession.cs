@@ -78,6 +78,7 @@ public class GameSession : MonoBehaviour
     int pendingPickups;
     string spectateId;
     float mistAmount;
+    float invincibleUntil; // fin de l'invincibilité qui suit un /tp
     readonly Dictionary<int, bool> watching = new Dictionary<int, bool>();
 
     public PlayerPresence LocalPresence => net.InGame ? presence : null;
@@ -660,11 +661,13 @@ public class GameSession : MonoBehaviour
         RefreshHud();
     }
 
-    // Dégâts reçus par le personnage local. Le Hub est un endroit sûr.
+    bool Invincible => Time.time < invincibleUntil;
+
+    // Dégâts reçus par le personnage local. Le Hub est un endroit sûr ; juste après un /tp, aucun dégât.
     public void DamageLocal(int amount, string cause)
     {
         if (status.Dead || phase == Phase.GameOver || !net.InGame) return;
-        if (WorldBuilder.IsInHub(player.transform.position)) return;
+        if (WorldBuilder.IsInHub(player.transform.position) || Invincible) return;
         status.SetHp(status.Hp - amount);
         hud.FlashDamage();
         GameAudio.Play2D("hurt", 0.9f, 0.08f);
@@ -965,7 +968,15 @@ public class GameSession : MonoBehaviour
 
     // /tp (hôte) : téléporte le personnage à 3 mètres de l'ennemi le plus proche ("enemy"), de la porte de la
     // Zone 2 ("door") ou d'un joueur (son pseudo). Retourne le message à afficher, ou null si la commande est invalide.
+    // Le personnage est ensuite invincible pendant quelques secondes.
     public string Teleport(string target)
+    {
+        string result = TeleportTo(target);
+        if (result != null) invincibleUntil = Time.time + GameRules.TeleportInvincibility;
+        return result;
+    }
+
+    string TeleportTo(string target)
     {
         if (!net.IsHost || status.Dead) return null;
         Vector3 here = player.transform.position;
@@ -1400,7 +1411,7 @@ public class GameSession : MonoBehaviour
                 break;
             case "DH" when f.Length >= 3:
             {
-                if (status.Dead) break;
+                if (status.Dead || Invincible) break;
                 var from2 = new Vector3(NetworkGame.P(f[1]), player.transform.position.y, NetworkGame.P(f[2]));
                 DamageLocal(GameRules.DameDamage, "La Dame");
                 if (!status.Dead) player.Knockback(player.transform.position - from2, GameRules.DameKnockback);

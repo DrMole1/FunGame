@@ -155,8 +155,6 @@ public static class GameArt
     public static Material Ectoplasm => FromTemplate("Ectoplasm", () => Emissive("EctoFallback", new Color(0.1f, 0.3f, 0.7f), new Color(0.1f, 0.35f, 0.9f)));
     // Aura bleue des orbes activés.
     public static Material GhostAura => FromTemplate("GhostAura", () => Unlit("AuraFallback", new Color(0.2f, 0.5f, 1f)));
-    // Voile blanc de La Dame (particules).
-    public static Material Veil => FromTemplate("Veil", () => Unlit("VeilFallback", Color.white));
 
     // Particules d'étincelles (Resources/Materials/Spark).
     public static Material Spark

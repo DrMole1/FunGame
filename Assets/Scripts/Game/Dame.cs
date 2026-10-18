@@ -9,10 +9,10 @@ public class Dame : MonoBehaviour
 {
     public enum State : byte { Wander = 0, Chase = 1, Attack = 2 }
 
-    const float Height = 2.1f;
+    const float Height = 2.31f;
     const float ReachHorizontal = 1.15f, ReachVertical = 1.7f;
     const float AttackDuration = 1.5f, AttackHitTime = 0.6f;
-    const float EyeHeight = 1.8f, FieldOfView = 160f;
+    const float EyeHeight = 1.98f, FieldOfView = 160f;
     const float WaypointReach = 0.45f;
     const float IgnoreAfterChase = 6f;
 
@@ -35,8 +35,6 @@ public class Dame : MonoBehaviour
 
     // Affichage.
     Animator animator;
-    ParticleSystem veil;
-    AudioSource whisper;
     Vector3 netPos;
     float netYaw;
     bool hasNet;
@@ -92,55 +90,6 @@ public class Dame : MonoBehaviour
             GameArt.Prim(PrimitiveType.Sphere, transform, new Vector3(0f, 1.86f, 0.12f), new Vector3(0.24f, 0.32f, 0.16f), mask);
             GameArt.Prim(PrimitiveType.Cylinder, transform, new Vector3(0f, 2.07f, 0f), new Vector3(0.28f, 0.06f, 0.28f), iron);
         }
-        veil = BuildVeil();
-        whisper = GameAudio.Loop3D("dame_whisper", transform, Vector3.up * 1.6f, 0.55f, 14f);
-        if (whisper != null) whisper.Play();
-    }
-
-    // Voile blanc qui s'échappe de la cape quand elle se déplace.
-    ParticleSystem BuildVeil()
-    {
-        var go = new GameObject("Voile");
-        go.transform.SetParent(transform, false);
-        go.transform.localPosition = new Vector3(0f, 0.35f, -0.15f);
-        go.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
-        var ps = go.AddComponent<ParticleSystem>();
-        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        var main = ps.main;
-        main.playOnAwake = false;
-        main.loop = true;
-        main.startLifetime = new ParticleSystem.MinMaxCurve(1.4f, 2.4f);
-        main.startSpeed = new ParticleSystem.MinMaxCurve(0.1f, 0.35f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.5f, 1.1f);
-        main.startRotation = new ParticleSystem.MinMaxCurve(-0.6f, 0.6f);
-        main.startColor = new Color(0.92f, 0.94f, 1f, 0.45f);
-        main.gravityModifier = -0.04f;
-        main.simulationSpace = ParticleSystemSimulationSpace.World;
-        main.maxParticles = 80;
-        var emission = ps.emission;
-        emission.rateOverTime = 0f;
-        var shape = ps.shape;
-        shape.shapeType = ParticleSystemShapeType.Circle;
-        shape.radius = 0.45f;
-        var col = ps.colorOverLifetime;
-        col.enabled = true;
-        var g = new Gradient();
-        g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(new Color(0.8f, 0.85f, 0.95f), 1f) },
-            new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(0.5f, 0.15f), new GradientAlphaKey(0f, 1f) });
-        col.color = g;
-        var size = ps.sizeOverLifetime;
-        size.enabled = true;
-        size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 0.7f, 1f, 1.6f));
-        var rotation = ps.rotationOverLifetime;
-        rotation.enabled = true;
-        rotation.z = new ParticleSystem.MinMaxCurve(-0.5f, 0.5f);
-        var r = go.GetComponent<ParticleSystemRenderer>();
-        r.sharedMaterial = GameArt.Veil;
-        r.renderMode = ParticleSystemRenderMode.Billboard;
-        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        r.receiveShadows = false;
-        ps.Play();
-        return ps;
     }
 
     // ================= Simulation (hôte) =================
@@ -349,15 +298,10 @@ public class Dame : MonoBehaviour
         }
         lastSimState = Current;
 
-        // Vitesse affichée (identique chez tous) : animations et voile.
+        // Vitesse affichée (identique chez tous) : animations.
         float moved = Horizontal(transform.position - lastPos).magnitude / Mathf.Max(dt, 0.0001f);
         lastPos = transform.position;
         visualSpeed = Mathf.Lerp(visualSpeed, moved, 1f - Mathf.Exp(-6f * dt));
-        if (veil != null)
-        {
-            var emission = veil.emission;
-            emission.rateOverTime = Mathf.Clamp(visualSpeed * 9f, 0f, 70f);
-        }
         if (animator != null)
         {
             string wanted = Current == State.Attack ? "Attack" : visualSpeed > GameRules.BaseSpeed * 1.2f ? "Run" : visualSpeed > 0.3f ? "Walk" : "Idle";

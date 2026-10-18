@@ -16,7 +16,7 @@ public static class SoundBank
         "hurt", "death", "revive", "duck", "pop", "eat", "key", "beep", "error", "register",
         "hub_music", "maze_drone", "insects", "neon", "blink", "step_tile", "step_dirt",
         "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
-        "dame_whisper", "dame_scream", "dame_attack",
+        "dame_scream", "dame_attack",
     };
 
     public static void Preload()
@@ -71,7 +71,6 @@ public static class SoundBank
             case "orb_on": return OrbOn(rnd);
             case "orb_break": return OrbBreak(rnd);
             case "zone_door": return ZoneDoor(rnd);
-            case "dame_whisper": return DameWhisper(rnd);
             case "dame_scream": return DameScream(rnd);
             case "dame_attack": return DameAttack(rnd);
         }
@@ -694,24 +693,6 @@ public static class SoundBank
         return MakeLoop(d, loop, 1.5f);
     }
 
-    // Murmure soufflé (chuchotements de La Dame).
-    static float[] Whisper(System.Random rnd, float length, float formantSpeed)
-    {
-        var d = Buffer(length);
-        var f1 = new BandPass();
-        var f2 = new BandPass();
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate;
-            float k = t / formantSpeed;
-            float n = Noise(rnd);
-            float s = f1.Process(n, 900f + 700f * Mathf.Sin(k * 5f), 0.15f) + f2.Process(n, 2600f + 900f * Mathf.Sin(k * 3.3f + 1f), 0.2f) * 0.6f;
-            float syllables = 0.4f + 0.6f * Mathf.Abs(Mathf.Sin(TwoPi * 3.2f * t));
-            d[i] = s * syllables * ASR(t, 0.08f, 0.2f, length);
-        }
-        return d;
-    }
-
     // ---------- Post-It, orbes, porte ----------
 
     // Papier qu'on décolle ou qu'on colle.
@@ -789,22 +770,6 @@ public static class SoundBank
     }
 
     // ---------- La Dame ----------
-
-    // Chuchotements en boucle autour de La Dame.
-    static float[] DameWhisper(System.Random rnd)
-    {
-        const float loop = 5f;
-        var d = Buffer(loop + 0.8f);
-        var w = Whisper(rnd, loop + 0.8f, 0.6f);
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate;
-            // Phrases chuchotées entrecoupées de silences.
-            float gate = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(Mathf.Sin(TwoPi * t / 2.5f + 0.3f) * 3f));
-            d[i] = w[Mathf.Min(i, w.Length - 1)] * (0.2f + 0.8f * gate) + Sine(55f * t) * 0.08f;
-        }
-        return MakeLoop(d, loop, 0.6f);
-    }
 
     // Cri strident quand elle prend un joueur en chasse.
     static float[] DameScream(System.Random rnd)
