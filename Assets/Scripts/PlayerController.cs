@@ -29,6 +29,11 @@ public class PlayerController : MonoBehaviour
     float knockTimer;
     const float KnockDuration = 0.6f;
 
+    // Immobilisé (attaque de La Dame) jusqu'à cet instant : plus de déplacement ni de saut.
+    float lockedUntil;
+    public void Immobilize(float seconds) => lockedUntil = Mathf.Max(lockedUntil, Time.time + seconds);
+    bool Immobilized => Time.time < lockedUntil;
+
     // Multiplicateur de vitesse imposé par le jeu (brume de l'Abjuration).
     public float SpeedFactor { get; set; } = 1f;
 
@@ -54,7 +59,7 @@ public class PlayerController : MonoBehaviour
     {
         float v = 0f, h = 0f;
         bool runHeld = false, sneakHeld = false;
-        if (CanControl)
+        if (CanControl && !Immobilized)
         {
             // Z/W accepté quel que soit le clavier (AZERTY/QWERTY) ; gauche = la touche Q (voir KeyLayout), A sert à aboyer.
             if (Input.GetKey(KeyCode.Z) || Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) v += 1f;
@@ -84,7 +89,7 @@ public class PlayerController : MonoBehaviour
         inputDir = Vector3.ClampMagnitude(forward * v + right * h, 1f);
 
         grounded = IsGrounded();
-        if (CanControl && Input.GetKeyDown(KeyCode.Space) && grounded && airborneLock <= 0f)
+        if (CanControl && !Immobilized && Input.GetKeyDown(KeyCode.Space) && grounded && airborneLock <= 0f)
         {
             jumpRequested = true;
             // Juste après l'impulsion, le sol est encore détecté : on reste en état "saut".

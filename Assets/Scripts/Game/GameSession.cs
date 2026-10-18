@@ -22,6 +22,7 @@ using UnityEngine;
 //   EN|id,x,y,z,lacet,état,cible;...                            hôte -> tous : entités (La Dame)
 //   LK|id|1/0                                                   le joueur chassé regarde (ou non) La Dame
 //   DH|x|z                                                      hôte -> joueur : La Dame vous frappe depuis (x, z)
+//   DF|durée                                                    hôte -> joueur : La Dame vous attaque, immobilisé
 //   SK -> SR|bonus (-1 = refusé)                                /skip round : passer à la manche suivante
 //   BK|pitch -> BA|id|pitch                                     aboiement d'un joueur
 public class GameSession : MonoBehaviour
@@ -836,7 +837,7 @@ public class GameSession : MonoBehaviour
         }
         Vector3 pos = maze.nav.Position(node);
         int id = nextDameId++;
-        dames[id] = Dame.Create(entitiesRoot, id, pos, (float)rnd.NextDouble() * 360f, maze.nav, OnDameHit);
+        dames[id] = Dame.Create(entitiesRoot, id, pos, (float)rnd.NextDouble() * 360f, maze.nav, OnDameHit, OnDameAttack);
     }
 
     float GroundBelow(Vector3 p)
@@ -878,6 +879,10 @@ public class GameSession : MonoBehaviour
     {
         foreach (var d in dames.Values) d.Present(net.IsHost, Time.deltaTime);
     }
+
+    // La Dame commence son attaque : le joueur visé ne peut plus bouger jusqu'à la fin de son geste.
+    void OnDameAttack(Dame dame, string targetId) =>
+        net.ToPeer(targetId, "DF|" + NetworkGame.F(Dame.AttackLength));
 
     // La Dame frappe : le joueur visé encaisse les dégâts chez lui (hôte : message direct).
     void OnDameHit(Dame dame, string targetId)
@@ -1457,6 +1462,9 @@ public class GameSession : MonoBehaviour
             case "LK" when host && f.Length >= 3:
                 if (dames.TryGetValue(NetworkGame.I(f[1]), out var watched) && watched.TargetId == from)
                     watched.Watched = f[2] == "1";
+                break;
+            case "DF" when f.Length >= 2:
+                if (!status.Dead) player.Immobilize(NetworkGame.P(f[1]));
                 break;
             case "DH" when f.Length >= 3:
             {

@@ -11,11 +11,14 @@ public class Dame : MonoBehaviour
     public enum State : byte { Wander = 0, Chase = 1, Attack = 2 }
 
     const float Height = 2.31f;
-    const float ReachHorizontal = 1.15f, ReachVertical = 1.7f;
-    // Au moment du coup, le joueur est touché jusqu'à environ 2,12 m (portée + marge, augmentée deux fois de 10 %).
-    const float HitMargin = (ReachHorizontal + 0.6f) * 1.1f * 1.1f - ReachHorizontal;
+    // Elle lance son attaque quand le personnage est à moins de 0,8 m ; le coup touche jusqu'à environ 2,12 m.
+    const float AttackStartDistance = 0.8f, ReachVertical = 1.7f;
+    const float HitDistance = (1.15f + 0.6f) * 1.1f * 1.1f;
     // Attaque courte : le clip est accéléré pour se jouer en entier pendant AttackDuration.
-    const float AttackDuration = 0.7f, AttackHitTime = 0.4f;
+    const float AttackDuration = 0.7f;
+    // Le coup porte quand ses bras sont au plus bas : à 30 % du clip d'attaque (mesuré sur l'animation Meshy).
+    const float AttackHitFraction = 0.3f;
+    const float AttackHitTime = AttackDuration * AttackHitFraction;
     const float EyeHeight = 1.98f, FieldOfView = 160f;
     // Hors chasse, elle sent un personnage qui passe tout près, devant comme dans son dos.
     const float SenseRadius = 4f;
@@ -35,7 +38,7 @@ public class Dame : MonoBehaviour
     float repathTimer, chaseTimer, attackTimer;
     bool hitDone;
     readonly Dictionary<string, float> ignoreUntil = new Dictionary<string, float>();
-    System.Action<Dame, string> onHit;
+    System.Action<Dame, string> onHit, onAttack;
 
     // Affichage.
     Animator animator;
@@ -49,7 +52,9 @@ public class Dame : MonoBehaviour
 
     public float Speed { get; private set; }
 
-    public static Dame Create(Transform parent, int id, Vector3 pos, float yaw, MazeNav nav, System.Action<Dame, string> onHit)
+    // 'onAttack' : l'attaque commence contre ce joueur (il est immobilisé) ; 'onHit' : le coup porte.
+    public static Dame Create(Transform parent, int id, Vector3 pos, float yaw, MazeNav nav, System.Action<Dame, string> onHit,
+        System.Action<Dame, string> onAttack = null)
     {
         var go = new GameObject("La Dame " + id);
         go.transform.SetParent(parent, false);
@@ -58,6 +63,7 @@ public class Dame : MonoBehaviour
         dame.Id = id;
         dame.nav = nav;
         dame.onHit = onHit;
+        dame.onAttack = onAttack;
         dame.rnd = new System.Random(id * 7919 + 13);
         dame.netPos = dame.lastPos = pos;
         dame.netYaw = yaw;
@@ -110,7 +116,7 @@ public class Dame : MonoBehaviour
                 {
                     hitDone = true;
                     var target = Find(players, TargetId);
-                    if (target != null && InReach(target, HitMargin)) onHit?.Invoke(this, TargetId);
+                    if (target != null && InReach(target, HitDistance)) onHit?.Invoke(this, TargetId);
                 }
                 if (attackTimer >= AttackDuration)
                 {
@@ -135,7 +141,7 @@ public class Dame : MonoBehaviour
                 if (pathIndex >= path.Count && Horizontal(feet - transform.position).magnitude < 1f && Mathf.Abs(feet.y - transform.position.y) < 0.4f)
                     MoveTowards(new Vector3(feet.x, transform.position.y, feet.z), dt);
                 else FollowPath(dt);
-                if (InReach(target, 0f)) StartAttack(target.PlayerId);
+                if (InReach(target, AttackStartDistance)) StartAttack(target.PlayerId);
                 break;
             }
 
@@ -147,7 +153,7 @@ public class Dame : MonoBehaviour
                 foreach (var p in players)
                 {
                     if (!Valid(p)) continue;
-                    if (InReach(p, 0f)) { BeginChase(p); StartAttack(p.PlayerId); return; }
+                    if (InReach(p, AttackStartDistance)) { BeginChase(p); StartAttack(p.PlayerId); return; }
                     if (Senses(p)) { BeginChase(p); return; }
                     if (ignoreUntil.TryGetValue(p.PlayerId, out float until) && Time.time < until) continue;
                     if (Sees(p, true)) { BeginChase(p); return; }
@@ -190,7 +196,10 @@ public class Dame : MonoBehaviour
         attackTimer = 0f;
         hitDone = false;
         Speed = 0f;
+        onAttack?.Invoke(this, targetId);
     }
+
+    public static float AttackLength => AttackDuration;
 
     static PlayerPresence Find(IReadOnlyList<PlayerPresence> players, string id)
     {
@@ -202,10 +211,10 @@ public class Dame : MonoBehaviour
     // Cible possible : vivante, hors du Hub (endroit sûr).
     static bool Valid(PlayerPresence p) => p != null && p.Alive && p.isActiveAndEnabled && !WorldBuilder.IsInHub(p.Position);
 
-    bool InReach(PlayerPresence p, float margin)
+    bool InReach(PlayerPresence p, float distance)
     {
         Vector3 d = p.Position - transform.position;
-        return Horizontal(d).magnitude < ReachHorizontal + margin && Mathf.Abs(d.y - 0.9f) < ReachVertical;
+        return Horizontal(d).magnitude < distance && Mathf.Abs(d.y - 0.9f) < ReachVertical;
     }
 
     // Personnage à moins de 4 m (2 m en marche discrète), quel que soit l'angle, sans mur entre eux.
@@ -319,7 +328,8 @@ public class Dame : MonoBehaviour
             if (wanted != animState)
             {
                 animState = wanted;
-                animator.CrossFadeInFixedTime(wanted, 0.2f);
+                // L'attaque démarre presque sans fondu : le geste reste calé sur le moment du coup.
+                animator.CrossFadeInFixedTime(wanted, wanted == "Attack" ? 0.03f : 0.2f);
             }
             animator.speed = wanted == "Walk" ? Mathf.Clamp(visualSpeed / 1.3f, 0.6f, 2f) : wanted == "Run" ? Mathf.Clamp(visualSpeed / 4.5f, 0.8f, 2.2f) : wanted == "Attack" ? attackClipLength / AttackDuration : 1f;
         }
