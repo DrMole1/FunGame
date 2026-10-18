@@ -327,6 +327,8 @@ public class GameSession : MonoBehaviour
             syncTimer += Time.unscaledDeltaTime;
             if (syncTimer >= 1f) BroadcastState();
             UpdateHostAbjuration();
+            // La grille de navigation de La Dame se calcule en arrière-plan, quelques colonnes par image.
+            if (maze != null && !maze.nav.Ready) maze.nav.BuildStep(6);
             SimulateEntities();
         }
 
@@ -812,9 +814,11 @@ public class GameSession : MonoBehaviour
 
     void SpawnDame(int zone, System.Random rnd)
     {
-        // Loin du Hub et des joueurs.
+        // Sur la grille de navigation, loin du Hub et des joueurs.
+        if (!maze.nav.Ready) maze.nav.BuildAll();
         Vector3 away = Vector3.zero;
         int node = maze.nav.RandomNode(zone, rnd, away, 30f);
+        if (node < 0) return;
         for (int attempt = 0; attempt < 20; attempt++)
         {
             bool near = false;
@@ -824,9 +828,8 @@ public class GameSession : MonoBehaviour
             node = maze.nav.RandomNode(zone, rnd, away, 30f);
         }
         Vector3 pos = maze.nav.Position(node);
-        pos.y = GroundBelow(pos);
         int id = nextDameId++;
-        dames[id] = Dame.Create(entitiesRoot, id, pos, (float)rnd.NextDouble() * 360f, maze.nav, maze.structure, OnDameHit);
+        dames[id] = Dame.Create(entitiesRoot, id, pos, (float)rnd.NextDouble() * 360f, maze.nav, OnDameHit);
     }
 
     float GroundBelow(Vector3 p)
@@ -1470,7 +1473,7 @@ public class GameSession : MonoBehaviour
             float yaw = NetworkGame.P(p[4]);
             seenEntities.Add(id);
             if (!dames.TryGetValue(id, out var dame) || dame == null)
-                dames[id] = dame = Dame.Create(entitiesRoot, id, pos, yaw, maze.nav, maze.structure, null);
+                dames[id] = dame = Dame.Create(entitiesRoot, id, pos, yaw, maze.nav, null);
             dame.SetNetState(pos, yaw, (Dame.State)Mathf.Clamp(NetworkGame.I(p[5]), 0, 2), p[6]);
         }
         var gone = new List<int>();

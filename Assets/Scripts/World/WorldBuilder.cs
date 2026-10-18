@@ -538,6 +538,7 @@ public static class WorldBuilder
         foreach (Maze m in zones) Decorate(m, root, colliders.transform, rnd, refs);
         refs.mist = BuildMist(zones, root);
         refs.nav = BuildNav(z1, z2);
+        refs.nav.Prepare(colliders.transform, refs.zoneDoor.Blocker);
         foreach (Maze m in zones) AddReflectionProbes(m, root);
         return refs;
     }
@@ -849,22 +850,15 @@ public static class WorldBuilder
         return mist;
     }
 
+    // Zones de la navigation ; la grille fine est calculée plus tard, chez l'hôte seulement (MazeNav.BuildStep).
     static MazeNav BuildNav(Maze z1, Maze z2)
     {
-        var nav = new MazeNav { CellSize = Cell };
+        var nav = new MazeNav();
         foreach (Maze m in new[] { z1, z2 })
         {
             Maze zone = m;
-            nav.AddZone(m.origin, m.N, Cell, (i, j) => !zone.Reserved(i, j));
-            for (int i = 0; i < m.N; i++)
-                for (int j = 0; j < m.N; j++)
-                {
-                    if (m.Reserved(i, j)) continue;
-                    if (i < m.N - 1 && !m.eastWall[i, j]) nav.Link(nav.Node(m.zone, i, j), nav.Node(m.zone, i + 1, j));
-                    if (j < m.N - 1 && !m.northWall[i, j]) nav.Link(nav.Node(m.zone, i, j), nav.Node(m.zone, i, j + 1));
-                }
+            nav.AddZone(m.origin, m.N, Cell, (i, j) => !zone.Reserved(i, j), (i, j) => zone.Ceil(i, j));
         }
-        nav.SetDoor(nav.Node(0, z1.doorCell.x, z1.doorCell.y), nav.Node(1, z2.start.x, z2.start.y));
         return nav;
     }
 

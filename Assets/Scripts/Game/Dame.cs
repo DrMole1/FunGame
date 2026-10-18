@@ -3,7 +3,8 @@ using UnityEngine;
 
 // La Dame (entité ID 2, type Cauchemar). Elle rôde au hasard dans le labyrinthe à la vitesse normale des joueurs,
 // prend en chasse le premier personnage qu'elle voit (x1,05 ; x2,2 tant qu'il la regarde) pendant 20 à 30 secondes
-// et attaque au contact (100 de dégâts, le survivant est repoussé). Elle ne saute pas mais emprunte les escaliers.
+// et attaque au contact (100 de dégâts, le survivant est repoussé). Elle ne saute pas, ne tombe pas et ne flotte pas :
+// elle suit la grille de navigation (MazeNav), qui passe par les escaliers et les dalles surélevées mais pas au-dessus du vide.
 // L'hôte simule son comportement (Simulate) ; les autres clients affichent l'état reçu (SetNetState).
 public class Dame : MonoBehaviour
 {
@@ -11,10 +12,14 @@ public class Dame : MonoBehaviour
 
     const float Height = 2.31f;
     const float ReachHorizontal = 1.15f, ReachVertical = 1.7f;
+    // Au moment du coup, le joueur est touché jusqu'à 1,925 m (portée + marge, augmentée de 10 %).
+    const float HitMargin = (ReachHorizontal + 0.6f) * 1.1f - ReachHorizontal;
     // Attaque courte : le clip est accéléré pour se jouer en entier pendant AttackDuration.
     const float AttackDuration = 1f, AttackHitTime = 0.55f;
     const float EyeHeight = 1.98f, FieldOfView = 160f;
-    const float WaypointReach = 0.45f;
+    // Hors chasse, elle sent un personnage qui passe tout près, devant comme dans son dos.
+    const float SenseRadius = 4f;
+    const float WaypointReach = 0.12f; // points de la grille tous les 0,5 m : on ne coupe pas les angles
     const float IgnoreAfterChase = 6f;
 
     public int Id { get; private set; }
@@ -24,14 +29,12 @@ public class Dame : MonoBehaviour
 
     // Simulation (hôte).
     MazeNav nav;
-    Transform structure;
     System.Random rnd;
     readonly List<int> path = new List<int>();
     int pathIndex;
     float repathTimer, chaseTimer, attackTimer;
     bool hitDone;
     readonly Dictionary<string, float> ignoreUntil = new Dictionary<string, float>();
-    readonly RaycastHit[] hits = new RaycastHit[8];
     System.Action<Dame, string> onHit;
 
     // Affichage.
@@ -46,7 +49,7 @@ public class Dame : MonoBehaviour
 
     public float Speed { get; private set; }
 
-    public static Dame Create(Transform parent, int id, Vector3 pos, float yaw, MazeNav nav, Transform structure, System.Action<Dame, string> onHit)
+    public static Dame Create(Transform parent, int id, Vector3 pos, float yaw, MazeNav nav, System.Action<Dame, string> onHit)
     {
         var go = new GameObject("La Dame " + id);
         go.transform.SetParent(parent, false);
@@ -54,7 +57,6 @@ public class Dame : MonoBehaviour
         var dame = go.AddComponent<Dame>();
         dame.Id = id;
         dame.nav = nav;
-        dame.structure = structure;
         dame.onHit = onHit;
         dame.rnd = new System.Random(id * 7919 + 13);
         dame.netPos = dame.lastPos = pos;
@@ -108,7 +110,7 @@ public class Dame : MonoBehaviour
                 {
                     hitDone = true;
                     var target = Find(players, TargetId);
-                    if (target != null && InReach(target, 0.6f)) onHit?.Invoke(this, TargetId);
+                    if (target != null && InReach(target, HitMargin)) onHit?.Invoke(this, TargetId);
                 }
                 if (attackTimer >= AttackDuration)
                 {
@@ -125,15 +127,14 @@ public class Dame : MonoBehaviour
                 if (chaseTimer <= 0f || !Valid(target)) { StopChase(); break; }
                 Speed = GameRules.BaseSpeed * (Watched ? GameRules.DameWatchedMultiplier : GameRules.DameChaseMultiplier);
                 repathTimer -= dt;
-                int myNode = nav.NodeAt(transform.position), targetNode = nav.NodeAt(target.Position);
-                // Même cellule (ou voisine et visible) : droit sur le personnage ; sinon, par le labyrinthe.
-                if (myNode == targetNode || (Sees(target, false) && Horizontal(target.Position - transform.position).magnitude < 6f))
-                    MoveTowards(target.Position, dt);
-                else
-                {
-                    if (repathTimer <= 0f || pathIndex >= path.Count) PlanPath(targetNode);
-                    FollowPath(dt);
-                }
+                Vector3 feet = Feet(target);
+                // Chemin recalculé souvent de près, plus rarement de loin (le calcul coûte quelques millisecondes).
+                if (repathTimer <= 0f)
+                    PlanPath(nav.NodeAt(feet), Mathf.Clamp(Horizontal(feet - transform.position).magnitude * 0.04f, 0.3f, 1.2f), 8000);
+                // Au bout du chemin, tout près et au même niveau : droit sur le personnage.
+                if (pathIndex >= path.Count && Horizontal(feet - transform.position).magnitude < 1f && Mathf.Abs(feet.y - transform.position.y) < 0.4f)
+                    MoveTowards(new Vector3(feet.x, transform.position.y, feet.z), dt);
+                else FollowPath(dt);
                 if (InReach(target, 0f)) StartAttack(target.PlayerId);
                 break;
             }
@@ -142,11 +143,12 @@ public class Dame : MonoBehaviour
             {
                 Speed = GameRules.BaseSpeed;
                 Watched = false;
-                // Au contact d'un joueur, elle l'attaque ; sinon elle cherche une proie du regard.
+                // Au contact d'un joueur, elle l'attaque ; tout près d'elle, elle le chasse ; sinon elle cherche une proie du regard.
                 foreach (var p in players)
                 {
                     if (!Valid(p)) continue;
                     if (InReach(p, 0f)) { BeginChase(p); StartAttack(p.PlayerId); return; }
+                    if (Senses(p)) { BeginChase(p); return; }
                     if (ignoreUntil.TryGetValue(p.PlayerId, out float until) && Time.time < until) continue;
                     if (Sees(p, true)) { BeginChase(p); return; }
                 }
@@ -154,7 +156,7 @@ public class Dame : MonoBehaviour
                 {
                     int node = nav.NodeAt(transform.position);
                     int zone = node >= 0 ? nav.ZoneOfNode(node) : 0;
-                    PlanPath(nav.RandomNode(zone, rnd, transform.position, 15f));
+                    PlanPath(nav.RandomNode(zone, rnd, transform.position, 10f, 40f), 0f);
                 }
                 FollowPath(dt);
                 break;
@@ -206,6 +208,15 @@ public class Dame : MonoBehaviour
         return Horizontal(d).magnitude < ReachHorizontal + margin && Mathf.Abs(d.y - 0.9f) < ReachVertical;
     }
 
+    // Personnage à moins de 4 m (2 m en marche discrète), quel que soit l'angle, sans mur entre eux.
+    bool Senses(PlayerPresence p)
+    {
+        Vector3 d = p.Position - transform.position;
+        float radius = SenseRadius * (p.Sneaking ? 0.5f : 1f);
+        if (Horizontal(d).magnitude > radius || Mathf.Abs(d.y - 0.9f) > 2.5f) return false;
+        return !Physics.Linecast(transform.position + Vector3.up * 1.2f, p.Position + Vector3.up * 0.4f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+    }
+
     // Repère un personnage : à portée (moitié moins en marche discrète), dans son champ de vision et sans obstacle.
     bool Sees(PlayerPresence p, bool useFieldOfView)
     {
@@ -214,15 +225,18 @@ public class Dame : MonoBehaviour
         Vector3 d = target - eye;
         float range = GameRules.DameSightRange * (p.Sneaking ? 0.5f : 1f);
         if (d.magnitude > range) return false;
-        if (useFieldOfView && d.magnitude > 2.5f && Vector3.Angle(transform.forward, Horizontal(d)) > FieldOfView * 0.5f) return false;
+        if (useFieldOfView && Vector3.Angle(transform.forward, Horizontal(d)) > FieldOfView * 0.5f) return false;
         return !Physics.Linecast(eye, target, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
     }
 
-    void PlanPath(int goal)
+    // Pieds du personnage (sa position est le centre de sa capsule).
+    static Vector3 Feet(PlayerPresence p) => p.Position + Vector3.down * 0.9f;
+
+    void PlanPath(int goal, float delay, int maxExpansions = 20000)
     {
-        repathTimer = 0.5f;
+        repathTimer = delay;
         path.Clear();
-        path.AddRange(nav.Path(nav.NodeAt(transform.position), goal));
+        if (goal >= 0) path.AddRange(nav.Path(nav.NodeAt(transform.position), goal, maxExpansions));
         pathIndex = path.Count > 1 ? 1 : path.Count;
     }
 
@@ -239,26 +253,18 @@ public class Dame : MonoBehaviour
         MoveTowards(wp, dt);
     }
 
+    // Avance vers 'goal' (un point de la grille, ou le personnage au même niveau) ; la hauteur suit le segment,
+    // donc les escaliers, sans jamais quitter le sol.
     void MoveTowards(Vector3 goal, float dt)
     {
         Vector3 d = Horizontal(goal - transform.position);
         float dist = d.magnitude;
         if (dist < 0.01f) return;
-        Vector3 step = d / dist * Mathf.Min(dist, Speed * dt);
-        Vector3 p = transform.position + step;
-        p.y = GroundAt(p, transform.position.y);
+        float move = Mathf.Min(dist, Speed * dt);
+        Vector3 p = transform.position + d / dist * move;
+        p.y = Mathf.Lerp(transform.position.y, goal.y, move / dist);
         transform.position = p;
         transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(d), 1f - Mathf.Exp(-8f * dt));
-    }
-
-    // Sol du bâti sous la Dame (escaliers, dalles) ; au-dessus d'une fosse, elle glisse au même niveau.
-    float GroundAt(Vector3 p, float current)
-    {
-        int n = Physics.RaycastNonAlloc(new Vector3(p.x, current + 1.2f, p.z), Vector3.down, hits, 3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
-        float best = float.NegativeInfinity;
-        for (int k = 0; k < n; k++)
-            if (structure != null && hits[k].transform.IsChildOf(structure) && hits[k].point.y > best) best = hits[k].point.y;
-        return float.IsNegativeInfinity(best) ? current : best;
     }
 
     static Vector3 Horizontal(Vector3 v) => new Vector3(v.x, 0f, v.z);

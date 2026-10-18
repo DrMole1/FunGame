@@ -258,6 +258,7 @@ public class ZoneDoor : MonoBehaviour
     bool open;
 
     public bool IsOpen => open;
+    public Collider Blocker => blocker;
 
     public static ZoneDoor Create(Transform parent, Vector3 pos, Quaternion rot, float width, float height)
     {
