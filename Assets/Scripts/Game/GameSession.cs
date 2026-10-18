@@ -363,7 +363,7 @@ public class GameSession : MonoBehaviour
         }
         else serenityRegenAcc = 0f;
 
-        if (!PlayerController.InputLocked && !status.Dead && Input.GetKeyDown(KeyCode.A)) TryBark();
+        if (!PlayerController.InputLocked && !status.Dead && Input.GetKeyDown(KeyLayout.Bark)) TryBark();
         UpdateMistContact();
         UpdateWatching();
         UpdateSpectate();
