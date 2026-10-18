@@ -111,6 +111,8 @@ public static class UiKit
         t.alignment = anchor;
         t.supportRichText = true;
         t.raycastTarget = false;
+        // Sinon le texte disparaît entièrement si la hauteur de ligne de la police dépasse la boîte.
+        t.verticalOverflow = VerticalWrapMode.Overflow;
         return t;
     }
 

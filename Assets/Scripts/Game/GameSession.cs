@@ -2,26 +2,35 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-// Boucle de jeu : Hub, manches, quota, cagnotte, objets, Terminal, Chenils, logs, morts et réanimations.
-// L'hôte fait autorité sur l'état de la partie ; chaque client gère les PV et l'inventaire de son personnage.
+// Boucle de jeu : Hub, manches, quota, cagnotte, objets, Terminal, Chenils, logs, morts et réanimations,
+// sérénité et Abjuration, La Dame, orbes et porte de la Zone 2, Post-It et Boussole.
+// L'hôte fait autorité sur l'état de la partie ; chaque client gère les PV, la sérénité et l'inventaire de son personnage.
 // Messages (en plus de ceux de NetworkGame) :
-//   G|graine|manche|quota|progression|cagnotte|phase|temps    hôte -> tous : état de la partie
+//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|orbes   hôte -> tous : état de la partie
 //   IL|manche|id,id...   IR|manche|id                          objets déjà ramassés / ramassé
 //   PK|id -> GV|type (0 = refusé)                              ramassage
 //   SL|type                                                     vente au Terminal
-//   BY|type -> BO|ok|type|cagnotte                              achat au Terminal
+//   BY|type -> BO|ok|type|cagnotte[|raison]                     achat au Terminal
 //   TU|1/0 -> TG|1/0, TS|id                                     prise / libération du Terminal
 //   RV|cible -> RA|cible|sauveteur                              réanimation depuis un Chenil
 //   DE|cause                                                    mort d'un joueur
 //   LG|texte                                                    ligne de l'Écran de Logs
 //   SC|manche|id,golds,morts;id,golds,morts...                  Tableau de Manche
+//   PP|x|y|z|nx|ny|nz|texte -> PA|id|x|y|z|nx|ny|nz|texte       Post-It accroché
+//   PD|id -> PX|id                                              Post-It retiré
+//   OB|orbe|case -> OU|case (-1 = refusé)                       Clé utilisée sur un orbe
+//   EN|id,x,y,z,lacet,état,cible;...                            hôte -> tous : entités (La Dame)
+//   LK|id|1/0                                                   le joueur chassé regarde (ou non) La Dame
+//   DH|x|z                                                      hôte -> joueur : La Dame vous frappe depuis (x, z)
 public class GameSession : MonoBehaviour
 {
     enum Phase { Waiting = 0, Running = 1, GameOver = 2 }
 
     static readonly Color HubAmbient = new Color(0.42f, 0.36f, 0.32f);
     static readonly Color MazeAmbient = new Color(0.035f, 0.035f, 0.04f);
+    static readonly Color MistFog = new Color(0.02f, 0.05f, 0.12f);
     const float HubFog = 0.01f, MazeFog = 0.085f;
+    const float EntitySyncInterval = 0.1f;
 
     public static GameSession Instance { get; private set; }
 
@@ -34,19 +43,24 @@ public class GameSession : MonoBehaviour
     Light playerLight;
     GameHud hud;
     TerminalUI terminal;
+    PostItUI postItUI;
 
-    Transform worldRoot, itemsRoot;
+    Transform worldRoot, itemsRoot, notesRoot, entitiesRoot;
     WorldBuilder.HubRefs hub;
     WorldBuilder.MazeRefs maze;
     RedButton button;
     readonly Dictionary<string, Kennel> kennels = new Dictionary<string, Kennel>();
     readonly Dictionary<int, ItemPickup> items = new Dictionary<int, ItemPickup>();
+    readonly Dictionary<int, PostItNote> notes = new Dictionary<int, PostItNote>();
+    readonly Dictionary<int, Dame> dames = new Dictionary<int, Dame>();
 
     // État de la partie (autorité : hôte).
     int seed, builtSeed = -1, itemsRound = -1;
     int round = 1, quota, progress, cash;
     Phase phase = Phase.Waiting;
     float timeLeft = GameRules.RoundDuration;
+    bool compass;
+    int orbsBroken;
     readonly HashSet<int> picked = new HashSet<int>();
     readonly List<string> logs = new List<string>();
     string terminalUser = "";
@@ -54,10 +68,16 @@ public class GameSession : MonoBehaviour
     class RoundStats { public int golds, deaths; }
     readonly Dictionary<string, RoundStats> roundStats = new Dictionary<string, RoundStats>();
     int statsRound = 1;
+    // Post-It accrochés (hôte : message complet, pour les joueurs qui arrivent).
+    readonly Dictionary<int, string> noteMessages = new Dictionary<int, string>();
+    int nextNoteId, nextDameId;
+    bool hostAbjuration;
 
-    float syncTimer, regenAcc, screenTimer;
+    float syncTimer, regenAcc, serenityRegenAcc, mistTimer, screenTimer, entityTimer;
     int pendingPickups;
     string spectateId;
+    float mistAmount;
+    readonly Dictionary<int, bool> watching = new Dictionary<int, bool>();
 
     public PlayerPresence LocalPresence => net.InGame ? presence : null;
     public bool LocalDead => status.Dead;
@@ -66,6 +86,8 @@ public class GameSession : MonoBehaviour
     public bool IsHost => net.IsHost;
     public bool IsGameOver => phase == Phase.GameOver;
     public bool HasFreeSlot => status.FreeSlots - pendingPickups > 0;
+    public bool CompassUnlocked => compass;
+    bool AbjurationActive => phase == Phase.Running && timeLeft <= GameRules.AbjurationStart;
 
     public void Init(NetworkGame network, PlayerController localPlayer)
     {
@@ -87,6 +109,10 @@ public class GameSession : MonoBehaviour
         TerminalStation.Create(hub.terminalAnchor);
         itemsRoot = new GameObject("Objets").transform;
         itemsRoot.SetParent(worldRoot, false);
+        notesRoot = new GameObject("PostIts").transform;
+        notesRoot.SetParent(worldRoot, false);
+        entitiesRoot = new GameObject("Entites").transform;
+        entitiesRoot.SetParent(worldRoot, false);
 
         // Lampe portée par le joueur local, allumée hors du Hub.
         playerLight = new GameObject("LampeJoueur").AddComponent<Light>();
@@ -103,6 +129,9 @@ public class GameSession : MonoBehaviour
         hud.Init(RestartGame, () => net.LeaveGame());
         terminal = gameObject.AddComponent<TerminalUI>();
         terminal.Init(this);
+        postItUI = gameObject.AddComponent<PostItUI>();
+        postItUI.Init(OnPostItWritten);
+        Shader.SetGlobalFloat("_Abjuration", 0f);
         UpdateScreens();
     }
 
@@ -136,17 +165,23 @@ public class GameSession : MonoBehaviour
         progress = cash = 0;
         phase = Phase.Waiting;
         timeLeft = GameRules.RoundDuration;
+        compass = false;
+        orbsBroken = 0;
         picked.Clear();
         logs.Clear();
         terminalUser = "";
         roundStats.Clear();
         statsRound = 1;
+        noteMessages.Clear();
+        nextNoteId = nextDameId = 0;
+        hostAbjuration = false;
         ApplyWorld();
     }
 
     public void OnLocalEnter()
     {
         audioMuteUntil = Time.unscaledTime + 2f;
+        presence.PlayerId = net.MyId;
         hud.Show(true);
         hud.HideGameOver();
         status.ClearInventory();
@@ -160,11 +195,14 @@ public class GameSession : MonoBehaviour
     public void ResetSession()
     {
         terminal.Close(false);
+        postItUI.Close();
         hud.Show(false);
+        ClearEntities();
         if (maze != null) Destroy(maze.root);
         maze = null;
         builtSeed = itemsRound = -1;
         ClearItems();
+        ClearNotes();
         foreach (var k in kennels.Values) if (k != null) Destroy(k.gameObject);
         kennels.Clear();
         phase = Phase.Waiting;
@@ -172,51 +210,77 @@ public class GameSession : MonoBehaviour
         quota = GameRules.QuotaForRound(1);
         progress = cash = 0;
         timeLeft = GameRules.RoundDuration;
+        compass = false;
+        orbsBroken = 0;
         logs.Clear();
         terminalUser = "";
         roundStats.Clear();
         statsRound = 1;
+        noteMessages.Clear();
+        hostAbjuration = false;
         status.ClearInventory();
         status.SetDead(false);
         status.SetHp(GameRules.MaxHp);
+        status.SetSerenity(GameRules.MaxSerenity);
         presence.Alive = true;
         spectateId = null;
         if (orbit != null) orbit.target = player.transform;
         hub.door.SetOpen(false, true);
         button.gameObject.SetActive(true);
+        mistAmount = 0f;
         UpdateScreens();
     }
 
     // Construit le labyrinthe (nouvelle graine) et répartit les objets de la manche.
     void ApplyWorld()
     {
+        bool rebuilt = false;
         if (seed != builtSeed)
         {
+            ClearEntities();
             if (maze != null) Destroy(maze.root);
             maze = WorldBuilder.BuildMaze(worldRoot, seed);
             builtSeed = seed;
             itemsRound = -1;
+            rebuilt = true;
         }
         if (itemsRound != round) SpawnItems();
         hub.door.SetOpen(phase != Phase.Waiting);
         button.gameObject.SetActive(phase == Phase.Waiting);
+        UpdateZone2(!rebuilt && Time.unscaledTime > audioMuteUntil);
         UpdateScreens();
     }
 
+    // Orbes (activés à la fin des manches 1, 2 et 3, brisés par une Clé) et porte de la Zone 2.
+    void UpdateZone2(bool animate)
+    {
+        if (maze == null) return;
+        for (int k = 0; k < GameRules.OrbCount; k++)
+            maze.orbs[k].SetState(phase != Phase.GameOver && GameRules.OrbActive(k, round), (orbsBroken & (1 << k)) != 0, animate);
+        bool open = orbsBroken == (1 << GameRules.OrbCount) - 1;
+        if (open != maze.zoneDoor.IsOpen || !animate) maze.zoneDoor.SetOpen(open, !animate);
+        maze.nav.DoorOpen = open;
+    }
+
+    // Objets de valeur de la manche dans chaque zone (chapitre 10 : pourcentage du quota).
     void SpawnItems()
     {
         ClearItems();
         itemsRound = round;
-        var rnd = new System.Random(seed * 31 + round * 7919);
-        var spots = new List<Vector3>(maze.itemSpots);
-        for (int i = spots.Count - 1; i > 0; i--)
+        int id = 0;
+        for (int zone = 0; zone < 2; zone++)
         {
-            int j = rnd.Next(i + 1);
-            (spots[i], spots[j]) = (spots[j], spots[i]);
+            var rnd = new System.Random(seed * 31 + round * 7919 + zone * 104729);
+            var spots = new List<Vector3>(maze.itemSpots[zone]);
+            for (int i = spots.Count - 1; i > 0; i--)
+            {
+                int j = rnd.Next(i + 1);
+                (spots[i], spots[j]) = (spots[j], spots[i]);
+            }
+            int count = Mathf.Min(GameRules.DucksForRound(round, zone), spots.Count);
+            for (int k = 0; k < count; k++, id++)
+                items[id] = ItemPickup.Create(itemsRoot, id, ItemType.Canard, spots[k]);
         }
-        int count = Mathf.Min(GameRules.DucksForRound(round), spots.Count);
-        for (int id = 0; id < count; id++)
-            items[id] = ItemPickup.Create(itemsRoot, id, ItemType.Canard, spots[id]);
     }
 
     void ClearItems()
@@ -234,13 +298,19 @@ public class GameSession : MonoBehaviour
         }
     }
 
+    void ClearNotes()
+    {
+        foreach (var n in notes.Values) if (n != null) Destroy(n.gameObject);
+        notes.Clear();
+    }
+
     // ================= Mise à jour =================
 
     void Update()
     {
         bool inGame = net.InGame;
-        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || phase == Phase.GameOver;
-        OrbitCamera.CursorLockBlocked = TerminalUI.IsOpen || GameHud.GameOverVisible;
+        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || phase == Phase.GameOver;
+        OrbitCamera.CursorLockBlocked = TerminalUI.IsOpen || PostItUI.IsOpen || GameHud.GameOverVisible;
 
         if (phase == Phase.Running)
         {
@@ -251,8 +321,11 @@ public class GameSession : MonoBehaviour
         {
             syncTimer += Time.unscaledDeltaTime;
             if (syncTimer >= 1f) BroadcastState();
+            UpdateHostAbjuration();
+            SimulateEntities();
         }
 
+        UpdateEntities();
         UpdateAtmosphere();
         UpdateGameSounds(inGame);
         if (!inGame) return;
@@ -261,7 +334,8 @@ public class GameSession : MonoBehaviour
         presence.Sneaking = player.Sneaking;
 
         // Régénération dans le Hub.
-        if (!status.Dead && status.Hp < GameRules.MaxHp && WorldBuilder.IsInHub(player.transform.position))
+        bool inHub = WorldBuilder.IsInHub(player.transform.position);
+        if (!status.Dead && status.Hp < GameRules.MaxHp && inHub)
         {
             regenAcc += GameRules.HubRegenPerSecond * Time.deltaTime;
             int add = Mathf.FloorToInt(regenAcc);
@@ -272,7 +346,20 @@ public class GameSession : MonoBehaviour
             }
         }
         else regenAcc = 0f;
+        if (!status.Dead && status.Serenity < GameRules.MaxSerenity && inHub)
+        {
+            serenityRegenAcc += GameRules.HubSerenityRegenPerSecond * Time.deltaTime;
+            int add = Mathf.FloorToInt(serenityRegenAcc);
+            if (add > 0)
+            {
+                serenityRegenAcc -= add;
+                status.SetSerenity(status.Serenity + add);
+            }
+        }
+        else serenityRegenAcc = 0f;
 
+        UpdateMistContact();
+        UpdateWatching();
         UpdateSpectate();
 
         screenTimer -= Time.unscaledDeltaTime;
@@ -285,6 +372,7 @@ public class GameSession : MonoBehaviour
 
         var target = player.GetComponent<PlayerInteractor>().Current;
         hud.SetPrompt(target != null ? "[E] " + target.Prompt : "");
+        hud.SetCompass(compass && !status.Dead, player.transform.eulerAngles.y);
     }
 
     void UpdateAtmosphere()
@@ -295,28 +383,41 @@ public class GameSession : MonoBehaviour
         RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, inHub ? HubAmbient : MazeAmbient, k);
         RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog, k);
         playerLight.enabled = net.InGame && !status.Dead && !WorldBuilder.IsInHub(player.transform.position);
+
+        // Brume de l'Abjuration : apparaît et se dissipe en douceur ; le brouillard bleuit quand on y est plongé.
+        bool abjuration = net.InGame && AbjurationActive;
+        mistAmount = Mathf.MoveTowards(mistAmount, abjuration ? 1f : 0f, Time.deltaTime / 4f);
+        Shader.SetGlobalFloat("_Abjuration", mistAmount);
+        if (maze != null && maze.mist.activeSelf != mistAmount > 0.001f) maze.mist.SetActive(mistAmount > 0.001f);
+        float low = cam != null && !inHub ? Mathf.Clamp01((2.2f - cam.transform.position.y) / 1.5f) : 0f;
+        RenderSettings.fogColor = Color.Lerp(Color.black, MistFog, mistAmount * low);
+        GameAudio.AbjurationLevel = abjuration ? 1f : 0f;
         UpdateInsectFlee();
     }
 
     // Sons liés à l'état de la partie, détectés chez tous les clients (hôte compris) par changement d'état :
-    // Bouton Rouge, quota validé, game over, tic-tac de la dernière minute près du Compteur de Temps.
+    // Bouton Rouge, quota validé, game over, glas de l'Abjuration, tic-tac de la dernière minute.
     Phase soundPhase;
     int soundRound = 1, lastTickSecond = -1;
     float audioMuteUntil;
+    bool soundAbjuration;
 
     void UpdateGameSounds(bool inGame)
     {
         // Pas de fanfare ni de buzzer en rejoignant une partie déjà commencée : on se cale sur l'état reçu.
         bool mute = !inGame || Time.unscaledTime < audioMuteUntil;
+        bool abjuration = AbjurationActive;
         if (!mute)
         {
             if (soundPhase == Phase.Waiting && phase == Phase.Running)
                 GameAudio.Play3D("button", hub.buttonAnchor.position + Vector3.up, 0.8f, 40f, 0f);
             if (phase == Phase.Running && round > soundRound) GameAudio.Play2D("fanfare", 0.8f);
             if (soundPhase != Phase.GameOver && phase == Phase.GameOver) GameAudio.Play2D("gameover", 0.9f);
+            if (abjuration && !soundAbjuration) GameAudio.Play2D("bell", 1f);
         }
         soundPhase = phase;
         soundRound = round;
+        soundAbjuration = abjuration;
 
         int second = Mathf.CeilToInt(timeLeft);
         if (!mute && phase == Phase.Running && second <= 60 && second > 0 && second != lastTickSecond)
@@ -365,6 +466,29 @@ public class GameSession : MonoBehaviour
         }
         for (int i = n; i < insectFlee.Length; i++) insectFlee[i] = Vector4.zero;
         Shader.SetGlobalVectorArray("_InsectFlee", insectFlee);
+    }
+
+    // Toutes les 3 secondes passées dans la brume de l'Abjuration : -1 de sérénité. À 0, le personnage meurt.
+    void UpdateMistContact()
+    {
+        Vector3 p = player.transform.position;
+        float feet = p.y - player.GetComponent<CapsuleCollider>().height * 0.5f;
+        bool inMist = !status.Dead && AbjurationActive && mistAmount > 0.5f && maze != null
+            && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop;
+        if (!inMist)
+        {
+            mistTimer = 0f;
+            hud.SetMistContact(false);
+            return;
+        }
+        hud.SetMistContact(true);
+        mistTimer += Time.deltaTime;
+        if (mistTimer < GameRules.AbjurationTick) return;
+        mistTimer -= GameRules.AbjurationTick;
+        status.SetSerenity(status.Serenity - GameRules.AbjurationLoss);
+        hud.FlashSerenity();
+        GameAudio.Play2D("whisper_loss", 0.6f, 0.1f);
+        if (status.Serenity <= 0) KillLocal("l'Abjuration");
     }
 
     // Un joueur mort voit la caméra d'un autre joueur (clic pour changer).
@@ -450,6 +574,7 @@ public class GameSession : MonoBehaviour
     void RefreshHud()
     {
         hud.SetHealth(status.Hp, status.Dead);
+        hud.SetSerenity(status.Serenity, status.Dead);
         hud.SetInventory(status);
     }
 
@@ -523,10 +648,12 @@ public class GameSession : MonoBehaviour
         player.Teleport(SpawnPoint(), Random.Range(0f, 360f));
     }
 
+    // Non précisé dans le GDD : un personnage réanimé retrouve toute sa sérénité.
     void ReviveLocal(Vector3 position, int hp)
     {
         status.SetDead(false);
         status.SetHp(hp);
+        status.SetSerenity(GameRules.MaxSerenity);
         presence.Alive = true;
         avatar.SetDead(false);
         player.SetFrozen(false);
@@ -557,6 +684,7 @@ public class GameSession : MonoBehaviour
         avatar.SetDead(true);
         player.SetFrozen(true);
         terminal.Close();
+        postItUI.Close();
         // Au game over, l'accord lugubre remplace les râles.
         if (cause != null) GameAudio.Play3D("death", player.transform.position, 1f, 30f, 0.06f);
         if (cause != null) net.ToHost("DE|" + cause);
@@ -570,19 +698,199 @@ public class GameSession : MonoBehaviour
         switch (status[slot])
         {
             case ItemType.Croquette:
-                if (status.Hp >= GameRules.MaxHp)
+                if (status.Hp >= GameRules.MaxHp && status.Serenity >= GameRules.MaxSerenity)
                 {
-                    hud.Toast("Votre jauge de vie est déjà pleine.");
+                    hud.Toast("Votre vie et votre sérénité sont déjà au maximum.");
                     return;
                 }
                 status.RemoveAt(slot);
                 status.SetHp(status.Hp + Items.CroquetteHeal);
+                status.SetSerenity(status.Serenity + Items.CroquetteSerenity);
                 GameAudio.Play2D("eat", 0.8f, 0.1f);
-                hud.Toast("Miam ! +" + Items.CroquetteHeal + " PV");
+                hud.Toast("Miam ! +" + Items.CroquetteHeal + " PV, +" + Items.CroquetteSerenity + " de sérénité");
                 break;
             case ItemType.Canard:
                 hud.Toast("Le Canard en Plastique ne sert qu'à être vendu au Terminal.");
                 break;
+            case ItemType.PostIt:
+                TryPlacePostIt(slot);
+                break;
+            case ItemType.Cle:
+                hud.Toast("Visez un orbe activé, devant la porte de la Zone 2, pour le briser avec la Clé.");
+                break;
+        }
+    }
+
+    // ================= Post-It =================
+
+    int postItSlot = -1;
+    Vector3 postItPos, postItNormal;
+
+    // Viser un mur (assez proche) ouvre la saisie du message.
+    void TryPlacePostIt(int slot)
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return;
+        Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+        bool wall = Physics.Raycast(ray, out RaycastHit hit, 14f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+            && Mathf.Abs(hit.normal.y) < 0.5f
+            && hit.collider.GetComponentInParent<Interactable>() == null
+            && Vector3.Distance(hit.point, player.transform.position) <= GameRules.InteractRange + 1f;
+        if (!wall)
+        {
+            hud.Toast("Visez un mur tout proche pour y accrocher le Post-It.");
+            return;
+        }
+        postItSlot = slot;
+        postItPos = hit.point;
+        postItNormal = hit.normal;
+        postItUI.Open();
+    }
+
+    void OnPostItWritten(string text)
+    {
+        text = SanitizeNote(text);
+        if (postItSlot < 0 || status.Dead || status[postItSlot] != ItemType.PostIt || text.Length == 0) return;
+        status.RemoveAt(postItSlot);
+        postItSlot = -1;
+        net.ToHost("PP|" + NetworkGame.F(postItPos.x) + "|" + NetworkGame.F(postItPos.y) + "|" + NetworkGame.F(postItPos.z)
+            + "|" + NetworkGame.F(postItNormal.x) + "|" + NetworkGame.F(postItNormal.y) + "|" + NetworkGame.F(postItNormal.z) + "|" + text);
+    }
+
+    static string SanitizeNote(string text)
+    {
+        text = (text ?? "").Replace("|", "").Replace("<", "").Replace(">", "").Replace("\n", " ").Replace("\r", "").Trim();
+        return text.Length > Items.PostItMaxChars ? text.Substring(0, Items.PostItMaxChars) : text;
+    }
+
+    public void RemovePostIt(int id) => net.ToHost("PD|" + id);
+
+    // ================= Orbes et porte de la Zone 2 =================
+
+    public void UseKeyOnOrb(int orb)
+    {
+        int slot = status.IndexOf(ItemType.Cle);
+        if (slot < 0)
+        {
+            hud.Toast("Il faut une Clé (en vente au Terminal) pour briser cet orbe.");
+            return;
+        }
+        net.ToHost("OB|" + orb + "|" + slot);
+    }
+
+    // ================= Entités (La Dame) =================
+
+    // /spawn : fait apparaître l'entité 'id' dans la Zone 1. Retourne le message du Terminal.
+    public string SpawnEntity(int id)
+    {
+        if (!net.IsHost) return "Commande Incorrecte.";
+        if (maze == null || phase == Phase.GameOver) return "Impossible pour le moment.";
+        switch (id)
+        {
+            case 1: return "Les Lasers ne peuvent plus apparaître une fois le terrain généré.";
+            case 2:
+                SpawnDame(0, new System.Random(seed + nextDameId * 131 + Mathf.RoundToInt(Time.time * 10f)));
+                return "La Dame rôde désormais dans la Zone 1...";
+            default: return "Aucune entité n'a l'ID " + id + ".";
+        }
+    }
+
+    // Début de manche (hôte) : les entités de la manche précédente disparaissent, celles du tableau apparaissent.
+    void SpawnRoundEntities()
+    {
+        ClearEntities();
+        if (maze == null || phase != Phase.Running) return;
+        var rnd = new System.Random(seed * 17 + round * 613);
+        for (int zone = 0; zone < 2; zone++)
+            for (int k = 0; k < GameRules.NightmaresForRound(round, zone); k++)
+                SpawnDame(zone, rnd);
+    }
+
+    void SpawnDame(int zone, System.Random rnd)
+    {
+        // Loin du Hub et des joueurs.
+        Vector3 away = Vector3.zero;
+        int node = maze.nav.RandomNode(zone, rnd, away, 30f);
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            bool near = false;
+            foreach (var p in PlayerPresence.All)
+                if (p.Alive && Vector3.Distance(p.Position, maze.nav.Position(node)) < 18f) near = true;
+            if (!near) break;
+            node = maze.nav.RandomNode(zone, rnd, away, 30f);
+        }
+        Vector3 pos = maze.nav.Position(node);
+        pos.y = GroundBelow(pos);
+        int id = nextDameId++;
+        dames[id] = Dame.Create(entitiesRoot, id, pos, (float)rnd.NextDouble() * 360f, maze.nav, maze.structure, OnDameHit);
+    }
+
+    float GroundBelow(Vector3 p)
+    {
+        float best = float.NegativeInfinity;
+        foreach (var hit in Physics.RaycastAll(new Vector3(p.x, 3f, p.z), Vector3.down, 4f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            if (hit.transform.IsChildOf(maze.structure) && hit.point.y > best) best = hit.point.y;
+        return float.IsNegativeInfinity(best) ? 0f : best;
+    }
+
+    void ClearEntities()
+    {
+        foreach (var d in dames.Values) if (d != null) Destroy(d.gameObject);
+        dames.Clear();
+        watching.Clear();
+    }
+
+    void SimulateEntities()
+    {
+        if (phase == Phase.Running)
+            foreach (var d in dames.Values) d.Simulate(Time.deltaTime, PlayerPresence.All);
+        entityTimer += Time.unscaledDeltaTime;
+        if (entityTimer < EntitySyncInterval) return;
+        entityTimer = 0f;
+        var sb = new StringBuilder("EN|");
+        bool first = true;
+        foreach (var d in dames.Values)
+        {
+            if (!first) sb.Append(';');
+            first = false;
+            Vector3 p = d.transform.position;
+            sb.Append(d.Id).Append(',').Append(NetworkGame.F(p.x)).Append(',').Append(NetworkGame.F(p.y)).Append(',').Append(NetworkGame.F(p.z))
+              .Append(',').Append(NetworkGame.F(d.transform.eulerAngles.y)).Append(',').Append((int)d.Current).Append(',').Append(d.TargetId);
+        }
+        PeerNet.Broadcast(sb.ToString());
+    }
+
+    void UpdateEntities()
+    {
+        foreach (var d in dames.Values) d.Present(net.IsHost, Time.deltaTime);
+    }
+
+    // La Dame frappe : le joueur visé encaisse les dégâts chez lui (hôte : message direct).
+    void OnDameHit(Dame dame, string targetId)
+    {
+        Vector3 p = dame.transform.position;
+        net.ToPeer(targetId, "DH|" + NetworkGame.F(p.x) + "|" + NetworkGame.F(p.z));
+    }
+
+    // Le joueur chassé signale à l'hôte s'il regarde La Dame (elle accélère alors).
+    void UpdateWatching()
+    {
+        Camera cam = Camera.main;
+        foreach (var d in dames.Values)
+        {
+            bool chased = d.Current != Dame.State.Wander && d.TargetId == net.MyId && !status.Dead;
+            bool looking = false;
+            if (chased && cam != null)
+            {
+                Vector3 chest = d.transform.position + Vector3.up * 1.4f;
+                Vector3 to = chest - cam.transform.position;
+                looking = Vector3.Angle(cam.transform.forward, to) < 32f && to.magnitude < 40f
+                    && !Physics.Linecast(cam.transform.position, chest, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+            }
+            watching.TryGetValue(d.Id, out bool before);
+            if (looking == before) continue;
+            watching[d.Id] = looking;
+            net.ToHost("LK|" + d.Id + "|" + (looking ? 1 : 0));
         }
     }
 
@@ -610,6 +918,7 @@ public class GameSession : MonoBehaviour
         phase = Phase.Running;
         timeLeft = GameRules.RoundDuration;
         ApplyWorld();
+        SpawnRoundEntities();
         BroadcastState();
     }
 
@@ -648,7 +957,8 @@ public class GameSession : MonoBehaviour
 
     // ================= Hôte =================
 
-    string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft);
+    string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft)
+        + "|" + (compass ? 1 : 0) + "|" + orbsBroken;
 
     void BroadcastState()
     {
@@ -667,12 +977,21 @@ public class GameSession : MonoBehaviour
         foreach (string line in logs) net.ToPeer(to, "LG|" + line);
         net.ToPeer(to, "TS|" + terminalUser);
         net.ToPeer(to, StatsMsg());
+        foreach (string note in noteMessages.Values) net.ToPeer(to, note);
     }
 
     void Log(string text)
     {
         string line = PeerNet.LocalNow.ToString("HH:mm") + " : " + text;
         net.ToAll("LG|" + line);
+    }
+
+    // L'Abjuration se répand quand le Compteur de Temps affiche 7 minutes.
+    void UpdateHostAbjuration()
+    {
+        bool active = AbjurationActive;
+        if (active && !hostAbjuration) Log("L'Abjuration se répand ... Le désespoir attend les plus faibles.");
+        hostAbjuration = active;
     }
 
     public void OnPlayerJoined(string id)
@@ -702,14 +1021,20 @@ public class GameSession : MonoBehaviour
             timeLeft = GameRules.RoundDuration;
             picked.Clear();
             Log("Le quota de la manche " + done + " est validé ! Nouveau quota : " + quota);
+            if (hostAbjuration) Log("L'Abjuration se retire ... Pour le moment.");
+            hostAbjuration = false;
+            if (done <= GameRules.OrbCount) Log("Un orbe s'éveille devant la porte de la Zone 2...");
             ResetRoundStats(round);
             ApplyWorld();
+            SpawnRoundEntities();
             BroadcastState();
         }
         else
         {
             phase = Phase.GameOver;
             timeLeft = 0f;
+            hostAbjuration = false;
+            ClearEntities();
             BroadcastState();
             OnGameOver();
         }
@@ -724,7 +1049,10 @@ public class GameSession : MonoBehaviour
         progress = cash = 0;
         phase = Phase.Waiting;
         timeLeft = GameRules.RoundDuration;
+        compass = false;
+        orbsBroken = 0;
         picked.Clear();
+        noteMessages.Clear();
         ResetRoundStats(1);
         ApplyWorld();
         BroadcastState();
@@ -735,6 +1063,8 @@ public class GameSession : MonoBehaviour
     void OnGameOver()
     {
         terminal.Close(false);
+        postItUI.Close();
+        ClearEntities();
         if (!status.Dead) KillLocal(null);
         OrbitCamera.LockCursor(false);
         // Manche, temps, quota et cagnotte ne s'affichent que sur les écrans du chapiteau.
@@ -747,6 +1077,7 @@ public class GameSession : MonoBehaviour
         hud.HideGameOver();
         status.ClearInventory();
         pendingPickups = 0;
+        ClearNotes();
         ReviveLocal(SpawnPoint(), GameRules.MaxHp);
     }
 
@@ -757,7 +1088,7 @@ public class GameSession : MonoBehaviour
         bool host = net.IsHost;
         switch (f[0])
         {
-            case "G" when !host && f.Length >= 8:
+            case "G" when !host && f.Length >= 10:
             {
                 Phase before = phase;
                 seed = NetworkGame.I(f[1]);
@@ -767,6 +1098,8 @@ public class GameSession : MonoBehaviour
                 cash = NetworkGame.I(f[5]);
                 phase = (Phase)Mathf.Clamp(NetworkGame.I(f[6]), 0, 2);
                 timeLeft = NetworkGame.P(f[7]);
+                compass = f[8] == "1";
+                orbsBroken = NetworkGame.I(f[9]);
                 ApplyWorld();
                 if (net.InGame)
                 {
@@ -822,9 +1155,16 @@ public class GameSession : MonoBehaviour
             {
                 ItemDef def = Items.Get(NetworkGame.I(f[1]));
                 if (def == null || def.buyPrice <= 0) break;
+                // La Boussole ne s'achète qu'une fois, pour toute l'équipe.
+                if (def.type == ItemType.Boussole && compass)
+                {
+                    net.ToPeer(from, "BO|0|" + (int)def.type + "|" + cash + "|owned");
+                    break;
+                }
                 if (cash >= def.buyPrice)
                 {
                     cash -= def.buyPrice;
+                    if (def.type == ItemType.Boussole) compass = true;
                     Log("Le joueur " + NameOf(from) + " a acheté " + def.name + " pour " + def.buyPrice + " golds.");
                     BroadcastState();
                     net.ToPeer(from, "BO|1|" + (int)def.type + "|" + cash);
@@ -836,9 +1176,10 @@ public class GameSession : MonoBehaviour
             {
                 bool ok = f[1] == "1";
                 ItemDef def = Items.Get(NetworkGame.I(f[2]));
-                if (ok && def != null) status.Add(def.type);
+                if (ok && def != null && def.inventory) status.Add(def.type);
+                if (ok && def != null && def.type == ItemType.Boussole) compass = true;
                 GameAudio.Play2D(ok ? "register" : "error", 0.7f, 0f, ok ? 1.15f : 1f);
-                terminal.OnBuyResult(ok, def, NetworkGame.I(f[3]));
+                terminal.OnBuyResult(ok, def, NetworkGame.I(f[3]), f.Length >= 5 && f[4] == "owned");
                 break;
             }
             case "TU" when host && f.Length >= 2:
@@ -901,6 +1242,117 @@ public class GameSession : MonoBehaviour
                 if (logs.Count > GameRules.LogLines) logs.RemoveRange(0, logs.Count - GameRules.LogLines);
                 UpdateScreens();
                 break;
+
+            // ---------- Post-It ----------
+            case "PP" when host && f.Length >= 8:
+            {
+                string text = SanitizeNote(f[7]);
+                if (text.Length == 0) break;
+                int id = nextNoteId++;
+                string msg = "PA|" + id + "|" + f[1] + "|" + f[2] + "|" + f[3] + "|" + f[4] + "|" + f[5] + "|" + f[6] + "|" + text;
+                noteMessages[id] = msg;
+                net.ToAll(msg);
+                break;
+            }
+            case "PA" when f.Length >= 9:
+            {
+                int id = NetworkGame.I(f[1]);
+                if (notes.ContainsKey(id)) break;
+                var pos = new Vector3(NetworkGame.P(f[2]), NetworkGame.P(f[3]), NetworkGame.P(f[4]));
+                var normal = new Vector3(NetworkGame.P(f[5]), NetworkGame.P(f[6]), NetworkGame.P(f[7])).normalized;
+                notes[id] = PostItNote.Create(notesRoot, id, pos, normal, SanitizeNote(f[8]));
+                GameAudio.Play3D("postit", pos, 0.7f, 12f, 0.1f);
+                break;
+            }
+            case "PD" when host && f.Length >= 2:
+            {
+                int id = NetworkGame.I(f[1]);
+                if (noteMessages.Remove(id)) net.ToAll("PX|" + id);
+                break;
+            }
+            case "PX" when f.Length >= 2:
+            {
+                int id = NetworkGame.I(f[1]);
+                if (notes.TryGetValue(id, out var note) && note != null)
+                {
+                    GameAudio.Play3D("postit", note.transform.position, 0.6f, 12f, 0.1f, 0.8f);
+                    Destroy(note.gameObject);
+                }
+                notes.Remove(id);
+                break;
+            }
+
+            // ---------- Orbes ----------
+            case "OB" when host && f.Length >= 3:
+            {
+                int orb = NetworkGame.I(f[1]);
+                bool ok = orb >= 0 && orb < GameRules.OrbCount && phase == Phase.Running && GameRules.OrbActive(orb, round) && (orbsBroken & (1 << orb)) == 0;
+                net.ToPeer(from, "OU|" + (ok ? f[2] : "-1"));
+                if (!ok) break;
+                orbsBroken |= 1 << orb;
+                Log("Le joueur " + NameOf(from) + " a brisé l'orbe n°" + (orb + 1) + ".");
+                if (orbsBroken == (1 << GameRules.OrbCount) - 1) Log("Les trois orbes sont brisés : la porte de la Zone 2 s'ouvre !");
+                UpdateZone2(true);
+                BroadcastState();
+                break;
+            }
+            case "OU" when f.Length >= 2:
+            {
+                int slot = NetworkGame.I(f[1]);
+                if (slot >= 0 && slot < GameRules.InventorySize && status[slot] == ItemType.Cle)
+                {
+                    status.RemoveAt(slot);
+                    hud.Toast("La Clé tourne dans la serrure... l'orbe se brise !");
+                }
+                else if (slot < 0) hud.Toast("Cet orbe ne peut pas être brisé.");
+                break;
+            }
+
+            // ---------- Entités ----------
+            case "EN" when !host:
+                ReceiveEntities(raw.Length > 3 ? raw.Substring(3) : "");
+                break;
+            case "LK" when host && f.Length >= 3:
+                if (dames.TryGetValue(NetworkGame.I(f[1]), out var watched) && watched.TargetId == from)
+                    watched.Watched = f[2] == "1";
+                break;
+            case "DH" when f.Length >= 3:
+            {
+                if (status.Dead) break;
+                var from2 = new Vector3(NetworkGame.P(f[1]), player.transform.position.y, NetworkGame.P(f[2]));
+                DamageLocal(GameRules.DameDamage, "La Dame");
+                if (!status.Dead) player.Knockback(player.transform.position - from2, GameRules.DameKnockback);
+                break;
+            }
+        }
+    }
+
+    // Clients : création, mise à jour et disparition des entités d'après l'état de l'hôte.
+    readonly HashSet<int> seenEntities = new HashSet<int>();
+
+    void ReceiveEntities(string data)
+    {
+        if (maze == null) return;
+        seenEntities.Clear();
+        foreach (string entry in data.Split(';'))
+        {
+            string[] p = entry.Split(',');
+            if (p.Length < 7) continue;
+            int id = NetworkGame.I(p[0]);
+            var pos = new Vector3(NetworkGame.P(p[1]), NetworkGame.P(p[2]), NetworkGame.P(p[3]));
+            float yaw = NetworkGame.P(p[4]);
+            seenEntities.Add(id);
+            if (!dames.TryGetValue(id, out var dame) || dame == null)
+                dames[id] = dame = Dame.Create(entitiesRoot, id, pos, yaw, maze.nav, maze.structure, null);
+            dame.SetNetState(pos, yaw, (Dame.State)Mathf.Clamp(NetworkGame.I(p[5]), 0, 2), p[6]);
+        }
+        var gone = new List<int>();
+        foreach (int id in dames.Keys) if (!seenEntities.Contains(id)) gone.Add(id);
+        foreach (int id in gone)
+        {
+            if (dames[id] != null) Destroy(dames[id].gameObject);
+            dames.Remove(id);
+            watching.Remove(id);
         }
     }
 

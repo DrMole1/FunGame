@@ -68,7 +68,7 @@ public static class CharacterSetup
         };
     }
 
-    static AnimationClip ImportClip(string path, string clipName, Avatar avatar, bool loop, bool bakeHeight)
+    internal static AnimationClip ImportClip(string path, string clipName, Avatar avatar, bool loop, bool bakeHeight)
     {
         var importer = (ModelImporter)AssetImporter.GetAtPath(path);
         importer.animationType = ModelImporterAnimationType.Human;
@@ -93,7 +93,7 @@ public static class CharacterSetup
         return AssetDatabase.LoadAllAssetsAtPath(path).OfType<AnimationClip>().First(c => c.name == clipName);
     }
 
-    static AnimatorState AddState(AnimatorStateMachine sm, string stateName, AnimationClip clip, float speed)
+    internal static AnimatorState AddState(AnimatorStateMachine sm, string stateName, AnimationClip clip, float speed)
     {
         AnimatorState state = sm.AddState(stateName);
         state.motion = clip;
@@ -103,7 +103,7 @@ public static class CharacterSetup
     }
 
     // Hauteur du mesh dans la pose de repos.
-    static float MeasureHeight(GameObject model)
+    internal static float MeasureHeight(GameObject model)
     {
         float height = 0f;
         foreach (var smr in model.GetComponentsInChildren<SkinnedMeshRenderer>())

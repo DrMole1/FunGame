@@ -18,6 +18,7 @@ public static class GameSetup
         CreateFonts();
         ImportArt();
         ImportDecor();
+        DameSetup.Setup();
         SetupScene();
         AssetDatabase.SaveAssets();
         Debug.Log("FunGame configuré.");
@@ -37,6 +38,13 @@ public static class GameSetup
         CreateMaterial("Outline", "FunGame/Outline", null);
         CreateMaterial("Text3D", "FunGame/Text3D", null);
         CreateMaterial("InfestedWall", "FunGame/InfestedWall", null);
+        CreateMaterial("LaserBeam", "FunGame/LaserBeam", null);
+        CreateMaterial("Spark", "FunGame/Spark", null);
+        CreateMaterial("DustyLimb", "FunGame/DustyLimb", m => m.enableInstancing = true);
+        CreateMaterial("Mist", "FunGame/Mist", null);
+        CreateMaterial("Ectoplasm", "FunGame/Ectoplasm", null);
+        CreateMaterial("GhostAura", "FunGame/GhostAura", null);
+        CreateMaterial("Veil", "FunGame/Veil", null);
 
         // Sol du chapiteau : terre gravillonnée (texture 4K réduite pour le build WebGL).
         const string groundPath = "Assets/Materials/Basemap/zGround022_4K-PNG_Color.png";
@@ -57,6 +65,9 @@ public static class GameSetup
         });
     }
 
+    // Police du jeu, à l'essai (l'ancienne : Assets/Font/PUSAB___.otf).
+    const string FontPath = "Assets/Font/Nexa-Heavy.ttf";
+
     static void CreateFonts()
     {
         const string path = "Assets/Resources/GameFonts.asset";
@@ -66,8 +77,8 @@ public static class GameSetup
             fonts = ScriptableObject.CreateInstance<GameFonts>();
             AssetDatabase.CreateAsset(fonts, path);
         }
-        fonts.main = AssetDatabase.LoadAssetAtPath<Font>("Assets/Font/PUSAB___.otf");
-        if (fonts.main == null) Debug.LogError("Police PUSAB introuvable dans Assets/Font.");
+        fonts.main = AssetDatabase.LoadAssetAtPath<Font>(FontPath);
+        if (fonts.main == null) Debug.LogError("Police introuvable : " + FontPath);
         EditorUtility.SetDirty(fonts);
     }
 

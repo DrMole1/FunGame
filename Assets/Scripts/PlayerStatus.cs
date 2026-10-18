@@ -1,9 +1,10 @@
 using UnityEngine;
 
-// Points de vie et inventaire (5 cases) du joueur local.
+// Points de vie, sérénité et inventaire (5 cases) du joueur local.
 public class PlayerStatus : MonoBehaviour
 {
     public int Hp { get; private set; } = GameRules.MaxHp;
+    public int Serenity { get; private set; } = GameRules.MaxSerenity;
     public bool Dead { get; private set; }
     public int Selected { get; private set; } = -1;
 
@@ -73,6 +74,20 @@ public class PlayerStatus : MonoBehaviour
         if (hp == Hp) return;
         Hp = hp;
         Changed?.Invoke();
+    }
+
+    public void SetSerenity(int value)
+    {
+        value = Mathf.Clamp(value, 0, GameRules.MaxSerenity);
+        if (value == Serenity) return;
+        Serenity = value;
+        Changed?.Invoke();
+    }
+
+    public int IndexOf(ItemType type)
+    {
+        for (int i = 0; i < slots.Length; i++) if (slots[i] == type) return i;
+        return -1;
     }
 
     public void SetDead(bool dead)

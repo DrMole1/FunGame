@@ -24,6 +24,10 @@ public class PlayerController : MonoBehaviour
     bool jumpRequested, grounded;
     Vector3 groundNormal = Vector3.up;
     float airborneLock;
+    // Recul (coup de La Dame) : vitesse horizontale imposée qui s'amortit.
+    Vector3 knockVelocity;
+    float knockTimer;
+    const float KnockDuration = 0.6f;
 
     public AnimState CurrentAnimState => avatar != null ? avatar.State : AnimState.Idle;
     public bool Sneaking => gait == Gait.Sneak;
@@ -112,6 +116,12 @@ public class PlayerController : MonoBehaviour
             if (!HasGroundAhead(new Vector3(0f, 0f, move.z))) move.z = 0f;
         }
 
+        if (knockTimer > 0f)
+        {
+            knockTimer -= Time.fixedDeltaTime;
+            move = knockVelocity * Mathf.Clamp01(knockTimer / KnockDuration);
+        }
+
         Vector3 vel = rb.velocity;
         vel.x = move.x;
         vel.z = move.z;
@@ -169,6 +179,18 @@ public class PlayerController : MonoBehaviour
         rb.position = position;
         rb.rotation = transform.rotation;
         if (!rb.isKinematic) rb.velocity = Vector3.zero;
+    }
+
+    // Repousse le personnage dans la direction 'away' (horizontale), avec un petit bond.
+    public void Knockback(Vector3 away, float speed)
+    {
+        if (rb.isKinematic) return;
+        away.y = 0f;
+        if (away.sqrMagnitude < 0.001f) away = -transform.forward;
+        knockVelocity = away.normalized * speed;
+        knockTimer = KnockDuration;
+        rb.velocity = knockVelocity + Vector3.up * 4f;
+        airborneLock = 0.25f;
     }
 
     public void SetFrozen(bool frozen)

@@ -26,17 +26,19 @@ public class Laser : MonoBehaviour
 
     Vector3 a, b;
     GameObject beam;
+    ParticleSystem[] sparks;
     AudioSource hum;
     bool touching;
     float repeatTimer;
 
     public bool Active { get; private set; }
 
-    public void Init(Vector3 from, Vector3 to, GameObject beamObject)
+    public void Init(Vector3 from, Vector3 to, GameObject beamObject, ParticleSystem[] sparkSystems)
     {
         a = from;
         b = to;
         beam = beamObject;
+        sparks = sparkSystems;
         beam.SetActive(false);
     }
 
@@ -53,6 +55,11 @@ public class Laser : MonoBehaviour
         {
             Active = active;
             beam.SetActive(active);
+            foreach (var s in sparks)
+            {
+                if (active) s.Play();
+                else s.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+            }
             Vector3 mid = (a + b) * 0.5f;
             if (active)
             {
@@ -234,5 +241,108 @@ public class Bobbing : MonoBehaviour
         float t = Time.time + phase;
         transform.localPosition = basePos + Vector3.up * (0.06f + Mathf.Sin(t * 2f) * 0.05f);
         transform.localRotation = Quaternion.Euler(0f, t * 40f, 0f);
+    }
+}
+
+// Porte massive entre la Zone 1 et la Zone 2 : battant ectoplasmique où se pressent crânes et mains.
+// Elle s'ouvre (le battant se dissipe, la porte s'enfonce dans le sol) quand les trois orbes sont brisés.
+public class ZoneDoor : MonoBehaviour
+{
+    const float OpenDuration = 4f;
+
+    GameObject frame;
+    Material ecto;
+    BoxCollider blocker;
+    Light glow;
+    float height, openAmount;
+    bool open;
+
+    public bool IsOpen => open;
+
+    public static ZoneDoor Create(Transform parent, Vector3 pos, Quaternion rot, float width, float height)
+    {
+        var go = new GameObject("Porte_Zone2");
+        go.transform.SetParent(parent, false);
+        go.transform.SetPositionAndRotation(pos, rot);
+        var door = go.AddComponent<ZoneDoor>();
+        door.height = height;
+
+        // L'avant du modèle Meshy (+Z) regarde la Zone 1.
+        door.frame = GameArt.SpawnModel("ZoneDoor", go.transform, height + 0.6f);
+        float front = 0.2f;
+        if (door.frame != null)
+        {
+            Bounds b = GameArt.LocalBounds(door.frame.transform);
+            float scale = Mathf.Min(1f, (width + 1.2f) / Mathf.Max(0.01f, b.size.x));
+            door.frame.transform.localScale *= scale;
+            b = GameArt.LocalBounds(door.frame.transform);
+            door.frame.transform.localPosition += new Vector3(0f, 0f, 0.15f - b.min.z);
+            front = 0.15f + b.size.z;
+        }
+        else
+        {
+            door.frame = new GameObject("Cadre");
+            door.frame.transform.SetParent(go.transform, false);
+            Material stone = GameArt.Lit("DoorStone", new Color(0.18f, 0.18f, 0.2f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.05f);
+            foreach (float s in new[] { -1f, 1f })
+                GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(s * (width * 0.5f + 0.25f), height * 0.5f + 0.1f, 0.3f), new Vector3(0.5f, height + 0.2f, 0.4f), stone);
+            GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height + 0.35f, 0.3f), new Vector3(width + 1f, 0.5f, 0.4f), stone);
+            GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height * 0.5f, 0f), new Vector3(width, height, 0.15f), GameArt.Lit("DoorSlab", new Color(0.05f, 0.07f, 0.1f), null, 0.4f));
+            front = 0.5f;
+        }
+
+        // Battant ectoplasmique (shader de crânes et de mains), devant la porte.
+        var slab = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        Destroy(slab.GetComponent<Collider>());
+        slab.name = "Ectoplasme";
+        slab.transform.SetParent(go.transform, false);
+        slab.transform.localPosition = new Vector3(0f, height * 0.5f, front + 0.02f);
+        // Le quad regarde vers -Z : on le retourne vers la Zone 1.
+        slab.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+        slab.transform.localScale = new Vector3(width * 0.92f, height * 0.95f, 1f);
+        door.ecto = new Material(GameArt.Ectoplasm);
+        door.ecto.SetFloat("_Aspect", width / height);
+        var r = slab.GetComponent<Renderer>();
+        r.sharedMaterial = door.ecto;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+        door.glow = new GameObject("Lueur").AddComponent<Light>();
+        door.glow.transform.SetParent(go.transform, false);
+        door.glow.transform.localPosition = new Vector3(0f, height * 0.6f, front + 1.2f);
+        door.glow.type = LightType.Point;
+        door.glow.color = new Color(0.3f, 0.6f, 1f);
+        door.glow.range = 9f;
+        door.glow.intensity = 1.4f;
+        door.glow.shadows = LightShadows.None;
+
+        door.blocker = go.AddComponent<BoxCollider>();
+        door.blocker.center = new Vector3(0f, height * 0.5f, 0f);
+        door.blocker.size = new Vector3(width + 0.2f, height, 0.6f);
+        return door;
+    }
+
+    public void SetOpen(bool value, bool instant)
+    {
+        if (value && !open && !instant) GameAudio.Play3D("zone_door", transform.position + Vector3.up * 2f, 1f, 60f, 0f);
+        open = value;
+        blocker.enabled = !open;
+        if (instant) Apply(open ? 1f : 0f);
+    }
+
+    void Update()
+    {
+        float goal = open ? 1f : 0f;
+        if (Mathf.Approximately(openAmount, goal)) return;
+        Apply(Mathf.MoveTowards(openAmount, goal, Time.deltaTime / OpenDuration));
+    }
+
+    void Apply(float amount)
+    {
+        openAmount = amount;
+        ecto.SetFloat("_Open", Mathf.Clamp01(amount * 1.6f));
+        float sink = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((amount - 0.3f) / 0.7f));
+        frame.transform.localPosition = new Vector3(frame.transform.localPosition.x, -sink * (height + 1.2f), frame.transform.localPosition.z);
+        frame.SetActive(amount < 0.999f);
+        glow.intensity = Mathf.Lerp(1.4f, 0f, amount);
     }
 }

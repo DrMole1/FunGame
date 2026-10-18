@@ -12,4 +12,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 455b559b257881a41b8e1e47f704e67c, type: 3}
   m_Name: GameFonts
   m_EditorClassIdentifier: 
-  main: {fileID: 12800000, guid: a54ed38f0df46a14b847118684b28bd5, type: 3}
+  main: {fileID: 12800000, guid: 07b3a5c29dae3804a8f99e01ca6fc943, type: 3}

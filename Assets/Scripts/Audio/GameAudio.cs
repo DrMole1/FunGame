@@ -12,10 +12,12 @@ public class GameAudio : MonoBehaviour
 
     readonly List<AudioSource> pool = new List<AudioSource>();
     int next;
-    AudioSource hubMusic, mazeDrone, insects;
+    AudioSource hubMusic, mazeDrone, insects, abjurationMusic;
 
     // Proximité des murs infestés (0 à 1), fournie par la session de jeu.
     public static float InsectLevel { get; set; }
+    // Abjuration en cours (0 ou 1) : sa musique lente remplace les autres ambiances.
+    public static float AbjurationLevel { get; set; }
     // Ambiances actives (en jeu ou dans le menu).
     public static bool AmbienceEnabled { get; set; } = true;
 
@@ -53,6 +55,7 @@ public class GameAudio : MonoBehaviour
         hubMusic = AmbientLoop("hub_music");
         mazeDrone = AmbientLoop("maze_drone");
         insects = AmbientLoop("insects");
+        abjurationMusic = AmbientLoop("abjuration_music");
     }
 
     AudioSource AmbientLoop(string clip)
@@ -148,8 +151,11 @@ public class GameAudio : MonoBehaviour
         bool inHub = cam == null || WorldBuilder.IsInHub(cam.transform.position);
         float k = 1f - Mathf.Exp(-1.5f * Time.unscaledDeltaTime);
         float on = AmbienceEnabled ? 1f : 0f;
-        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? 0.32f * on : 0f, k);
-        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on, k);
+        float abj = AbjurationLevel * on;
+        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? 0.32f * on * (1f - abj * 0.8f) : 0f, k);
+        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * (1f - abj * 0.5f), k);
+        float ka = 1f - Mathf.Exp(-0.6f * Time.unscaledDeltaTime);
+        abjurationMusic.volume = Mathf.Lerp(abjurationMusic.volume, abj * 0.5f, ka);
         float ki = 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime);
         insects.volume = Mathf.Lerp(insects.volume, inHub ? 0f : InsectLevel * 0.9f * on, ki);
     }

@@ -1,0 +1,17 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e39fb02c7c240bf4387fe403df5cc82f, type: 3}
+  m_Name: DameArt
+  m_EditorClassIdentifier: 
+  model: {fileID: 919132149155446097, guid: 644ba416d5db9e442903c38b8c9da7c1, type: 3}
+  controller: {fileID: 9100000, guid: 72f020dabd24aa049be91aee4dd24fc8, type: 2}
+  scale: 0.9999999

@@ -15,6 +15,8 @@ public static class SoundBank
         "button", "door", "tick", "tock", "fanfare", "gameover", "laser_on", "laser_hum", "laser_hit",
         "hurt", "death", "revive", "duck", "pop", "eat", "key", "beep", "error", "register",
         "hub_music", "maze_drone", "insects", "neon", "blink", "step_tile", "step_dirt",
+        "bell", "abjuration_music", "whisper_loss", "postit", "orb_on", "orb_break", "zone_door",
+        "dame_whisper", "dame_scream", "dame_attack",
     };
 
     public static void Preload()
@@ -63,6 +65,16 @@ public static class SoundBank
             case "blink": return Blink(rnd);
             case "step_tile": return StepTile(rnd);
             case "step_dirt": return StepDirt(rnd);
+            case "bell": return Bell(rnd);
+            case "abjuration_music": return AbjurationMusic(rnd);
+            case "whisper_loss": return Whisper(rnd, 0.7f, 0.35f);
+            case "postit": return PostIt(rnd);
+            case "orb_on": return OrbOn(rnd);
+            case "orb_break": return OrbBreak(rnd);
+            case "zone_door": return ZoneDoor(rnd);
+            case "dame_whisper": return DameWhisper(rnd);
+            case "dame_scream": return DameScream(rnd);
+            case "dame_attack": return DameAttack(rnd);
         }
         return null;
     }
@@ -621,6 +633,213 @@ public static class SoundBank
             float t = (float)i / Rate;
             float grain = rnd.NextDouble() < 0.1 ? Noise(rnd) * 2f : Noise(rnd) * 0.4f;
             d[i] = lp.Process(grain, 1300f) * AD(t, 0.005f, 0.035f);
+        }
+        return d;
+    }
+
+    // ---------- Abjuration ----------
+
+    // Glas d'une cloche funèbre (moins de 2 secondes) : partiels inharmoniques d'une grosse cloche.
+    static float[] Bell(System.Random rnd)
+    {
+        var d = Buffer(1.95f);
+        float f = 98f;
+        (float ratio, float amp, float decay)[] partials =
+        {
+            (0.5f, 0.5f, 1.6f), (1f, 0.8f, 1.2f), (1.19f, 0.6f, 0.9f), (1.5f, 0.35f, 0.7f),
+            (2f, 0.45f, 0.6f), (2.52f, 0.25f, 0.4f), (3.01f, 0.18f, 0.3f), (4.1f, 0.1f, 0.2f),
+        };
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float s = 0f;
+            foreach (var (ratio, amp, decay) in partials)
+                s += Sine(f * ratio * t * (1f + 0.0015f * Mathf.Sin(TwoPi * 2.5f * t))) * amp * Decay(t, decay);
+            // Choc du battant.
+            s += lp.Process(Noise(rnd), 2500f) * Decay(t, 0.012f) * 1.5f;
+            d[i] = s * Mathf.Clamp01((1.95f - t) / 0.3f);
+        }
+        return d;
+    }
+
+    // Petite musique horrifique au tempo lent : bourdon dissonant, boîte à musique désaccordée, souffles.
+    static float[] AbjurationMusic(System.Random rnd)
+    {
+        const float beat = 60f / 48f;
+        float loop = beat * 16f;
+        var d = Buffer(loop + 2f);
+        int[] melody = { 74, 77, 76, 73, 74, 81, 80, 77, 74, 70, 69, 73, 74, 77, 73, 62 };
+        for (int n = 0; n < melody.Length; n++)
+        {
+            float f = Midi(melody[n]) * (1f + Noise(rnd) * 0.006f);
+            int i0 = Mathf.RoundToInt(n * beat * Rate);
+            for (int i = i0; i < d.Length; i++)
+            {
+                float t = (float)(i - i0) / Rate;
+                if (t > 3f) break;
+                // Lame de boîte à musique : fondamentale, partiel aigu, légère déformation du ressort.
+                float wow = 1f + 0.004f * Mathf.Sin(TwoPi * 0.8f * t);
+                d[i] += (Sine(f * wow * t) + Sine(f * 2.99f * t) * 0.25f + Sine(f * 5.4f * t) * 0.08f) * AD(t, 0.004f, 0.9f) * 0.3f;
+            }
+        }
+        var wind = new BandPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float swell = 0.5f + 0.5f * Mathf.Sin(TwoPi * t / loop * 2f);
+            float drone = Sine(73.4f * t) * 0.35f + Sine(77.8f * t) * 0.25f + Sine(110f * t) * 0.1f * swell;
+            drone += wind.Process(Noise(rnd), 500f + 300f * swell, 0.2f) * 0.12f * swell;
+            d[i] += drone;
+        }
+        return MakeLoop(d, loop, 1.5f);
+    }
+
+    // Murmure soufflé (perte de sérénité, chuchotements de La Dame).
+    static float[] Whisper(System.Random rnd, float length, float formantSpeed)
+    {
+        var d = Buffer(length);
+        var f1 = new BandPass();
+        var f2 = new BandPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float k = t / formantSpeed;
+            float n = Noise(rnd);
+            float s = f1.Process(n, 900f + 700f * Mathf.Sin(k * 5f), 0.15f) + f2.Process(n, 2600f + 900f * Mathf.Sin(k * 3.3f + 1f), 0.2f) * 0.6f;
+            float syllables = 0.4f + 0.6f * Mathf.Abs(Mathf.Sin(TwoPi * 3.2f * t));
+            d[i] = s * syllables * ASR(t, 0.08f, 0.2f, length);
+        }
+        return d;
+    }
+
+    // ---------- Post-It, orbes, porte ----------
+
+    // Papier qu'on décolle ou qu'on colle.
+    static float[] PostIt(System.Random rnd)
+    {
+        var d = Buffer(0.18f);
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float x = Noise(rnd) * (rnd.NextDouble() < 0.3 ? 1.5f : 0.5f);
+            d[i] = (x - lp.Process(x, 1800f)) * AD(t, 0.01f, 0.05f);
+        }
+        return d;
+    }
+
+    // Orbe qui s'éveille : souffle qui monte et carillon de verre.
+    static float[] OrbOn(System.Random rnd)
+    {
+        var d = Buffer(1.8f);
+        var bp = new BandPass();
+        int[] notes = { 74, 81, 86, 93 };
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float s = bp.Process(Noise(rnd), 300f + 1800f * Mathf.Min(1f, t / 1.2f), 0.3f) * ASR(t, 0.6f, 0.6f, 1.8f) * 0.5f;
+            for (int n = 0; n < notes.Length; n++)
+            {
+                float u = t - 0.5f - n * 0.12f;
+                if (u > 0f) s += Sine(Midi(notes[n]) * u) * AD(u, 0.003f, 0.6f) * 0.25f;
+            }
+            d[i] = s;
+        }
+        return d;
+    }
+
+    // Orbe qui se brise : éclats de verre et soupir qui s'échappe.
+    static float[] OrbBreak(System.Random rnd)
+    {
+        var d = Buffer(1.4f);
+        var hp = new LowPass();
+        var pings = new (float t, float f)[10];
+        for (int k = 0; k < pings.Length; k++) pings[k] = ((float)rnd.NextDouble() * 0.5f, 2500f + (float)rnd.NextDouble() * 4500f);
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float x = Noise(rnd);
+            float s = (x - hp.Process(x, 3000f)) * Decay(t, 0.08f) * 1.2f;
+            foreach (var (pt, pf) in pings)
+                if (t > pt) s += Sine(pf * (t - pt)) * Decay(t - pt, 0.15f) * 0.2f;
+            s += Sine(Mathf.Lerp(330f, 110f, t / 1.4f) * t) * ASR(t - 0.2f, 0.2f, 0.6f, 1.1f) * 0.25f;
+            d[i] = s;
+        }
+        return d;
+    }
+
+    // Porte de la Zone 2 qui s'ouvre : grondement de pierre et chœur fantomatique.
+    static float[] ZoneDoor(System.Random rnd)
+    {
+        var d = Buffer(4.2f);
+        var rumble = new LowPass();
+        var choir1 = new BandPass();
+        var choir2 = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float s = rumble.Process(Noise(rnd), 120f) * 3f * ASR(t, 0.3f, 1.2f, 4f);
+            phase += (110f + 20f * Mathf.Min(1f, t / 3f)) / Rate;
+            float voice = Saw(phase) + Saw(phase * 1.5f) * 0.6f + Saw(phase * 2.01f) * 0.4f;
+            s += (choir1.Process(voice, 700f, 0.15f) + choir2.Process(voice, 1100f, 0.2f) * 0.6f) * ASR(t, 1f, 1.5f, 4.2f) * 0.4f;
+            d[i] = s;
+        }
+        return d;
+    }
+
+    // ---------- La Dame ----------
+
+    // Chuchotements en boucle autour de La Dame.
+    static float[] DameWhisper(System.Random rnd)
+    {
+        const float loop = 5f;
+        var d = Buffer(loop + 0.8f);
+        var w = Whisper(rnd, loop + 0.8f, 0.6f);
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            // Phrases chuchotées entrecoupées de silences.
+            float gate = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(Mathf.Sin(TwoPi * t / 2.5f + 0.3f) * 3f));
+            d[i] = w[Mathf.Min(i, w.Length - 1)] * (0.2f + 0.8f * gate) + Sine(55f * t) * 0.08f;
+        }
+        return MakeLoop(d, loop, 0.6f);
+    }
+
+    // Cri strident quand elle prend un joueur en chasse.
+    static float[] DameScream(System.Random rnd)
+    {
+        var d = Buffer(1.6f);
+        var f1 = new BandPass();
+        var f2 = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float pitch = Mathf.Lerp(420f, 780f, Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, t / 0.5f))) * (1f + 0.04f * Mathf.Sin(TwoPi * 9f * t));
+            phase += pitch / Rate;
+            float src = Saw(phase) + Noise(rnd) * 0.35f;
+            float s = f1.Process(src, 1100f, 0.12f) + f2.Process(src, 2900f, 0.15f) * 0.7f;
+            d[i] = s * ASR(t, 0.03f, 0.6f, 1.6f);
+        }
+        return d;
+    }
+
+    // Attaque : souffle et râle aigu.
+    static float[] DameAttack(System.Random rnd)
+    {
+        var d = Buffer(1f);
+        var bp = new BandPass();
+        var f1 = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float s = bp.Process(Noise(rnd), Mathf.Lerp(400f, 2200f, t), 0.4f) * ASR(t, 0.15f, 0.4f, 0.9f) * 0.8f;
+            phase += Mathf.Lerp(600f, 300f, t) / Rate;
+            s += f1.Process(Saw(phase) + Noise(rnd) * 0.4f, 1500f, 0.15f) * ASR(t - 0.35f, 0.02f, 0.35f, 0.6f);
+            d[i] = s;
         }
         return d;
     }

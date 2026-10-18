@@ -1,11 +1,14 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.1).
+// Variables numériques du document de Game Design (V0.3).
 public static class GameRules
 {
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
+    public const int MaxSerenity = 100;
     public const float HubRegenPerSecond = 5f;
+    // Non précisé dans le GDD : la sérénité remonte lentement dans le Hub (refuge des joueurs).
+    public const float HubSerenityRegenPerSecond = 1f;
     public const float RoundDuration = 15f * 60f;
     public const int InventorySize = 5;
     public const int LogLines = 8;
@@ -18,25 +21,61 @@ public static class GameRules
     public const float InteractRange = 2.2f;
 
     public const float LaserTriggerDistance = 2f;
-    public const int LaserDamage = 10;
+    public const int LaserDamage = 20;
 
     // Course : multiplicateur de la vitesse de base selon le nombre d'objets portés (0 à 5).
     static readonly float[] RunMultipliers = { 2f, 2f, 1.8f, 1.6f, 1.4f, 1.2f };
     public static float RunMultiplier(int itemCount) => RunMultipliers[Mathf.Clamp(itemCount, 0, RunMultipliers.Length - 1)];
     public const float SneakMultiplier = 0.5f;
+    public const float BaseSpeed = 4f;
 
-    // Non précisé dans le GDD : premier quota à 500 (exemple du document), +250 par manche.
+    // Premier quota à 500 (exemple du document), +250 à chaque nouvelle manche.
     public static int QuotaForRound(int round) => 500 + (round - 1) * 250;
 
-    // Assez de canards pour dépasser le quota de 40 %, à répartir dans le labyrinthe.
-    public static int DucksForRound(int round)
+    // ---------- Évolution du terrain (chapitre 10) ----------
+
+    // Génération d'objets de valeur, en pourcentage du quota de la manche (manche 8 et suivantes : dernière valeur).
+    static readonly float[] Zone1ValuePercent = { 1.4f, 1.35f, 1.3f, 1.2f, 1.1f, 1f, 0.9f, 0.8f };
+    static readonly float[] Zone2ValuePercent = { 0f, 0f, 0f, 1f, 1.1f, 1.2f, 1.2f, 1.2f };
+    // Entités de type "Cauchemar" qui apparaissent au début de la manche.
+    static readonly int[] Zone1Nightmares = { 0, 1, 2, 1, 2, 2, 2, 2 };
+    static readonly int[] Zone2Nightmares = { 0, 0, 0, 2, 2, 2, 3, 3 };
+
+    static int RoundIndex(int round) => Mathf.Clamp(round - 1, 0, Zone1ValuePercent.Length - 1);
+
+    public static int DucksForRound(int round, int zone)
     {
+        float percent = (zone == 0 ? Zone1ValuePercent : Zone2ValuePercent)[RoundIndex(round)];
         int duckValue = Items.Get(ItemType.Canard).sellPrice;
-        return Mathf.CeilToInt(QuotaForRound(round) * 1.4f / duckValue);
+        return Mathf.CeilToInt(QuotaForRound(round) * percent / duckValue);
     }
+
+    public static int NightmaresForRound(int round, int zone) => (zone == 0 ? Zone1Nightmares : Zone2Nightmares)[RoundIndex(round)];
+
+    // ---------- L'Abjuration (chapitre 10.1) ----------
+
+    // Elle apparaît quand le Compteur de Temps affiche 7 minutes, jusqu'à la manche suivante.
+    public const float AbjurationStart = 7f * 60f;
+    public const float AbjurationTick = 3f;     // toutes les 3 secondes de contact...
+    public const int AbjurationLoss = 1;        // ...1 point de sérénité en moins
+    // Hauteur (absolue) du dessus de la brume : le ras du sol du Hub.
+    public const float MistTop = 0.5f;
+
+    // ---------- La Dame (entité ID 2) ----------
+
+    public const int DameDamage = 100;
+    public const float DameChaseMultiplier = 1.5f;
+    public const float DameWatchedMultiplier = 2.2f;
+    public const float DameChaseMin = 20f, DameChaseMax = 30f;
+    public const float DameSightRange = 20f;
+    public const float DameKnockback = 9f;
+
+    // Zone 2 : les orbes s'activent à la fin des manches 1, 2 et 3.
+    public const int OrbCount = 3;
+    public static bool OrbActive(int orb, int round) => round >= orb + 2;
 }
 
-public enum ItemType { None = 0, Croquette = 1, Canard = 2 }
+public enum ItemType { None = 0, Croquette = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5 }
 
 public class ItemDef
 {
@@ -46,16 +85,22 @@ public class ItemDef
     public int buyPrice;   // 0 = non achetable au Terminal
     public int sellPrice;
     public Color color;
+    public bool inventory = true; // la Boussole ne se garde pas dans l'inventaire
 }
 
 public static class Items
 {
-    public const int CroquetteHeal = 10;
+    public const int CroquetteHeal = 20;
+    public const int CroquetteSerenity = 20;
+    public const int PostItMaxChars = 20;
 
     static readonly ItemDef[] All =
     {
-        new ItemDef { type = ItemType.Croquette, name = "Croquette", shortName = "Croquette", buyPrice = 10, sellPrice = 1, color = new Color(0.62f, 0.4f, 0.22f) },
+        new ItemDef { type = ItemType.Croquette, name = "Croquette", shortName = "Croquette", buyPrice = 20, sellPrice = 1, color = new Color(0.62f, 0.4f, 0.22f) },
         new ItemDef { type = ItemType.Canard, name = "Canard en Plastique", shortName = "Canard", buyPrice = 0, sellPrice = 20, color = new Color(1f, 0.84f, 0.15f) },
+        new ItemDef { type = ItemType.PostIt, name = "Post-It", shortName = "Post-It", buyPrice = 30, sellPrice = 1, color = new Color(1f, 0.93f, 0.35f) },
+        new ItemDef { type = ItemType.Cle, name = "Clé", shortName = "Clé", buyPrice = 200, sellPrice = 1, color = new Color(0.55f, 0.8f, 1f) },
+        new ItemDef { type = ItemType.Boussole, name = "Boussole", shortName = "Boussole", buyPrice = 400, sellPrice = 0, color = new Color(0.9f, 0.9f, 0.9f), inventory = false },
     };
 
     public static ItemDef Get(ItemType type)

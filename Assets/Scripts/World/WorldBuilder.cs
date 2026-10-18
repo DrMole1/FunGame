@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Construit le Hub (chapiteau circulaire) et le labyrinthe procédural qui l'entoure.
+// Construit le Hub (chapiteau circulaire), le labyrinthe procédural qui l'entoure (Zone 1) et la Zone 2.
 // Le labyrinthe dépend uniquement de la graine : tous les clients génèrent le même.
 public static class WorldBuilder
 {
@@ -34,7 +34,12 @@ public static class WorldBuilder
     public class MazeRefs
     {
         public GameObject root;
-        public List<Vector3> itemSpots = new List<Vector3>();
+        public Transform structure;  // collisions du bâti (sols, murs, rampes), sans le décor
+        public readonly List<Vector3>[] itemSpots = { new List<Vector3>(), new List<Vector3>() }; // par zone
+        public MazeNav nav;
+        public ZoneDoor zoneDoor;
+        public readonly ZoneOrb[] orbs = new ZoneOrb[GameRules.OrbCount];
+        public GameObject mist;      // brume de l'Abjuration
     }
 
     public static bool IsInHub(Vector3 p) => new Vector2(p.x, p.z).sqrMagnitude < HubRadius * HubRadius && p.y < HubWallHeight + 6f;
@@ -207,42 +212,120 @@ public static class WorldBuilder
 
     // ================= Labyrinthe =================
 
-    enum RoomStyle { Columns, Spheres, Chaotic, Blocks }
+    enum RoomStyle { Columns, Spheres, Chaotic, Blocks, Pit }
 
     class Room
     {
         public RectInt rect;
         public float floor, ceil; // hauteur du plancher et du plafond (absolues)
+        public float pitDepth;    // style Pit : profondeur de la fosse sous la passerelle
         public RoomStyle style;
         public bool chess;
         public readonly List<Vector2Int> cells = new List<Vector2Int>();
     }
 
+    // Une zone du labyrinthe : grille de cellules de 5 m. La Zone 1 entoure le Hub ; la Zone 2 est collée à un côté
+    // de la Zone 1, reliée par une porte massive. Coordonnées (i, j) : i le long de X, j le long de Z.
     class Maze
     {
-        public bool[,] eastWall = new bool[Grid, Grid];  // mur entre (i, j) et (i + 1, j)
-        public bool[,] northWall = new bool[Grid, Grid]; // mur entre (i, j) et (i, j + 1)
-        public int[,] room = new int[Grid, Grid];        // -1 = couloir
+        public readonly int zone, N;
+        public readonly Vector3 origin;   // coin (x et z minimaux) de la cellule (0, 0)
+        public readonly bool hub;
+        public readonly Vector2Int start; // cellule d'entrée (derrière la porte du Hub ou de la Zone 2)
+        public Maze neighbor;
+        public int doorSide = -1;          // Zone 2 : côté collé à la Zone 1, où se trouve la porte
+        // Zone 1 : murs extérieurs du côté de la Zone 2 construits par celle-ci (cellules skipFrom à skipTo).
+        public int skipSide = -1, skipFrom, skipTo;
+        public Vector2Int doorCell = new Vector2Int(-1, -1);
+        public readonly HashSet<Vector2Int> keepClear = new HashSet<Vector2Int>(); // cellules sans décor ni piège
+        public readonly bool[,] eastWall, northWall; // mur entre (i, j) et (i + 1, j) / entre (i, j) et (i, j + 1)
+        public readonly int[,] room;                 // -1 = couloir
         public readonly List<Room> rooms = new List<Room>();
+
+        public Maze(int zone, int n, Vector3 origin, bool hub, Vector2Int start)
+        {
+            this.zone = zone;
+            N = n;
+            this.origin = origin;
+            this.hub = hub;
+            this.start = start;
+            eastWall = new bool[n, n];
+            northWall = new bool[n, n];
+            room = new int[n, n];
+        }
+
+        public bool InGrid(int i, int j) => i >= 0 && j >= 0 && i < N && j < N;
+        public bool Reserved(int i, int j) => hub && i >= HubMin && i <= HubMax && j >= HubMin && j <= HubMax;
+        public Vector3 Center(int i, int j) => origin + new Vector3((i + 0.5f) * Cell, 0f, (j + 0.5f) * Cell);
+
+        public bool CellAt(Vector3 p, out int i, out int j)
+        {
+            i = Mathf.FloorToInt((p.x - origin.x) / Cell);
+            j = Mathf.FloorToInt((p.z - origin.z) / Cell);
+            return InGrid(i, j);
+        }
 
         public Room RoomAt(int i, int j) => InGrid(i, j) && room[i, j] >= 0 ? rooms[room[i, j]] : null;
         public float Floor(int i, int j) => RoomAt(i, j)?.floor ?? 0f;
-        // Hauteur du plafond ; hors labyrinthe (bords, Hub) : hauteur des couloirs.
-        public float Ceil(int i, int j) => !InGrid(i, j) || Reserved(i, j) ? WallHeight : RoomAt(i, j)?.ceil ?? WallHeight;
+        public bool IsPit(int i, int j) => RoomAt(i, j)?.style == RoomStyle.Pit;
+
+        // Hauteur du plafond ; hors de la grille : celle de la zone voisine, sinon celle des couloirs.
+        public float Ceil(int i, int j)
+        {
+            if (!InGrid(i, j))
+                return neighbor != null && neighbor.CellAt(Center(i, j), out int ni, out int nj) ? neighbor.Ceil(ni, nj) : WallHeight;
+            return Reserved(i, j) ? WallHeight : RoomAt(i, j)?.ceil ?? WallHeight;
+        }
+
+        // Le mur extérieur de la cellule de bord 'index' sur 'side' est construit par la zone voisine.
+        public bool SkipsEdge(int side, int index) => side == skipSide && index >= skipFrom && index <= skipTo;
     }
 
-    static bool Reserved(int i, int j) => i >= HubMin && i <= HubMax && j >= HubMin && j <= HubMax;
-    static bool InGrid(int i, int j) => i >= 0 && j >= 0 && i < Grid && j < Grid;
-    static Vector3 CellCenter(int i, int j) => new Vector3((i - Grid / 2) * Cell, 0f, (j - Grid / 2) * Cell);
+    // Paramètres de génération d'une zone (chapitre 9 du GDD).
+    class ZoneStyle
+    {
+        public int maxRooms, minRoomSize, maxRoomSize;
+        public float pitChance, minPitDepth, maxPitDepth;
+        public float[] floors;          // plancher des salles (au-dessus du niveau du Hub)
+        public float[] ceilings;        // hauteur sous plafond des salles
+        public float[] chaoticCeilings; // salles chaotiques (plateformes)
+        public float[] pitCeilings;     // hauteur au-dessus de la passerelle des fosses
+    }
+
+    // Zone 1 : le plancher descend jusqu'à 3 unités sous le Hub, le plafond monte jusqu'à 10 unités au-dessus du plancher.
+    static readonly ZoneStyle Zone1Style = new ZoneStyle
+    {
+        maxRooms = 34, minRoomSize = 2, maxRoomSize = 4,
+        pitChance = 0.15f, minPitDepth = 1.5f, maxPitDepth = 3f,
+        floors = new[] { 0f, 0f, 0.8f, 1.6f },
+        ceilings = new[] { 4f, 6f, 8f },
+        chaoticCeilings = new[] { 7f, 9f, 10f },
+        pitCeilings = new[] { 5f, 6f, 7f },
+    };
+
+    // Zone 2 (100 m x 100 m) : plancher jusqu'à 10 unités sous le Hub, plafond jusqu'à 30 unités au-dessus du plancher.
+    public const int Zone2Size = 20;
+    static readonly ZoneStyle Zone2Style = new ZoneStyle
+    {
+        maxRooms = 24, minRoomSize = 2, maxRoomSize = 5,
+        pitChance = 0.3f, minPitDepth = 4f, maxPitDepth = 10f,
+        floors = new[] { 0f, 0f, 0.8f, 1.6f, 2.4f },
+        ceilings = new[] { 5f, 8f, 12f, 18f },
+        chaoticCeilings = new[] { 14f, 20f, 26f },
+        pitCeilings = new[] { 8f, 12f, 16f, 20f },
+    };
+
+    const float ZoneDoorWidth = 3.4f, ZoneDoorHeight = 3.6f;
+    const float PitMargin = 1.6f;
 
     // Mur sur le côté 'dir' (0 = +X, 1 = -X, 2 = +Z, 3 = -Z) de la cellule.
     static bool HasWall(Maze m, int i, int j, int dir)
     {
         switch (dir)
         {
-            case 0: return i == Grid - 1 || m.eastWall[i, j];
+            case 0: return i == m.N - 1 || m.eastWall[i, j];
             case 1: return i == 0 || m.eastWall[i - 1, j];
-            case 2: return j == Grid - 1 || m.northWall[i, j];
+            case 2: return j == m.N - 1 || m.northWall[i, j];
             default: return j == 0 || m.northWall[i, j - 1];
         }
     }
@@ -251,9 +334,9 @@ public static class WorldBuilder
     {
         switch (dir)
         {
-            case 0: if (i < Grid - 1) m.eastWall[i, j] = value; break;
+            case 0: if (i < m.N - 1) m.eastWall[i, j] = value; break;
             case 1: if (i > 0) m.eastWall[i - 1, j] = value; break;
-            case 2: if (j < Grid - 1) m.northWall[i, j] = value; break;
+            case 2: if (j < m.N - 1) m.northWall[i, j] = value; break;
             default: if (j > 0) m.northWall[i, j - 1] = value; break;
         }
     }
@@ -262,21 +345,30 @@ public static class WorldBuilder
 
     static T Pick<T>(System.Random rnd, params T[] values) => values[rnd.Next(values.Length)];
 
-    static Maze Generate(System.Random rnd)
+    // Cellule de bord numéro 'index' sur le côté 'side' d'une grille de 'n' cellules.
+    static Vector2Int BorderCell(int side, int index, int n) => side switch
     {
-        var m = new Maze();
-        for (int i = 0; i < Grid; i++)
-            for (int j = 0; j < Grid; j++)
+        0 => new Vector2Int(n - 1, index),
+        1 => new Vector2Int(0, index),
+        2 => new Vector2Int(index, n - 1),
+        _ => new Vector2Int(index, 0),
+    };
+
+    static void Generate(Maze m, System.Random rnd, ZoneStyle style)
+    {
+        int n = m.N;
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
             {
                 m.eastWall[i, j] = m.northWall[i, j] = true;
                 m.room[i, j] = -1;
             }
 
-        // Labyrinthe parfait (exploration en profondeur) à partir de la porte du Hub.
-        var visited = new bool[Grid, Grid];
+        // Labyrinthe parfait (exploration en profondeur) à partir de l'entrée de la zone.
+        var visited = new bool[n, n];
         var stack = new Stack<Vector2Int>();
-        stack.Push(new Vector2Int(DoorI, DoorJ));
-        visited[DoorI, DoorJ] = true;
+        stack.Push(m.start);
+        visited[m.start.x, m.start.y] = true;
         var dirs = new List<int>(4);
         while (stack.Count > 0)
         {
@@ -285,7 +377,7 @@ public static class WorldBuilder
             for (int d = 0; d < 4; d++)
             {
                 int ni = c.x + DI[d], nj = c.y + DJ[d];
-                if (InGrid(ni, nj) && !Reserved(ni, nj) && !visited[ni, nj]) dirs.Add(d);
+                if (m.InGrid(ni, nj) && !m.Reserved(ni, nj) && !visited[ni, nj]) dirs.Add(d);
             }
             if (dirs.Count == 0) { stack.Pop(); continue; }
             int dir = dirs[rnd.Next(dirs.Count)];
@@ -295,38 +387,57 @@ public static class WorldBuilder
         }
 
         // Quelques boucles pour éviter un labyrinthe trop linéaire.
-        for (int i = 0; i < Grid; i++)
-            for (int j = 0; j < Grid; j++)
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
             {
-                if (Reserved(i, j)) continue;
-                if (i < Grid - 1 && !Reserved(i + 1, j) && rnd.NextDouble() < 0.12) m.eastWall[i, j] = false;
-                if (j < Grid - 1 && !Reserved(i, j + 1) && rnd.NextDouble() < 0.12) m.northWall[i, j] = false;
+                if (m.Reserved(i, j)) continue;
+                if (i < n - 1 && !m.Reserved(i + 1, j) && rnd.NextDouble() < 0.12) m.eastWall[i, j] = false;
+                if (j < n - 1 && !m.Reserved(i, j + 1) && rnd.NextDouble() < 0.12) m.northWall[i, j] = false;
             }
 
-        // Salles : blocs de 2x2 à 4x3 cellules ouverts, chacune avec sa hauteur de plancher et de plafond.
-        for (int attempt = 0; attempt < 700 && m.rooms.Count < 34; attempt++)
+        // Salles : blocs de cellules ouverts, chacun avec sa hauteur de plancher et de plafond.
+        for (int attempt = 0; attempt < 700 && m.rooms.Count < style.maxRooms; attempt++)
         {
             int w, h;
-            if (rnd.NextDouble() < 0.15) { w = 4; h = 3; }
-            else { w = rnd.NextDouble() < 0.4 ? 3 : 2; h = 2; }
+            if (style.maxRoomSize <= 4)
+            {
+                if (rnd.NextDouble() < 0.15) { w = 4; h = 3; }
+                else { w = rnd.NextDouble() < 0.4 ? 3 : 2; h = 2; }
+            }
+            else
+            {
+                w = rnd.Next(style.minRoomSize, style.maxRoomSize + 1);
+                h = rnd.Next(style.minRoomSize, Mathf.Min(w + 1, style.maxRoomSize) + 1);
+            }
             if (rnd.NextDouble() < 0.5) { int t = w; w = h; h = t; }
-            int i0 = rnd.Next(0, Grid - w + 1), j0 = rnd.Next(0, Grid - h + 1);
+            int i0 = rnd.Next(0, n - w + 1), j0 = rnd.Next(0, n - h + 1);
             bool ok = true;
             for (int i = i0 - 1; i <= i0 + w && ok; i++)
                 for (int j = j0 - 1; j <= j0 + h && ok; j++)
                 {
-                    bool inside = i >= i0 && i < i0 + w && j >= j0 && j < j0 + h;
-                    // Une cellule d'écart avec le Hub, la porte et les autres salles.
-                    if (InGrid(i, j) && (Reserved(i, j) || (i == DoorI && j == DoorJ) || m.room[i, j] >= 0)) ok = false;
-                    if (inside && !InGrid(i, j)) ok = false;
+                    var cell = new Vector2Int(i, j);
+                    // Une cellule d'écart avec le Hub, les portes et les autres salles.
+                    if (m.InGrid(i, j) && (m.Reserved(i, j) || cell == m.start || m.keepClear.Contains(cell) || m.room[i, j] >= 0)) ok = false;
                 }
             if (!ok) continue;
 
-            var room = new Room { rect = new RectInt(i0, j0, w, h), style = (RoomStyle)rnd.Next(4) };
-            // Les salles chaotiques restent de plain-pied : leurs plateformes font le relief.
-            room.floor = room.style == RoomStyle.Chaotic ? 0f : Pick(rnd, 0f, 0f, 0.8f, 1.6f);
-            room.ceil = room.floor + (room.style == RoomStyle.Chaotic ? Pick(rnd, 7f, 9f) : Pick(rnd, 4f, 6f, 8f));
-            room.chess = rnd.NextDouble() < 0.2;
+            var room = new Room { rect = new RectInt(i0, j0, w, h) };
+            if (rnd.NextDouble() < style.pitChance)
+            {
+                // Fosse : passerelle au niveau du Hub tout autour, fond bien plus bas, plateformes pour remonter.
+                room.style = RoomStyle.Pit;
+                room.floor = 0f;
+                room.pitDepth = Mathf.Round(Rand(rnd, style.minPitDepth, style.maxPitDepth) * 2f) * 0.5f;
+                room.ceil = Pick(rnd, style.pitCeilings);
+            }
+            else
+            {
+                room.style = (RoomStyle)rnd.Next(4);
+                // Les salles chaotiques restent de plain-pied : leurs plateformes font le relief.
+                room.floor = room.style == RoomStyle.Chaotic ? 0f : Pick(rnd, style.floors);
+                room.ceil = room.floor + Pick(rnd, room.style == RoomStyle.Chaotic ? style.chaoticCeilings : style.ceilings);
+                room.chess = rnd.NextDouble() < 0.2;
+            }
             int index = m.rooms.Count;
             m.rooms.Add(room);
             for (int i = i0; i < i0 + w; i++)
@@ -338,7 +449,42 @@ public static class WorldBuilder
                     if (j < j0 + h - 1) m.northWall[i, j] = false;
                 }
         }
-        return m;
+    }
+
+    // Place la Zone 2 contre un côté de la Zone 1 : la porte est sur une cellule de couloir du bord de la Zone 1.
+    static Maze PlaceZone2(Maze z1, System.Random rnd)
+    {
+        int n2 = Zone2Size;
+        int side = rnd.Next(4);
+        var candidates = new List<int>();
+        for (int d = 2; d <= Grid - 3; d++)
+        {
+            Vector2Int c = BorderCell(side, d, Grid);
+            if (z1.room[c.x, c.y] < 0 && !z1.Reserved(c.x, c.y)) candidates.Add(d);
+        }
+        int door = candidates.Count > 0 ? candidates[rnd.Next(candidates.Count)] : Grid / 2;
+        // Décalage de la Zone 2 le long du côté : la porte n'est pas sur un de ses coins.
+        int kMin = Mathf.Max(0, door - (n2 - 3)), kMax = Mathf.Min(Grid - n2, door - 2);
+        int k = kMin + rnd.Next(Mathf.Max(1, kMax - kMin + 1));
+        int e = door - k;
+        Vector3 o = z1.origin;
+        Vector3 origin;
+        Vector2Int entry;
+        switch (side)
+        {
+            case 0: origin = o + new Vector3(Grid * Cell, 0f, k * Cell); entry = new Vector2Int(0, e); break;
+            case 1: origin = o + new Vector3(-n2 * Cell, 0f, k * Cell); entry = new Vector2Int(n2 - 1, e); break;
+            case 2: origin = o + new Vector3(k * Cell, 0f, Grid * Cell); entry = new Vector2Int(e, 0); break;
+            default: origin = o + new Vector3(k * Cell, 0f, -n2 * Cell); entry = new Vector2Int(e, n2 - 1); break;
+        }
+        var z2 = new Maze(1, n2, origin, false, entry) { neighbor = z1, doorSide = side ^ 1 };
+        z2.keepClear.Add(entry);
+        z1.skipSide = side;
+        z1.skipFrom = k;
+        z1.skipTo = k + n2 - 1;
+        z1.doorCell = BorderCell(side, door, Grid);
+        z1.keepClear.Add(z1.doorCell);
+        return z2;
     }
 
     class Chunk
@@ -350,20 +496,42 @@ public static class WorldBuilder
     public static MazeRefs BuildMaze(Transform parent, int seed)
     {
         var rnd = new System.Random(seed);
-        Maze m = Generate(rnd);
+        var z1 = new Maze(0, Grid, new Vector3(-Grid * Cell * 0.5f, 0f, -Grid * Cell * 0.5f), true, new Vector2Int(DoorI, DoorJ));
+        z1.keepClear.Add(z1.start);
+        Generate(z1, rnd, Zone1Style);
+        Maze z2 = PlaceZone2(z1, rnd);
+        Generate(z2, rnd, Zone2Style);
+        var zones = new[] { z1, z2 };
+
         var refs = new MazeRefs { root = new GameObject("Labyrinthe") };
         Transform root = refs.root.transform;
         root.SetParent(parent, false);
+        var colliders = new GameObject("Colliders");
+        colliders.transform.SetParent(root, false);
+        refs.structure = colliders.transform;
 
-        int chunks = (Grid + ChunkSize - 1) / ChunkSize;
+        foreach (Maze m in zones) BuildZone(m, root, colliders);
+        BuildZoneDoor(z2, root, refs);
+
+        // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, fosses, plateformes).
+        Physics.SyncTransforms();
+        foreach (Maze m in zones) Decorate(m, root, colliders.transform, rnd, refs);
+        refs.mist = BuildMist(zones, root);
+        refs.nav = BuildNav(z1, z2);
+        foreach (Maze m in zones) AddReflectionProbes(m, root);
+        return refs;
+    }
+
+    static void BuildZone(Maze m, Transform root, GameObject colliders)
+    {
+        int n = m.N;
+        int chunks = (n + ChunkSize - 1) / ChunkSize;
         var chunkData = new Chunk[chunks, chunks];
         for (int x = 0; x < chunks; x++)
             for (int y = 0; y < chunks; y++)
                 chunkData[x, y] = new Chunk();
-        Chunk ChunkOf(int i, int j) => chunkData[Mathf.Clamp(i, 0, Grid - 1) / ChunkSize, Mathf.Clamp(j, 0, Grid - 1) / ChunkSize];
+        Chunk ChunkOf(int i, int j) => chunkData[Mathf.Clamp(i, 0, n - 1) / ChunkSize, Mathf.Clamp(j, 0, n - 1) / ChunkSize];
 
-        var colliders = new GameObject("Colliders");
-        colliders.transform.SetParent(root, false);
         void AddCollider(Vector3 center, Vector3 size)
         {
             var bc = colliders.AddComponent<BoxCollider>();
@@ -371,49 +539,78 @@ public static class WorldBuilder
             bc.size = size;
         }
 
-        float half = Grid * Cell * 0.5f;
+        float x0 = m.origin.x, z0 = m.origin.z;
 
-        // Sols et plafonds.
-        for (int i = 0; i < Grid; i++)
-            for (int j = 0; j < Grid; j++)
+        // Sols et plafonds (les fosses ont leur propre sol).
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
             {
-                if (Reserved(i, j)) continue;
-                Vector3 c = CellCenter(i, j);
+                if (m.Reserved(i, j)) continue;
+                Vector3 c = m.Center(i, j);
                 float e = Cell * 0.5f;
                 Chunk ch = ChunkOf(i, j);
-                ch.floor.WorldQuad(c + new Vector3(-e, 0, -e), c + new Vector3(e, 0, -e), c + new Vector3(e, 0, e), c + new Vector3(-e, 0, e), Vector3.up, 0.5f);
+                if (!m.IsPit(i, j))
+                    ch.floor.WorldQuad(c + new Vector3(-e, 0, -e), c + new Vector3(e, 0, -e), c + new Vector3(e, 0, e), c + new Vector3(-e, 0, e), Vector3.up, 0.5f);
                 Vector3 top = c + Vector3.up * m.Ceil(i, j);
                 ch.ceiling.WorldQuad(top + new Vector3(-e, 0, -e), top + new Vector3(e, 0, -e), top + new Vector3(e, 0, e), top + new Vector3(-e, 0, e), Vector3.down, 0.25f);
             }
-        AddCollider(new Vector3(0f, -0.5f, 0f), new Vector3(Grid * Cell, 1f, Grid * Cell));
-        // Plafonds : une collision par suite de cellules de même hauteur sur chaque rangée (rien au-dessus du Hub).
-        for (int j = 0; j < Grid; j++)
-            for (int i = 0; i < Grid;)
+        // Sol : une collision par suite de cellules sans fosse sur chaque rangée.
+        for (int j = 0; j < n; j++)
+            for (int i = 0; i < n;)
             {
-                if (Reserved(i, j)) { i++; continue; }
+                if (m.IsPit(i, j)) { i++; continue; }
+                int start = i;
+                while (i < n && !m.IsPit(i, j)) i++;
+                float a = x0 + start * Cell, b = x0 + i * Cell;
+                AddCollider(new Vector3((a + b) * 0.5f, -0.5f, m.Center(0, j).z), new Vector3(b - a, 1f, Cell));
+            }
+        // Plafonds : une collision par suite de cellules de même hauteur sur chaque rangée (rien au-dessus du Hub).
+        for (int j = 0; j < n; j++)
+            for (int i = 0; i < n;)
+            {
+                if (m.Reserved(i, j)) { i++; continue; }
                 float ceil = m.Ceil(i, j);
                 int start = i;
-                while (i < Grid && !Reserved(i, j) && Mathf.Approximately(m.Ceil(i, j), ceil)) i++;
-                float x0 = -half + start * Cell, x1 = -half + i * Cell;
-                AddCollider(new Vector3((x0 + x1) * 0.5f, ceil + 0.5f, CellCenter(0, j).z), new Vector3(x1 - x0, 1f, Cell));
+                while (i < n && !m.Reserved(i, j) && Mathf.Approximately(m.Ceil(i, j), ceil)) i++;
+                float a = x0 + start * Cell, b = x0 + i * Cell;
+                AddCollider(new Vector3((a + b) * 0.5f, ceil + 0.5f, m.Center(0, j).z), new Vector3(b - a, 1f, Cell));
             }
+
+        // Ouverture dans un mur (porte) : deux piliers et un linteau.
+        void Doorway(MeshBuilder mb, Vector3 edge, bool alongX, float h, float width, float height, float tex)
+        {
+            float side = (Cell - Wall - width) * 0.5f;
+            Vector3 axis = alongX ? Vector3.right : Vector3.forward;
+            Vector3 Size(float length, float hh) => alongX ? new Vector3(length, hh, Wall) : new Vector3(Wall, hh, length);
+            foreach (float s in new[] { -1f, 1f })
+            {
+                var center = edge + axis * (s * (width * 0.5f + side * 0.5f)) + Vector3.up * (h * 0.5f);
+                mb.Box(center, Size(side, h), tex, 0b0011_0011);
+                AddCollider(center, Size(side, h));
+            }
+            var header = edge + Vector3.up * ((height + h) * 0.5f);
+            mb.Box(header, Size(width, h - height), tex, alongX ? 0b0011_1000 : 0b0000_1011);
+            AddCollider(header, Size(width, h - height));
+        }
 
         // Murs : un segment par arête, entre deux poteaux, aussi haut que le plus haut des deux côtés.
         // Entre une salle haute et un couloir ouvert, un linteau ferme le haut de l'ouverture.
         var posts = new HashSet<Vector2Int>();
-        for (int i = -1; i < Grid; i++)
-            for (int j = 0; j < Grid; j++)
+        for (int i = -1; i < n; i++)
+            for (int j = 0; j < n; j++)
             {
                 // Arête verticale (le long de Z) à droite de la cellule (i, j).
-                bool leftIn = i >= 0, rightIn = i + 1 < Grid;
+                bool leftIn = i >= 0, rightIn = i + 1 < n;
+                int boundarySide = !rightIn ? 0 : !leftIn ? 1 : -1;
+                if (boundarySide >= 0 && m.SkipsEdge(boundarySide, j)) continue;
                 bool wall;
-                if (!leftIn || !rightIn) wall = true;
-                else if (Reserved(i, j) && Reserved(i + 1, j)) wall = false;
-                else wall = m.eastWall[i, j] || Reserved(i, j) || Reserved(i + 1, j);
+                if (boundarySide >= 0) wall = true;
+                else if (m.Reserved(i, j) && m.Reserved(i + 1, j)) wall = false;
+                else wall = m.eastWall[i, j] || m.Reserved(i, j) || m.Reserved(i + 1, j);
                 bool roomWall = (leftIn && m.room[i, j] >= 0) || (rightIn && m.room[i + 1, j] >= 0);
                 float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i + 1, j));
-                float x = -half + (i + 1) * Cell;
-                float z = -half + j * Cell + Cell * 0.5f;
+                float x = x0 + (i + 1) * Cell;
+                float z = z0 + j * Cell + Cell * 0.5f;
                 Chunk ch = ChunkOf(leftIn ? i : i + 1, j);
                 MeshBuilder mb = roomWall ? ch.checker : ch.concrete;
                 float tex = roomWall ? 0.5f : 0.25f;
@@ -426,23 +623,30 @@ public static class WorldBuilder
                     AddCollider(lintel, new Vector3(Wall, h - low, Cell + Wall));
                     continue;
                 }
-                mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell - Wall), tex, 0b0000_0011);
-                AddCollider(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell + Wall));
+                if (boundarySide >= 0 && boundarySide == m.doorSide && j == m.start.y)
+                    Doorway(mb, new Vector3(x, 0f, z), false, h, ZoneDoorWidth, ZoneDoorHeight, tex);
+                else
+                {
+                    mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell - Wall), tex, 0b0000_0011);
+                    AddCollider(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell + Wall));
+                }
                 posts.Add(new Vector2Int(i + 1, j)); posts.Add(new Vector2Int(i + 1, j + 1));
             }
-        for (int i = 0; i < Grid; i++)
-            for (int j = -1; j < Grid; j++)
+        for (int i = 0; i < n; i++)
+            for (int j = -1; j < n; j++)
             {
                 // Arête horizontale (le long de X) au-dessus de la cellule (i, j).
-                bool lowIn = j >= 0, highIn = j + 1 < Grid;
+                bool lowIn = j >= 0, highIn = j + 1 < n;
+                int boundarySide = !highIn ? 2 : !lowIn ? 3 : -1;
+                if (boundarySide >= 0 && m.SkipsEdge(boundarySide, i)) continue;
                 bool wall;
-                if (!lowIn || !highIn) wall = true;
-                else if (Reserved(i, j) && Reserved(i, j + 1)) wall = false;
-                else wall = m.northWall[i, j] || Reserved(i, j) || Reserved(i, j + 1);
+                if (boundarySide >= 0) wall = true;
+                else if (m.Reserved(i, j) && m.Reserved(i, j + 1)) wall = false;
+                else wall = m.northWall[i, j] || m.Reserved(i, j) || m.Reserved(i, j + 1);
                 bool roomWall = (lowIn && m.room[i, j] >= 0) || (highIn && m.room[i, j + 1] >= 0);
                 float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i, j + 1));
-                float x = -half + i * Cell + Cell * 0.5f;
-                float z = -half + (j + 1) * Cell;
+                float x = x0 + i * Cell + Cell * 0.5f;
+                float z = z0 + (j + 1) * Cell;
                 Chunk ch = ChunkOf(i, lowIn ? j : j + 1);
                 MeshBuilder mb = roomWall ? ch.checker : ch.concrete;
                 float tex = roomWall ? 0.5f : 0.25f;
@@ -456,20 +660,10 @@ public static class WorldBuilder
                     AddCollider(lintel, new Vector3(Cell + Wall, h - low, Wall));
                     continue;
                 }
-                if (i == DoorI && j == HubMax)
-                {
-                    // Mur du Hub côté labyrinthe : ouverture de la porte.
-                    float side = (Cell - Wall - DoorWidth) * 0.5f;
-                    foreach (float sx in new[] { -1f, 1f })
-                    {
-                        var center = new Vector3(x + sx * (DoorWidth * 0.5f + side * 0.5f), h * 0.5f, z);
-                        mb.Box(center, new Vector3(side, h, Wall), tex, 0b0011_0011);
-                        AddCollider(center, new Vector3(side, h, Wall));
-                    }
-                    var header = new Vector3(x, (DoorHeight + h) * 0.5f, z);
-                    mb.Box(header, new Vector3(DoorWidth, h - DoorHeight, Wall), tex, 0b0011_1000);
-                    AddCollider(header, new Vector3(DoorWidth, h - DoorHeight, Wall));
-                }
+                if (m.hub && i == DoorI && j == HubMax)
+                    Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex); // porte du Hub
+                else if (boundarySide >= 0 && boundarySide == m.doorSide && i == m.start.x)
+                    Doorway(mb, new Vector3(x, 0f, z), true, h, ZoneDoorWidth, ZoneDoorHeight, tex);
                 else
                 {
                     mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(Cell - Wall, h, Wall), tex, 0b0011_0000);
@@ -479,20 +673,31 @@ public static class WorldBuilder
             }
         foreach (var p in posts)
         {
+            // Les poteaux du côté partagé avec la Zone 2 sont construits par celle-ci.
+            if (m.skipSide >= 0)
+            {
+                int line = m.skipSide switch { 0 => p.x == n ? p.y : -1, 1 => p.x == 0 ? p.y : -1, 2 => p.y == n ? p.x : -1, _ => p.y == 0 ? p.x : -1 };
+                if (line >= m.skipFrom && line <= m.skipTo + 1) continue;
+            }
             float h = Mathf.Max(Mathf.Max(m.Ceil(p.x - 1, p.y - 1), m.Ceil(p.x, p.y - 1)), Mathf.Max(m.Ceil(p.x - 1, p.y), m.Ceil(p.x, p.y)));
-            var c = new Vector3(-half + p.x * Cell, h * 0.5f, -half + p.y * Cell);
+            var c = new Vector3(x0 + p.x * Cell, h * 0.5f, z0 + p.y * Cell);
             ChunkOf(p.x, p.y).concrete.Box(c, new Vector3(Wall, h, Wall), 0.25f, 0b0011_0011);
         }
 
-        // Salles surélevées : dalle au niveau du plancher et escalier à chaque entrée.
         foreach (Room room in m.rooms)
         {
+            if (room.style == RoomStyle.Pit)
+            {
+                BuildPit(m, room, ChunkOf(room.rect.xMin, room.rect.yMin), AddCollider);
+                continue;
+            }
+            // Salles surélevées : dalle au niveau du plancher et escalier à chaque entrée.
             if (room.floor <= 0f) continue;
             int steps = Mathf.RoundToInt(room.floor / StepHeight);
             float depth = steps * StepDepth;
             foreach (var cell in room.cells)
             {
-                Vector3 c = CellCenter(cell.x, cell.y);
+                Vector3 c = m.Center(cell.x, cell.y);
                 float minX = c.x - Cell * 0.5f, maxX = c.x + Cell * 0.5f, minZ = c.z - Cell * 0.5f, maxZ = c.z + Cell * 0.5f;
                 Chunk ch = ChunkOf(cell.x, cell.y);
                 for (int d = 0; d < 4; d++)
@@ -520,23 +725,127 @@ public static class WorldBuilder
             for (int y = 0; y < chunks; y++)
             {
                 Chunk ch = chunkData[x, y];
-                string n = "Bloc_" + x + "_" + y;
-                if (!ch.floor.IsEmpty) GameArt.MeshObject(n + "_Sol", root, ch.floor.Build(n), GameArt.CheckerFloor);
-                if (!ch.ceiling.IsEmpty) GameArt.MeshObject(n + "_Plafond", root, ch.ceiling.Build(n), GameArt.DarkConcrete);
+                string name = "Z" + (m.zone + 1) + "_Bloc_" + x + "_" + y;
+                if (!ch.floor.IsEmpty) GameArt.MeshObject(name + "_Sol", root, ch.floor.Build(name), GameArt.CheckerFloor);
+                if (!ch.ceiling.IsEmpty) GameArt.MeshObject(name + "_Plafond", root, ch.ceiling.Build(name), GameArt.DarkConcrete);
                 if (!ch.concrete.IsEmpty)
                 {
                     // Sans sonde de réflexion : les carapaces resteraient pâles en reflétant le damier.
-                    var walls = GameArt.MeshObject(n + "_Beton", root, ch.concrete.Build(n), GameArt.InfestedWall);
+                    var walls = GameArt.MeshObject(name + "_Beton", root, ch.concrete.Build(name), GameArt.InfestedWall);
                     walls.GetComponent<MeshRenderer>().reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
                 }
-                if (!ch.checker.IsEmpty) GameArt.MeshObject(n + "_Damier", root, ch.checker.Build(n), GameArt.CheckerWall);
+                if (!ch.checker.IsEmpty) GameArt.MeshObject(name + "_Damier", root, ch.checker.Build(name), GameArt.CheckerWall);
             }
+    }
 
-        // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, plateformes).
-        Physics.SyncTransforms();
-        Decorate(m, root, colliders.transform, rnd, refs);
-        AddReflectionProbes(root, chunks);
-        return refs;
+    // Rectangle (x, z) intérieur de la fosse d'une salle.
+    static Rect PitRect(Maze m, Room room)
+    {
+        Vector3 min = m.Center(room.rect.xMin, room.rect.yMin) - new Vector3(Cell, 0f, Cell) * 0.5f;
+        Vector3 max = m.Center(room.rect.xMax - 1, room.rect.yMax - 1) + new Vector3(Cell, 0f, Cell) * 0.5f;
+        return Rect.MinMaxRect(min.x + PitMargin, min.z + PitMargin, max.x - PitMargin, max.z - PitMargin);
+    }
+
+    // Fosse : passerelle au niveau du Hub le long des murs, parois infestées et fond loin en dessous.
+    static void BuildPit(Maze m, Room room, Chunk ch, System.Action<Vector3, Vector3> addCollider)
+    {
+        Rect pit = PitRect(m, room);
+        float ox0 = pit.xMin - PitMargin, ox1 = pit.xMax + PitMargin, oz0 = pit.yMin - PitMargin, oz1 = pit.yMax + PitMargin;
+        float d = room.pitDepth;
+
+        void Slab(float ax, float bx, float az, float bz, float top)
+        {
+            var c = new Vector3((ax + bx) * 0.5f, top - 0.25f, (az + bz) * 0.5f);
+            var s = new Vector3(bx - ax, 0.5f, bz - az);
+            ch.floor.Box(c, s, 0.5f, 0b0000_0100);
+            addCollider(c, s);
+        }
+        Slab(ox0, ox1, oz0, pit.yMin, 0f);
+        Slab(ox0, ox1, pit.yMax, oz1, 0f);
+        Slab(ox0, pit.xMin, pit.yMin, pit.yMax, 0f);
+        Slab(pit.xMax, ox1, pit.yMin, pit.yMax, 0f);
+        Slab(pit.xMin, pit.xMax, pit.yMin, pit.yMax, -d);
+
+        // Parois : boîtes de 0,3 m juste à l'extérieur de la fosse, seule la face intérieure est visible.
+        const float t = 0.3f;
+        float midX = pit.center.x, midZ = pit.center.y, y = -d * 0.5f;
+        var walls = new (Vector3 center, Vector3 size, int face)[]
+        {
+            (new Vector3(pit.xMin - t * 0.5f, y, midZ), new Vector3(t, d, pit.height + 2f * t), 0b00_0001),
+            (new Vector3(pit.xMax + t * 0.5f, y, midZ), new Vector3(t, d, pit.height + 2f * t), 0b00_0010),
+            (new Vector3(midX, y, pit.yMin - t * 0.5f), new Vector3(pit.width + 2f * t, d, t), 0b01_0000),
+            (new Vector3(midX, y, pit.yMax + t * 0.5f), new Vector3(pit.width + 2f * t, d, t), 0b10_0000),
+        };
+        foreach (var (center, size, face) in walls)
+        {
+            ch.concrete.Box(center, size, 0.25f, face);
+            addCollider(center, size);
+        }
+    }
+
+    // Porte massive vers la Zone 2 (fermée au départ) et ses trois orbes, côté Zone 1.
+    static void BuildZoneDoor(Maze z2, Transform root, MazeRefs refs)
+    {
+        Vector3 toZone1 = new Vector3(DI[z2.doorSide], 0f, DJ[z2.doorSide]);
+        Vector3 edge = z2.Center(z2.start.x, z2.start.y) + toZone1 * (Cell * 0.5f);
+        Quaternion facing = Quaternion.LookRotation(toZone1);
+        refs.zoneDoor = ZoneDoor.Create(root, edge, facing, ZoneDoorWidth, ZoneDoorHeight);
+        Vector3 right = Vector3.Cross(Vector3.up, toZone1);
+        for (int k = 0; k < GameRules.OrbCount; k++)
+            refs.orbs[k] = ZoneOrb.Create(root, k, edge + toZone1 * 1.9f + right * ((k - 1) * 1.35f), facing);
+    }
+
+    // Brume de l'Abjuration : nappes au ras du sol (et dans les fosses), invisibles tant qu'elle n'est pas là.
+    static GameObject BuildMist(Maze[] zones, Transform root)
+    {
+        var mist = new GameObject("Abjuration");
+        mist.transform.SetParent(root, false);
+        float[] layers = { 0.06f, 0.26f, 0.46f };
+        foreach (Maze m in zones)
+        {
+            int chunks = (m.N + ChunkSize - 1) / ChunkSize;
+            var builders = new MeshBuilder[chunks, chunks];
+            for (int i = 0; i < m.N; i++)
+                for (int j = 0; j < m.N; j++)
+                {
+                    if (m.Reserved(i, j)) continue;
+                    Room room = m.RoomAt(i, j);
+                    // Les salles surélevées dépassent de la brume.
+                    if (room != null && room.floor >= GameRules.MistTop) continue;
+                    var mb = builders[i / ChunkSize, j / ChunkSize] ??= new MeshBuilder();
+                    Vector3 c = m.Center(i, j);
+                    float e = Cell * 0.5f;
+                    void Layer(float y) => mb.WorldQuad(c + new Vector3(-e, y, -e), c + new Vector3(e, y, -e), c + new Vector3(e, y, e), c + new Vector3(-e, y, e), Vector3.up, 0.2f);
+                    foreach (float y in layers) Layer(y);
+                    if (room != null && room.style == RoomStyle.Pit)
+                        for (float y = -room.pitDepth + 0.3f; y < -0.2f; y += 0.9f) Layer(y);
+                }
+            for (int x = 0; x < chunks; x++)
+                for (int y = 0; y < chunks; y++)
+                    if (builders[x, y] != null)
+                        GameArt.MeshObject("Brume_Z" + (m.zone + 1) + "_" + x + "_" + y, mist.transform, builders[x, y].Build("Brume"), GameArt.Mist);
+        }
+        mist.SetActive(false);
+        return mist;
+    }
+
+    static MazeNav BuildNav(Maze z1, Maze z2)
+    {
+        var nav = new MazeNav { CellSize = Cell };
+        foreach (Maze m in new[] { z1, z2 })
+        {
+            Maze zone = m;
+            nav.AddZone(m.origin, m.N, Cell, (i, j) => !zone.Reserved(i, j));
+            for (int i = 0; i < m.N; i++)
+                for (int j = 0; j < m.N; j++)
+                {
+                    if (m.Reserved(i, j)) continue;
+                    if (i < m.N - 1 && !m.eastWall[i, j]) nav.Link(nav.Node(m.zone, i, j), nav.Node(m.zone, i + 1, j));
+                    if (j < m.N - 1 && !m.northWall[i, j]) nav.Link(nav.Node(m.zone, i, j), nav.Node(m.zone, i, j + 1));
+                }
+        }
+        nav.SetDoor(nav.Node(0, z1.doorCell.x, z1.doorCell.y), nav.Node(1, z2.start.x, z2.start.y));
+        return nav;
     }
 
     // Escalier montant depuis le côté 'dir' de la cellule vers le plancher de la salle. Les marches sont visuelles ;
@@ -569,16 +878,25 @@ public static class WorldBuilder
 
     // Sondes de réflexion (une par bloc), rendues une seule fois une fois le décor posé :
     // le damier astiqué y reflète les murs, les lampes et les yeux.
-    static void AddReflectionProbes(Transform root, int chunks)
+    static void AddReflectionProbes(Maze m, Transform root)
     {
-        const float height = 10f;
+        int chunks = (m.N + ChunkSize - 1) / ChunkSize;
         for (int x = 0; x < chunks; x++)
             for (int y = 0; y < chunks; y++)
             {
-                Vector3 min = CellCenter(x * ChunkSize, y * ChunkSize) - new Vector3(Cell, 0f, Cell) * 0.5f;
-                Vector3 max = CellCenter(Mathf.Min(x * ChunkSize + ChunkSize - 1, Grid - 1), Mathf.Min(y * ChunkSize + ChunkSize - 1, Grid - 1))
-                    + new Vector3(Cell, 0f, Cell) * 0.5f + Vector3.up * height;
-                var probe = new GameObject("Reflets_" + x + "_" + y).AddComponent<ReflectionProbe>();
+                float low = 0f, high = WallHeight;
+                for (int i = x * ChunkSize; i < Mathf.Min(m.N, x * ChunkSize + ChunkSize); i++)
+                    for (int j = y * ChunkSize; j < Mathf.Min(m.N, y * ChunkSize + ChunkSize); j++)
+                    {
+                        Room r = m.RoomAt(i, j);
+                        if (r != null && r.style == RoomStyle.Pit) low = Mathf.Min(low, -r.pitDepth);
+                        high = Mathf.Max(high, m.Ceil(i, j));
+                    }
+                high = Mathf.Min(high, 16f);
+                Vector3 min = m.Center(x * ChunkSize, y * ChunkSize) - new Vector3(Cell, 0f, Cell) * 0.5f + Vector3.up * low;
+                Vector3 max = m.Center(Mathf.Min(x * ChunkSize + ChunkSize - 1, m.N - 1), Mathf.Min(y * ChunkSize + ChunkSize - 1, m.N - 1))
+                    + new Vector3(Cell, 0f, Cell) * 0.5f + Vector3.up * high;
+                var probe = new GameObject("Reflets_Z" + (m.zone + 1) + "_" + x + "_" + y).AddComponent<ReflectionProbe>();
                 probe.transform.SetParent(root, false);
                 probe.transform.localPosition = new Vector3((min.x + max.x) * 0.5f, 1.5f, (min.z + max.z) * 0.5f);
                 probe.size = max - min + Vector3.one * 0.2f;
@@ -604,37 +922,40 @@ public static class WorldBuilder
 
     static void Decorate(Maze m, Transform root, Transform structure, System.Random rnd, MazeRefs refs)
     {
-        var props = new GameObject("Decor").transform;
+        var props = new GameObject("Decor_Z" + (m.zone + 1)).transform;
         props.SetParent(root, false);
+        List<Vector3> spots = refs.itemSpots[m.zone];
 
-        // Hauteur du sol (dalle, marche ou plateforme) sous un point, sans compter le décor.
+        // Hauteur du sol (dalle, marche, passerelle ou fond de fosse) sous un point, sans compter le décor.
         float FloorAt(Vector3 p, float from)
         {
-            float best = 0f;
-            foreach (var hit in Physics.RaycastAll(new Vector3(p.x, from, p.z), Vector3.down, from + 1f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            float best = float.NegativeInfinity;
+            foreach (var hit in Physics.RaycastAll(new Vector3(p.x, from, p.z), Vector3.down, from + 12f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
                 if (hit.transform.IsChildOf(structure) && hit.point.y > best) best = hit.point.y;
-            return best;
+            return float.IsNegativeInfinity(best) ? 0f : best;
         }
 
-        for (int i = 0; i < Grid; i++)
-            for (int j = 0; j < Grid; j++)
+        for (int i = 0; i < m.N; i++)
+            for (int j = 0; j < m.N; j++)
             {
-                if (Reserved(i, j)) continue;
-                Vector3 c = CellCenter(i, j);
+                if (m.Reserved(i, j)) continue;
+                Vector3 c = m.Center(i, j);
                 Room room = m.RoomAt(i, j);
                 float floor = m.Floor(i, j), ceil = m.Ceil(i, j);
 
-                bool nearDoor = Mathf.Abs(i - DoorI) + Mathf.Abs(j - DoorJ) <= 1;
-                if (!nearDoor)
+                bool nearDoor = Mathf.Abs(i - m.start.x) + Mathf.Abs(j - m.start.y) <= 1;
+                bool clear = m.keepClear.Contains(new Vector2Int(i, j));
+                if (!nearDoor && !clear)
                 {
                     Vector3 p = c + new Vector3(Rand(rnd, -1.2f, 1.2f), 0f, Rand(rnd, -1.2f, 1.2f));
-                    refs.itemSpots.Add(new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z));
+                    spots.Add(new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z));
                 }
                 if (room != null)
                 {
                     Vector3 p = c + new Vector3(Rand(rnd, -1.8f, 1.8f), 0f, Rand(rnd, -1.8f, 1.8f));
-                    refs.itemSpots.Add(new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z));
+                    spots.Add(new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z));
                 }
+                if (clear) continue;
 
                 // Lasers dans les couloirs droits (murs parallèles de part et d'autre).
                 if (room == null && !nearDoor && rnd.NextDouble() < 0.45)
@@ -642,6 +963,13 @@ public static class WorldBuilder
                     bool alongZ = HasWall(m, i, j, 0) && HasWall(m, i, j, 1) && !HasWall(m, i, j, 2) && !HasWall(m, i, j, 3);
                     bool alongX = HasWall(m, i, j, 2) && HasWall(m, i, j, 3) && !HasWall(m, i, j, 0) && !HasWall(m, i, j, 1);
                     if (alongZ || alongX) AddLaser(props, c, alongZ, rnd);
+                }
+
+                // Caisses contre les murs des couloirs : de quoi se percher au-dessus de la brume de l'Abjuration.
+                if (room == null && !nearDoor && rnd.NextDouble() < 0.14)
+                {
+                    int dir = rnd.Next(4);
+                    if (HasWall(m, i, j, dir)) AddCrate(props, c, dir, rnd);
                 }
 
                 // Éclairage : salles, et quelques néons dans les couloirs.
@@ -666,8 +994,8 @@ public static class WorldBuilder
                     AddEye(props, new Vector3(p.x, FloorAt(p, ceil - 0.1f) - 0.15f, p.z), Vector3.up, Rand(rnd, 0.6f, 1f));
                 }
 
-                // Membres noirs figés qui sortent des murs, du sol et du plafond.
-                if (rnd.NextDouble() < (room != null ? 0.3 : 0.12))
+                // Grappes de membres figés (plusieurs mains, bras... côte à côte) qui sortent des murs, du sol et du plafond.
+                if (rnd.NextDouble() < (room != null ? 0.16 : 0.05))
                 {
                     double kind = rnd.NextDouble();
                     if (kind < 0.6)
@@ -677,16 +1005,28 @@ public static class WorldBuilder
                         {
                             Vector3 n = -new Vector3(DI[dir], 0, DJ[dir]);
                             Vector3 along = new Vector3(DJ[dir], 0, DI[dir]);
-                            Vector3 p = c - n * (Cell * 0.5f - Wall * 0.5f) + along * Rand(rnd, -1.5f, 1.5f) + Vector3.up * Rand(rnd, floor + 0.8f, Mathf.Min(ceil - 0.6f, floor + 3f));
-                            AddLimb(props, Pick(rnd, Limbs), p, n, rnd, false);
+                            Vector3 p = c - n * (Cell * 0.5f - Wall * 0.5f) + along * Rand(rnd, -0.9f, 0.9f) + Vector3.up * Rand(rnd, floor + 1f, Mathf.Min(ceil - 0.8f, floor + 2.8f));
+                            string model = Pick(rnd, Limbs);
+                            foreach (var (offset, spin) in LimbCluster(model, along, Vector3.up, rnd))
+                                AddLimb(props, model, p + offset, n, spin, rnd, false);
                         }
                     }
                     else if (kind < 0.8)
-                        AddLimb(props, Pick(rnd, "Arm", "Hand", "Head"), c + new Vector3(Rand(rnd, -1.6f, 1.6f), ceil, Rand(rnd, -1.6f, 1.6f)), Vector3.down, rnd, false);
+                    {
+                        Vector3 p = c + new Vector3(Rand(rnd, -1f, 1f), ceil, Rand(rnd, -1f, 1f));
+                        string model = Pick(rnd, "Arm", "Hand", "Head");
+                        foreach (var (offset, spin) in LimbCluster(model, Vector3.right, Vector3.forward, rnd))
+                            AddLimb(props, model, p + offset, Vector3.down, spin, rnd, false);
+                    }
                     else
                     {
-                        Vector3 p = c + new Vector3(Rand(rnd, -1.4f, 1.4f), 0f, Rand(rnd, -1.4f, 1.4f));
-                        AddLimb(props, Pick(rnd, Limbs), new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z), Vector3.up, rnd, true);
+                        Vector3 p = c + new Vector3(Rand(rnd, -0.9f, 0.9f), 0f, Rand(rnd, -0.9f, 0.9f));
+                        string model = Pick(rnd, Limbs);
+                        foreach (var (offset, spin) in LimbCluster(model, Vector3.right, Vector3.forward, rnd))
+                        {
+                            Vector3 q = p + offset;
+                            AddLimb(props, model, new Vector3(q.x, FloorAt(q, ceil - 0.1f), q.z), Vector3.up, spin, rnd, true);
+                        }
                     }
                 }
             }
@@ -694,14 +1034,14 @@ public static class WorldBuilder
         foreach (Room room in m.rooms)
         {
             Vector3 center = Vector3.zero;
-            foreach (var c in room.cells) center += CellCenter(c.x, c.y);
+            foreach (var c in room.cells) center += m.Center(c.x, c.y);
             center /= room.cells.Count;
-            float height = room.ceil - room.floor;
+            float height = room.ceil - room.floor + room.pitDepth;
             AddLamp(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
 
             // Intérieur de la salle (marge pour les murs et les escaliers).
-            float minX = CellCenter(room.rect.xMin, 0).x - Cell * 0.5f + 1.2f, maxX = CellCenter(room.rect.xMax - 1, 0).x + Cell * 0.5f - 1.2f;
-            float minZ = CellCenter(0, room.rect.yMin).z - Cell * 0.5f + 1.2f, maxZ = CellCenter(0, room.rect.yMax - 1).z + Cell * 0.5f - 1.2f;
+            float minX = m.Center(room.rect.xMin, 0).x - Cell * 0.5f + 1.2f, maxX = m.Center(room.rect.xMax - 1, 0).x + Cell * 0.5f - 1.2f;
+            float minZ = m.Center(0, room.rect.yMin).z - Cell * 0.5f + 1.2f, maxZ = m.Center(0, room.rect.yMax - 1).z + Cell * 0.5f - 1.2f;
             if (room.floor > 0f)
             {
                 float stairs = Mathf.RoundToInt(room.floor / StepHeight) * StepDepth;
@@ -713,19 +1053,22 @@ public static class WorldBuilder
             {
                 case RoomStyle.Columns:
                     for (int k = 0; k < room.cells.Count; k++)
-                        AddColumn(props, RandomInside(room.floor), Rand(rnd, 0.35f, 0.6f), height, rnd);
+                        AddColumn(props, RandomInside(room.floor), Rand(rnd, 0.35f, 0.6f), room.ceil - room.floor, rnd);
                     break;
                 case RoomStyle.Spheres:
                     for (int k = 0; k < 2 + room.cells.Count / 2; k++)
-                        AddBigSphere(props, RandomInside(room.floor), Rand(rnd, 0.6f, Mathf.Min(1.8f, height * 0.25f)), room.floor, room.ceil, rnd);
+                        AddBigSphere(props, RandomInside(room.floor), Rand(rnd, 0.6f, Mathf.Min(1.8f, (room.ceil - room.floor) * 0.25f)), room.floor, room.ceil, rnd);
                     break;
                 case RoomStyle.Chaotic:
-                    AddPlatforms(props, room, minX, maxX, minZ, maxZ, rnd, refs);
+                    AddPlatforms(props, room, minX, maxX, minZ, maxZ, rnd, spots);
+                    break;
+                case RoomStyle.Pit:
+                    AddPitPlatforms(props, PitRect(m, room), room.pitDepth, rnd, spots);
                     break;
                 default:
                     foreach (var c in room.cells)
                     {
-                        Vector3 p = CellCenter(c.x, c.y) + new Vector3(Rand(rnd, -1.3f, 1.3f), room.floor, Rand(rnd, -1.3f, 1.3f));
+                        Vector3 p = m.Center(c.x, c.y) + new Vector3(Rand(rnd, -1.3f, 1.3f), room.floor, Rand(rnd, -1.3f, 1.3f));
                         if (rnd.NextDouble() < 0.6) AddBlock(props, p, room.floor, room.ceil, rnd);
                         else AddEye(props, p + Vector3.down * 0.2f, Vector3.up, Rand(rnd, 0.9f, 1.4f));
                     }
@@ -743,9 +1086,63 @@ public static class WorldBuilder
             for (int e = 0; e < 2; e++)
             {
                 Vector2Int c = room.cells[rnd.Next(room.cells.Count)];
-                AddEye(props, CellCenter(c.x, c.y) + new Vector3(Rand(rnd, -1f, 1f), room.ceil, Rand(rnd, -1f, 1f)), Vector3.down, Rand(rnd, 0.8f, 1.5f));
+                AddEye(props, m.Center(c.x, c.y) + new Vector3(Rand(rnd, -1f, 1f), room.ceil, Rand(rnd, -1f, 1f)), Vector3.down, Rand(rnd, 0.8f, 1.5f));
             }
         }
+    }
+
+    // Caisse contre le mur 'dir' d'une cellule de couloir, assez haute pour sortir de la brume, assez basse pour y sauter.
+    static void AddCrate(Transform parent, Vector3 cellCenter, int dir, System.Random rnd)
+    {
+        Vector3 n = new Vector3(DI[dir], 0f, DJ[dir]);
+        Vector3 along = new Vector3(DJ[dir], 0f, DI[dir]);
+        var size = new Vector3(Rand(rnd, 0.9f, 1.3f), Rand(rnd, 0.65f, 0.8f), Rand(rnd, 0.9f, 1.3f));
+        Vector3 p = cellCenter + n * (Cell * 0.5f - Wall * 0.5f - 0.7f) + along * Rand(rnd, -1.4f, 1.4f) + Vector3.up * (size.y * 0.5f);
+        var crate = GameArt.Prim(PrimitiveType.Cube, parent, p, size, GameArt.Lit("Crate", new Color(0.32f, 0.27f, 0.22f), GameArt.Noise("wood", 128, 0.7f, 0.25f, 3), 0.1f), true);
+        crate.name = "Caisse";
+        crate.transform.localRotation = Quaternion.Euler(0f, Rand(rnd, -12f, 12f), 0f);
+    }
+
+    // Fosse : plateformes en spirale le long des parois, de quoi remonter du fond en sautant (0,6 m au plus par saut).
+    static void AddPitPlatforms(Transform parent, Rect pit, float depth, System.Random rnd, List<Vector3> spots)
+    {
+        Material mat = GameArt.CheckerWall;
+        Material pillar = GameArt.Concrete;
+        int steps = Mathf.CeilToInt(depth / 0.6f);
+        float rise = depth / steps;
+        // Chemin : rectangle à 0,6 m des parois, parcouru à partir d'un coin au hasard.
+        const float inset = 0.6f, spacing = 1.6f;
+        Rect path = Rect.MinMaxRect(pit.xMin + inset, pit.yMin + inset, pit.xMax - inset, pit.yMax - inset);
+        float perimeter = 2f * (path.width + path.height);
+        float t = Rand(rnd, 0f, perimeter);
+        Vector3 PointAt(float d)
+        {
+            d = Mathf.Repeat(d, perimeter);
+            if (d < path.width) return new Vector3(path.xMin + d, 0f, path.yMin);
+            d -= path.width;
+            if (d < path.height) return new Vector3(path.xMax, 0f, path.yMin + d);
+            d -= path.height;
+            if (d < path.width) return new Vector3(path.xMax - d, 0f, path.yMax);
+            d -= path.width;
+            return new Vector3(path.xMin, 0f, path.yMax - d);
+        }
+        int lap = Mathf.Max(1, Mathf.FloorToInt(perimeter / spacing));
+        for (int k = 1; k < steps; k++)
+        {
+            float top = -depth + k * rise;
+            Vector3 p = PointAt(t + k * spacing);
+            var plat = GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(p.x, top - 0.15f, p.z), new Vector3(1.2f, 0.3f, 1.2f), mat, true);
+            plat.name = "Plateforme";
+            // Le premier tour repose sur des piliers ; au-dessus, les plateformes flottent.
+            if (k < lap)
+            {
+                float h = top - 0.3f + depth;
+                if (h > 0.1f) GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(p.x, -depth + h * 0.5f, p.z), new Vector3(0.35f, h, 0.35f), pillar, true).name = "Pilier";
+            }
+            if (k == steps / 2) spots.Add(new Vector3(p.x, top, p.z));
+        }
+        // Objets au fond de la fosse.
+        spots.Add(new Vector3(pit.center.x + Rand(rnd, -1f, 1f), -depth, pit.center.y + Rand(rnd, -1f, 1f)));
     }
 
     static float Rand(System.Random rnd, float min, float max) => min + (float)rnd.NextDouble() * (max - min);
@@ -763,21 +1160,95 @@ public static class WorldBuilder
 
         Material metal = GameArt.Metal;
         Material tip = GameArt.Unlit("LaserTip", new Color(1f, 0.1f, 0.05f));
+        var sparks = new ParticleSystem[2];
+        int i = 0;
         foreach (var (p, dir) in new[] { (a, across), (b, -across) })
         {
             var emitter = GameArt.Prim(PrimitiveType.Cylinder, go.transform, p + dir * 0.06f, new Vector3(0.18f, 0.06f, 0.18f), metal);
             emitter.transform.localRotation = Quaternion.FromToRotation(Vector3.up, dir);
             var t = GameArt.Prim(PrimitiveType.Sphere, go.transform, p + dir * 0.13f, Vector3.one * 0.07f, tip);
             t.name = "Embout";
+            sparks[i++] = AddSparks(go.transform, p + dir * 0.15f, dir, rnd);
         }
 
-        var beam = GameArt.Prim(PrimitiveType.Cube, go.transform, (a + b) * 0.5f, Vector3.one, GameArt.Unlit("LaserBeam", new Color(1f, 0.05f, 0.05f)));
+        // Faisceau : cylindre (axe Y, 2 m de haut) entouré d'un halo plus large et diffus.
+        float length = Vector3.Distance(a, b) - 0.2f;
+        var beam = GameArt.Prim(PrimitiveType.Cylinder, go.transform, (a + b) * 0.5f, Vector3.one, GameArt.LaserBeam("LaserBeam", 2.2f, 2.5f));
         beam.name = "Faisceau";
-        beam.transform.localRotation = Quaternion.LookRotation(across);
-        beam.transform.localScale = new Vector3(0.035f, 0.035f, Vector3.Distance(a, b) - 0.2f);
-        var glow = GameArt.Prim(PrimitiveType.Cube, beam.transform, Vector3.zero, new Vector3(2.2f, 2.2f, 1f), GameArt.Unlit("LaserGlow", new Color(0.6f, 0f, 0f)));
+        beam.transform.localRotation = Quaternion.FromToRotation(Vector3.up, across);
+        beam.transform.localScale = new Vector3(0.035f, length * 0.5f, 0.035f);
+        beam.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        var glow = GameArt.Prim(PrimitiveType.Cylinder, beam.transform, Vector3.zero, new Vector3(3.2f, 1f, 3.2f), GameArt.LaserBeam("LaserGlow", 0.7f, 1.2f));
         glow.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        go.AddComponent<Laser>().Init(a, b, beam);
+        go.AddComponent<Laser>().Init(a, b, beam, sparks);
+    }
+
+    // Gerbe d'étincelles d'un embout ('dir' : vers le faisceau). Ne s'active que quand le laser s'allume.
+    static ParticleSystem AddSparks(Transform parent, Vector3 pos, Vector3 dir, System.Random rnd)
+    {
+        var go = new GameObject("Etincelles");
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = pos;
+        go.transform.localRotation = Quaternion.LookRotation(dir);
+        var ps = go.AddComponent<ParticleSystem>();
+        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+        var main = ps.main;
+        main.playOnAwake = false;
+        main.loop = true;
+        main.duration = 1f;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(0.25f, 0.6f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(1.2f, 3.2f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.012f, 0.028f);
+        main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.85f, 0.4f), new Color(1f, 0.35f, 0.08f));
+        main.gravityModifier = 1.2f;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.maxParticles = 60;
+        main.flipRotation = 0f;
+
+        // Crépitement irrégulier : un filet continu plus des petites salves.
+        var emission = ps.emission;
+        emission.rateOverTime = 14f;
+        emission.SetBursts(new[]
+        {
+            new ParticleSystem.Burst(0.1f, 3, 7, 3, 0.25f + (float)rnd.NextDouble() * 0.2f),
+        });
+
+        var shape = ps.shape;
+        shape.shapeType = ParticleSystemShapeType.Cone;
+        shape.angle = 55f;
+        shape.radius = 0.02f;
+
+        var colorOverLifetime = ps.colorOverLifetime;
+        colorOverLifetime.enabled = true;
+        var gradient = new Gradient();
+        gradient.SetKeys(
+            new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(new Color(1f, 0.25f, 0.05f), 0.6f), new GradientColorKey(new Color(0.6f, 0.05f, 0f), 1f) },
+            new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0.8f, 0.6f), new GradientAlphaKey(0f, 1f) });
+        colorOverLifetime.color = gradient;
+
+        var sizeOverLifetime = ps.sizeOverLifetime;
+        sizeOverLifetime.enabled = true;
+        sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0.3f));
+
+        // Rebond sur le sol et les murs.
+        var collision = ps.collision;
+        collision.enabled = true;
+        collision.type = ParticleSystemCollisionType.World;
+        collision.quality = ParticleSystemCollisionQuality.Low;
+        collision.bounce = 0.35f;
+        collision.dampen = 0.4f;
+        collision.lifetimeLoss = 0.3f;
+        collision.radiusScale = 0.5f;
+
+        var renderer = go.GetComponent<ParticleSystemRenderer>();
+        renderer.renderMode = ParticleSystemRenderMode.Stretch;
+        renderer.velocityScale = 0.04f;
+        renderer.lengthScale = 1.5f;
+        renderer.sharedMaterial = GameArt.Spark;
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        return ps;
     }
 
     // Néon fixé au plafond ('ceilingPos' : point du plafond).
@@ -823,8 +1294,33 @@ public static class WorldBuilder
         go.AddComponent<Eye>().Init(ball, lid.transform);
     }
 
-    // Membre (bras, main, tête, buste) peint en noir uni, figé, sortant d'une surface de normale 'normal'.
-    static void AddLimb(Transform parent, string model, Vector3 surfacePoint, Vector3 normal, System.Random rnd, bool solid)
+    // Grappe de membres identiques serrés les uns contre les autres, dans le plan (u, v) de la surface :
+    // décalage de chaque membre et rotation autour de la normale (proche d'un membre à l'autre).
+    static List<(Vector3 offset, float spin)> LimbCluster(string model, Vector3 u, Vector3 v, System.Random rnd)
+    {
+        var (min, max, spacing) = model switch
+        {
+            "Hand" => (3, 5, 0.38f),
+            "Arm" => (2, 5, 0.42f),
+            "Head" => (2, 4, 0.55f),
+            _ => (2, 3, 0.85f),
+        };
+        int count = rnd.Next(min, max + 1);
+        float baseSpin = Rand(rnd, 0f, 360f);
+        var list = new List<(Vector3, float)>();
+        for (int k = 0; k < count; k++)
+        {
+            // En rang, chacun un peu décalé et désaligné.
+            float across = (k - (count - 1) * 0.5f) * spacing + Rand(rnd, -0.25f, 0.25f) * spacing;
+            float depth = Rand(rnd, -0.45f, 0.45f) * spacing;
+            list.Add((u * across + v * depth, baseSpin + Rand(rnd, -15f, 15f)));
+        }
+        return list;
+    }
+
+    // Membre (bras, main, tête, buste) en plâtre gris poussiéreux, figé, sortant d'une surface de normale 'normal'
+    // et tourné de 'spin' degrés autour d'elle.
+    static void AddLimb(Transform parent, string model, Vector3 surfacePoint, Vector3 normal, float spin, System.Random rnd, bool solid)
     {
         var prefab = Resources.Load<GameObject>("Art/Decor/" + model);
         if (prefab == null) return;
@@ -839,11 +1335,11 @@ public static class WorldBuilder
         go.transform.localPosition = Vector3.zero;
         go.transform.localRotation = Quaternion.identity;
         foreach (var col in go.GetComponentsInChildren<Collider>()) Object.Destroy(col);
-        Material black = GameArt.Unlit("Limb", new Color(0.01f, 0.01f, 0.01f));
+        Material dusty = GameArt.DustyLimb;
         foreach (var r in go.GetComponentsInChildren<Renderer>())
         {
             var mats = new Material[r.sharedMaterials.Length];
-            for (int k = 0; k < mats.Length; k++) mats[k] = black;
+            for (int k = 0; k < mats.Length; k++) mats[k] = dusty;
             r.sharedMaterials = mats;
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
@@ -857,9 +1353,9 @@ public static class WorldBuilder
         Vector3 anchor = b.center - outAxis * Vector3.Dot(b.center, outAxis) + outAxis * baseAlong;
         go.transform.localPosition = -anchor;
 
-        // Orienté selon la normale, tourné au hasard autour d'elle et un peu penché.
+        // Orienté selon la normale, tourné de 'spin' autour d'elle et un peu penché.
         Quaternion tilt = Quaternion.Euler(Rand(rnd, -20f, 20f), 0f, Rand(rnd, -20f, 20f));
-        holder.transform.localRotation = Quaternion.AngleAxis(Rand(rnd, 0f, 360f), normal) * Quaternion.FromToRotation(outAxis, normal) * tilt;
+        holder.transform.localRotation = Quaternion.AngleAxis(spin, normal) *Quaternion.FromToRotation(outAxis, normal) * tilt;
         holder.transform.localPosition = surfacePoint;
 
         if (solid)
@@ -925,7 +1421,7 @@ public static class WorldBuilder
     }
 
     // Salle chaotique : plateformes en escalier, de travers, à atteindre en sautant. L'objet le plus haut est au sommet.
-    static void AddPlatforms(Transform parent, Room room, float minX, float maxX, float minZ, float maxZ, System.Random rnd, MazeRefs refs)
+    static void AddPlatforms(Transform parent, Room room, float minX, float maxX, float minZ, float maxZ, System.Random rnd, List<Vector3> spots)
     {
         Material mat = GameArt.CheckerWall;
         Material pillar = GameArt.Concrete;
@@ -958,7 +1454,7 @@ public static class WorldBuilder
             if (k < count - 1) p = next;
         }
         // Objet à ramasser au sommet (accès difficile).
-        refs.itemSpots.Add(new Vector3(p.x, top, p.z));
+        spots.Add(new Vector3(p.x, top, p.z));
         // Quelques blocs renversés au sol.
         for (int k = 0; k < 2; k++)
         {

@@ -4,7 +4,7 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 // Zone de saisie du Terminal, affichée uniquement chez le joueur qui l'utilise.
-// Commandes insensibles à la casse : /sell, /buy, /info et la commande secrète /kick (hôte).
+// Commandes insensibles à la casse : /sell, /buy, /info et les commandes secrètes /kick et /spawn (hôte).
 public class TerminalUI : MonoBehaviour
 {
     public const string Menu = "Bienvenue sur le Terminal !\nTaper une commande pour continuer :\n/sell\n/buy\n/info";
@@ -126,7 +126,9 @@ public class TerminalUI : MonoBehaviour
         {
             var sb = new System.Text.StringBuilder("Objets achetables :");
             foreach (var def in Items.Buyable())
-                sb.Append("\n  ID ").Append((int)def.type).Append(" - ").Append(def.name).Append(" : ").Append(def.buyPrice).Append(" golds");
+                // Une fois achetée, la Boussole disparaît des propositions.
+                if (def.type != ItemType.Boussole || !session.CompassUnlocked)
+                    sb.Append("\n  ID ").Append((int)def.type).Append(" - ").Append(def.name).Append(" : ").Append(def.buyPrice).Append(" golds");
             sb.Append("\nÉcrire l'ID de l'objet à acheter.");
             Print(sb.ToString());
             mode = Mode.Buy;
@@ -141,6 +143,12 @@ public class TerminalUI : MonoBehaviour
             string kicked = session.Kick(target);
             Print(kicked != null ? "Le joueur " + kicked + " a été expulsé de la partie." + Quit
                                  : "Aucun autre joueur nommé " + target + "." + Quit);
+        }
+        else if (lower.StartsWith("/spawn ") && session.IsHost)
+        {
+            string arg = text.Substring(7).Trim();
+            if (int.TryParse(arg, out int id)) Print(session.SpawnEntity(id) + Quit);
+            else Error("Commande invalide." + Quit);
         }
         else
         {
@@ -170,7 +178,12 @@ public class TerminalUI : MonoBehaviour
             return;
         }
         if (waitingBuy) return;
-        if (!session.HasFreeSlot)
+        if (def.type == ItemType.Boussole && session.CompassUnlocked)
+        {
+            Error("Commande invalide." + Quit);
+            return;
+        }
+        if (def.inventory && !session.HasFreeSlot)
         {
             Error("Votre inventaire est plein ! Impossible d'acheter " + def.name + "." + Quit);
             return;
@@ -185,12 +198,18 @@ public class TerminalUI : MonoBehaviour
     }
 
     // Réponse de l'hôte à une demande d'achat.
-    public void OnBuyResult(bool ok, ItemDef def, int cash)
+    public void OnBuyResult(bool ok, ItemDef def, int cash, bool alreadyOwned)
     {
         waitingBuy = false;
         if (!IsOpen || def == null) return;
-        Print(ok ? "Vous avez acheté " + def.name + " pour " + def.buyPrice + " golds !" + Quit
-                 : "Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
+        if (ok && def.type == ItemType.Boussole)
+            Print("Vous avez acheté la Boussole pour " + def.buyPrice + " golds !\nElle s'affiche désormais en haut de l'écran de tous les joueurs." + Quit);
+        else if (ok)
+            Print("Vous avez acheté " + def.name + " pour " + def.buyPrice + " golds !" + Quit);
+        else if (alreadyOwned)
+            Print("La Boussole a déjà été achetée." + Quit);
+        else
+            Print("Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
     }
 
     void Error(string text)

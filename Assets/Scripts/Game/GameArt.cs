@@ -115,6 +115,60 @@ public static class GameArt
             return cache["InfestedWall"] = m;
         }
     }
+    // Faisceau laser animé (Resources/Materials/LaserBeam) : cœur concentré, ou halo diffus autour.
+    public static Material LaserBeam(string key, float intensity, float corePower)
+    {
+        if (cache.TryGetValue(key, out var m) && m != null) return m;
+        var template = Resources.Load<Material>("Materials/LaserBeam");
+        if (template == null) return Unlit(key, new Color(1f, 0.05f, 0.05f));
+        m = new Material(template) { name = key };
+        m.SetFloat("_Intensity", intensity);
+        m.SetFloat("_CorePower", corePower);
+        return cache[key] = m;
+    }
+
+    // Membres du décor : plâtre gris poussiéreux (Resources/Materials/DustyLimb).
+    public static Material DustyLimb
+    {
+        get
+        {
+            if (cache.TryGetValue("DustyLimb", out var m) && m != null) return m;
+            var template = Resources.Load<Material>("Materials/DustyLimb");
+            m = template != null ? new Material(template) { name = "DustyLimb", enableInstancing = true }
+                                 : Lit("DustyLimb", new Color(0.4f, 0.39f, 0.37f), null, 0.05f);
+            return cache["DustyLimb"] = m;
+        }
+    }
+
+    // Matériau tiré d'un modèle de Resources/Materials (shader du jeu), avec repli si absent.
+    static Material FromTemplate(string name, System.Func<Material> fallback)
+    {
+        if (cache.TryGetValue(name, out var m) && m != null) return m;
+        var template = Resources.Load<Material>("Materials/" + name);
+        m = template != null ? new Material(template) { name = name } : fallback();
+        return cache[name] = m;
+    }
+
+    // Brume de l'Abjuration (shader Mist, intensité globale _Abjuration).
+    public static Material Mist => FromTemplate("Mist", () => Unlit("MistFallback", new Color(0.2f, 0.4f, 0.8f)));
+    // Battant ectoplasmique de la porte de la Zone 2.
+    public static Material Ectoplasm => FromTemplate("Ectoplasm", () => Emissive("EctoFallback", new Color(0.1f, 0.3f, 0.7f), new Color(0.1f, 0.35f, 0.9f)));
+    // Aura bleue des orbes activés.
+    public static Material GhostAura => FromTemplate("GhostAura", () => Unlit("AuraFallback", new Color(0.2f, 0.5f, 1f)));
+    // Voile blanc de La Dame (particules).
+    public static Material Veil => FromTemplate("Veil", () => Unlit("VeilFallback", Color.white));
+
+    // Particules d'étincelles (Resources/Materials/Spark).
+    public static Material Spark
+    {
+        get
+        {
+            if (cache.TryGetValue("Spark", out var m) && m != null) return m;
+            var template = Resources.Load<Material>("Materials/Spark");
+            m = template != null ? new Material(template) { name = "Spark" } : Unlit("Spark", new Color(1f, 0.6f, 0.2f));
+            return cache["Spark"] = m;
+        }
+    }
     public static Material DarkConcrete => Lit("DarkConcrete", new Color(0.3f, 0.3f, 0.3f), Noise("concrete", 128, 0.75f, 0.2f, 11), 0.05f);
     public static Material Metal => Lit("Metal", new Color(0.25f, 0.25f, 0.27f), null, 0.6f);
 
