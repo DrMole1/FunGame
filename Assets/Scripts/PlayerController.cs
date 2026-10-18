@@ -29,6 +29,9 @@ public class PlayerController : MonoBehaviour
     float knockTimer;
     const float KnockDuration = 0.6f;
 
+    // Multiplicateur de vitesse imposé par le jeu (brume de l'Abjuration).
+    public float SpeedFactor { get; set; } = 1f;
+
     public AnimState CurrentAnimState => avatar != null ? avatar.State : AnimState.Idle;
     public bool Sneaking => gait == Gait.Sneak;
 
@@ -98,9 +101,9 @@ public class PlayerController : MonoBehaviour
         int items = Status != null ? Status.ItemCount : 0;
         switch (gait)
         {
-            case Gait.Run: return moveSpeed * GameRules.RunMultiplier(items);
-            case Gait.Sneak: return moveSpeed * GameRules.SneakMultiplier;
-            default: return moveSpeed;
+            case Gait.Run: return moveSpeed * GameRules.RunMultiplier(items) * SpeedFactor;
+            case Gait.Sneak: return moveSpeed * GameRules.SneakMultiplier * SpeedFactor;
+            default: return moveSpeed * SpeedFactor;
         }
     }
 

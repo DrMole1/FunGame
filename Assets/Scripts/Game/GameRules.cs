@@ -66,6 +66,7 @@ public static class GameRules
     public const float AbjurationStart = 7f * 60f;
     public const float AbjurationTick = 3f;     // toutes les 3 secondes de contact...
     public const int AbjurationLoss = 1;        // ...1 point de sérénité en moins
+    public const float MistSpeedMultiplier = 0.8f; // déplacement ralenti de 20 % dans la brume
     // Hauteur (absolue) du dessus de la brume : le ras du sol du Hub.
     public const float MistTop = 0.5f;
 
@@ -101,6 +102,7 @@ public static class Items
     public const int CroquetteHeal = 20;
     public const int CroquetteSerenity = 20;
     public const int PostItMaxChars = 20;
+    public const float PostItLockSeconds = 2f; // un Post-It ne peut pas être retiré juste après avoir été accroché
 
     static readonly ItemDef[] All =
     {

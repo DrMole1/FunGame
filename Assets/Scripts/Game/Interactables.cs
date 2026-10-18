@@ -333,6 +333,7 @@ public class ZoneOrb : Interactable
 public class PostItNote : Interactable
 {
     public int Id { get; private set; }
+    float placedAt;
 
     public static PostItNote Create(Transform parent, int id, Vector3 pos, Vector3 normal, string text)
     {
@@ -344,11 +345,34 @@ public class PostItNote : Interactable
         GameArt.Prim(PrimitiveType.Cube, go.transform, Vector3.zero, new Vector3(0.32f, 0.32f, 0.01f), GameArt.Lit("PostIt", new Color(1f, 0.9f, 0.3f), null, 0.15f));
         GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, 0.13f, -0.006f), new Vector3(0.32f, 0.06f, 0.002f), GameArt.Lit("PostItGlue", new Color(0.95f, 0.82f, 0.22f), null, 0.15f));
         var label = GameArt.CreateText(go.transform, "Message", new Vector3(0f, -0.01f, -0.008f), 0.0045f, new Color(0.12f, 0.1f, 0.25f));
-        label.text = Wrap(text, 10);
+        FitText(label, text, new Vector2(0.26f, 0.24f));
         var note = go.AddComponent<PostItNote>();
         note.Id = id;
+        note.placedAt = Time.time;
         note.FitTrigger(new Vector3(0.36f, 0.36f, 0.12f));
         return note;
+    }
+
+    // Écrit le message aussi grand que possible dans la zone 'area' (en mètres) : on essaie chaque largeur de ligne,
+    // on mesure le texte obtenu et on garde la mise en page qui autorise les plus gros caractères.
+    static void FitText(TextMesh label, string text, Vector2 area)
+    {
+        const float probeSize = 0.01f;
+        label.characterSize = probeSize;
+        var renderer = label.GetComponent<MeshRenderer>();
+        string best = text;
+        float bestScale = 0f;
+        for (int width = 1; width <= Items.PostItMaxChars; width++)
+        {
+            string wrapped = Wrap(text, width);
+            label.text = wrapped;
+            Vector3 size = renderer.localBounds.size;
+            if (size.x < 1e-5f || size.y < 1e-5f) continue;
+            float scale = Mathf.Min(area.x / size.x, area.y / size.y);
+            if (scale > bestScale) { bestScale = scale; best = wrapped; }
+        }
+        label.text = best;
+        label.characterSize = bestScale > 0f ? probeSize * bestScale : 0.0045f;
     }
 
     // Découpe le message en lignes d'au plus 'width' caractères, sans couper les mots si possible.
@@ -367,6 +391,8 @@ public class PostItNote : Interactable
         return sb.ToString();
     }
 
+    // Pas de retrait pendant les 2 secondes qui suivent la pose.
+    public override bool CanInteract => Time.time - placedAt >= Items.PostItLockSeconds;
     public override string Prompt => "Retirer le Post-It";
     public override void Interact() => GameSession.Instance.RemovePostIt(Id);
 }

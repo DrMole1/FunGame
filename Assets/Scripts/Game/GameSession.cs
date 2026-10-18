@@ -72,6 +72,7 @@ public class GameSession : MonoBehaviour
     int statsRound = 1;
     // Post-It accrochés (hôte : message complet, pour les joueurs qui arrivent).
     readonly Dictionary<int, string> noteMessages = new Dictionary<int, string>();
+    readonly Dictionary<int, float> notePlacedAt = new Dictionary<int, float>();
     int nextNoteId, nextDameId;
     bool hostAbjuration;
 
@@ -178,6 +179,7 @@ public class GameSession : MonoBehaviour
         roundStats.Clear();
         statsRound = 1;
         noteMessages.Clear();
+        notePlacedAt.Clear();
         nextNoteId = nextDameId = 0;
         hostAbjuration = false;
         ApplyWorld();
@@ -222,11 +224,13 @@ public class GameSession : MonoBehaviour
         roundStats.Clear();
         statsRound = 1;
         noteMessages.Clear();
+        notePlacedAt.Clear();
         hostAbjuration = false;
         status.ClearInventory();
         status.SetDead(false);
         status.SetHp(GameRules.MaxHp);
         status.SetSerenity(GameRules.MaxSerenity);
+        player.SpeedFactor = 1f;
         presence.Alive = true;
         spectateId = null;
         if (orbit != null) orbit.target = player.transform;
@@ -476,13 +480,16 @@ public class GameSession : MonoBehaviour
         Shader.SetGlobalVectorArray("_InsectFlee", insectFlee);
     }
 
-    // Toutes les 3 secondes passées dans la brume de l'Abjuration : -1 de sérénité. À 0, le personnage meurt.
+    // Toutes les 3 secondes passées dans la brume de l'Abjuration : -1 de sérénité (à 0, le personnage meurt),
+    // et le déplacement y est ralenti de 20 %.
     void UpdateMistContact()
     {
         Vector3 p = player.transform.position;
         float feet = p.y - player.GetComponent<CapsuleCollider>().height * 0.5f;
         bool inMist = !status.Dead && AbjurationActive && mistAmount > 0.5f && maze != null
             && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop;
+        // Dans la brume, le personnage avance 20 % moins vite.
+        player.SpeedFactor = inMist ? GameRules.MistSpeedMultiplier : 1f;
         if (!inMist)
         {
             mistTimer = 0f;
@@ -1148,6 +1155,7 @@ public class GameSession : MonoBehaviour
         orbsBroken = 0;
         picked.Clear();
         noteMessages.Clear();
+        notePlacedAt.Clear();
         ResetRoundStats(1);
         ApplyWorld();
         BroadcastState();
@@ -1346,6 +1354,7 @@ public class GameSession : MonoBehaviour
                 int id = nextNoteId++;
                 string msg = "PA|" + id + "|" + f[1] + "|" + f[2] + "|" + f[3] + "|" + f[4] + "|" + f[5] + "|" + f[6] + "|" + text;
                 noteMessages[id] = msg;
+                notePlacedAt[id] = Time.time;
                 net.ToAll(msg);
                 break;
             }
@@ -1362,6 +1371,9 @@ public class GameSession : MonoBehaviour
             case "PD" when host && f.Length >= 2:
             {
                 int id = NetworkGame.I(f[1]);
+                // Pas de retrait pendant les 2 secondes qui suivent la pose.
+                if (notePlacedAt.TryGetValue(id, out float placed) && Time.time - placed < Items.PostItLockSeconds) break;
+                notePlacedAt.Remove(id);
                 if (noteMessages.Remove(id)) net.ToAll("PX|" + id);
                 break;
             }
