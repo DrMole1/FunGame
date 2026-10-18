@@ -53,11 +53,11 @@ public class PlayerController : MonoBehaviour
         bool runHeld = false, sneakHeld = false;
         if (CanControl)
         {
-            // Z/W et Q/A acceptés pour fonctionner quel que soit le mapping du clavier (AZERTY/QWERTY).
+            // Z/W accepté quel que soit le mapping du clavier (AZERTY/QWERTY) ; A sert à aboyer, Q va à gauche.
             if (Input.GetKey(KeyCode.Z) || Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) v += 1f;
             if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) v -= 1f;
             if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) h += 1f;
-            if (Input.GetKey(KeyCode.Q) || Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)) h -= 1f;
+            if (Input.GetKey(KeyCode.Q) || Input.GetKey(KeyCode.LeftArrow)) h -= 1f;
             runHeld = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
             // C en secours : certains navigateurs réservent Ctrl + touche.
             sneakHeld = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl) || Input.GetKey(KeyCode.C);

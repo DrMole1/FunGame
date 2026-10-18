@@ -24,9 +24,15 @@ public static class SoundBank
         foreach (string name in All) Get(name);
     }
 
+    static GameSounds recorded;
+
     public static AudioClip Get(string name)
     {
         if (clips.TryGetValue(name, out var clip) && clip != null) return clip;
+        // Un son enregistré (Assets/Sounds) remplace le son synthétisé de même clé.
+        if (recorded == null) recorded = Resources.Load<GameSounds>("GameSounds");
+        clip = recorded != null ? recorded.Find(name) : null;
+        if (clip != null) return clips[name] = clip;
         float[] data = Build(name, new System.Random(name.GetHashCode()));
         if (data == null) return null;
         Normalize(data, 0.9f);

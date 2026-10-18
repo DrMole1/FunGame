@@ -179,6 +179,82 @@ public static class UiKit
         return go;
     }
 
+    // ---------- Style « coup de pinceau » (lobby) ----------
+
+    static readonly System.Collections.Generic.Dictionary<string, Sprite> brushes = new System.Collections.Generic.Dictionary<string, Sprite>();
+
+    static float Hash(int n)
+    {
+        uint h = (uint)n * 374761393u;
+        h = (h ^ (h >> 13)) * 1274126177u;
+        return (h & 0xFFFF) / 65535f;
+    }
+
+    // Bruit de valeur 1D lissé.
+    static float Noise1(float x, int seed)
+    {
+        int i = Mathf.FloorToInt(x);
+        float f = x - i;
+        f = f * f * (3f - 2f * f);
+        return Mathf.Lerp(Hash(i * 7 + seed * 131), Hash((i + 1) * 7 + seed * 131), f);
+    }
+
+    // Trace de peinture blanche (teintée par la couleur de l'image) : bords déchirés, poils du pinceau aux extrémités,
+    // traînées le long du geste. 'vertical' : coup de pinceau de haut en bas (grands panneaux).
+    static Sprite BrushSprite(int w, int h, int seed, bool vertical)
+    {
+        string key = w + "x" + h + "_" + seed + (vertical ? "v" : "h");
+        if (brushes.TryGetValue(key, out var cached) && cached != null) return cached;
+        int len = vertical ? h : w, thick = vertical ? w : h;
+        var tex = new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+        var px = new Color[w * h];
+        float side = thick * 0.05f, end = Mathf.Min(len * 0.02f, thick * 0.35f);
+        for (int a = 0; a < len; a++)       // le long du geste
+            for (int b = 0; b < thick; b++) // en travers
+            {
+                float u = a, v = b;
+                // Bords le long du geste : ondulation lente + petites déchirures.
+                float lowEdge = side * (0.3f + 0.7f * Noise1(u / 40f, seed)) + side * 0.5f * Mathf.Pow(Noise1(u / 9f, seed + 1), 6f);
+                float highEdge = side * (0.3f + 0.7f * Noise1(u / 37f, seed + 2)) + side * 0.5f * Mathf.Pow(Noise1(u / 8f, seed + 3), 6f);
+                // Extrémités : chaque poil du pinceau commence et finit à sa propre position.
+                float bristle = Noise1(v / 2.5f, seed + 4);
+                float startEdge = end * (0.3f + 0.9f * bristle * Noise1(v / 18f, seed + 5));
+                float endEdge = end * (0.3f + 0.9f * Noise1(v / 2.2f, seed + 6) * Noise1(v / 15f, seed + 7));
+                float d = Mathf.Min(Mathf.Min(v - lowEdge, thick - 1 - v - highEdge), Mathf.Min(u - startEdge, len - 1 - u - endEdge));
+                float alpha = Mathf.Clamp01(d + 0.5f);
+                // Pinceau sec : quelques trous près des extrémités.
+                float dry = Mathf.Min(u - startEdge, len - 1 - u - endEdge) / (end * 2f);
+                if (dry < 1f && Noise1(v / 1.7f + u / 30f, seed + 8) > 0.7f + dry * 0.4f) alpha = 0f;
+                // Traînées de peinture le long du geste.
+                float streak = Noise1(v / 1.6f, seed + 9) * 0.6f + Noise1(v / 7f + u / 90f, seed + 10) * 0.4f;
+                float shade = 0.84f + 0.16f * streak + 0.04f * (Noise1(u / 12f + v / 3f, seed + 11) - 0.5f);
+                int x = vertical ? b : a, y = vertical ? a : b;
+                px[y * w + x] = new Color(shade, shade, shade, alpha);
+            }
+        tex.SetPixels(px);
+        tex.Apply();
+        var sprite = Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f);
+        return brushes[key] = sprite;
+    }
+
+    // Applique une trace de pinceau de la couleur voulue à l'image d'un panneau, d'un bouton ou d'un champ.
+    public static void Paint(GameObject go, Color color, int seed)
+    {
+        var img = go.GetComponent<Image>();
+        var rt = (RectTransform)go.transform;
+        Vector2 size = rt.sizeDelta;
+        var le = go.GetComponent<LayoutElement>();
+        if (le != null && le.preferredHeight > 0f) size.y = le.preferredHeight;
+        if (le != null && le.preferredWidth > 0f) size.x = le.preferredWidth;
+        bool vertical = size.y > size.x * 1.2f;
+        float aspect = size.x > 1f && size.y > 1f ? size.x / size.y : 5f;
+        int h = vertical ? 720 : 96;
+        int w = Mathf.Clamp(Mathf.RoundToInt(h * aspect), 64, 1024);
+        img.sprite = BrushSprite(w, h, seed, vertical);
+        img.type = Image.Type.Simple;
+        img.color = color;
+    }
+
     // Sélecteur "<  Perso 2  >".
     public static Text Selector(Transform parent, float height, UnityEngine.Events.UnityAction prev, UnityEngine.Events.UnityAction next)
     {

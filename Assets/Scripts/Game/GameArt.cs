@@ -246,6 +246,64 @@ public static class GameArt
         return (h & 0xFFFF) / 65535f;
     }
 
+    // Toile de chapiteau vernie (gris clair, teintée par la couleur du matériau) : trame fine, plis, taches et
+    // petites aspérités, pour que le rouge et le beige ne soient plus unis.
+    public static Texture2D Canvas()
+    {
+        if (textures.TryGetValue("canvas", out var t) && t != null) return t;
+        const int size = 256;
+        var rnd = new System.Random(29);
+        t = new Texture2D(size, size, TextureFormat.RGB24, true) { wrapMode = TextureWrapMode.Repeat, anisoLevel = 4 };
+        var px = new Color[size * size];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                // Trame de tissu : fils horizontaux et verticaux alternés.
+                float weave = ((x / 2 + y / 2) & 1) == 0 ? 1f : 0.93f;
+                float fibres = 0.96f + 0.04f * Mathf.Sin(x * 0.9f + TileableNoise(x * 0.125f, y * 0.125f, 32f) * 6f);
+                // Plis et usure : bruit à grande échelle.
+                float folds = 0.86f + 0.14f * TileableNoise(x * 0.03125f, y * 0.03125f + 7f, 8f);
+                float blotch = 0.92f + 0.08f * TileableNoise(x * 0.0625f + 5f, y * 0.0625f, 16f);
+                float v = weave * fibres * folds * blotch * (0.97f + 0.03f * (float)rnd.NextDouble());
+                px[y * size + x] = new Color(v, v, v);
+            }
+        // Aspérités : petits éclats et traces plus sombres.
+        for (int k = 0; k < 60; k++)
+        {
+            int cx = rnd.Next(size), cy = rnd.Next(size), r = 1 + rnd.Next(3);
+            float dark = 0.82f + (float)rnd.NextDouble() * 0.12f;
+            for (int dy = -r; dy <= r; dy++)
+                for (int dx = -r; dx <= r; dx++)
+                    if (dx * dx + dy * dy <= r * r)
+                    {
+                        int ix = ((cx + dx) % size + size) % size, iy = ((cy + dy) % size + size) % size;
+                        px[iy * size + ix] *= dark;
+                    }
+        }
+        t.SetPixels(px);
+        // Reste lisible : CanvasStripes en reprend les pixels.
+        t.Apply(true, false);
+        return textures["canvas"] = t;
+    }
+
+    // Rayures de toile (toit du chapiteau) : moitié 'a', moitié 'b', avec la matière de Canvas().
+    public static Texture2D CanvasStripes(Color a, Color b)
+    {
+        string key = "canvasStripes" + a + b;
+        if (textures.TryGetValue(key, out var t) && t != null) return t;
+        Texture2D canvas = Canvas();
+        int size = canvas.width;
+        t = new Texture2D(size, size, TextureFormat.RGB24, true) { wrapMode = TextureWrapMode.Repeat, anisoLevel = 4 };
+        var src = canvas.GetPixels();
+        var px = new Color[size * size];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+                px[y * size + x] = (x < size / 2 ? a : b) * src[y * size + x].r;
+        t.SetPixels(px);
+        t.Apply(true, true);
+        return textures[key] = t;
+    }
+
     // Rayures verticales (chapiteau du Hub).
     public static Texture2D Stripes(Color a, Color b)
     {

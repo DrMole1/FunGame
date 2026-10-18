@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // La Dame (entité ID 2, type Cauchemar). Elle rôde au hasard dans le labyrinthe à la vitesse normale des joueurs,
-// prend en chasse le premier personnage qu'elle voit (x1,5 ; x2,2 tant qu'il la regarde) pendant 20 à 30 secondes
+// prend en chasse le premier personnage qu'elle voit (x1,05 ; x2,2 tant qu'il la regarde) pendant 20 à 30 secondes
 // et attaque au contact (100 de dégâts, le survivant est repoussé). Elle ne saute pas mais emprunte les escaliers.
 // L'hôte simule son comportement (Simulate) ; les autres clients affichent l'état reçu (SetNetState).
 public class Dame : MonoBehaviour
@@ -11,7 +11,8 @@ public class Dame : MonoBehaviour
 
     const float Height = 2.31f;
     const float ReachHorizontal = 1.15f, ReachVertical = 1.7f;
-    const float AttackDuration = 1.5f, AttackHitTime = 0.6f;
+    // Attaque courte : le clip est accéléré pour se jouer en entier pendant AttackDuration.
+    const float AttackDuration = 1f, AttackHitTime = 0.55f;
     const float EyeHeight = 1.98f, FieldOfView = 160f;
     const float WaypointReach = 0.45f;
     const float IgnoreAfterChase = 6f;
@@ -41,6 +42,7 @@ public class Dame : MonoBehaviour
     Vector3 lastPos;
     float visualSpeed;
     string animState = "";
+    float attackClipLength = AttackDuration;
 
     public float Speed { get; private set; }
 
@@ -75,6 +77,8 @@ public class Dame : MonoBehaviour
             animator = model.GetComponent<Animator>();
             if (animator == null) animator = model.AddComponent<Animator>();
             animator.runtimeAnimatorController = art.controller;
+            foreach (var clip in art.controller.animationClips)
+                if (clip.name == "Attack") attackClipLength = clip.length;
             animator.applyRootMotion = false;
             animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
         }
@@ -304,13 +308,14 @@ public class Dame : MonoBehaviour
         visualSpeed = Mathf.Lerp(visualSpeed, moved, 1f - Mathf.Exp(-6f * dt));
         if (animator != null)
         {
-            string wanted = Current == State.Attack ? "Attack" : visualSpeed > GameRules.BaseSpeed * 1.2f ? "Run" : visualSpeed > 0.3f ? "Walk" : "Idle";
+            // En chasse, elle court (même à peine plus vite que sa marche).
+            string wanted = Current == State.Attack ? "Attack" : visualSpeed < 0.3f ? "Idle" : Current == State.Chase ? "Run" : "Walk";
             if (wanted != animState)
             {
                 animState = wanted;
                 animator.CrossFadeInFixedTime(wanted, 0.2f);
             }
-            animator.speed = wanted == "Walk" ? Mathf.Clamp(visualSpeed / 1.3f, 0.6f, 2f) : wanted == "Run" ? Mathf.Clamp(visualSpeed / 4.5f, 0.8f, 2.2f) : 1f;
+            animator.speed = wanted == "Walk" ? Mathf.Clamp(visualSpeed / 1.3f, 0.6f, 2f) : wanted == "Run" ? Mathf.Clamp(visualSpeed / 4.5f, 0.8f, 2.2f) : wanted == "Attack" ? attackClipLength / AttackDuration : 1f;
         }
     }
 }

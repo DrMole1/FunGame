@@ -104,6 +104,21 @@ public class GameAudio : MonoBehaviour
         Fire(src, clip, volume, pitchVariation, pitch);
     }
 
+    // Son spatialisé à décroissance douce : plein près de la source, puis s'éteint progressivement jusqu'à maxDistance.
+    static readonly AnimationCurve SmoothRolloff = new AnimationCurve(
+        new Keyframe(0f, 1f, 0f, 0f), new Keyframe(0.15f, 0.92f), new Keyframe(0.5f, 0.4f), new Keyframe(1f, 0f, 0f, 0f));
+
+    public static void Play3DSmooth(string clip, Vector3 position, float volume, float maxDistance, float pitch)
+    {
+        if (instance == null || !InRange(position, maxDistance)) return;
+        var src = instance.NextSource();
+        src.transform.position = position;
+        Configure3D(src, maxDistance);
+        src.rolloffMode = AudioRolloffMode.Custom;
+        src.SetCustomCurve(AudioSourceCurveType.CustomRolloff, SmoothRolloff);
+        Fire(src, clip, volume, 0f, pitch);
+    }
+
     static void Fire(AudioSource src, string clip, float volume, float pitchVariation, float pitch)
     {
         src.Stop();

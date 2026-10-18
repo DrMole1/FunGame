@@ -23,6 +23,7 @@ using UnityEngine;
 //   LK|id|1/0                                                   le joueur chassé regarde (ou non) La Dame
 //   DH|x|z                                                      hôte -> joueur : La Dame vous frappe depuis (x, z)
 //   SK -> SR|bonus (-1 = refusé)                                /skip round : passer à la manche suivante
+//   BK|pitch -> BA|id|pitch                                     aboiement d'un joueur
 public class GameSession : MonoBehaviour
 {
     enum Phase { Waiting = 0, Running = 1, GameOver = 2 }
@@ -79,6 +80,7 @@ public class GameSession : MonoBehaviour
     string spectateId;
     float mistAmount;
     float invincibleUntil; // fin de l'invincibilité qui suit un /tp
+    readonly Queue<float> barkTimes = new Queue<float>();
     readonly Dictionary<int, bool> watching = new Dictionary<int, bool>();
 
     public PlayerPresence LocalPresence => net.InGame ? presence : null;
@@ -109,6 +111,7 @@ public class GameSession : MonoBehaviour
         hub = WorldBuilder.BuildHub(worldRoot);
         button = RedButton.Create(hub.buttonAnchor);
         TerminalStation.Create(hub.terminalAnchor);
+        hub.hubProbe.RenderProbe();
         itemsRoot = new GameObject("Objets").transform;
         itemsRoot.SetParent(worldRoot, false);
         notesRoot = new GameObject("PostIts").transform;
@@ -360,6 +363,7 @@ public class GameSession : MonoBehaviour
         }
         else serenityRegenAcc = 0f;
 
+        if (!PlayerController.InputLocked && !status.Dead && Input.GetKeyDown(KeyCode.A)) TryBark();
         UpdateMistContact();
         UpdateWatching();
         UpdateSpectate();
@@ -957,6 +961,21 @@ public class GameSession : MonoBehaviour
 
     public void Toast(string message) => hud.Toast(message);
 
+    // Aboiement : son spatialisé entendu par tous les joueurs, 3 fois au plus toutes les 10 secondes.
+    // Le pitch varie au hasard entre -1 et +1 demi-ton.
+    void TryBark()
+    {
+        while (barkTimes.Count > 0 && Time.time - barkTimes.Peek() > GameRules.BarkWindow) barkTimes.Dequeue();
+        if (barkTimes.Count >= GameRules.BarkLimit) return;
+        barkTimes.Enqueue(Time.time);
+        float pitch = Mathf.Pow(2f, Random.Range(-1f, 1f) / 12f);
+        PlayBark(player.transform, pitch);
+        net.ToHost("BK|" + NetworkGame.F(pitch));
+    }
+
+    static void PlayBark(Transform who, float pitch) =>
+        GameAudio.Play3DSmooth("bark", who.position + Vector3.up * 0.8f, 1f, GameRules.BarkRange, pitch);
+
     // /skip round : si le quota est atteint, l'hôte passe à la manche suivante. Retourne un refus, ou null si envoyé.
     public string RequestSkipRound()
     {
@@ -1380,6 +1399,21 @@ public class GameSession : MonoBehaviour
                 else if (slot < 0) hud.Toast("Cet orbe ne peut pas être brisé.");
                 break;
             }
+
+            // ---------- Aboiements ----------
+            case "BK" when host && f.Length >= 2:
+            {
+                float pitch = Mathf.Clamp(NetworkGame.P(f[1]), 0.9f, 1.1f);
+                PeerNet.Broadcast("BA|" + from + "|" + NetworkGame.F(pitch));
+                // L'hôte l'entend aussi (son propre aboiement est déjà joué).
+                if (from != net.MyId && net.Remotes.TryGetValue(from, out var hostHeard) && hostHeard != null)
+                    PlayBark(hostHeard.transform, pitch);
+                break;
+            }
+            case "BA" when f.Length >= 3:
+                if (f[1] != net.MyId && net.Remotes.TryGetValue(f[1], out var barker) && barker != null)
+                    PlayBark(barker.transform, NetworkGame.P(f[2]));
+                break;
 
             // ---------- Passer la manche ----------
             case "SK" when host:

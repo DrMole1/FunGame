@@ -27,6 +27,7 @@ public static class WorldBuilder
         public HubDoor door;
         public Transform buttonAnchor, terminalAnchor;
         public TextMesh timerText, quotaText, cashText, logText, terminalText, roundBoardText;
+        public ReflectionProbe hubProbe;
         public Vector3[] kennelPositions;
         public Quaternion[] kennelRotations;
     }
@@ -62,8 +63,9 @@ public static class WorldBuilder
         root.SetParent(parent, false);
 
         Color red = new Color(0.72f, 0.08f, 0.1f), cream = new Color(0.95f, 0.9f, 0.78f);
-        Material redMat = GameArt.Lit("HubRed", red, null, 0.25f);
-        Material creamMat = GameArt.Lit("HubCream", cream, null, 0.25f);
+        // Toile vernie : brillante comme le damier du labyrinthe, avec des aspérités.
+        Material redMat = GameArt.Lit("HubRed", red, GameArt.Canvas(), 0.85f);
+        Material creamMat = GameArt.Lit("HubCream", cream, GameArt.Canvas(), 0.85f);
         Material gold = GameArt.Lit("HubGold", new Color(0.85f, 0.65f, 0.2f), null, 0.6f);
 
         // Sol (terre gravillonnée, matériau créé par GameSetup) et collision.
@@ -108,7 +110,7 @@ public static class WorldBuilder
         // Toit du chapiteau.
         var roof = new MeshBuilder();
         roof.InnerCone(new Vector3(0f, HubWallHeight, 0f), HubRadius + 0.6f, 6f, segments, 16f);
-        GameArt.MeshObject("Roof", root, roof.Build("HubRoof"), GameArt.Lit("HubRoof", Color.white, GameArt.Stripes(red, cream), 0.1f));
+        GameArt.MeshObject("Roof", root, roof.Build("HubRoof"), GameArt.Lit("HubRoof", Color.white, GameArt.CanvasStripes(red, cream), 0.8f));
         var roofCol = new GameObject("RoofCollider").AddComponent<BoxCollider>();
         roofCol.transform.SetParent(root, false);
         roofCol.center = new Vector3(0f, HubWallHeight + 6.5f, 0f);
@@ -134,6 +136,24 @@ public static class WorldBuilder
         for (int i = 0; i < 4; i++)
             AddLight(root, Polar(45f + i * 90f, 6.5f, 4.3f), new Color(1f, 0.85f, 0.65f), 1.1f, 13f);
         AddLight(root, new Vector3(0f, 6f, 0f), new Color(1f, 0.9f, 0.75f), 1.2f, 12f);
+
+        // Sonde de réflexion : la toile vernie reflète les lampes et le chapiteau.
+        var probe = new GameObject("Reflets_Hub").AddComponent<ReflectionProbe>();
+        probe.transform.SetParent(root, false);
+        probe.transform.localPosition = new Vector3(0f, 2.5f, 0f);
+        probe.size = new Vector3(HubRadius * 2f + 1f, HubWallHeight + 7f, HubRadius * 2f + 1f);
+        probe.center = new Vector3(0f, (HubWallHeight + 7f) * 0.5f - 2.5f, 0f);
+        probe.boxProjection = true;
+        probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Realtime;
+        probe.refreshMode = UnityEngine.Rendering.ReflectionProbeRefreshMode.ViaScripting;
+        probe.timeSlicingMode = UnityEngine.Rendering.ReflectionProbeTimeSlicingMode.NoTimeSlicing;
+        probe.resolution = 128;
+        probe.hdr = false;
+        probe.clearFlags = UnityEngine.Rendering.ReflectionProbeClearFlags.SolidColor;
+        probe.backgroundColor = Color.black;
+        probe.cullingMask = ~((1 << 2) | (1 << 5));
+        probe.farClipPlane = 30f;
+        refs.hubProbe = probe;
 
         // Écrans.
         refs.timerText = Screen(root, "Compteur de Temps", 0f, HubRadius - 0.75f, 4.05f, new Vector2(3.2f, 1.1f), 0.075f);

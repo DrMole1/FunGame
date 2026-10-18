@@ -16,6 +16,7 @@ public static class GameSetup
     {
         CreateMaterials();
         CreateFonts();
+        CreateSounds();
         ImportArt();
         ImportDecor();
         DameSetup.Setup();
@@ -63,6 +64,37 @@ public static class GameSetup
             m.SetFloat("_Glossiness", 0.08f);
             m.SetFloat("_Metallic", 0f);
         });
+    }
+
+    // Sons enregistrés de Assets/Sounds et clé du son synthétisé qu'ils remplacent (voir SoundBank).
+    static readonly (string key, string path)[] RecordedSounds =
+    {
+        ("dame_attack", "Assets/Sounds/AttackDame.wav"),
+        ("bark", "Assets/Sounds/Aboyer.wav"),
+    };
+
+    static void CreateSounds()
+    {
+        const string path = "Assets/Resources/GameSounds.asset";
+        var sounds = AssetDatabase.LoadAssetAtPath<GameSounds>(path);
+        if (sounds == null)
+        {
+            sounds = ScriptableObject.CreateInstance<GameSounds>();
+            AssetDatabase.CreateAsset(sounds, path);
+        }
+        var entries = new System.Collections.Generic.List<GameSounds.Entry>();
+        foreach (var (key, clipPath) in RecordedSounds)
+        {
+            var clip = AssetDatabase.LoadAssetAtPath<AudioClip>(clipPath);
+            if (clip == null)
+            {
+                Debug.LogError("Son introuvable : " + clipPath);
+                continue;
+            }
+            entries.Add(new GameSounds.Entry { key = key, clip = clip });
+        }
+        sounds.sounds = entries.ToArray();
+        EditorUtility.SetDirty(sounds);
     }
 
     // Police du jeu, à l'essai (l'ancienne : Assets/Font/PUSAB___.otf).

@@ -17,6 +17,11 @@ public static class GameRules
     // Après un /tp, le personnage de l'hôte ne prend aucun dégât pendant 5 secondes.
     public const float TeleportInvincibility = 5f;
 
+    // Aboiement (touche A) : 3 aboiements au plus sur 10 secondes, entendus jusqu'à 50 m (décroissance douce).
+    public const int BarkLimit = 3;
+    public const float BarkWindow = 10f;
+    public const float BarkRange = 50f;
+
     public const float CameraMinDistance = 2f;
     public const float CameraMaxDistance = 5f;
 
@@ -27,7 +32,7 @@ public static class GameRules
     public const int LaserDamage = 20;
 
     // Course : multiplicateur de la vitesse de base selon le nombre d'objets portés (0 à 5).
-    static readonly float[] RunMultipliers = { 2f, 2f, 1.8f, 1.6f, 1.4f, 1.2f };
+    static readonly float[] RunMultipliers = { 1.4f, 1.3f, 1.2f, 1.15f, 1.1f, 1.05f };
     public static float RunMultiplier(int itemCount) => RunMultipliers[Mathf.Clamp(itemCount, 0, RunMultipliers.Length - 1)];
     public const float SneakMultiplier = 0.5f;
     public const float BaseSpeed = 4f;
@@ -67,7 +72,7 @@ public static class GameRules
     // ---------- La Dame (entité ID 2) ----------
 
     public const int DameDamage = 100;
-    public const float DameChaseMultiplier = 1.5f;
+    public const float DameChaseMultiplier = 1.05f;
     public const float DameWatchedMultiplier = 2.2f;
     public const float DameChaseMin = 20f, DameChaseMax = 30f;
     public const float DameSightRange = 20f;
