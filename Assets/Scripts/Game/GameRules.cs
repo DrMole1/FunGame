@@ -14,7 +14,7 @@ public static class GameRules
     public const int LogLines = 8;
     public const float Gravity = -9.81f;
 
-    // Après un /tp, le personnage de l'hôte ne prend aucun dégât pendant 5 secondes.
+    // Après un /tp, le personnage de l'hôte ne prend aucun dégât et ne peut pas être immobilisé pendant 5 secondes.
     public const float TeleportInvincibility = 5f;
 
     // Aboiement (touche A) : 3 aboiements au plus sur 10 secondes, entendus jusqu'à 50 m (décroissance douce).

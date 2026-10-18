@@ -32,6 +32,7 @@ public class PlayerController : MonoBehaviour
     // Immobilisé (attaque de La Dame) jusqu'à cet instant : plus de déplacement ni de saut.
     float lockedUntil;
     public void Immobilize(float seconds) => lockedUntil = Mathf.Max(lockedUntil, Time.time + seconds);
+    public void ReleaseImmobilize() => lockedUntil = 0f;
     bool Immobilized => Time.time < lockedUntil;
 
     // Multiplicateur de vitesse imposé par le jeu (brume de l'Abjuration).

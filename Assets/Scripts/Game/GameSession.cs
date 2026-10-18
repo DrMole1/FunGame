@@ -1006,7 +1006,12 @@ public class GameSession : MonoBehaviour
     public string Teleport(string target)
     {
         string result = TeleportTo(target);
-        if (result != null) invincibleUntil = Time.time + GameRules.TeleportInvincibility;
+        if (result != null)
+        {
+            // Pendant 5 secondes : ni dégâts, ni immobilisation (y compris par La Dame).
+            invincibleUntil = Time.time + GameRules.TeleportInvincibility;
+            player.ReleaseImmobilize();
+        }
         return result;
     }
 
@@ -1464,7 +1469,7 @@ public class GameSession : MonoBehaviour
                     watched.Watched = f[2] == "1";
                 break;
             case "DF" when f.Length >= 2:
-                if (!status.Dead) player.Immobilize(NetworkGame.P(f[1]));
+                if (!status.Dead && !Invincible) player.Immobilize(NetworkGame.P(f[1]));
                 break;
             case "DH" when f.Length >= 3:
             {
