@@ -144,10 +144,18 @@ public class PlayerController : MonoBehaviour
             // Rampes et escaliers : on suit la pente sans glisser à l'arrêt.
             vel = Vector3.ProjectOnPlane(move, groundNormal);
         }
+        else if (!grounded && vel.y < 0f)
+        {
+            // Chute moins planante : en descente, la gravité (donc la vitesse de chute) est augmentée.
+            vel.y += GameRules.Gravity * (GameRules.FallGravityMultiplier - 1f) * Time.fixedDeltaTime;
+        }
         rb.velocity = vel;
 
         // Le personnage s'oriente dans la direction du mouvement.
-        if (inputDir.sqrMagnitude > 0.01f)
+        // À la première personne, le corps suit le regard (les autres joueurs voient où l'on regarde).
+        if (OrbitCamera.FirstPerson)
+            rb.MoveRotation(Quaternion.Euler(0f, OrbitCamera.Yaw, 0f));
+        else if (inputDir.sqrMagnitude > 0.01f)
             rb.MoveRotation(Quaternion.Slerp(rb.rotation, Quaternion.LookRotation(inputDir), 15f * Time.fixedDeltaTime));
     }
 

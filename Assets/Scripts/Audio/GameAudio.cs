@@ -6,11 +6,13 @@ using UnityEngine;
 public class GameAudio : MonoBehaviour
 {
     const int PoolSize = 28;
-    const string VolumeKey = "fungame_volume";
+    const string MusicKey = "fungame_music", SfxKey = "fungame_sfx";
 
     static GameAudio instance;
 
     readonly List<AudioSource> pool = new List<AudioSource>();
+    // Boucles attachées aux objets, avec leur volume de base (suivent le volume des effets sonores).
+    readonly List<KeyValuePair<AudioSource, float>> loops = new List<KeyValuePair<AudioSource, float>>();
     int next;
     AudioSource hubMusic, mazeDrone, insects, abjurationMusic;
 
@@ -21,13 +23,29 @@ public class GameAudio : MonoBehaviour
     // Ambiances actives (en jeu ou dans le menu).
     public static bool AmbienceEnabled { get; set; } = true;
 
-    public static float Volume
+    // Volumes réglés dans le lobby et le menu pause (0 à 1, 50 % à la première connexion) :
+    // la musique (ambiances du chapiteau, du labyrinthe et de l'Abjuration) et les effets sonores (tout le reste).
+    // 100 % correspond à 60 % du niveau brut des sons, trop fort sinon.
+    const float MasterGain = 0.6f;
+    static float music = 0.5f, sfx = 0.5f;
+
+    public static float MusicVolume
     {
-        get => AudioListener.volume;
+        get => music;
         set
         {
-            AudioListener.volume = Mathf.Clamp01(value);
-            PlayerPrefs.SetFloat(VolumeKey, AudioListener.volume);
+            music = Mathf.Clamp01(value);
+            PlayerPrefs.SetFloat(MusicKey, music);
+        }
+    }
+
+    public static float SfxVolume
+    {
+        get => sfx;
+        set
+        {
+            sfx = Mathf.Clamp01(value);
+            PlayerPrefs.SetFloat(SfxKey, sfx);
         }
     }
 
@@ -37,7 +55,9 @@ public class GameAudio : MonoBehaviour
         var go = new GameObject("Audio");
         DontDestroyOnLoad(go);
         instance = go.AddComponent<GameAudio>();
-        AudioListener.volume = PlayerPrefs.GetFloat(VolumeKey, 0.8f);
+        music = Mathf.Clamp01(PlayerPrefs.GetFloat(MusicKey, 0.5f));
+        sfx = Mathf.Clamp01(PlayerPrefs.GetFloat(SfxKey, 0.5f));
+        AudioListener.volume = MasterGain;
         SoundBank.Preload();
         instance.Setup();
     }
@@ -124,7 +144,7 @@ public class GameAudio : MonoBehaviour
         src.Stop();
         src.clip = SoundBank.Get(clip);
         src.loop = false;
-        src.volume = volume;
+        src.volume = volume * sfx;
         src.pitch = pitch * (1f + Random.Range(-pitchVariation, pitchVariation));
         src.Play();
     }
@@ -149,8 +169,9 @@ public class GameAudio : MonoBehaviour
         Configure3D(src, maxDistance);
         src.clip = SoundBank.Get(clip);
         src.loop = true;
-        src.volume = volume;
+        src.volume = volume * sfx;
         src.playOnAwake = false;
+        instance.loops.Add(new KeyValuePair<AudioSource, float>(src, volume));
         return src;
     }
 
@@ -167,11 +188,16 @@ public class GameAudio : MonoBehaviour
         float k = 1f - Mathf.Exp(-1.5f * Time.unscaledDeltaTime);
         float on = AmbienceEnabled ? 1f : 0f;
         float abj = AbjurationLevel * on;
-        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? 0.32f * on * (1f - abj * 0.8f) : 0f, k);
-        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * (1f - abj * 0.5f), k);
+        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? 0.32f * on * (1f - abj * 0.8f) * music : 0f, k);
+        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * (1f - abj * 0.5f) * music, k);
         float ka = 1f - Mathf.Exp(-0.6f * Time.unscaledDeltaTime);
-        abjurationMusic.volume = Mathf.Lerp(abjurationMusic.volume, abj * 0.5f, ka);
+        abjurationMusic.volume = Mathf.Lerp(abjurationMusic.volume, abj * 0.5f * music, ka);
         float ki = 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime);
-        insects.volume = Mathf.Lerp(insects.volume, inHub ? 0f : InsectLevel * 0.9f * on, ki);
+        insects.volume = Mathf.Lerp(insects.volume, inHub ? 0f : InsectLevel * 0.9f * on * sfx, ki);
+        for (int i = loops.Count - 1; i >= 0; i--)
+        {
+            if (loops[i].Key == null) loops.RemoveAt(i);
+            else loops[i].Key.volume = loops[i].Value * sfx;
+        }
     }
 }

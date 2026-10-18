@@ -19,9 +19,13 @@ using UnityEngine;
 //   PP|x|y|z|nx|ny|nz|texte -> PA|id|x|y|z|nx|ny|nz|texte       Post-It accroché
 //   PD|id -> PX|id                                              Post-It retiré
 //   OB|orbe|case -> OU|case (-1 = refusé)                       Clé utilisée sur un orbe
-//   EN|id,x,y,z,lacet,état,cible;...                            hôte -> tous : entités (La Dame)
+//   EN|t|id,x,y,z,lacet,état,cible;...                          hôte -> tous : entités (La Dame), t = heure d'envoi (canal rapide)
 //   LK|id|1/0                                                   le joueur chassé regarde (ou non) La Dame
 //   DH|x|z                                                      hôte -> joueur : La Dame vous frappe depuis (x, z)
+//   BN|x|y|z / BG|id / BC                                       joueur -> hôte : poser / ramasser une Balise, utiliser un Chargeur
+//   BW|id|x|y|z / BZ|id                                         hôte -> tous : Balise posée / retirée
+//   JO / JS|objet / JE                                          joueur -> hôte : ouvrir Pogo / lui vendre un objet / cliquer les mains vides
+//   JX|état|sourire|frappé / JK / JN|raison                     hôte -> tous : état de Pogo ; -> joueur : coup mortel / refus
 //   DF|durée                                                    hôte -> joueur : La Dame vous attaque, immobilisé
 //   SK -> SR|bonus (-1 = refusé)                                /skip round : passer à la manche suivante
 //   BK|pitch -> BA|id|pitch                                     aboiement d'un joueur
@@ -33,7 +37,7 @@ public class GameSession : MonoBehaviour
     static readonly Color MazeAmbient = new Color(0.035f, 0.035f, 0.04f);
     static readonly Color MistFog = new Color(0.02f, 0.05f, 0.12f);
     const float HubFog = 0.01f, MazeFog = 0.085f;
-    const float EntitySyncInterval = 0.1f;
+    const float EntitySyncInterval = 1f / 20f;
 
     public static GameSession Instance { get; private set; }
 
@@ -52,6 +56,8 @@ public class GameSession : MonoBehaviour
     WorldBuilder.HubRefs hub;
     WorldBuilder.MazeRefs maze;
     RedButton button;
+    Pogo pogo;
+    BeaconNetwork beacons;
     readonly Dictionary<string, Kennel> kennels = new Dictionary<string, Kennel>();
     readonly Dictionary<int, ItemPickup> items = new Dictionary<int, ItemPickup>();
     readonly Dictionary<int, PostItNote> notes = new Dictionary<int, PostItNote>();
@@ -75,6 +81,12 @@ public class GameSession : MonoBehaviour
     readonly Dictionary<int, string> noteMessages = new Dictionary<int, string>();
     readonly Dictionary<int, float> notePlacedAt = new Dictionary<int, float>();
     int nextNoteId, nextDameId;
+    // Balises posées (hôte : message complet, pour les joueurs qui arrivent).
+    readonly Dictionary<int, string> beaconMessages = new Dictionary<int, string>();
+    int nextBeaconId;
+    // Pogo (hôte) : humeur, dernière activité (achat ou ouverture), fin du sourire et de la pénitence.
+    Pogo.Mood pogoMood;
+    float pogoActiveAt, pogoSmileUntil, pogoCooldownUntil;
     bool hostAbjuration;
 
     float syncTimer, regenAcc, serenityRegenAcc, mistTimer, screenTimer, entityTimer;
@@ -93,6 +105,7 @@ public class GameSession : MonoBehaviour
     public bool IsGameOver => phase == Phase.GameOver;
     public bool HasFreeSlot => status.FreeSlots - pendingPickups > 0;
     public bool CompassUnlocked => compass;
+    public ItemType SelectedItem => status.Selected >= 0 ? status[status.Selected] : ItemType.None;
     bool AbjurationActive => phase == Phase.Running && timeLeft <= GameRules.AbjurationStart;
 
     public void Init(NetworkGame network, PlayerController localPlayer)
@@ -113,6 +126,8 @@ public class GameSession : MonoBehaviour
         hub = WorldBuilder.BuildHub(worldRoot);
         button = RedButton.Create(hub.buttonAnchor);
         TerminalStation.Create(hub.terminalAnchor);
+        pogo = Pogo.Create(hub.pogoAnchor);
+        beacons = BeaconNetwork.Create(worldRoot, hub.beaconPosition, hub.beaconYaw);
         hub.hubProbe.RenderProbe();
         itemsRoot = new GameObject("Objets").transform;
         itemsRoot.SetParent(worldRoot, false);
@@ -181,9 +196,21 @@ public class GameSession : MonoBehaviour
         statsRound = 1;
         noteMessages.Clear();
         notePlacedAt.Clear();
-        nextNoteId = nextDameId = 0;
+        nextNoteId = nextDameId = nextBeaconId = 0;
         hostAbjuration = false;
+        ResetHubFixtures();
         ApplyWorld();
+    }
+
+    // Balises et Pogo au début d'une partie.
+    void ResetHubFixtures()
+    {
+        beaconMessages.Clear();
+        beacons.Clear();
+        beacons.Charge = GameRules.BeaconCharge;
+        pogoMood = Pogo.Mood.Closed;
+        pogoSmileUntil = pogoCooldownUntil = 0f;
+        pogo.SetState(Pogo.Mood.Closed, false, "");
     }
 
     public void OnLocalEnter()
@@ -227,6 +254,7 @@ public class GameSession : MonoBehaviour
         noteMessages.Clear();
         notePlacedAt.Clear();
         hostAbjuration = false;
+        ResetHubFixtures();
         status.ClearInventory();
         status.SetDead(false);
         status.SetHp(GameRules.MaxHp);
@@ -326,7 +354,11 @@ public class GameSession : MonoBehaviour
         {
             timeLeft = Mathf.Max(0f, timeLeft - Time.deltaTime);
             if (net.IsHost && inGame && timeLeft <= 0f) EndRound();
+            if (net.IsHost && inGame && phase == Phase.Running) SpawnLateNightmare();
+            // La Balise du Hub se décharge pendant la manche.
+            beacons.Charge = Mathf.Max(0f, beacons.Charge - Time.deltaTime);
         }
+        if (net.IsHost && inGame) UpdateHostPogo();
         if (net.IsHost && inGame)
         {
             syncTimer += Time.unscaledDeltaTime;
@@ -724,7 +756,13 @@ public class GameSession : MonoBehaviour
                 hud.Toast("Miam ! +" + Items.CroquetteHeal + " PV, +" + Items.CroquetteSerenity + " de sérénité");
                 break;
             case ItemType.Canard:
-                hud.Toast("Le Canard en Plastique ne sert qu'à être vendu au Terminal.");
+                hud.Toast("Le Canard en Plastique ne sert qu'à être vendu (à Pogo, dans le Hub).");
+                break;
+            case ItemType.Balise:
+                TryPlaceBeacon(slot);
+                break;
+            case ItemType.Chargeur:
+                hud.Toast("Visez la Balise du Hub, près de la porte, pour la recharger.");
                 break;
             case ItemType.PostIt:
                 TryPlacePostIt(slot);
@@ -779,6 +817,96 @@ public class GameSession : MonoBehaviour
 
     public void RemovePostIt(int id) => net.ToHost("PD|" + id);
 
+    // ================= Balises =================
+
+    // Viser le sol (hors du Hub, assez près) pose la Balise.
+    void TryPlaceBeacon(int slot)
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return;
+        Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+        bool ground = Physics.Raycast(ray, out RaycastHit hit, 14f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+            && hit.normal.y > 0.7f
+            && hit.collider.GetComponentInParent<Interactable>() == null
+            && Vector3.Distance(hit.point, player.transform.position) <= GameRules.InteractRange + 1.5f;
+        if (!ground)
+        {
+            hud.Toast("Visez le sol, tout près de vous, pour y poser la Balise.");
+            return;
+        }
+        if (WorldBuilder.IsInHub(hit.point))
+        {
+            hud.Toast("Les Balises se posent hors du Hub.");
+            return;
+        }
+        status.RemoveAt(slot);
+        net.ToHost("BN|" + NetworkGame.F(hit.point.x) + "|" + NetworkGame.F(hit.point.y) + "|" + NetworkGame.F(hit.point.z));
+    }
+
+    public void InteractBeacon(Beacon beacon)
+    {
+        if (beacon.IsHub)
+        {
+            int slot = status.Selected;
+            if (slot < 0 || status[slot] != ItemType.Chargeur)
+            {
+                hud.Toast(beacons.HubCharged ? "La Balise du Hub est chargée. Un Chargeur prolonge sa charge."
+                                             : "La Balise du Hub est déchargée : sélectionnez un Chargeur pour la recharger.");
+                return;
+            }
+            status.RemoveAt(slot);
+            net.ToHost("BC");
+            return;
+        }
+        if (!HasFreeSlot)
+        {
+            hud.Toast("Votre inventaire est plein !");
+            return;
+        }
+        pendingPickups++;
+        net.ToHost("BG|" + beacon.Id);
+    }
+
+    // ================= Pogo =================
+
+    string PogoMsg(string attacked) => "JX|" + (int)pogoMood + "|" + (Time.time < pogoSmileUntil ? 1 : 0) + "|" + attacked;
+
+    void SetPogo(Pogo.Mood mood, string attacked = "")
+    {
+        pogoMood = mood;
+        net.ToAll(PogoMsg(attacked));
+    }
+
+    // Sans achat pendant 10 secondes (ou à la fin de la partie), Pogo rentre dans sa boîte.
+    void UpdateHostPogo()
+    {
+        if (pogoMood == Pogo.Mood.Closed) return;
+        if (phase != Phase.Running || Time.time - pogoActiveAt > GameRules.PogoIdleClose) SetPogo(Pogo.Mood.Closed);
+    }
+
+    public void InteractPogo()
+    {
+        if (pogo.State == Pogo.Mood.Closed)
+        {
+            net.ToHost("JO");
+            return;
+        }
+        int slot = status.Selected;
+        ItemType type = slot >= 0 ? status[slot] : ItemType.None;
+        if (type == ItemType.None)
+        {
+            net.ToHost("JE");
+            return;
+        }
+        // Comme /sell : l'objet quitte l'inventaire, l'hôte crédite quota et cagnotte.
+        ItemDef def = Items.Get(type);
+        status.RemoveAt(slot);
+        status.Deselect();
+        net.ToHost("JS|" + (int)type);
+        GameAudio.Play2D("register", 0.8f);
+        hud.Toast("Pogo vous achète " + def.name + " pour " + def.sellPrice + " golds !");
+    }
+
     // ================= Orbes et porte de la Zone 2 =================
 
     public void UseKeyOnOrb(int orb)
@@ -813,11 +941,30 @@ public class GameSession : MonoBehaviour
     void SpawnRoundEntities()
     {
         ClearEntities();
+        lateNightmareDone = false;
         if (maze == null || phase != Phase.Running) return;
         var rnd = new System.Random(seed * 17 + round * 613);
         for (int zone = 0; zone < 2; zone++)
             for (int k = 0; k < GameRules.NightmaresForRound(round, zone); k++)
                 SpawnDame(zone, rnd);
+    }
+
+    // Cauchemar retardé de la manche 1 (hôte), sans aucun message dans les logs.
+    bool lateNightmareDone;
+
+    void SpawnLateNightmare()
+    {
+        if (lateNightmareDone || round != GameRules.LateNightmareRound || maze == null) return;
+        if (GameRules.RoundDuration - timeLeft < GameRules.LateNightmareDelay) return;
+        lateNightmareDone = true;
+        SpawnNightmare(0, new System.Random(seed * 31 + 7919));
+    }
+
+    // Entités de type Cauchemar (La Dame est la seule pour l'instant) : l'une d'elles, au hasard.
+    void SpawnNightmare(int zone, System.Random rnd)
+    {
+        System.Action<int, System.Random>[] nightmares = { SpawnDame };
+        nightmares[rnd.Next(nightmares.Length)](zone, rnd);
     }
 
     void SpawnDame(int zone, System.Random rnd)
@@ -853,6 +1000,7 @@ public class GameSession : MonoBehaviour
         foreach (var d in dames.Values) if (d != null) Destroy(d.gameObject);
         dames.Clear();
         watching.Clear();
+        lastEntityTime = double.NegativeInfinity;
     }
 
     void SimulateEntities()
@@ -861,8 +1009,9 @@ public class GameSession : MonoBehaviour
             foreach (var d in dames.Values) d.Simulate(Time.deltaTime, PlayerPresence.All);
         entityTimer += Time.unscaledDeltaTime;
         if (entityTimer < EntitySyncInterval) return;
-        entityTimer = 0f;
-        var sb = new StringBuilder("EN|");
+        // Rythme régulier : le temps en trop est reporté sur l'envoi suivant.
+        entityTimer = Mathf.Min(entityTimer - EntitySyncInterval, EntitySyncInterval);
+        var sb = new StringBuilder("EN|").Append(NetworkGame.Clock()).Append('|');
         bool first = true;
         foreach (var d in dames.Values)
         {
@@ -872,7 +1021,7 @@ public class GameSession : MonoBehaviour
             sb.Append(d.Id).Append(',').Append(NetworkGame.F(p.x)).Append(',').Append(NetworkGame.F(p.y)).Append(',').Append(NetworkGame.F(p.z))
               .Append(',').Append(NetworkGame.F(d.transform.eulerAngles.y)).Append(',').Append((int)d.Current).Append(',').Append(d.TargetId);
         }
-        PeerNet.Broadcast(sb.ToString());
+        PeerNet.BroadcastFast(sb.ToString());
     }
 
     void UpdateEntities()
@@ -1070,7 +1219,7 @@ public class GameSession : MonoBehaviour
     // ================= Hôte =================
 
     string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft)
-        + "|" + (compass ? 1 : 0) + "|" + orbsBroken;
+        + "|" + (compass ? 1 : 0) + "|" + orbsBroken + "|" + NetworkGame.F(beacons.Charge);
 
     void BroadcastState()
     {
@@ -1090,6 +1239,8 @@ public class GameSession : MonoBehaviour
         net.ToPeer(to, "TS|" + terminalUser);
         net.ToPeer(to, StatsMsg());
         foreach (string note in noteMessages.Values) net.ToPeer(to, note);
+        foreach (string beacon in beaconMessages.Values) net.ToPeer(to, beacon);
+        net.ToPeer(to, PogoMsg(""));
     }
 
     void Log(string text)
@@ -1167,6 +1318,8 @@ public class GameSession : MonoBehaviour
         noteMessages.Clear();
         notePlacedAt.Clear();
         ResetRoundStats(1);
+        ResetHubFixtures();
+        net.ToAll(PogoMsg(""));
         ApplyWorld();
         BroadcastState();
         OnRestart();
@@ -1191,6 +1344,9 @@ public class GameSession : MonoBehaviour
         status.ClearInventory();
         pendingPickups = 0;
         ClearNotes();
+        // Nouvelle partie : les Balises posées disparaissent, celle du Hub est rechargée.
+        beacons.Clear();
+        beacons.Charge = GameRules.BeaconCharge;
         ReviveLocal(SpawnPoint(), GameRules.MaxHp);
     }
 
@@ -1213,6 +1369,7 @@ public class GameSession : MonoBehaviour
                 timeLeft = NetworkGame.P(f[7]);
                 compass = f[8] == "1";
                 orbsBroken = NetworkGame.I(f[9]);
+                if (f.Length >= 11) beacons.Charge = NetworkGame.P(f[10]);
                 ApplyWorld();
                 if (net.InGame)
                 {
@@ -1249,7 +1406,7 @@ public class GameSession : MonoBehaviour
                 pendingPickups = Mathf.Max(0, pendingPickups - 1);
                 var type = (ItemType)NetworkGame.I(f[1]);
                 if (type != ItemType.None && !status.Dead && status.Add(type) >= 0)
-                    hud.Toast(Items.Get(type).name + " ramassé.");
+                    hud.Toast(Items.Get(type).name + (type == ItemType.Balise ? " ramassée." : " ramassé."));
                 break;
             }
             case "SL" when host && f.Length >= 2:
@@ -1322,7 +1479,7 @@ public class GameSession : MonoBehaviour
                 if (target == from || !net.Roster.ContainsKey(target) || IsDeadForHost(from) || !IsDeadForHost(target)) break;
                 net.ToAll("RA|" + target + "|" + from);
                 Log("Le joueur " + NameOf(target) + " a été réanimé par " + NameOf(from) + ".");
-                if (net.Remotes.TryGetValue(target, out var rp)) rp.SetTarget(rp.transform.position, rp.transform.eulerAngles.y, AnimState.Idle, 1, 0);
+                if (net.Remotes.TryGetValue(target, out var rp)) rp.SetStatus(AnimState.Idle, 1, 0);
                 break;
             }
             case "RA" when f.Length >= 3:
@@ -1399,6 +1556,99 @@ public class GameSession : MonoBehaviour
                 break;
             }
 
+            // ---------- Balises ----------
+            case "BN" when host && f.Length >= 4:
+            {
+                int id = nextBeaconId++;
+                string msg = "BW|" + id + "|" + f[1] + "|" + f[2] + "|" + f[3];
+                beaconMessages[id] = msg;
+                net.ToAll(msg);
+                break;
+            }
+            case "BW" when f.Length >= 5:
+            {
+                var pos = new Vector3(NetworkGame.P(f[2]), NetworkGame.P(f[3]), NetworkGame.P(f[4]));
+                beacons.Add(NetworkGame.I(f[1]), pos);
+                GameAudio.Play3D("pop", pos, 0.8f, 15f, 0.1f, 0.8f);
+                break;
+            }
+            case "BG" when host && f.Length >= 2:
+            {
+                int id = NetworkGame.I(f[1]);
+                if (beaconMessages.Remove(id))
+                {
+                    net.ToAll("BZ|" + id);
+                    net.ToPeer(from, "GV|" + (int)ItemType.Balise);
+                }
+                else net.ToPeer(from, "GV|0");
+                break;
+            }
+            case "BZ" when f.Length >= 2:
+            {
+                Beacon b = beacons.Get(NetworkGame.I(f[1]));
+                if (b != null) GameAudio.Play3D("pop", b.transform.position, 0.8f, 15f, 0.1f);
+                beacons.Remove(NetworkGame.I(f[1]));
+                break;
+            }
+            case "BC" when host:
+                beacons.Charge = GameRules.BeaconCharge;
+                net.ToAll("BR");
+                BroadcastState();
+                break;
+            case "BR":
+                if (beacons.Hub != null) GameAudio.Play3D("orb_on", beacons.Hub.Top, 1f, 30f, 0f, 1.2f);
+                break;
+
+            // ---------- Pogo ----------
+            case "JO" when host:
+                if (pogoMood != Pogo.Mood.Closed) break;
+                if (phase != Phase.Running) net.ToPeer(from, "JN|0");
+                else if (Time.time < pogoCooldownUntil) net.ToPeer(from, "JN|1");
+                else
+                {
+                    pogoActiveAt = Time.time;
+                    SetPogo(Pogo.Mood.Open);
+                }
+                break;
+            case "JS" when host && f.Length >= 2:
+            {
+                ItemDef def = Items.Get(NetworkGame.I(f[1]));
+                if (def == null) break;
+                progress += def.sellPrice;
+                cash += def.sellPrice;
+                StatsOf(from).golds += def.sellPrice;
+                net.ToAll(StatsMsg());
+                Log("Le joueur " + NameOf(from) + " a vendu " + def.name + " pour " + def.sellPrice + " golds.");
+                BroadcastState();
+                // Un achat le rend heureux (3 s de sourire) et le calme.
+                pogoActiveAt = Time.time;
+                pogoSmileUntil = Time.time + GameRules.PogoSmile;
+                SetPogo(Pogo.Mood.Open);
+                break;
+            }
+            case "JE" when host:
+                if (pogoMood == Pogo.Mood.Open) SetPogo(Pogo.Mood.Angry);
+                else if (pogoMood == Pogo.Mood.Angry)
+                {
+                    // Coup de tête mortel, puis il rentre dans sa boîte : 5 s avant de pouvoir le rappeler.
+                    pogoCooldownUntil = Time.time + GameRules.PogoCooldown;
+                    pogoSmileUntil = 0f;
+                    SetPogo(Pogo.Mood.Closed, from);
+                    net.ToPeer(from, "JK");
+                }
+                break;
+            case "JX" when f.Length >= 4:
+                pogo.SetState((Pogo.Mood)Mathf.Clamp(NetworkGame.I(f[1]), 0, 2), f[2] == "1", f[3]);
+                break;
+            case "JK":
+                if (!status.Dead && !Invincible) KillLocal("Pogo");
+                break;
+            case "JN" when f.Length >= 2:
+                hud.Toast(f[1] == "0" ? "Pogo dort... Le Bouton Rouge n'est pas encore enclenché."
+                                      : "Pogo boude au fond de sa boîte. Réessayez dans quelques secondes.");
+                GameAudio.Play2D("error", 0.35f);
+                break;
+
             // ---------- Orbes ----------
             case "OB" when host && f.Length >= 3:
             {
@@ -1461,8 +1711,8 @@ public class GameSession : MonoBehaviour
                 break;
 
             // ---------- Entités ----------
-            case "EN" when !host:
-                ReceiveEntities(raw.Length > 3 ? raw.Substring(3) : "");
+            case "EN" when !host && f.Length >= 3:
+                ReceiveEntities(NetworkGame.D(f[1]), f[2]);
                 break;
             case "LK" when host && f.Length >= 3:
                 if (dames.TryGetValue(NetworkGame.I(f[1]), out var watched) && watched.TargetId == from)
@@ -1484,10 +1734,14 @@ public class GameSession : MonoBehaviour
 
     // Clients : création, mise à jour et disparition des entités d'après l'état de l'hôte.
     readonly HashSet<int> seenEntities = new HashSet<int>();
+    double lastEntityTime = double.NegativeInfinity;
 
-    void ReceiveEntities(string data)
+    void ReceiveEntities(double time, string data)
     {
         if (maze == null) return;
+        // Canal non ordonné : un état plus ancien que le dernier reçu ne doit pas recréer ni reculer La Dame.
+        if (time <= lastEntityTime) return;
+        lastEntityTime = time;
         seenEntities.Clear();
         foreach (string entry in data.Split(';'))
         {
@@ -1499,7 +1753,7 @@ public class GameSession : MonoBehaviour
             seenEntities.Add(id);
             if (!dames.TryGetValue(id, out var dame) || dame == null)
                 dames[id] = dame = Dame.Create(entitiesRoot, id, pos, yaw, maze.nav, null);
-            dame.SetNetState(pos, yaw, (Dame.State)Mathf.Clamp(NetworkGame.I(p[5]), 0, 2), p[6]);
+            dame.SetNetState(time, pos, yaw, (Dame.State)Mathf.Clamp(NetworkGame.I(p[5]), 0, 2), p[6]);
         }
         var gone = new List<int>();
         foreach (int id in dames.Keys) if (!seenEntities.Contains(id)) gone.Add(id);

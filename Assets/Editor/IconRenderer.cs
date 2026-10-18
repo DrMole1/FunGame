@@ -3,7 +3,7 @@ using UnityEditor;
 using UnityEngine;
 
 // Icônes d'inventaire (Resources/Icons/<ItemType>.png, importées en sprites) :
-// photographie des modèles Meshy sur fond transparent. Les icônes sans modèle (Post-It, Clé) sont des images
+// photographie des modèles Meshy sur fond transparent. Les icônes sans modèle (Post-It, Clé, Chargeur) sont des images
 // générées, déposées telles quelles dans le dossier ; ce menu ne fait que (ré)importer leurs réglages.
 public static class IconRenderer
 {
@@ -17,6 +17,7 @@ public static class IconRenderer
         // Les modèles Meshy ont un socle : on cadre la partie haute (l'objet lui-même).
         Render("Croquette", ItemType.Croquette, new Vector3(20f, -35f, 0f), 0.22f);
         Render("Duck", ItemType.Canard, new Vector3(8f, -140f, 0f), 0.5f);
+        Render("Balise", ItemType.Balise, new Vector3(10f, -150f, 0f), 0f);
         AssetDatabase.Refresh();
         foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { IconDir }))
             ConfigureSprite(AssetDatabase.GUIDToAssetPath(guid));

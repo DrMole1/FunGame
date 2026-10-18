@@ -11,6 +11,8 @@ public static class PeerNet
     [DllImport("__Internal")] static extern void PeerNet_Join(string hostId);
     [DllImport("__Internal")] static extern void PeerNet_Send(string to, string msg);
     [DllImport("__Internal")] static extern void PeerNet_Broadcast(string msg);
+    [DllImport("__Internal")] static extern void PeerNet_SendFast(string to, string msg);
+    [DllImport("__Internal")] static extern void PeerNet_BroadcastFast(string msg);
     [DllImport("__Internal")] static extern void PeerNet_Leave();
     [DllImport("__Internal")] static extern void PeerNet_CopyText(string text);
     [DllImport("__Internal")] static extern void PeerNet_Kick(string id);
@@ -21,6 +23,9 @@ public static class PeerNet
     public static void Join(string hostId) => PeerNet_Join(hostId);
     public static void Send(string to, string msg) => PeerNet_Send(to, msg);
     public static void Broadcast(string msg) => PeerNet_Broadcast(msg);
+    // Non fiable et non ordonné (positions) : un message peut se perdre ou arriver après un plus récent.
+    public static void SendFast(string to, string msg) => PeerNet_SendFast(to, msg);
+    public static void BroadcastFast(string msg) => PeerNet_BroadcastFast(msg);
     public static void Leave() => PeerNet_Leave();
     public static void CopyText(string text) => PeerNet_CopyText(text);
     public static void Kick(string id) => PeerNet_Kick(id);
@@ -40,6 +45,8 @@ public static class PeerNet
     }
     public static void Send(string to, string msg) { }
     public static void Broadcast(string msg) { }
+    public static void SendFast(string to, string msg) { }
+    public static void BroadcastFast(string msg) { }
     public static void Leave() { }
     public static void CopyText(string text) => GUIUtility.systemCopyBuffer = text;
     public static void Kick(string id) { }

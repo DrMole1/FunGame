@@ -42,8 +42,7 @@ public class Dame : MonoBehaviour
 
     // Affichage.
     Animator animator;
-    Vector3 netPos;
-    float netYaw;
+    readonly NetSmoother smoother = new NetSmoother();
     bool hasNet;
     Vector3 lastPos;
     float visualSpeed;
@@ -65,8 +64,7 @@ public class Dame : MonoBehaviour
         dame.onHit = onHit;
         dame.onAttack = onAttack;
         dame.rnd = new System.Random(id * 7919 + 13);
-        dame.netPos = dame.lastPos = pos;
-        dame.netYaw = yaw;
+        dame.lastPos = pos;
         dame.BuildVisual();
         return dame;
     }
@@ -280,10 +278,9 @@ public class Dame : MonoBehaviour
 
     // ================= Réseau et affichage =================
 
-    public void SetNetState(Vector3 pos, float yaw, State state, string target)
+    public void SetNetState(double time, Vector3 pos, float yaw, State state, string target)
     {
-        netPos = pos;
-        netYaw = yaw;
+        smoother.Push(time, pos, yaw);
         if (state != Current) OnStateChanged(state);
         Current = state;
         TargetId = target;
@@ -311,9 +308,8 @@ public class Dame : MonoBehaviour
         }
         else if (hasNet)
         {
-            float k = 1f - Mathf.Exp(-12f * dt);
-            transform.position = (transform.position - netPos).sqrMagnitude > 36f ? netPos : Vector3.Lerp(transform.position, netPos, k);
-            transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.Euler(0f, netYaw, 0f), 1f - Mathf.Exp(-10f * dt));
+            smoother.Sample(out Vector3 pos, out float yaw);
+            transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
         }
         lastSimState = Current;
 

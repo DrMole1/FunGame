@@ -18,6 +18,8 @@ public class LobbyUI : MonoBehaviour
     InputField nameField, codeField;
     Button hostButton, joinButton;
     Text statusText, roomText, countText, copyLabel, lobbySkin, pauseSkin;
+    readonly System.Collections.Generic.List<Text> musicLabels = new System.Collections.Generic.List<Text>();
+    readonly System.Collections.Generic.List<Text> sfxLabels = new System.Collections.Generic.List<Text>();
     float copyFeedbackTimer;
     bool inGame;
 
@@ -104,15 +106,15 @@ public class LobbyUI : MonoBehaviour
 
     void BuildLobby(Transform root, string savedName, string roomFromUrl)
     {
-        lobbyPanel = UiKit.Panel(root, "Lobby", new Vector2(460, 640));
+        lobbyPanel = UiKit.Panel(root, "Lobby", new Vector2(460, 700));
         // À gauche : le personnage choisi reste visible au centre de l'écran.
         UiKit.Place(lobbyPanel, new Vector2(0f, 0.5f), new Vector2(40, 0));
-        var layout = UiKit.Column(lobbyPanel, 36, 12);
+        var layout = UiKit.Column(lobbyPanel, 36, 10);
         Transform p = lobbyPanel.transform;
 
         UiKit.Paint(lobbyPanel, PanelBlack, 1);
         UiKit.Label(p, "Pavlov's Theory", 44, FontStyle.Bold, Color.white, 56);
-        UiKit.Spacer(p, 10);
+        UiKit.Spacer(p, 4);
 
         UiKit.Label(p, "Pseudo", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         nameField = UiKit.Field(p, "Votre pseudo", savedName, 16);
@@ -121,8 +123,9 @@ public class LobbyUI : MonoBehaviour
         UiKit.Label(p, "Skin", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         lobbySkin = UiKit.Selector(p, 48, () => ChangeSkin(-1), () => ChangeSkin(1));
         PaintSelector(lobbySkin, 3);
+        VolumeRows(p, 36, 20);
 
-        UiKit.Spacer(p, 6);
+        UiKit.Spacer(p, 4);
         var hostGo = UiKit.Button(p, "Héberger une partie", HostRed, 54, () => net.HostGame(nameField.text));
         UiKit.Paint(hostGo, HostRed, 5);
         hostButton = hostGo.GetComponent<Button>();
@@ -149,6 +152,40 @@ public class LobbyUI : MonoBehaviour
         statusText = UiKit.Label(p, "", 16, FontStyle.Normal, new Color(1f, 0.82f, 0.45f), 48);
         statusText.horizontalOverflow = HorizontalWrapMode.Wrap;
         layout.padding = new RectOffset(36, 36, 30, 26);
+    }
+
+    // Volumes de la musique et des effets sonores (GDD 6.1 et 6.2), par pas de 10 %.
+    void VolumeRows(Transform p, float height, int seed)
+    {
+        musicLabels.Add(VolumeRow(p, "Musique", height, seed, step => GameAudio.MusicVolume = Step(GameAudio.MusicVolume, step)));
+        sfxLabels.Add(VolumeRow(p, "Effets sonores", height, seed + 2, step => GameAudio.SfxVolume = Step(GameAudio.SfxVolume, step)));
+        RefreshVolumes();
+    }
+
+    static float Step(float value, int step) => Mathf.Round(value * 10f + step) / 10f;
+
+    Text VolumeRow(Transform p, string title, float height, int seed, System.Action<int> change)
+    {
+        var row = UiKit.Row(p, height, 8);
+        var label = UiKit.Label(row.transform, title, 15, FontStyle.Bold, UiKit.MutedText, height, TextAnchor.MiddleLeft);
+        label.GetComponent<LayoutElement>().preferredWidth = 118;
+        void Change(int step)
+        {
+            change(step);
+            RefreshVolumes();
+            GameAudio.Play2D("pop", 0.6f);
+        }
+        Text value = UiKit.Selector(row.transform, height, () => Change(-1), () => Change(1));
+        value.transform.parent.GetComponent<LayoutElement>().flexibleWidth = 1;
+        value.fontSize = 17;
+        PaintSelector(value, seed);
+        return value;
+    }
+
+    void RefreshVolumes()
+    {
+        foreach (var t in musicLabels) t.text = Mathf.RoundToInt(GameAudio.MusicVolume * 100f) + " %";
+        foreach (var t in sfxLabels) t.text = Mathf.RoundToInt(GameAudio.SfxVolume * 100f) + " %";
     }
 
     // Boutons "<" et ">" d'un sélecteur, en coups de pinceau.
@@ -179,17 +216,7 @@ public class LobbyUI : MonoBehaviour
         UiKit.Label(p, "Changer de skin", 15, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         pauseSkin = UiKit.Selector(p, 40, () => ChangeSkin(-1), () => ChangeSkin(1));
         PaintSelector(pauseSkin, 13);
-        UiKit.Label(p, "Volume", 15, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
-        Text volume = null;
-        void ChangeVolume(int step)
-        {
-            GameAudio.Volume = Mathf.Round(GameAudio.Volume * 10f + step) / 10f;
-            volume.text = Mathf.RoundToInt(GameAudio.Volume * 100f) + " %";
-            GameAudio.Play2D("pop", 0.6f);
-        }
-        volume = UiKit.Selector(p, 40, () => ChangeVolume(-1), () => ChangeVolume(1));
-        volume.text = Mathf.RoundToInt(GameAudio.Volume * 100f) + " %";
-        PaintSelector(volume, 15);
+        VolumeRows(p, 36, 15);
         UiKit.Spacer(p, 4);
         UiKit.Paint(UiKit.Button(p, "Quitter la partie", HostRed, 38, () => net.LeaveGame()), HostRed, 17);
         UiKit.Label(p, "Cliquez dans le jeu pour reprendre", 14, FontStyle.Italic, UiKit.MutedText, 22);

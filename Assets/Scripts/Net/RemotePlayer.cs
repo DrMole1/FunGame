@@ -1,6 +1,7 @@
 using UnityEngine;
 
-// Personnage d'un autre joueur : suit en douceur les positions, l'animation et l'état reçus du réseau.
+// Personnage d'un autre joueur : rejoue en douceur les positions reçues du réseau (NetSmoother),
+// applique son animation et son état.
 public class RemotePlayer : MonoBehaviour
 {
     public string PlayerId { get; private set; }
@@ -8,8 +9,7 @@ public class RemotePlayer : MonoBehaviour
     public int Hp { get; private set; } = GameRules.MaxHp;
     public bool Dead => presence.Alive == false;
 
-    Vector3 targetPos;
-    float targetYaw;
+    readonly NetSmoother smoother = new NetSmoother();
     bool hasTarget;
     CharacterAvatar avatar;
     PlayerPresence presence;
@@ -30,7 +30,6 @@ public class RemotePlayer : MonoBehaviour
 
         rp.PlayerId = id;
         rp.PlayerName = playerName;
-        rp.targetPos = position;
         rp.avatar = go.AddComponent<CharacterAvatar>();
         rp.avatar.SetCharacter(library, character);
         rp.presence = go.AddComponent<PlayerPresence>();
@@ -45,10 +44,23 @@ public class RemotePlayer : MonoBehaviour
 
     public void SetCharacter(CharacterLibrary library, int character) => avatar.SetCharacter(library, character);
 
-    public void SetTarget(Vector3 pos, float yaw, AnimState anim, int hp, int flags)
+    // État reçu, horodaté par l'émetteur ; ignoré s'il est plus ancien que le dernier (arrivé dans le désordre).
+    public void SetTarget(double time, Vector3 pos, float yaw, AnimState anim, int hp, int flags)
     {
-        targetPos = pos;
-        targetYaw = yaw;
+        if (!smoother.Push(time, pos, yaw)) return;
+        // La logique de jeu (La Dame, détection...) utilise la position la plus récente, pas celle affichée.
+        presence.HasNetPosition = true;
+        presence.NetPosition = pos;
+        SetStatus(anim, hp, flags);
+        if (!hasTarget)
+        {
+            hasTarget = true;
+            transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
+        }
+    }
+
+    public void SetStatus(AnimState anim, int hp, int flags)
+    {
         bool dead = (flags & NetworkGame.FlagDead) != 0;
         if (hasTarget && !dead && hp < Hp) GameAudio.Play3D("hurt", transform.position, 0.5f, 15f, 0.1f);
         Hp = hp;
@@ -64,26 +76,12 @@ public class RemotePlayer : MonoBehaviour
             body.enabled = !dead;
         }
         if (!dead) avatar.SetState(anim);
-        if (!hasTarget)
-        {
-            hasTarget = true;
-            transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
-        }
     }
 
     void Update()
     {
         if (!hasTarget) return;
-        if ((transform.position - targetPos).sqrMagnitude > 25f)
-        {
-            transform.position = targetPos;
-        }
-        else
-        {
-            float k = 1f - Mathf.Exp(-15f * Time.deltaTime);
-            transform.position = Vector3.Lerp(transform.position, targetPos, k);
-        }
-        float yk = 1f - Mathf.Exp(-12f * Time.deltaTime);
-        transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.Euler(0f, targetYaw, 0f), yk);
+        smoother.Sample(out Vector3 pos, out float yaw);
+        transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
     }
 }

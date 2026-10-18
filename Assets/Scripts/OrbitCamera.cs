@@ -3,6 +3,7 @@ using UnityEngine.EventSystems;
 
 // Caméra à la troisième personne qui tourne sans limite autour de la cible avec la souris.
 // Molette : distance entre 2 et 5 unités. Elle ne passe jamais sous le personnage ni à travers les murs.
+// Zoomer encore à 2 unités passe à la première personne (yeux du personnage, corps masqué) ; dézoomer en revient.
 public class OrbitCamera : MonoBehaviour
 {
     public Transform target;
@@ -11,6 +12,9 @@ public class OrbitCamera : MonoBehaviour
     public float mouseSensitivity = 3f;
     public float minPitch = -15f;
     public float maxPitch = 75f;
+    // Première personne : hauteur des yeux au-dessus du centre de la capsule, et débattement vertical du regard.
+    public float eyeHeight = 0.62f;
+    public float firstPersonPitch = 80f;
 
     // Désactivé pendant le lobby : la caméra tourne lentement et la souris reste libre.
     public static bool ControlsEnabled = true;
@@ -20,10 +24,17 @@ public class OrbitCamera : MonoBehaviour
     public static int LockFrame = -1;
 
     public static bool Looking => ControlsEnabled && Cursor.lockState == CursorLockMode.Locked;
+    // Vue à la première personne du personnage local (le PlayerController s'oriente alors selon le regard).
+    public static bool FirstPerson { get; private set; }
+    public static float Yaw { get; private set; }
 
     float yaw;
     float pitch = 20f;
     float currentDistance;
+    bool firstPerson;
+    Transform hiddenTarget;
+    Renderer[] hidden = new Renderer[0];
+    float hiddenRefresh;
 
     void Start()
     {
@@ -49,7 +60,15 @@ public class OrbitCamera : MonoBehaviour
         if (Cursor.lockState == CursorLockMode.Locked)
         {
             float wheel = Input.mouseScrollDelta.y;
-            if (Mathf.Abs(wheel) > 0.01f)
+            if (wheel > 0.01f && !firstPerson && distance <= GameRules.CameraMinDistance + 0.001f)
+                firstPerson = true;
+            else if (wheel < -0.01f && firstPerson)
+            {
+                firstPerson = false;
+                distance = GameRules.CameraMinDistance;
+                currentDistance = 0.3f;
+            }
+            else if (Mathf.Abs(wheel) > 0.01f && !firstPerson)
                 distance = Mathf.Clamp(distance - wheel * 0.5f, GameRules.CameraMinDistance, GameRules.CameraMaxDistance);
         }
     }
@@ -58,17 +77,27 @@ public class OrbitCamera : MonoBehaviour
     {
         if (target == null) return;
 
+        // Première personne : seulement sur son propre personnage (pas en spectateur), hors du lobby.
+        bool fp = firstPerson && ControlsEnabled && target.GetComponent<PlayerController>() != null;
         if (!ControlsEnabled)
             yaw += 6f * Time.deltaTime;
         else if (Cursor.lockState == CursorLockMode.Locked)
         {
             yaw += Input.GetAxis("Mouse X") * mouseSensitivity;
             pitch -= Input.GetAxis("Mouse Y") * mouseSensitivity;
-            pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
         }
+        pitch = fp ? Mathf.Clamp(pitch, -firstPersonPitch, firstPersonPitch) : Mathf.Clamp(pitch, minPitch, maxPitch);
         yaw = Mathf.Repeat(yaw, 360f);
+        Yaw = yaw;
+        FirstPerson = fp;
+        HideTarget(fp ? target : null);
 
         Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
+        if (fp)
+        {
+            transform.SetPositionAndRotation(target.position + Vector3.up * eyeHeight, rot);
+            return;
+        }
         Vector3 focus = target.position + Vector3.up * height;
         float wanted = ControlsEnabled ? distance : 5f;
 
@@ -86,7 +115,28 @@ public class OrbitCamera : MonoBehaviour
         transform.rotation = Quaternion.LookRotation(focus - pos);
     }
 
-    public float CurrentDistance => currentDistance;
+    public float CurrentDistance => FirstPerson ? 0f : currentDistance;
+
+    // À la première personne, le corps du personnage est masqué (la caméra est dans sa tête).
+    void HideTarget(Transform t)
+    {
+        if (t != hiddenTarget)
+        {
+            foreach (var r in hidden) if (r != null) r.forceRenderingOff = false;
+            hidden = new Renderer[0];
+            hiddenTarget = t;
+            hiddenRefresh = 0f;
+        }
+        if (t == null) return;
+        // Le modèle change avec le skin : la liste est rafraîchie régulièrement.
+        hiddenRefresh -= Time.deltaTime;
+        if (hiddenRefresh <= 0f)
+        {
+            hiddenRefresh = 0.5f;
+            hidden = t.GetComponentsInChildren<Renderer>(true);
+        }
+        foreach (var r in hidden) if (r != null) r.forceRenderingOff = true;
+    }
 
     static bool IsPointerOverUI() =>
         EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();

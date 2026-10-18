@@ -16,7 +16,7 @@ public static class SoundBank
         "hurt", "death", "revive", "duck", "pop", "eat", "key", "beep", "error", "register",
         "hub_music", "maze_drone", "insects", "neon", "blink", "step_tile", "step_dirt",
         "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
-        "dame_scream", "dame_attack",
+        "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
     };
 
     public static void Preload()
@@ -79,6 +79,10 @@ public static class SoundBank
             case "zone_door": return ZoneDoor(rnd);
             case "dame_scream": return DameScream(rnd);
             case "dame_attack": return DameAttack(rnd);
+            case "jack_open": return JackOpen(rnd);
+            case "jack_bells": return JackBells(rnd);
+            case "jack_growl": return JackGrowl(rnd);
+            case "jack_hit": return JackHit(rnd);
         }
         return null;
     }
@@ -797,6 +801,90 @@ public static class SoundBank
     }
 
     // Attaque : souffle et râle aigu.
+    // ---------- Pogo ----------
+
+    // Ouverture de la boîte : ritournelle de boîte à musique un peu faussée, puis le "pop" du ressort.
+    static float[] JackOpen(System.Random rnd)
+    {
+        int[] notes = { 72, 72, 74, 74, 76, 79, 76, 72 };
+        const float step = 0.13f;
+        float pop = notes.Length * step + 0.05f;
+        var d = Buffer(pop + 0.6f);
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate, v = 0f;
+            for (int n = 0; n < notes.Length; n++)
+            {
+                float tn = t - n * step;
+                if (tn < 0f || tn > 0.5f) continue;
+                float f = Midi(notes[n]) * (1f + 0.006f * Mathf.Sin(t * 5f)); // mécanique fatiguée
+                v += (Sine(f * tn) + 0.35f * Sine(f * 3.01f * tn)) * AD(tn, 0.003f, 0.12f) * 0.5f;
+            }
+            float tp = t - pop;
+            if (tp >= 0f)
+            {
+                // Ressort : glissando montant et vibrant, avec un claquement.
+                float f = 180f + 520f * (1f - Mathf.Exp(-tp * 9f));
+                v += Sine(f * tp + 0.3f * Sine(28f * tp)) * AD(tp, 0.005f, 0.18f) * 0.8f;
+                v += Noise(rnd) * AD(tp, 0.001f, 0.03f) * 0.6f;
+            }
+            d[i] = v;
+        }
+        return d;
+    }
+
+    // Sourire : grelots du bonnet qui tintent.
+    static float[] JackBells(System.Random rnd)
+    {
+        var d = Buffer(1.2f);
+        float[] starts = { 0f, 0.09f, 0.17f, 0.3f, 0.41f, 0.55f };
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate, v = 0f;
+            for (int k = 0; k < starts.Length; k++)
+            {
+                float tk = t - starts[k];
+                if (tk < 0f) continue;
+                float f = 2350f + 180f * k;
+                v += (Sine(f * tk) + 0.6f * Sine(f * 2.76f * tk) + 0.3f * Sine(f * 5.4f * tk)) * AD(tk, 0.001f, 0.16f);
+            }
+            d[i] = v + Noise(rnd) * 0.02f * Decay(t, 0.3f);
+        }
+        return d;
+    }
+
+    // Colère : grondement grave et râpeux.
+    static float[] JackGrowl(System.Random rnd)
+    {
+        var d = Buffer(1.1f);
+        var lp = new LowPass();
+        var bp = new BandPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float f = 70f + 12f * Mathf.Sin(t * 23f);
+            float buzz = Saw(f * t) * (0.6f + 0.4f * Square(t * 31f));
+            float rasp = bp.Process(Noise(rnd), 420f, 0.5f);
+            d[i] = lp.Process(buzz + rasp * 0.8f, 900f) * ASR(t, 0.08f, 0.35f, 1.1f);
+        }
+        return d;
+    }
+
+    // Coup de tête : choc sourd et craquement.
+    static float[] JackHit(System.Random rnd)
+    {
+        var d = Buffer(0.6f);
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float thump = Sine((95f - 50f * t) * t) * AD(t, 0.002f, 0.12f);
+            float crack = lp.Process(Noise(rnd), 2600f) * AD(t, 0.001f, 0.05f);
+            d[i] = thump * 1.2f + crack;
+        }
+        return d;
+    }
+
     static float[] DameAttack(System.Random rnd)
     {
         var d = Buffer(1f);

@@ -36,8 +36,8 @@ public class PlayerInteractor : MonoBehaviour
         bool use = Input.GetKeyDown(KeyCode.E);
         if ((click || use) && current != null)
         {
-            // Interagir désélectionne l'objet de l'inventaire : il n'est pas utilisé.
-            status.Deselect();
+            // Interagir désélectionne l'objet de l'inventaire : il n'est pas utilisé (sauf Pogo, Balise du Hub).
+            if (!current.KeepsSelection) status.Deselect();
             current.Interact();
         }
         else if (click && status.Selected >= 0)

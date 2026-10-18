@@ -4,10 +4,11 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 // Zone de saisie du Terminal, affichée uniquement chez le joueur qui l'utilise.
-// Commandes insensibles à la casse : /sell, /buy, /info, /skip round et les commandes secrètes /kick, /spawn et /tp (hôte).
+// Commandes insensibles à la casse : /buy, /info, /skip round, /sell (cachée depuis l'arrivée de Pogo)
+// et les commandes secrètes /kick, /spawn et /tp (hôte).
 public class TerminalUI : MonoBehaviour
 {
-    public const string Menu = "Bienvenue sur le Terminal !\nTaper une commande pour continuer :\n/sell\n/buy\n/info";
+    public const string Menu = "Bienvenue sur le Terminal !\nTaper une commande pour continuer :\n/buy\n/info";
     const string Quit = "\nFaire ECHAP pour quitter.";
     const int MaxLines = 18;
 
@@ -128,7 +129,7 @@ public class TerminalUI : MonoBehaviour
             foreach (var def in Items.Buyable())
                 // Une fois achetée, la Boussole disparaît des propositions.
                 if (def.type != ItemType.Boussole || !session.CompassUnlocked)
-                    sb.Append("\n  ID ").Append((int)def.type).Append(" - ").Append(def.name).Append(" : ").Append(def.buyPrice).Append(" golds");
+                    sb.Append("\n  ID ").Append(def.terminalId).Append(" - ").Append(def.name).Append(" : ").Append(def.buyPrice).Append(" golds");
             sb.Append("\nÉcrire l'ID de l'objet à acheter.");
             Print(sb.ToString());
             mode = Mode.Buy;
@@ -189,7 +190,7 @@ public class TerminalUI : MonoBehaviour
 
     void Buy(string arg)
     {
-        ItemDef def = int.TryParse(arg, out int id) ? Items.Get(id) : null;
+        ItemDef def = int.TryParse(arg, out int id) ? Items.ByTerminalId(id) : null;
         if (def == null || def.buyPrice <= 0)
         {
             Error("Commande invalide." + Quit);
@@ -245,10 +246,24 @@ public class TerminalUI : MonoBehaviour
         Print(text);
     }
 
+    // Le texte tronque par le bas : on retire les lignes les plus anciennes jusqu'à ce que tout tienne
+    // (retours à la ligne automatiques compris), pour que le message le plus récent reste toujours visible.
     void Print(string text)
     {
         lines.AddRange(text.Split('\n'));
         if (lines.Count > MaxLines) lines.RemoveRange(0, lines.Count - MaxLines);
         output.text = string.Join("\n", lines);
+        while (lines.Count > 1 && TextHeight(output.text) > output.rectTransform.rect.height)
+        {
+            lines.RemoveAt(0);
+            output.text = string.Join("\n", lines);
+        }
+    }
+
+    float TextHeight(string text)
+    {
+        TextGenerationSettings settings = output.GetGenerationSettings(new Vector2(output.rectTransform.rect.width, 0f));
+        settings.verticalOverflow = VerticalWrapMode.Overflow;
+        return output.cachedTextGeneratorForLayout.GetPreferredHeight(text, settings) / output.pixelsPerUnit;
     }
 }

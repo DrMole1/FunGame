@@ -9,7 +9,7 @@ using UnityEngine;
 //   J|nom|teinte|skin                 client -> hôte : je rejoins la partie
 //   P|id|nom|teinte|skin|chenil       hôte -> clients : un joueur est présent (ou a changé de skin)
 //   K|skin                            client -> hôte : changement de skin en jeu
-//   S|id|x|y|z|yaw|anim|pv|flags      état d'un joueur (l'hôte relaie ceux des clients, cf. PeerNet.jslib)
+//   S|id|x|y|z|yaw|anim|pv|flags|t    état d'un joueur, t = heure d'envoi (canal rapide ; l'hôte relaie ceux des clients, cf. PeerNet.jslib)
 //   L|id                              hôte -> clients : un joueur est parti
 //   KK / FULL                         hôte -> client : expulsé / partie complète
 // Les autres messages sont transmis à GameSession.
@@ -18,7 +18,9 @@ public class NetworkGame : MonoBehaviour
     public const string ObjectName = "NetworkManager";
     const string IdPrefix = "fungame-cube-";
     const string CodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    const float SendInterval = 1f / 15f;
+    const float SendInterval = 1f / 20f;
+    // Image plus longue que ceci chez l'hôte : son onglet était probablement en arrière-plan.
+    const float HostStallWarning = 3f;
     const float ConnectTimeout = 15f;
     public const int FlagDead = 1, FlagSneak = 2;
 
@@ -101,19 +103,24 @@ public class NetworkGame : MonoBehaviour
         }
         if (state != State.InGame) return;
 
+        // Le navigateur fige un onglet en arrière-plan : chez l'hôte, La Dame et le relais s'arrêtent pour tous.
+        if (isHost && roster.Count > 1 && Time.unscaledDeltaTime > HostStallWarning)
+            session.Toast("Votre onglet était en arrière-plan : la partie était figée pour les autres joueurs. Gardez-le au premier plan.");
+
         Transform t = localPlayer.transform;
         if (t.position.y < -20f) session.RespawnInHub();
 
         sendTimer += Time.unscaledDeltaTime;
         if (sendTimer >= SendInterval)
         {
-            sendTimer = 0f;
+            // Rythme régulier : le temps en trop est reporté sur l'envoi suivant.
+            sendTimer = Mathf.Min(sendTimer - SendInterval, SendInterval);
             Vector3 p = t.position;
             int flags = (session.LocalDead ? FlagDead : 0) | (localPlayer.Sneaking ? FlagSneak : 0);
             string msg = "S|" + myId + "|" + F(p.x) + "|" + F(p.y) + "|" + F(p.z) + "|" + F(t.eulerAngles.y)
-                + "|" + (int)localPlayer.CurrentAnimState + "|" + session.LocalHp + "|" + flags;
-            if (isHost) PeerNet.Broadcast(msg);
-            else PeerNet.Send(hostId, msg);
+                + "|" + (int)localPlayer.CurrentAnimState + "|" + session.LocalHp + "|" + flags + "|" + Clock();
+            if (isHost) PeerNet.BroadcastFast(msg);
+            else PeerNet.SendFast(hostId, msg);
         }
     }
 
@@ -308,11 +315,11 @@ public class NetworkGame : MonoBehaviour
                     PeerNet.Broadcast(PlayerMsg(from, pi));
                 }
                 break;
-            case "S" when f.Length >= 9:
+            case "S" when f.Length >= 10:
                 // L'hôte n'accepte d'un client que son propre état.
                 if (isHost && f[1] != from) break;
                 if (remotes.TryGetValue(f[1], out var rp))
-                    rp.SetTarget(new Vector3(P(f[2]), P(f[3]), P(f[4])), P(f[5]), (AnimState)Mathf.Clamp(I(f[6]), 0, 4), I(f[7]), I(f[8]));
+                    rp.SetTarget(D(f[9]), new Vector3(P(f[2]), P(f[3]), P(f[4])), P(f[5]), (AnimState)Mathf.Clamp(I(f[6]), 0, 4), I(f[7]), I(f[8]));
                 break;
             case "L" when !isHost && f.Length >= 2:
                 if (roster.TryGetValue(f[1], out var left))
@@ -517,4 +524,7 @@ public class NetworkGame : MonoBehaviour
     public static string F(float v) => v.ToString("0.###", Inv);
     public static float P(string s) => float.TryParse(s, NumberStyles.Float, Inv, out float v) ? v : 0f;
     public static int I(string s) => int.TryParse(s, NumberStyles.Integer, Inv, out int v) ? v : 0;
+    public static double D(string s) => double.TryParse(s, NumberStyles.Float, Inv, out double v) ? v : 0.0;
+    // Horloge locale (s) jointe aux états envoyés, pour les rejouer au bon rythme chez les autres.
+    public static string Clock() => Time.realtimeSinceStartupAsDouble.ToString("0.###", Inv);
 }

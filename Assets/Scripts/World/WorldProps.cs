@@ -11,7 +11,11 @@ public class PlayerPresence : MonoBehaviour
     public bool Alive = true;
     public bool Sneaking;
 
-    public Vector3 Position => transform.position;
+    // Autres joueurs : dernière position reçue du réseau, en avance sur celle affichée (lissée avec retard).
+    [System.NonSerialized] public bool HasNetPosition;
+    [System.NonSerialized] public Vector3 NetPosition;
+
+    public Vector3 Position => HasNetPosition ? NetPosition : transform.position;
 
     void OnEnable() => All.Add(this);
     void OnDisable() => All.Remove(this);

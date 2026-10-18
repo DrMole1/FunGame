@@ -21,11 +21,14 @@ public static class WorldBuilder
     // Angles (degrés, 0 = porte au nord) des emplacements du Hub.
     public static readonly float[] KennelAngles = { 55f, 78f, 101f, 124f, -55f, -78f, -101f, -124f };
     const float TerminalAngle = 150f, LogAngle = 180f, QuotaAngle = -28f, CashAngle = 28f, RoundBoardAngle = -142f;
+    const float PogoAngle = -41f, BeaconAngle = 14f;
 
     public class HubRefs
     {
         public HubDoor door;
-        public Transform buttonAnchor, terminalAnchor;
+        public Transform buttonAnchor, terminalAnchor, pogoAnchor;
+        public Vector3 beaconPosition;   // Balise du Hub, près de la porte
+        public float beaconYaw;
         public TextMesh timerText, quotaText, cashText, logText, terminalText, roundBoardText;
         public ReflectionProbe hubProbe;
         public Vector3[] kennelPositions;
@@ -172,6 +175,10 @@ public static class WorldBuilder
         refs.terminalText = Screen(root, "Ecran du Terminal", TerminalAngle, HubRadius - 0.45f, 2.6f, new Vector2(3.4f, 2f), 0.02f, TextAnchor.MiddleLeft);
         refs.terminalText.color = new Color(0.45f, 1f, 0.5f);
 
+        // Balise du Hub, à côté du passage vers le labyrinthe (vision directe par la porte).
+        refs.beaconPosition = Polar(BeaconAngle, 8.6f, 0f);
+        refs.beaconYaw = BeaconAngle + 180f;
+
         // Bouton Rouge au centre.
         refs.buttonAnchor = new GameObject("ButtonAnchor").transform;
         refs.buttonAnchor.SetParent(root, false);
@@ -188,9 +195,11 @@ public static class WorldBuilder
             mat.transform.localRotation = refs.kennelRotations[i];
         }
 
-        // Décor : podium et ballons de cirque (entre le Rendu de Quota et les chenils, sans masquer d'écran).
-        var podium = GameArt.Prim(PrimitiveType.Cylinder, root, Polar(-41f, 9.2f, 0.3f), new Vector3(2.2f, 0.3f, 2.2f), redMat, true);
-        GameArt.Prim(PrimitiveType.Sphere, root, podium.transform.localPosition + Vector3.up * 1.05f, Vector3.one * 1.5f, GameArt.Lit("Ball", new Color(0.2f, 0.35f, 0.85f), GameArt.Stripes(new Color(0.2f, 0.35f, 0.85f), cream), 0.5f), true);
+        // Pogo (entre le Rendu de Quota et les chenils, sans masquer d'écran) et ballons de cirque.
+        refs.pogoAnchor = new GameObject("PogoAnchor").transform;
+        refs.pogoAnchor.SetParent(root, false);
+        refs.pogoAnchor.localPosition = Polar(PogoAngle, 9.2f, 0f);
+        refs.pogoAnchor.localRotation = FacingCenter(PogoAngle);
         GameArt.Prim(PrimitiveType.Sphere, root, Polar(-24f, 10.8f, 0.45f), Vector3.one * 0.9f, gold, true);
         GameArt.Prim(PrimitiveType.Sphere, root, Polar(-33f, 10.7f, 0.35f), Vector3.one * 0.7f, redMat, true);
 
