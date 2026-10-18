@@ -12,10 +12,10 @@ public class Dame : MonoBehaviour
 
     const float Height = 2.31f;
     const float ReachHorizontal = 1.15f, ReachVertical = 1.7f;
-    // Au moment du coup, le joueur est touché jusqu'à 1,925 m (portée + marge, augmentée de 10 %).
-    const float HitMargin = (ReachHorizontal + 0.6f) * 1.1f - ReachHorizontal;
+    // Au moment du coup, le joueur est touché jusqu'à environ 2,12 m (portée + marge, augmentée deux fois de 10 %).
+    const float HitMargin = (ReachHorizontal + 0.6f) * 1.1f * 1.1f - ReachHorizontal;
     // Attaque courte : le clip est accéléré pour se jouer en entier pendant AttackDuration.
-    const float AttackDuration = 1f, AttackHitTime = 0.55f;
+    const float AttackDuration = 0.7f, AttackHitTime = 0.4f;
     const float EyeHeight = 1.98f, FieldOfView = 160f;
     // Hors chasse, elle sent un personnage qui passe tout près, devant comme dans son dos.
     const float SenseRadius = 4f;
