@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 // Interface du joueur en jeu : jauges de vie (rouge) et de sérénité (bleue), 5 cases d'inventaire, boussole,
-// viseur, messages, voile bleu de l'Abjuration et écran de game over. Textures procédurales selon la DA du GDD :
+// viseur, messages et écran de game over. Textures procédurales selon la DA du GDD :
 // jauges craquelées dans un cadre sombre avec un repère blanc, cases arrondies vert-de-gris, boussole graduée.
 public class GameHud : MonoBehaviour
 {
@@ -29,10 +29,12 @@ public class GameHud : MonoBehaviour
     readonly Image[] slotBg = new Image[GameRules.InventorySize];
     readonly Text[] slotName = new Text[GameRules.InventorySize];
     readonly Text[] slotNumber = new Text[GameRules.InventorySize];
+    readonly Image[] slotIcon = new Image[GameRules.InventorySize];
+    // Icônes d'inventaire (Resources/Icons/<ItemType>, créées par "FunGame/Générer les icônes d'inventaire").
+    readonly System.Collections.Generic.Dictionary<ItemType, Sprite> icons = new System.Collections.Generic.Dictionary<ItemType, Sprite>();
     float toastTimer;
-    RawImage damageFlash, mistVeil;
-    float flashTimer, serenityFlash, mistLevel;
-    bool inMist;
+    RawImage damageFlash;
+    float flashTimer;
     const float FlashDuration = 0.7f;
     readonly System.Collections.Generic.List<(RectTransform rt, float angle)> compassMarks = new System.Collections.Generic.List<(RectTransform, float)>();
 
@@ -136,8 +138,7 @@ public class GameHud : MonoBehaviour
         var canvas = UiKit.CreateCanvas(transform, "HudCanvas", 50);
         Texture2D vignette = Vignette(128);
 
-        // Voile bleu de l'Abjuration, puis flash rouge des dégâts (sous le reste de l'interface).
-        mistVeil = FullScreen(canvas.transform, "VoileAbjuration", vignette);
+        // Flash rouge des dégâts (sous le reste de l'interface).
         damageFlash = FullScreen(canvas.transform, "FlashDegats", vignette);
 
         root = new GameObject("Hud", typeof(RectTransform));
@@ -180,6 +181,13 @@ public class GameHud : MonoBehaviour
             slotBg[i].sprite = rounded;
             slotBg[i].type = Image.Type.Sliced;
             slotBg[i].raycastTarget = false;
+            var icon = new GameObject("Icone", typeof(RectTransform), typeof(Image));
+            icon.transform.SetParent(slot.transform, false);
+            UiKit.Stretch((RectTransform)icon.transform, 8f);
+            slotIcon[i] = icon.GetComponent<Image>();
+            slotIcon[i].preserveAspect = true;
+            slotIcon[i].raycastTarget = false;
+            slotIcon[i].enabled = false;
             var num = UiKit.Label(slot.transform, (i + 1).ToString(), 13, FontStyle.Bold, UiKit.MutedText, 20, TextAnchor.UpperLeft);
             UiKit.Stretch(num.rectTransform, 6f);
             slotNumber[i] = num;
@@ -329,10 +337,8 @@ public class GameHud : MonoBehaviour
         if (!visible)
         {
             HideGameOver();
-            flashTimer = serenityFlash = mistLevel = 0f;
-            inMist = false;
+            flashTimer = 0f;
             damageFlash.color = Color.clear;
-            mistVeil.color = Color.clear;
         }
     }
 
@@ -359,7 +365,11 @@ public class GameHud : MonoBehaviour
             ItemType t = status[i];
             ItemDef def = Items.Get(t);
             bool selected = status.Selected == i;
-            slotName[i].text = def != null ? def.shortName : "";
+            Sprite sprite = Icon(t);
+            slotIcon[i].sprite = sprite;
+            slotIcon[i].enabled = sprite != null;
+            // Le nom ne s'affiche que si l'objet n'a pas d'icône.
+            slotName[i].text = def != null && sprite == null ? def.shortName : "";
             slotBg[i].color = selected ? SlotSelectedColor : SlotColor;
             // Case sélectionnée (colorée et légèrement grossie) : textes en noir.
             bool light = UiKit.ReadableOn(slotBg[i].color) == Color.black;
@@ -367,6 +377,13 @@ public class GameHud : MonoBehaviour
             slotNumber[i].color = light ? Color.black : UiKit.MutedText;
             slotBg[i].rectTransform.localScale = Vector3.one * (selected ? 1.15f : 1f);
         }
+    }
+
+    Sprite Icon(ItemType type)
+    {
+        if (type == ItemType.None) return null;
+        if (!icons.TryGetValue(type, out var sprite)) icons[type] = sprite = Resources.Load<Sprite>("Icons/" + type);
+        return sprite;
     }
 
     // Cap du personnage en degrés (0 = Nord, 90 = Est).
@@ -384,8 +401,6 @@ public class GameHud : MonoBehaviour
         }
     }
 
-    public void SetMistContact(bool value) => inMist = value;
-    public void FlashSerenity() => serenityFlash = 1f;
     public void FlashDamage() => flashTimer = FlashDuration;
     public void SetPrompt(string text) => promptText.text = text;
     public void SetSpectate(string text) => spectateText.text = text;
@@ -422,12 +437,6 @@ public class GameHud : MonoBehaviour
             damageFlash.color = new Color(0.85f, 0.02f, 0.02f, 0.7f * alpha);
         }
 
-        // Dans la brume : voile bleu qui respire, plus marqué à chaque point de sérénité perdu.
-        mistLevel = Mathf.MoveTowards(mistLevel, inMist ? 1f : 0f, Time.unscaledDeltaTime * 1.5f);
-        serenityFlash = Mathf.Max(0f, serenityFlash - Time.unscaledDeltaTime * 1.8f);
-        float breathe = 0.75f + 0.25f * Mathf.Sin(Time.unscaledTime * 2.2f);
-        float veil = mistLevel * 0.13f * breathe + serenityFlash * 0.3f;
-        mistVeil.color = new Color(0.15f, 0.45f, 1f, veil);
 
         if (toastTimer > 0f)
         {

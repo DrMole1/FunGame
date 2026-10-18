@@ -4,7 +4,7 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 // Zone de saisie du Terminal, affichée uniquement chez le joueur qui l'utilise.
-// Commandes insensibles à la casse : /sell, /buy, /info et les commandes secrètes /kick et /spawn (hôte).
+// Commandes insensibles à la casse : /sell, /buy, /info, /skip round et les commandes secrètes /kick, /spawn et /tp (hôte).
 public class TerminalUI : MonoBehaviour
 {
     public const string Menu = "Bienvenue sur le Terminal !\nTaper une commande pour continuer :\n/sell\n/buy\n/info";
@@ -21,7 +21,7 @@ public class TerminalUI : MonoBehaviour
     InputField input;
     Mode mode;
     readonly List<string> lines = new List<string>();
-    bool waitingBuy;
+    bool waitingBuy, waitingSkip;
 
     public void Init(GameSession owner)
     {
@@ -60,7 +60,7 @@ public class TerminalUI : MonoBehaviour
         if (IsOpen) return;
         IsOpen = true;
         mode = Mode.Command;
-        waitingBuy = false;
+        waitingBuy = waitingSkip = false;
         lines.Clear();
         Print(Menu);
         panel.SetActive(true);
@@ -137,6 +137,24 @@ public class TerminalUI : MonoBehaviour
         {
             Print("Aucune information disponible pour le moment." + Quit);
         }
+        else if (System.Text.RegularExpressions.Regex.IsMatch(lower, @"^/skip\s+round$"))
+        {
+            if (waitingSkip) return;
+            string refused = session.RequestSkipRound();
+            if (refused != null) Error(refused + Quit);
+            else waitingSkip = true;
+        }
+        else if (lower.StartsWith("/tp ") && session.IsHost)
+        {
+            string result = session.Teleport(text.Substring(4).Trim());
+            if (result == null) Error("Commande invalide." + Quit);
+            else
+            {
+                GameAudio.Play2D("beep", 0.35f, 0f, 1.3f);
+                Close();
+                session.Toast(result);
+            }
+        }
         else if (lower.StartsWith("/kick ") && session.IsHost)
         {
             string target = text.Substring(6).Trim();
@@ -210,6 +228,15 @@ public class TerminalUI : MonoBehaviour
             Print("La Boussole a déjà été achetée." + Quit);
         else
             Print("Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
+    }
+
+    // Réponse de l'hôte à /skip round (bonus : golds ajoutés à la cagnotte, -1 si refusé).
+    public void OnSkipResult(int bonus)
+    {
+        waitingSkip = false;
+        if (!IsOpen) return;
+        if (bonus < 0) Error("Le quota de la manche n'est pas encore atteint." + Quit);
+        else Print("Manche passée ! " + bonus + " golds ajoutés à la cagnotte pour le temps restant." + Quit);
     }
 
     void Error(string text)

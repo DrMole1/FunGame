@@ -15,7 +15,7 @@ public static class SoundBank
         "button", "door", "tick", "tock", "fanfare", "gameover", "laser_on", "laser_hum", "laser_hit",
         "hurt", "death", "revive", "duck", "pop", "eat", "key", "beep", "error", "register",
         "hub_music", "maze_drone", "insects", "neon", "blink", "step_tile", "step_dirt",
-        "bell", "abjuration_music", "whisper_loss", "postit", "orb_on", "orb_break", "zone_door",
+        "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
         "dame_whisper", "dame_scream", "dame_attack",
     };
 
@@ -67,7 +67,6 @@ public static class SoundBank
             case "step_dirt": return StepDirt(rnd);
             case "bell": return Bell(rnd);
             case "abjuration_music": return AbjurationMusic(rnd);
-            case "whisper_loss": return Whisper(rnd, 0.7f, 0.35f);
             case "postit": return PostIt(rnd);
             case "orb_on": return OrbOn(rnd);
             case "orb_break": return OrbBreak(rnd);
@@ -695,7 +694,7 @@ public static class SoundBank
         return MakeLoop(d, loop, 1.5f);
     }
 
-    // Murmure soufflé (perte de sérénité, chuchotements de La Dame).
+    // Murmure soufflé (chuchotements de La Dame).
     static float[] Whisper(System.Random rnd, float length, float formantSpeed)
     {
         var d = Buffer(length);

@@ -19,6 +19,7 @@ public static class GameSetup
         ImportArt();
         ImportDecor();
         DameSetup.Setup();
+        IconRenderer.Generate();
         SetupScene();
         AssetDatabase.SaveAssets();
         Debug.Log("FunGame configuré.");

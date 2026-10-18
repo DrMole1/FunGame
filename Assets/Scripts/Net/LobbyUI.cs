@@ -103,7 +103,7 @@ public class LobbyUI : MonoBehaviour
         var layout = UiKit.Column(lobbyPanel, 36, 12);
         Transform p = lobbyPanel.transform;
 
-        UiKit.Label(p, "FunGame", 44, FontStyle.Bold, Color.white, 56);
+        UiKit.Label(p, "Pavlov's Theory", 44, FontStyle.Bold, Color.white, 56);
         UiKit.Label(p, "Survivez au labyrinthe, remplissez le quota", 16, FontStyle.Normal, UiKit.MutedText, 24);
         UiKit.Spacer(p, 6);
 

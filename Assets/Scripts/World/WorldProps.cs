@@ -244,7 +244,7 @@ public class Bobbing : MonoBehaviour
     }
 }
 
-// Porte massive entre la Zone 1 et la Zone 2 : battant ectoplasmique où se pressent crânes et mains.
+// Porte massive entre la Zone 1 et la Zone 2, fermée par un battant ectoplasmique.
 // Elle s'ouvre (le battant se dissipe, la porte s'enfonce dans le sol) quand les trois orbes sont brisés.
 public class ZoneDoor : MonoBehaviour
 {
@@ -291,7 +291,7 @@ public class ZoneDoor : MonoBehaviour
             front = 0.5f;
         }
 
-        // Battant ectoplasmique (shader de crânes et de mains), devant la porte.
+        // Battant ectoplasmique, devant la porte.
         var slab = GameObject.CreatePrimitive(PrimitiveType.Quad);
         Destroy(slab.GetComponent<Collider>());
         slab.name = "Ectoplasme";

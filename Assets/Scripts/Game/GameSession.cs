@@ -22,6 +22,7 @@ using UnityEngine;
 //   EN|id,x,y,z,lacet,état,cible;...                            hôte -> tous : entités (La Dame)
 //   LK|id|1/0                                                   le joueur chassé regarde (ou non) La Dame
 //   DH|x|z                                                      hôte -> joueur : La Dame vous frappe depuis (x, z)
+//   SK -> SR|bonus (-1 = refusé)                                /skip round : passer à la manche suivante
 public class GameSession : MonoBehaviour
 {
     enum Phase { Waiting = 0, Running = 1, GameOver = 2 }
@@ -478,16 +479,12 @@ public class GameSession : MonoBehaviour
         if (!inMist)
         {
             mistTimer = 0f;
-            hud.SetMistContact(false);
             return;
         }
-        hud.SetMistContact(true);
         mistTimer += Time.deltaTime;
         if (mistTimer < GameRules.AbjurationTick) return;
         mistTimer -= GameRules.AbjurationTick;
         status.SetSerenity(status.Serenity - GameRules.AbjurationLoss);
-        hud.FlashSerenity();
-        GameAudio.Play2D("whisper_loss", 0.6f, 0.1f);
         if (status.Serenity <= 0) KillLocal("l'Abjuration");
     }
 
@@ -955,6 +952,71 @@ public class GameSession : MonoBehaviour
 
     public string Kick(string playerName) => net.Kick(playerName);
 
+    public void Toast(string message) => hud.Toast(message);
+
+    // /skip round : si le quota est atteint, l'hôte passe à la manche suivante. Retourne un refus, ou null si envoyé.
+    public string RequestSkipRound()
+    {
+        if (phase != Phase.Running) return "Aucune manche n'est en cours.";
+        if (progress < quota) return "Le quota de la manche n'est pas encore atteint.";
+        net.ToHost("SK");
+        return null;
+    }
+
+    // /tp (hôte) : téléporte le personnage à 3 mètres de l'ennemi le plus proche ("enemy"), de la porte de la
+    // Zone 2 ("door") ou d'un joueur (son pseudo). Retourne le message à afficher, ou null si la commande est invalide.
+    public string Teleport(string target)
+    {
+        if (!net.IsHost || status.Dead) return null;
+        Vector3 here = player.transform.position;
+        string lower = target.ToLowerInvariant();
+        if (lower == "enemy")
+        {
+            Dame nearest = null;
+            foreach (var d in dames.Values)
+                if (d != null && (nearest == null || (d.transform.position - here).sqrMagnitude < (nearest.transform.position - here).sqrMagnitude))
+                    nearest = d;
+            if (nearest == null) return null;
+            TeleportNear(nearest.transform.position);
+            return "Téléporté près de La Dame.";
+        }
+        if (lower == "door")
+        {
+            if (maze == null) return null;
+            Transform door = maze.zoneDoor.transform;
+            // Côté Zone 1, face à la porte.
+            Vector3 p = door.position + door.forward * 3f;
+            player.Teleport(new Vector3(p.x, GroundBelow(p) + 0.95f, p.z), door.eulerAngles.y + 180f);
+            return "Téléporté devant la porte de la Zone 2.";
+        }
+        foreach (var rp in net.Remotes.Values)
+        {
+            if (rp == null || !string.Equals(rp.PlayerName, target, System.StringComparison.OrdinalIgnoreCase)) continue;
+            TeleportNear(rp.transform.position);
+            return "Téléporté près de " + rp.PlayerName + ".";
+        }
+        return null;
+    }
+
+    // Point libre à 3 m de 'target' (sans mur entre les deux), posé au sol, personnage tourné vers la cible.
+    void TeleportNear(Vector3 target)
+    {
+        Vector3 from = target + Vector3.up * 1f;
+        Vector3 spot = target;
+        for (int k = 0; k < 8; k++)
+        {
+            float a = k * 45f * Mathf.Deg2Rad;
+            Vector3 candidate = target + new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a)) * 3f;
+            if (Physics.Linecast(from, candidate + Vector3.up * 1f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) continue;
+            spot = candidate;
+            break;
+        }
+        float ground = Physics.Raycast(spot + Vector3.up * 2f, Vector3.down, out RaycastHit hit, 6f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+            ? hit.point.y : target.y;
+        Vector3 look = target - spot;
+        player.Teleport(new Vector3(spot.x, ground + 0.95f, spot.z), look.sqrMagnitude > 0.01f ? Mathf.Atan2(look.x, look.z) * Mathf.Rad2Deg : 0f);
+    }
+
     // ================= Hôte =================
 
     string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft)
@@ -1307,6 +1369,26 @@ public class GameSession : MonoBehaviour
                 else if (slot < 0) hud.Toast("Cet orbe ne peut pas être brisé.");
                 break;
             }
+
+            // ---------- Passer la manche ----------
+            case "SK" when host:
+            {
+                if (phase != Phase.Running || progress < quota)
+                {
+                    net.ToPeer(from, "SR|-1");
+                    break;
+                }
+                // 10 golds par tranche de 10 secondes restant au Compteur de Temps.
+                int bonus = Mathf.FloorToInt(timeLeft / 10f) * 10;
+                cash += bonus;
+                Log("Le joueur " + NameOf(from) + " passe la manche " + round + " : " + bonus + " golds ajoutés à la cagnotte.");
+                net.ToPeer(from, "SR|" + bonus);
+                EndRound();
+                break;
+            }
+            case "SR" when f.Length >= 2:
+                terminal.OnSkipResult(NetworkGame.I(f[1]));
+                break;
 
             // ---------- Entités ----------
             case "EN" when !host:
