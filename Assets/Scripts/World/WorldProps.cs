@@ -26,6 +26,7 @@ public class Laser : MonoBehaviour
 
     Vector3 a, b;
     GameObject beam;
+    AudioSource hum;
     bool touching;
     float repeatTimer;
 
@@ -52,6 +53,14 @@ public class Laser : MonoBehaviour
         {
             Active = active;
             beam.SetActive(active);
+            Vector3 mid = (a + b) * 0.5f;
+            if (active)
+            {
+                GameAudio.Play3D("laser_on", mid, 0.6f, 16f);
+                if (hum == null) hum = GameAudio.Loop3D("laser_hum", transform, mid, 0.6f, 12f);
+                if (hum != null) hum.Play();
+            }
+            else if (hum != null) hum.Stop();
         }
 
         // Dégâts : à l'entrée dans le faisceau, puis toutes les secondes si le joueur y reste.
@@ -69,6 +78,7 @@ public class Laser : MonoBehaviour
         if (hit && (!touching || repeatTimer <= 0f))
         {
             repeatTimer = RepeatDelay;
+            GameAudio.Play3D("laser_hit", local.Position, 0.8f, 10f);
             session.DamageLocal(GameRules.LaserDamage, "Laser");
         }
         touching = hit;
@@ -146,7 +156,11 @@ public class Eye : MonoBehaviour
             lid.localScale = new Vector3(1.08f, Mathf.Lerp(1.08f, 0.02f, open), 1.08f);
             lid.gameObject.SetActive(open < 0.98f);
         }
-        if (blinkTimer <= 0f) blinkTimer = Random.Range(3f, 10f);
+        if (blinkTimer <= 0f)
+        {
+            blinkTimer = Random.Range(3f, 10f);
+            GameAudio.Play3D("blink", transform.position, 0.35f, 8f, 0.15f);
+        }
     }
 }
 
@@ -173,6 +187,7 @@ public class FlickerLight : MonoBehaviour
         timer = off ? Random.Range(0.03f, 0.18f) : Random.Range(0.05f, 2.5f);
         lightSource.intensity = off ? baseIntensity * 0.08f : baseIntensity * Random.Range(0.75f, 1.05f);
         if (bulb != null) bulb.enabled = !off;
+        if (off) GameAudio.Play3D("neon", transform.position, 0.3f, 14f, 0.15f);
     }
 }
 
@@ -190,6 +205,7 @@ public class HubDoor : MonoBehaviour
 
     public void SetOpen(bool value, bool instant = false)
     {
+        if (!instant && value != open) GameAudio.Play3D("door", transform.position, 1f, 35f, 0f);
         open = value;
         if (instant) transform.localPosition = open ? openPos : closedPos;
     }

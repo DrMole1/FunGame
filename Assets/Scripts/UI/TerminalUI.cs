@@ -50,6 +50,7 @@ public class TerminalUI : MonoBehaviour
         input.textComponent.color = new Color(0.6f, 1f, 0.6f);
         input.GetComponent<Image>().color = new Color(0.1f, 0.25f, 0.1f, 0.6f);
         input.onEndEdit.AddListener(OnEndEdit);
+        input.onValueChanged.AddListener(text => { if (IsOpen && text.Length > 0) GameAudio.Play2D("key", 0.3f, 0.2f); });
 
         panel.SetActive(false);
     }
@@ -96,6 +97,7 @@ public class TerminalUI : MonoBehaviour
         Focus();
         text = text.Trim();
         if (text.Length == 0) return;
+        GameAudio.Play2D("beep", 0.35f);
         Print("> " + text);
         Execute(text);
     }
@@ -142,7 +144,7 @@ public class TerminalUI : MonoBehaviour
         }
         else
         {
-            Print("Commande Incorrecte." + Quit);
+            Error("Commande Incorrecte." + Quit);
         }
     }
 
@@ -150,12 +152,12 @@ public class TerminalUI : MonoBehaviour
     {
         if (arg.Length != 1 || arg[0] < '1' || arg[0] > '5')
         {
-            Print("Commande invalide." + Quit);
+            Error("Commande invalide." + Quit);
             return;
         }
         int slot = arg[0] - '1';
         ItemDef sold = session.SellSlot(slot);
-        if (sold == null) Print("Vous n'avez pas d'objet " + (slot + 1) + " en inventaire !" + Quit);
+        if (sold == null) Error("Vous n'avez pas d'objet " + (slot + 1) + " en inventaire !" + Quit);
         else Print("Vous avez vendu " + sold.name + " pour " + sold.sellPrice + " golds !" + Quit);
     }
 
@@ -164,18 +166,18 @@ public class TerminalUI : MonoBehaviour
         ItemDef def = int.TryParse(arg, out int id) ? Items.Get(id) : null;
         if (def == null || def.buyPrice <= 0)
         {
-            Print("Commande invalide." + Quit);
+            Error("Commande invalide." + Quit);
             return;
         }
         if (waitingBuy) return;
         if (!session.HasFreeSlot)
         {
-            Print("Votre inventaire est plein ! Impossible d'acheter " + def.name + "." + Quit);
+            Error("Votre inventaire est plein ! Impossible d'acheter " + def.name + "." + Quit);
             return;
         }
         if (session.Cash < def.buyPrice)
         {
-            Print("Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
+            Error("Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
             return;
         }
         waitingBuy = true;
@@ -189,6 +191,12 @@ public class TerminalUI : MonoBehaviour
         if (!IsOpen || def == null) return;
         Print(ok ? "Vous avez acheté " + def.name + " pour " + def.buyPrice + " golds !" + Quit
                  : "Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
+    }
+
+    void Error(string text)
+    {
+        GameAudio.Play2D("error", 0.35f);
+        Print(text);
     }
 
     void Print(string text)

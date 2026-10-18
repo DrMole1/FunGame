@@ -64,6 +64,7 @@ public class GameSession : MonoBehaviour
     public int LocalHp => status.Hp;
     public int Cash => cash;
     public bool IsHost => net.IsHost;
+    public bool IsGameOver => phase == Phase.GameOver;
     public bool HasFreeSlot => status.FreeSlots - pendingPickups > 0;
 
     public void Init(NetworkGame network, PlayerController localPlayer)
@@ -78,6 +79,8 @@ public class GameSession : MonoBehaviour
         status.Changed += RefreshHud;
 
         ConfigureRendering();
+        GameAudio.Init();
+        player.gameObject.AddComponent<Footsteps>();
         worldRoot = new GameObject("Monde").transform;
         hub = WorldBuilder.BuildHub(worldRoot);
         button = RedButton.Create(hub.buttonAnchor);
@@ -143,6 +146,7 @@ public class GameSession : MonoBehaviour
 
     public void OnLocalEnter()
     {
+        audioMuteUntil = Time.unscaledTime + 2f;
         hud.Show(true);
         hud.HideGameOver();
         status.ClearInventory();
@@ -250,6 +254,7 @@ public class GameSession : MonoBehaviour
         }
 
         UpdateAtmosphere();
+        UpdateGameSounds(inGame);
         if (!inGame) return;
 
         presence.Alive = !status.Dead;
@@ -291,6 +296,48 @@ public class GameSession : MonoBehaviour
         RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog, k);
         playerLight.enabled = net.InGame && !status.Dead && !WorldBuilder.IsInHub(player.transform.position);
         UpdateInsectFlee();
+    }
+
+    // Sons liés à l'état de la partie, détectés chez tous les clients (hôte compris) par changement d'état :
+    // Bouton Rouge, quota validé, game over, tic-tac de la dernière minute près du Compteur de Temps.
+    Phase soundPhase;
+    int soundRound = 1, lastTickSecond = -1;
+    float audioMuteUntil;
+
+    void UpdateGameSounds(bool inGame)
+    {
+        // Pas de fanfare ni de buzzer en rejoignant une partie déjà commencée : on se cale sur l'état reçu.
+        bool mute = !inGame || Time.unscaledTime < audioMuteUntil;
+        if (!mute)
+        {
+            if (soundPhase == Phase.Waiting && phase == Phase.Running)
+                GameAudio.Play3D("button", hub.buttonAnchor.position + Vector3.up, 0.8f, 40f, 0f);
+            if (phase == Phase.Running && round > soundRound) GameAudio.Play2D("fanfare", 0.8f);
+            if (soundPhase != Phase.GameOver && phase == Phase.GameOver) GameAudio.Play2D("gameover", 0.9f);
+        }
+        soundPhase = phase;
+        soundRound = round;
+
+        int second = Mathf.CeilToInt(timeLeft);
+        if (!mute && phase == Phase.Running && second <= 60 && second > 0 && second != lastTickSecond)
+        {
+            bool last = second <= 10;
+            GameAudio.Play3D(last ? "tock" : "tick", hub.timerText.transform.position, last ? 1f : 0.6f, 30f, 0f, second % 2 == 0 ? 1f : 0.85f);
+        }
+        lastTickSecond = second;
+
+        // Grouillement des insectes : plus fort contre un mur du labyrinthe.
+        float level = 0f;
+        if (inGame && !status.Dead && !WorldBuilder.IsInHub(player.transform.position))
+        {
+            float nearest = 3f;
+            Vector3 origin = player.transform.position;
+            foreach (var dir in new[] { Vector3.forward, Vector3.back, Vector3.left, Vector3.right })
+                if (Physics.Raycast(origin, dir, out RaycastHit hit, 3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                    nearest = Mathf.Min(nearest, hit.distance);
+            level = Mathf.Clamp01(1f - (nearest - 0.5f) / 2f);
+        }
+        GameAudio.InsectLevel = level;
     }
 
     // Les insectes des murs (shader InfestedWall) fuient les joueurs vivants du labyrinthe ;
@@ -496,6 +543,7 @@ public class GameSession : MonoBehaviour
         if (WorldBuilder.IsInHub(player.transform.position)) return;
         status.SetHp(status.Hp - amount);
         hud.FlashDamage();
+        GameAudio.Play2D("hurt", 0.9f, 0.08f);
         if (status.Hp <= 0) KillLocal(cause);
     }
 
@@ -509,6 +557,8 @@ public class GameSession : MonoBehaviour
         avatar.SetDead(true);
         player.SetFrozen(true);
         terminal.Close();
+        // Au game over, l'accord lugubre remplace les râles.
+        if (cause != null) GameAudio.Play3D("death", player.transform.position, 1f, 30f, 0.06f);
         if (cause != null) net.ToHost("DE|" + cause);
         RefreshHud();
     }
@@ -527,6 +577,7 @@ public class GameSession : MonoBehaviour
                 }
                 status.RemoveAt(slot);
                 status.SetHp(status.Hp + Items.CroquetteHeal);
+                GameAudio.Play2D("eat", 0.8f, 0.1f);
                 hud.Toast("Miam ! +" + Items.CroquetteHeal + " PV");
                 break;
             case ItemType.Canard:
@@ -587,6 +638,7 @@ public class GameSession : MonoBehaviour
         if (type == ItemType.None) return null;
         status.RemoveAt(slot);
         net.ToHost("SL|" + (int)type);
+        GameAudio.Play2D("register", 0.8f);
         return Items.Get(type);
     }
 
@@ -729,7 +781,10 @@ public class GameSession : MonoBehaviour
                     if (s.Length > 0) RemoveItem(NetworkGame.I(s));
                 break;
             case "IR" when f.Length >= 3:
-                if (NetworkGame.I(f[1]) == round) RemoveItem(NetworkGame.I(f[2]));
+                if (NetworkGame.I(f[1]) != round) break;
+                if (items.TryGetValue(NetworkGame.I(f[2]), out var taken) && taken != null)
+                    GameAudio.Play3D(taken.Type == ItemType.Canard ? "duck" : "pop", taken.transform.position, 0.9f, 15f, 0.1f);
+                RemoveItem(NetworkGame.I(f[2]));
                 break;
             case "PK" when host && f.Length >= 2:
             {
@@ -782,6 +837,7 @@ public class GameSession : MonoBehaviour
                 bool ok = f[1] == "1";
                 ItemDef def = Items.Get(NetworkGame.I(f[2]));
                 if (ok && def != null) status.Add(def.type);
+                GameAudio.Play2D(ok ? "register" : "error", 0.7f, 0f, ok ? 1.15f : 1f);
                 terminal.OnBuyResult(ok, def, NetworkGame.I(f[3]));
                 break;
             }
@@ -816,6 +872,7 @@ public class GameSession : MonoBehaviour
                 break;
             }
             case "RA" when f.Length >= 3:
+                GameAudio.Play3D("revive", KennelSpawn(f[1]), 0.9f, 30f, 0f);
                 if (f[1] == net.MyId && status.Dead && phase != Phase.GameOver)
                 {
                     ReviveLocal(KennelSpawn(net.MyId), 1);

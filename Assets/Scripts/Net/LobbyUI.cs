@@ -141,7 +141,7 @@ public class LobbyUI : MonoBehaviour
 
     void BuildPause(Transform root)
     {
-        pausePanel = UiKit.Panel(root, "Pause", new Vector2(340, 330));
+        pausePanel = UiKit.Panel(root, "Pause", new Vector2(340, 410));
         UiKit.Place(pausePanel, new Vector2(0f, 1f), new Vector2(16, -16));
         UiKit.Column(pausePanel, 16, 8);
         Transform p = pausePanel.transform;
@@ -157,6 +157,16 @@ public class LobbyUI : MonoBehaviour
         copyLabel = copy.GetComponentInChildren<Text>();
         UiKit.Label(p, "Changer de skin", 15, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         pauseSkin = UiKit.Selector(p, 40, () => ChangeSkin(-1), () => ChangeSkin(1));
+        UiKit.Label(p, "Volume", 15, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
+        Text volume = null;
+        void ChangeVolume(int step)
+        {
+            GameAudio.Volume = Mathf.Round(GameAudio.Volume * 10f + step) / 10f;
+            volume.text = Mathf.RoundToInt(GameAudio.Volume * 100f) + " %";
+            GameAudio.Play2D("pop", 0.6f);
+        }
+        volume = UiKit.Selector(p, 40, () => ChangeVolume(-1), () => ChangeVolume(1));
+        volume.text = Mathf.RoundToInt(GameAudio.Volume * 100f) + " %";
         UiKit.Spacer(p, 4);
         UiKit.Button(p, "Quitter la partie", UiKit.NeutralColor, 38, () => net.LeaveGame());
         UiKit.Label(p, "Cliquez dans le jeu pour reprendre", 14, FontStyle.Italic, UiKit.MutedText, 22);

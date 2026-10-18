@@ -35,6 +35,7 @@ public class RemotePlayer : MonoBehaviour
         rp.avatar.SetCharacter(library, character);
         rp.presence = go.AddComponent<PlayerPresence>();
         rp.presence.PlayerId = id;
+        go.AddComponent<Footsteps>();
 
         rp.nameTag = go.AddComponent<NameTag>();
         rp.nameTag.height = library.height * 0.5f + 0.35f;
@@ -48,11 +49,15 @@ public class RemotePlayer : MonoBehaviour
     {
         targetPos = pos;
         targetYaw = yaw;
-        Hp = hp;
         bool dead = (flags & NetworkGame.FlagDead) != 0;
+        if (hasTarget && !dead && hp < Hp) GameAudio.Play3D("hurt", transform.position, 0.5f, 15f, 0.1f);
+        Hp = hp;
         presence.Sneaking = (flags & NetworkGame.FlagSneak) != 0;
         if (dead != Dead)
         {
+            var session = GameSession.Instance;
+            if (dead && hasTarget && (session == null || !session.IsGameOver))
+                GameAudio.Play3D("death", transform.position, 1f, 30f, 0.06f);
             presence.Alive = !dead;
             avatar.SetDead(dead);
             nameTag.Show(!dead);
