@@ -14,4 +14,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   model: {fileID: 919132149155446097, guid: 644ba416d5db9e442903c38b8c9da7c1, type: 3}
   controller: {fileID: 9100000, guid: 72f020dabd24aa049be91aee4dd24fc8, type: 2}
-  scale: 1.0999999
+  scale: 1.2666667

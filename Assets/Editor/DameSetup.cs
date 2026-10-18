@@ -8,7 +8,7 @@ using UnityEngine;
 public static class DameSetup
 {
     const string Dir = "Assets/Models/Dame/";
-    const float TargetHeight = 2.31f; // plus grande que les personnages (1,7 m)
+    const float TargetHeight = 2.66f; // plus grande que les personnages (1,7 m)
 
     [MenuItem("FunGame/Installer La Dame")]
     public static void Setup()

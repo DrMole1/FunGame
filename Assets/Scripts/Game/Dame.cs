@@ -10,7 +10,7 @@ public class Dame : MonoBehaviour
 {
     public enum State : byte { Wander = 0, Chase = 1, Attack = 2 }
 
-    const float Height = 2.31f;
+    const float Height = 2.66f;
     // Elle lance son attaque quand le personnage est à moins de 0,8 m ; le coup touche jusqu'à environ 2,12 m.
     const float AttackStartDistance = 0.8f, ReachVertical = 1.7f;
     const float HitDistance = (1.15f + 0.6f) * 1.1f * 1.1f;
@@ -19,7 +19,7 @@ public class Dame : MonoBehaviour
     // Le coup porte quand ses bras sont au plus bas : à 30 % du clip d'attaque (mesuré sur l'animation Meshy).
     const float AttackHitFraction = 0.3f;
     const float AttackHitTime = AttackDuration * AttackHitFraction;
-    const float EyeHeight = 1.98f, FieldOfView = 160f;
+    const float EyeHeight = 2.28f, FieldOfView = 160f;
     // Hors chasse, elle sent un personnage qui passe tout près, devant comme dans son dos.
     const float SenseRadius = 4f;
     const float WaypointReach = 0.12f; // points de la grille tous les 0,5 m : on ne coupe pas les angles
