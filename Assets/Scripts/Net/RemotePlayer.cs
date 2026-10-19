@@ -14,7 +14,8 @@ public class RemotePlayer : MonoBehaviour
     CharacterAvatar avatar;
     PlayerPresence presence;
     NameTag nameTag;
-    Collider body;
+    CapsuleCollider body;
+    CharacterLibrary library;
 
     public static RemotePlayer Create(string id, string playerName, Color color, CharacterLibrary library, int character, Vector3 position)
     {
@@ -25,6 +26,7 @@ public class RemotePlayer : MonoBehaviour
         // Cinématique : les autres joueurs sont des obstacles qui poussent le joueur local.
         var rp = go.AddComponent<RemotePlayer>();
         rp.body = CharacterAvatar.EnsureCapsule(go, library);
+        rp.library = library;
         var rb = go.AddComponent<Rigidbody>();
         rb.isKinematic = true;
 
@@ -64,7 +66,14 @@ public class RemotePlayer : MonoBehaviour
         bool dead = (flags & NetworkGame.FlagDead) != 0;
         if (hasTarget && !dead && hp < Hp) GameAudio.Play3D("hurt", transform.position, 0.5f, 15f, 0.1f);
         Hp = hp;
-        presence.Sneaking = (flags & NetworkGame.FlagSneak) != 0;
+        bool sneaking = (flags & NetworkGame.FlagSneak) != 0;
+        if (sneaking != presence.Sneaking)
+        {
+            // Accroupi : capsule plus basse et pseudo au-dessus de la tête baissée.
+            CharacterAvatar.SetCrouched(body, library, sneaking);
+            nameTag.height = library.height * (sneaking ? GameRules.SneakHeightFactor - 0.5f : 0.5f) + 0.35f;
+        }
+        presence.Sneaking = sneaking;
         if (dead != Dead)
         {
             var session = GameSession.Instance;

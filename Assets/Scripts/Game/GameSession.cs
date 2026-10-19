@@ -416,7 +416,8 @@ public class GameSession : MonoBehaviour
         }
 
         var target = player.GetComponent<PlayerInteractor>().Current;
-        hud.SetPrompt(target != null ? "[E] " + target.Prompt : "");
+        string prompt = target != null ? target.Prompt : "";
+        hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : "[E] " + prompt);
         hud.SetCompass(compass && !status.Dead, player.transform.eulerAngles.y);
     }
 
@@ -518,7 +519,8 @@ public class GameSession : MonoBehaviour
     void UpdateMistContact()
     {
         Vector3 p = player.transform.position;
-        float feet = p.y - player.GetComponent<CapsuleCollider>().height * 0.5f;
+        var capsule = player.GetComponent<CapsuleCollider>();
+        float feet = p.y + capsule.center.y - capsule.height * 0.5f;
         bool inMist = !status.Dead && AbjurationActive && mistAmount > 0.5f && maze != null
             && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop;
         // Dans la brume, le personnage avance 20 % moins vite.
@@ -899,12 +901,10 @@ public class GameSession : MonoBehaviour
             return;
         }
         // Comme /sell : l'objet quitte l'inventaire, l'hôte crédite quota et cagnotte.
-        ItemDef def = Items.Get(type);
         status.RemoveAt(slot);
         status.Deselect();
         net.ToHost("JS|" + (int)type);
         GameAudio.Play2D("register", 0.8f);
-        hud.Toast("Pogo vous achète " + def.name + " pour " + def.sellPrice + " golds !");
     }
 
     // ================= Orbes et porte de la Zone 2 =================
@@ -1405,8 +1405,7 @@ public class GameSession : MonoBehaviour
             {
                 pendingPickups = Mathf.Max(0, pendingPickups - 1);
                 var type = (ItemType)NetworkGame.I(f[1]);
-                if (type != ItemType.None && !status.Dead && status.Add(type) >= 0)
-                    hud.Toast(Items.Get(type).name + (type == ItemType.Balise ? " ramassée." : " ramassé."));
+                if (type != ItemType.None && !status.Dead) status.Add(type);
                 break;
             }
             case "SL" when host && f.Length >= 2:

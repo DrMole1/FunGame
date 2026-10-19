@@ -12,17 +12,23 @@ public static class CharacterSetup
     const string Root = "Assets/Models/Characters";
     const float TargetHeight = 1.7f;
     const float JumpStateSpeed = 0.5f;
+    // Marche discrète (Meshy "Sneaky Walk", sur place) : un seul clip, avec son propre avatar Humanoid,
+    // retransposé sur tous les personnages.
+    const string SneakPath = "Assets/Models/Animations/SneakyWalk.fbx";
+    // Le clip (2 pas en 2,83 s) est accéléré pour suivre la vitesse de la marche discrète.
+    const float SneakStateSpeed = 1.5f;
 
     [MenuItem("FunGame/Installer les personnages")]
     public static void Setup()
     {
         string[] names = AssetDatabase.GetSubFolders(Root).Select(Path.GetFileName).OrderBy(n => n).ToArray();
-        var entries = names.Select(SetupCharacter).ToArray();
+        AnimationClip sneak = ImportClip(SneakPath, "Sneak", null, true, true);
+        var entries = names.Select(n => SetupCharacter(n, sneak)).ToArray();
         SetupPlayer(entries);
         Debug.Log("Personnages installés : " + string.Join(", ", names));
     }
 
-    static CharacterLibrary.Entry SetupCharacter(string name)
+    static CharacterLibrary.Entry SetupCharacter(string name, AnimationClip sneak)
     {
         string dir = Root + "/" + name + "/";
         string riggedPath = dir + name + "_Rigged.fbx";
@@ -56,6 +62,9 @@ public static class CharacterSetup
         AddState(sm, "Walk", walk, 1f);
         AddState(sm, "Run", run, 1f);
         AddState(sm, "Jump", jump, JumpStateSpeed);
+        AddState(sm, "Sneak", sneak, SneakStateSpeed);
+        // Arrêt en marche discrète : même clip, figé (CharacterAvatar choisit l'image).
+        AddState(sm, "SneakIdle", sneak, 0f);
         sm.defaultState = idle;
 
         var model = AssetDatabase.LoadAssetAtPath<GameObject>(riggedPath);
@@ -68,12 +77,17 @@ public static class CharacterSetup
         };
     }
 
+    // 'avatar' nul : le fichier crée son propre avatar (clip partagé entre plusieurs personnages).
     internal static AnimationClip ImportClip(string path, string clipName, Avatar avatar, bool loop, bool bakeHeight)
     {
         var importer = (ModelImporter)AssetImporter.GetAtPath(path);
         importer.animationType = ModelImporterAnimationType.Human;
-        importer.avatarSetup = ModelImporterAvatarSetup.CopyFromOther;
-        importer.sourceAvatar = avatar;
+        if (avatar != null)
+        {
+            importer.avatarSetup = ModelImporterAvatarSetup.CopyFromOther;
+            importer.sourceAvatar = avatar;
+        }
+        else importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
         importer.materialImportMode = ModelImporterMaterialImportMode.None;
         importer.importAnimation = true;
 

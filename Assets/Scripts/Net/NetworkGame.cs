@@ -319,7 +319,7 @@ public class NetworkGame : MonoBehaviour
                 // L'hôte n'accepte d'un client que son propre état.
                 if (isHost && f[1] != from) break;
                 if (remotes.TryGetValue(f[1], out var rp))
-                    rp.SetTarget(D(f[9]), new Vector3(P(f[2]), P(f[3]), P(f[4])), P(f[5]), (AnimState)Mathf.Clamp(I(f[6]), 0, 4), I(f[7]), I(f[8]));
+                    rp.SetTarget(D(f[9]), new Vector3(P(f[2]), P(f[3]), P(f[4])), P(f[5]), (AnimState)Mathf.Clamp(I(f[6]), 0, (int)AnimState.SneakIdle), I(f[7]), I(f[8]));
                 break;
             case "L" when !isHost && f.Length >= 2:
                 if (roster.TryGetValue(f[1], out var left))

@@ -1,13 +1,15 @@
 using System.Collections;
 using UnityEngine;
 
-public enum AnimState : byte { Idle, Walk, Run, Jump, Sneak }
+public enum AnimState : byte { Idle, Walk, Run, Jump, Sneak, SneakIdle }
 
 // Modèle 3D animé d'un joueur (local ou distant), enfant du GameObject physique.
 public class CharacterAvatar : MonoBehaviour
 {
     // Le clip de saut décolle vers 0,45 s : on saute l'élan, la physique gère l'impulsion.
     const float JumpClipOffset = 0.45f;
+    // Marche discrète à l'arrêt : posture baissée figée sur une image du clip où les deux pieds sont au sol.
+    const float SneakIdlePose = 2.12f;
     const float DeathDuration = 1.1f;
 
     public int CharacterIndex { get; private set; } = -1;
@@ -54,11 +56,14 @@ public class CharacterAvatar : MonoBehaviour
     {
         if (state == State || animator == null) return;
         State = state;
-        animator.speed = state == AnimState.Sneak ? 0.55f : 1f;
+        // Le clip de saut suit la durée raccourcie du saut.
+        animator.speed = state == AnimState.Jump ? 1f / GameRules.JumpTimeScale : 1f;
         if (state == AnimState.Jump)
             animator.CrossFadeInFixedTime("Jump", 0.1f, 0, JumpClipOffset);
+        else if (state == AnimState.SneakIdle)
+            animator.CrossFadeInFixedTime("SneakIdle", 0.25f, 0, SneakIdlePose);
         else
-            animator.CrossFadeInFixedTime(state == AnimState.Sneak ? "Walk" : state.ToString(), 0.15f);
+            animator.CrossFadeInFixedTime(state.ToString(), state == AnimState.Sneak ? 0.25f : 0.15f);
     }
 
     // Mort : le personnage bascule, rétrécit et disparaît.
@@ -120,5 +125,13 @@ public class CharacterAvatar : MonoBehaviour
         capsule.radius = library.radius;
         capsule.center = Vector3.zero;
         return capsule;
+    }
+
+    // Marche discrète : capsule plus basse, sa base (les pieds) ne bouge pas.
+    public static void SetCrouched(CapsuleCollider capsule, CharacterLibrary library, bool crouched)
+    {
+        float h = library.height * (crouched ? GameRules.SneakHeightFactor : 1f);
+        capsule.height = h;
+        capsule.center = Vector3.down * ((library.height - h) * 0.5f);
     }
 }

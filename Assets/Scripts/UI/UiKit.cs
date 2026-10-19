@@ -237,6 +237,9 @@ public static class UiKit
         return brushes[key] = sprite;
     }
 
+    // Texture d'un coup de pinceau horizontal (le long de x), pour l'appliquer sur un maillage (jauge de la Balise du Hub).
+    public static Texture2D BrushTexture(int w, int h, int seed) => BrushSprite(w, h, seed, false).texture;
+
     // Applique une trace de pinceau de la couleur voulue à l'image d'un panneau, d'un bouton ou d'un champ.
     public static void Paint(GameObject go, Color color, int seed)
     {

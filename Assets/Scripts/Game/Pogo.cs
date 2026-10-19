@@ -138,7 +138,12 @@ public class Pogo : Interactable
         }
         angryEyes.SetActive(mood == Mood.Angry);
         angryLight.enabled = mood == Mood.Angry;
+        UpdateOutline();
     }
+
+    // Contour blanc uniquement tant que Pogo dort dans sa boîte.
+    protected override bool OutlineVisible => State == Mood.Closed;
+    protected override Material OutlineMaterial => GameArt.WhiteOutline;
 
     void Update()
     {
@@ -206,7 +211,8 @@ public class Pogo : Interactable
             var session = GameSession.Instance;
             ItemType held = session != null ? session.SelectedItem : ItemType.None;
             if (held != ItemType.None) return "Vendre " + Items.Get(held).name + " à Pogo (" + Items.Get(held).sellPrice + " golds)";
-            return State == Mood.Angry ? "Pogo est en colère..." : "Pogo attend un objet";
+            // En colère : aucun texte affiché.
+            return State == Mood.Angry ? "" : "Pogo attend un objet";
         }
     }
 

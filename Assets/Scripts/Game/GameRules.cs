@@ -13,8 +13,12 @@ public static class GameRules
     public const int InventorySize = 5;
     public const int LogLines = 8;
     public const float Gravity = -9.81f;
-    // Chute du personnage 30 % plus rapide (la montée du saut est inchangée).
-    public const float FallGravityMultiplier = 1.3f;
+    // Chute du personnage plus rapide : +30 %, puis encore +30 % (1,3 × 1,3) ; la montée du saut est inchangée.
+    public const float FallGravityMultiplier = 1.69f;
+    // Saut 40 % plus court à hauteur égale : impulsion ÷ 0,6 et gravité du personnage en l'air ÷ 0,6².
+    public const float JumpTimeScale = 0.6f;
+    public static float AirGravityMultiplier(bool falling) =>
+        (falling ? FallGravityMultiplier : 1f) / (JumpTimeScale * JumpTimeScale);
 
     // Après un /tp, le personnage de l'hôte ne prend aucun dégât et ne peut pas être immobilisé pendant 5 secondes.
     public const float TeleportInvincibility = 5f;
@@ -37,6 +41,10 @@ public static class GameRules
     static readonly float[] RunMultipliers = { 1.4f, 1.3f, 1.2f, 1.15f, 1.1f, 1.05f };
     public static float RunMultiplier(int itemCount) => RunMultipliers[Mathf.Clamp(itemCount, 0, RunMultipliers.Length - 1)];
     public const float SneakMultiplier = 0.5f;
+    // Marche discrète : le personnage se baisse (tête environ 20 % plus bas dans l'animation) ; sa capsule
+    // raccourcit d'autant (pieds au même endroit) et la vue à la première personne descend au niveau de sa tête.
+    public const float SneakHeightFactor = 0.8f;
+    public const float SneakEyeDrop = 0.3f;
     public const float BaseSpeed = 4f;
 
     // Premier quota à 500 (exemple du document), +250 à chaque nouvelle manche.

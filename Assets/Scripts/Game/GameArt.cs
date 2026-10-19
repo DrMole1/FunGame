@@ -58,6 +58,18 @@ public static class GameArt
 
     public static Material Outline => Template(ref outline, "Outline", "FunGame/Outline");
 
+    // Contour blanc (boîte de Pogo).
+    public static Material WhiteOutline
+    {
+        get
+        {
+            if (cache.TryGetValue("WhiteOutline", out var m) && m != null) return m;
+            m = new Material(Outline) { name = "WhiteOutline" };
+            m.SetColor("_Color", Color.white);
+            return cache["WhiteOutline"] = m;
+        }
+    }
+
     // Texte 3D masqué par les murs (le matériau par défaut des polices s'affiche à travers tout).
     public static Material TextMaterial
     {

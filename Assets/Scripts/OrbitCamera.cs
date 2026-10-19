@@ -32,6 +32,7 @@ public class OrbitCamera : MonoBehaviour
     float pitch = 20f;
     float currentDistance;
     bool firstPerson;
+    float crouchBlend;
     Transform hiddenTarget;
     Renderer[] hidden = new Renderer[0];
     float hiddenRefresh;
@@ -93,9 +94,14 @@ public class OrbitCamera : MonoBehaviour
         HideTarget(fp ? target : null);
 
         Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
+        // En marche discrète, les yeux descendent en douceur avec la tête.
+        var controller = target.GetComponent<PlayerController>();
+        bool crouched = controller != null && controller.Crouched;
+        crouchBlend = Mathf.MoveTowards(crouchBlend, crouched ? 1f : 0f, Time.deltaTime / 0.25f);
         if (fp)
         {
-            transform.SetPositionAndRotation(target.position + Vector3.up * eyeHeight, rot);
+            float eye = eyeHeight - GameRules.SneakEyeDrop * Mathf.SmoothStep(0f, 1f, crouchBlend);
+            transform.SetPositionAndRotation(target.position + Vector3.up * eye, rot);
             return;
         }
         Vector3 focus = target.position + Vector3.up * height;

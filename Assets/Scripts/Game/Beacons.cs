@@ -104,6 +104,7 @@ public class BeaconNetwork : MonoBehaviour
     const float RecomputeInterval = 0.4f;
     const int GaugeSegments = 120;
     const float GaugeInner = 0.55f, GaugeOuter = 0.68f;
+    const float BackInner = 0.52f, BackOuter = 0.71f;
 
     Beacon hub;
     Transform world;
@@ -257,17 +258,26 @@ public class BeaconNetwork : MonoBehaviour
 
     void BuildGauge(Vector3 hubPos)
     {
+        // Même style que les boutons du menu : coups de pinceau (fond sombre, un peu plus large, puis trait bleu).
         var back = new GameObject("Jauge (fond)");
         back.transform.SetParent(transform, false);
         back.transform.position = hubPos + Vector3.up * 0.015f;
-        back.AddComponent<MeshFilter>().sharedMesh = Ring(1f);
-        back.AddComponent<MeshRenderer>().sharedMaterial = GameArt.Unlit("BeaconGaugeBack", new Color(0.05f, 0.08f, 0.14f));
+        back.AddComponent<MeshFilter>().sharedMesh = Ring(1f, BackInner, BackOuter);
+        back.AddComponent<MeshRenderer>().sharedMaterial = BrushMaterial("BeaconGaugeBack", new Color(0.09f, 0.09f, 0.1f), 21, 3000);
 
         var fill = new GameObject("Jauge");
         fill.transform.SetParent(transform, false);
         fill.transform.position = hubPos + Vector3.up * 0.025f;
         gauge = fill.AddComponent<MeshFilter>();
-        fill.AddComponent<MeshRenderer>().sharedMaterial = GameArt.Unlit("BeaconGauge", new Color(0.3f, 0.65f, 1f));
+        fill.AddComponent<MeshRenderer>().sharedMaterial = BrushMaterial("BeaconGauge", new Color(0.3f, 0.65f, 1f), 22, 3001);
+    }
+
+    static Material BrushMaterial(string name, Color color, int seed, int queue)
+    {
+        var m = new Material(Shader.Find("Sprites/Default")) { name = name, color = color };
+        m.mainTexture = UiKit.BrushTexture(2048, 96, seed);
+        m.renderQueue = queue;
+        return m;
     }
 
     void UpdateGauge()
@@ -276,28 +286,34 @@ public class BeaconNetwork : MonoBehaviour
         if (shown == gaugeShown) return;
         gaugeShown = shown;
         if (gauge.sharedMesh != null) Destroy(gauge.sharedMesh);
-        gauge.sharedMesh = shown > 0 ? Ring((float)shown / GaugeSegments) : null;
+        gauge.sharedMesh = shown > 0 ? Ring((float)shown / GaugeSegments, GaugeInner, GaugeOuter) : null;
         if (shown == 0 || HubCharged != hub.Charged) dirty = true;
     }
 
     // Anneau plat (vu du dessus), rempli dans le sens horaire à partir du nord sur la fraction donnée.
-    static Mesh Ring(float fraction)
+    // Le coup de pinceau s'étire sur la partie remplie : il garde ses deux extrémités (poils du pinceau).
+    static Mesh Ring(float fraction, float inner, float outer)
     {
         int segs = Mathf.Max(1, Mathf.RoundToInt(GaugeSegments * fraction));
         var verts = new Vector3[(segs + 1) * 2];
+        var uvs = new Vector2[verts.Length];
+        var colors = new Color[verts.Length];
         var tris = new int[segs * 6];
         for (int i = 0; i <= segs; i++)
         {
             float a = (float)i / GaugeSegments * Mathf.PI * 2f;
             var dir = new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a));
-            verts[i * 2] = dir * GaugeInner;
-            verts[i * 2 + 1] = dir * GaugeOuter;
+            verts[i * 2] = dir * inner;
+            verts[i * 2 + 1] = dir * outer;
+            uvs[i * 2] = new Vector2((float)i / segs, 0f);
+            uvs[i * 2 + 1] = new Vector2((float)i / segs, 1f);
+            colors[i * 2] = colors[i * 2 + 1] = Color.white;
             if (i == segs) break;
             int v = i * 2;
             tris[i * 6] = v; tris[i * 6 + 1] = v + 1; tris[i * 6 + 2] = v + 3;
             tris[i * 6 + 3] = v; tris[i * 6 + 4] = v + 3; tris[i * 6 + 5] = v + 2;
         }
-        var mesh = new Mesh { vertices = verts, triangles = tris };
+        var mesh = new Mesh { vertices = verts, uv = uvs, colors = colors, triangles = tris };
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
         return mesh;

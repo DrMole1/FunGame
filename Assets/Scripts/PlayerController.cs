@@ -40,6 +40,10 @@ public class PlayerController : MonoBehaviour
 
     public AnimState CurrentAnimState => avatar != null ? avatar.State : AnimState.Idle;
     public bool Sneaking => gait == Gait.Sneak;
+    // Capsule raccourcie (marche discrète).
+    public bool Crouched { get; private set; }
+    CharacterLibrary library;
+    CharacterLibrary Library => library != null ? library : (library = GetComponent<CharacterLibrary>());
 
     void Awake()
     {
@@ -73,12 +77,18 @@ public class PlayerController : MonoBehaviour
         }
 
         // Course et marche discrète sont exclusives : la première touche enfoncée fait foi.
+        // On ne se relève que s'il y a la place au-dessus de la tête.
         if (gait == Gait.Run && !runHeld) gait = Gait.Normal;
-        if (gait == Gait.Sneak && !sneakHeld) gait = Gait.Normal;
+        if (gait == Gait.Sneak && !sneakHeld && CanStandUp()) gait = Gait.Normal;
         if (gait == Gait.Normal)
         {
             if (runHeld) gait = Gait.Run;
             else if (sneakHeld) gait = Gait.Sneak;
+        }
+        if (Crouched != (gait == Gait.Sneak))
+        {
+            Crouched = gait == Gait.Sneak;
+            if (Library != null) CharacterAvatar.SetCrouched(col, Library, Crouched);
         }
 
         Vector3 forward = Vector3.forward, right = Vector3.right;
@@ -136,7 +146,7 @@ public class PlayerController : MonoBehaviour
         vel.z = move.z;
         if (jumpRequested)
         {
-            vel.y = jumpForce;
+            vel.y = jumpForce / GameRules.JumpTimeScale;
             jumpRequested = false;
         }
         else if (grounded && airborneLock <= 0f && groundNormal.y > 0.5f && groundNormal.y < 0.995f && vel.y <= 0.5f)
@@ -144,10 +154,10 @@ public class PlayerController : MonoBehaviour
             // Rampes et escaliers : on suit la pente sans glisser à l'arrêt.
             vel = Vector3.ProjectOnPlane(move, groundNormal);
         }
-        else if (!grounded && vel.y < 0f)
+        else if (!grounded || airborneLock > 0f)
         {
-            // Chute moins planante : en descente, la gravité (donc la vitesse de chute) est augmentée.
-            vel.y += GameRules.Gravity * (GameRules.FallGravityMultiplier - 1f) * Time.fixedDeltaTime;
+            // Saut moins planant : en l'air, la gravité du personnage est augmentée (encore plus en descente).
+            vel.y += GameRules.Gravity * (GameRules.AirGravityMultiplier(vel.y < 0f) - 1f) * Time.fixedDeltaTime;
         }
         rb.velocity = vel;
 
@@ -162,7 +172,7 @@ public class PlayerController : MonoBehaviour
     AnimState ComputeAnimState(bool onGround)
     {
         if (!onGround) return AnimState.Jump;
-        if (inputDir.sqrMagnitude < 0.01f) return AnimState.Idle;
+        if (inputDir.sqrMagnitude < 0.01f) return gait == Gait.Sneak ? AnimState.SneakIdle : AnimState.Idle;
         switch (gait)
         {
             case Gait.Run: return AnimState.Run;
@@ -171,7 +181,17 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    float HalfHeight => col.height * 0.5f;
+    // Du centre du personnage (pivot fixe) jusqu'à ses pieds, accroupi ou non.
+    float HalfHeight => col.height * 0.5f - col.center.y;
+
+    bool CanStandUp()
+    {
+        if (Library == null || col.height >= Library.height - 0.001f) return true;
+        float r = col.radius * 0.95f;
+        Vector3 top = transform.position + col.center + Vector3.up * (col.height * 0.5f - col.radius);
+        return !Physics.SphereCast(top, r, Vector3.up, out _, Library.height - col.height,
+            Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+    }
 
     // Sphère sous le personnage : les murs ne comptent pas comme sol (pas de saut le long des murs).
     bool IsGrounded()
@@ -206,7 +226,8 @@ public class PlayerController : MonoBehaviour
         if (away.sqrMagnitude < 0.001f) away = -transform.forward;
         knockVelocity = away.normalized * speed;
         knockTimer = KnockDuration;
-        rb.velocity = knockVelocity + Vector3.up * 4f;
+        // Petit bond de même hauteur qu'avant malgré la gravité renforcée en l'air.
+        rb.velocity = knockVelocity + Vector3.up * (4f / GameRules.JumpTimeScale);
         airborneLock = 0.25f;
     }
 

@@ -27,7 +27,8 @@ public class Footsteps : MonoBehaviour
         {
             case AnimState.Walk: interval = 0.42f; volume = 0.4f; break;
             case AnimState.Run: interval = 0.27f; volume = 0.6f; break;
-            case AnimState.Sneak: interval = 0.62f; volume = 0.12f; break;
+            // Un pas toutes les 0,94 s : cadence de l'animation de marche discrète.
+            case AnimState.Sneak: interval = 0.94f; volume = 0.12f; break;
             default: timer = 0.12f; return;
         }
         timer -= Time.deltaTime;

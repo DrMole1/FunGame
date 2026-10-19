@@ -6,7 +6,12 @@ public abstract class Interactable : MonoBehaviour
 {
     Renderer[] renderers;
     Material[][] originals;
-    bool highlighted;
+    // 'highlighted' : visé par le joueur ; 'outlined' : contour réellement affiché.
+    bool highlighted, outlined;
+
+    // Un objet peut être visé sans afficher de contour (Pogo une fois sorti de sa boîte).
+    protected virtual bool OutlineVisible => true;
+    protected virtual Material OutlineMaterial => GameArt.Outline;
 
     public abstract string Prompt { get; }
     public virtual bool CanInteract => true;
@@ -16,9 +21,17 @@ public abstract class Interactable : MonoBehaviour
 
     public void SetHighlight(bool on)
     {
-        if (on == highlighted) return;
         highlighted = on;
-        if (on)
+        UpdateOutline();
+    }
+
+    // À rappeler quand OutlineVisible change pendant que l'objet est visé.
+    protected void UpdateOutline()
+    {
+        bool show = highlighted && OutlineVisible;
+        if (show == outlined) return;
+        outlined = show;
+        if (show)
         {
             var list = new List<Renderer>();
             foreach (var r in GetComponentsInChildren<Renderer>())
@@ -30,7 +43,7 @@ public abstract class Interactable : MonoBehaviour
                 originals[i] = renderers[i].sharedMaterials;
                 var mats = new Material[originals[i].Length + 1];
                 originals[i].CopyTo(mats, 0);
-                mats[mats.Length - 1] = GameArt.Outline;
+                mats[mats.Length - 1] = OutlineMaterial;
                 renderers[i].sharedMaterials = mats;
             }
         }
