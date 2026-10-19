@@ -105,6 +105,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     string spectateId;
     float mistAmount;
     float invincibleUntil; // fin de l'invincibilité qui suit un /tp
+    float deathAt = -100f;  // mort du joueur local : la caméra s'élève au-dessus du corps avant de suivre un autre joueur
     readonly Queue<float> barkTimes = new Queue<float>();
     readonly Dictionary<int, bool> watching = new Dictionary<int, bool>();
     // Hôte : dernière action bruyante de chaque joueur (L'Araignée), vols du Pion en attente de réponse.
@@ -464,7 +465,10 @@ public class GameSession : MonoBehaviour, IEntityHost
         float k = 1f - Mathf.Exp(-4f * Time.deltaTime);
         RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, inHub ? HubAmbient : MazeAmbient, k);
         RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog, k);
-        playerLight.enabled = net.InGame && !status.Dead && !WorldBuilder.IsInHub(player.transform.position);
+        // Pendant la mort, la lampe éclaire encore le corps puis faiblit, jusqu'au noir.
+        bool dying = status.Dead && OrbitCamera.DeathView >= 0f;
+        playerLight.enabled = net.InGame && (!status.Dead || dying) && !WorldBuilder.IsInHub(player.transform.position);
+        playerLight.intensity = dying ? 0.9f * (1f - Mathf.Clamp01(OrbitCamera.DeathView / OrbitCamera.DeathViewDuration)) : 0.9f;
 
         // Brume de l'Abjuration : apparaît et se dissipe en douceur ; le brouillard bleuit quand on y est plongé.
         bool abjuration = net.InGame && AbjurationActive;
@@ -579,9 +583,20 @@ public class GameSession : MonoBehaviour, IEntityHost
     {
         if (!status.Dead || orbit == null)
         {
+            OrbitCamera.DeathView = -1f;
             hud.SetSpectate("");
             return;
         }
+        // D'abord, la caméra s'élève lentement au-dessus de son propre corps.
+        float sinceDeath = Time.time - deathAt;
+        if (sinceDeath < OrbitCamera.DeathViewDuration && phase != Phase.GameOver)
+        {
+            orbit.target = player.transform;
+            OrbitCamera.DeathView = sinceDeath;
+            hud.SetSpectate("");
+            return;
+        }
+        OrbitCamera.DeathView = -1f;
         var alive = new List<RemotePlayer>();
         foreach (var rp in net.Remotes.Values) if (rp != null && !rp.Dead) alive.Add(rp);
         RemotePlayer current = alive.Find(r => r.PlayerId == spectateId);
@@ -734,6 +749,10 @@ public class GameSession : MonoBehaviour, IEntityHost
     // Non précisé dans le GDD : un personnage réanimé retrouve toute sa sérénité.
     void ReviveLocal(Vector3 position, int hp)
     {
+        deathAt = -100f;
+        OrbitCamera.DeathView = -1f;
+        hud.ClearDeath();
+        GameAudio.CancelDeathSequence();
         status.SetDead(false);
         status.SetHp(hp);
         status.SetSerenity(GameRules.MaxSerenity);
@@ -780,7 +799,14 @@ public class GameSession : MonoBehaviour, IEntityHost
         terminal.Close();
         postItUI.Close();
         // Au game over, l'accord lugubre remplace les râles.
-        if (cause != null) GameAudio.Play3D("death", player.transform.position, 1f, 30f, 0.06f);
+        if (cause != null)
+        {
+            GameAudio.Play3D("death", player.transform.position, 1f, 30f, 0.06f);
+            // Le râle, un silence total, puis un cœur qui s'arrête ; l'écran rougit et s'assombrit, la caméra quitte le corps.
+            GameAudio.PlayDeathSequence();
+            hud.PlayDeath();
+            deathAt = Time.time;
+        }
         if (cause != null) net.ToHost("DE|" + cause);
         RefreshHud();
     }

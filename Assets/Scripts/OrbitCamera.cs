@@ -28,6 +28,9 @@ public class OrbitCamera : MonoBehaviour
     public static bool FirstPerson { get; private set; }
     // Obnubilé par La Cloche : la caméra est forcée de regarder ce point.
     public static Vector3? ForcedLook;
+    // Mort du joueur local : la caméra quitte la tête et s'élève lentement au-dessus du corps (secondes écoulées, -1 : inactif).
+    public static float DeathView = -1f;
+    public const float DeathViewDuration = 3.5f;
     public static float Yaw { get; private set; }
 
     float yaw;
@@ -106,6 +109,27 @@ public class OrbitCamera : MonoBehaviour
         Yaw = yaw;
         FirstPerson = fp;
         HideTarget(fp ? target : null);
+
+        if (DeathView >= 0f)
+        {
+            HideTarget(null);
+            FirstPerson = false;
+            float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(DeathView / DeathViewDuration));
+            Vector3 corpse = target.position + Vector3.down * 0.7f;
+            // Spirale lente vers le haut, le regard rivé sur le corps.
+            float angle = (yaw + k * 70f) * Mathf.Deg2Rad;
+            // Jamais à travers le plafond ou les murs.
+            float ceiling = Physics.Raycast(corpse + Vector3.up * 0.3f, Vector3.up, out RaycastHit up, 6f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+                ? up.distance : 6f;
+            Vector3 offset = new Vector3(Mathf.Sin(angle), 0f, Mathf.Cos(angle)) * Mathf.Lerp(1.1f, 1.9f, k)
+                + Vector3.up * Mathf.Min(Mathf.Lerp(1.6f, 4.2f, k), ceiling);
+            Vector3 eye = corpse + Vector3.up * 0.3f;
+            if (Physics.SphereCast(eye, 0.15f, (corpse + offset - eye).normalized, out RaycastHit wall, offset.magnitude, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                offset = (corpse + offset - eye).normalized * Mathf.Max(0.3f, wall.distance - 0.1f) + Vector3.up * 0.3f;
+            transform.position = corpse + offset;
+            transform.rotation = Quaternion.LookRotation(corpse - transform.position, Vector3.up);
+            return;
+        }
 
         Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
         // En marche discrète, les yeux descendent en douceur avec la tête.

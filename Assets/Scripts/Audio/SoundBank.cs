@@ -18,7 +18,7 @@ public static class SoundBank
         "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
         "tour_step", "tour_breath", "tour_charge", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
-        "spider_hiss", "spider_attack", "teleport", "heal",
+        "spider_hiss", "spider_attack", "teleport", "heal", "heartbeat",
     };
 
     public static void Preload()
@@ -96,6 +96,7 @@ public static class SoundBank
             case "spider_attack": return SpiderAttack(rnd);
             case "teleport": return Teleport(rnd);
             case "heal": return Heal(rnd);
+            case "heartbeat": return Heartbeat();
         }
         return null;
     }
@@ -1109,6 +1110,33 @@ public static class SoundBank
             }
             s += (rnd.NextDouble() < 0.004 ? Noise(rnd) : 0f) * 0.8f;
             d[i] = s;
+        }
+        return d;
+    }
+
+    // Mort : un cœur qui bat de plus en plus lentement et faiblement, puis s'arrête.
+    static float[] Heartbeat()
+    {
+        float[] gaps = { 0.85f, 1f, 1.2f, 1.5f };
+        float total = 0.4f;
+        foreach (float g in gaps) total += g;
+        var d = Buffer(total + 0.6f);
+        float start = 0.05f;
+        for (int b = 0; b < gaps.Length; b++)
+        {
+            float gain = 1f - b * 0.2f;
+            for (int k = 0; k < 2; k++)
+            {
+                // "Boum-boum" : deux chocs sourds rapprochés, le second plus faible.
+                float at = start + k * 0.26f;
+                int from = Mathf.RoundToInt(at * Rate);
+                for (int i = from; i < d.Length && i < from + Rate / 3; i++)
+                {
+                    float t = (float)(i - from) / Rate;
+                    d[i] += (Sine((62f - 30f * t) * t) + Sine(118f * t) * 0.25f) * Decay(t, 0.07f) * gain * (k == 0 ? 1f : 0.65f);
+                }
+            }
+            start += gaps[b];
         }
         return d;
     }

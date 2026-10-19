@@ -35,6 +35,9 @@ public class GameHud : MonoBehaviour
     float toastTimer;
     RawImage damageFlash;
     float flashTimer;
+    // Mort du joueur local : éclair rouge, puis l'écran s'assombrit par les bords (-1 : inactif).
+    RawImage deathDim, deathVeil;
+    float deathTime = -1f;
     const float FlashDuration = 0.7f;
     readonly System.Collections.Generic.List<(RectTransform rt, float angle)> compassMarks = new System.Collections.Generic.List<(RectTransform, float)>();
 
@@ -140,6 +143,8 @@ public class GameHud : MonoBehaviour
 
         // Flash rouge des dégâts (sous le reste de l'interface).
         damageFlash = FullScreen(canvas.transform, "FlashDegats", vignette);
+        deathDim = FullScreen(canvas.transform, "AssombrissementMort", null);
+        deathVeil = FullScreen(canvas.transform, "VoileMort", vignette);
 
         root = new GameObject("Hud", typeof(RectTransform));
         root.transform.SetParent(canvas.transform, false);
@@ -339,6 +344,7 @@ public class GameHud : MonoBehaviour
             HideGameOver();
             flashTimer = 0f;
             damageFlash.color = Color.clear;
+            ClearDeath();
         }
     }
 
@@ -402,6 +408,19 @@ public class GameHud : MonoBehaviour
     }
 
     public void FlashDamage() => flashTimer = FlashDuration;
+
+    public void PlayDeath()
+    {
+        deathTime = Time.unscaledTime;
+        flashTimer = 0f;
+    }
+
+    public void ClearDeath()
+    {
+        deathTime = -1f;
+        deathDim.color = Color.clear;
+        deathVeil.color = Color.clear;
+    }
     public void SetPrompt(string text) => promptText.text = text;
     public void SetSpectate(string text) => spectateText.text = text;
 
@@ -435,6 +454,15 @@ public class GameHud : MonoBehaviour
             float k = flashTimer / FlashDuration;
             float alpha = Mathf.Min(1f, (1f - k) * 8f) * k * (0.85f + 0.15f * Mathf.Sin(k * 25f));
             damageFlash.color = new Color(0.85f, 0.02f, 0.02f, 0.7f * alpha);
+        }
+        if (deathTime >= 0f)
+        {
+            // Éclair rouge sang au moment de la mort, puis le noir gagne depuis les bords et l'image se ternit.
+            float t = Time.unscaledTime - deathTime;
+            float red = Mathf.Clamp01(1f - t / 0.6f);
+            float dark = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((t - 0.2f) / 2.5f));
+            deathVeil.color = Color.Lerp(new Color(0f, 0f, 0f, 0.92f * dark), new Color(0.75f, 0f, 0f, 0.95f), red);
+            deathDim.color = new Color(0.04f, 0.03f, 0.03f, Mathf.Max(0.45f * dark, 0.35f * red));
         }
 
 

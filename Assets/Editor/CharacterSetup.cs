@@ -17,18 +17,53 @@ public static class CharacterSetup
     const string SneakPath = "Assets/Models/Animations/SneakyWalk.fbx";
     // Le clip (2 pas en 2,83 s) est accéléré pour suivre la vitesse de la marche discrète.
     const float SneakStateSpeed = 1.5f;
+    // Morts (Meshy "Electrocuted Fall", "Strangled and Fall Forward", "Dying Backwards") : états Death0, Death1, Death2,
+    // l'un d'eux tiré au hasard par CharacterAvatar. La chute est intégrée à la pose (sans mouvement de racine).
+    static readonly string[] DeathPaths =
+    {
+        "Assets/Models/Animations/Death_Electrocuted.fbx",
+        "Assets/Models/Animations/Death_Strangled.fbx",
+        "Assets/Models/Animations/Death_Backwards.fbx",
+    };
 
     [MenuItem("FunGame/Installer les personnages")]
     public static void Setup()
     {
         string[] names = AssetDatabase.GetSubFolders(Root).Select(Path.GetFileName).OrderBy(n => n).ToArray();
         AnimationClip sneak = ImportClip(SneakPath, "Sneak", null, true, true);
-        var entries = names.Select(n => SetupCharacter(n, sneak)).ToArray();
+        AnimationClip[] deaths = ImportDeaths();
+        var entries = names.Select(n => SetupCharacter(n, sneak, deaths)).ToArray();
         SetupPlayer(entries);
         Debug.Log("Personnages installés : " + string.Join(", ", names));
     }
 
-    static CharacterLibrary.Entry SetupCharacter(string name, AnimationClip sneak)
+    static AnimationClip[] ImportDeaths() =>
+        DeathPaths.Select((path, i) => ImportClip(path, "Death" + i, null, false, true)).ToArray();
+
+    // Ajoute les morts aux Animators existants, sans réinstaller les personnages ni toucher à la scène.
+    [MenuItem("FunGame/Ajouter les animations de mort")]
+    public static void AddDeaths()
+    {
+        AnimationClip[] deaths = ImportDeaths();
+        foreach (string name in AssetDatabase.GetSubFolders(Root).Select(Path.GetFileName))
+        {
+            var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(Root + "/" + name + "/" + name + ".controller");
+            if (controller == null) continue;
+            AnimatorStateMachine sm = controller.layers[0].stateMachine;
+            foreach (var child in sm.states.Where(c => c.state.name.StartsWith("Death")).ToArray()) sm.RemoveState(child.state);
+            AddDeathStates(sm, deaths);
+            EditorUtility.SetDirty(controller);
+        }
+        AssetDatabase.SaveAssets();
+        Debug.Log("Animations de mort ajoutées aux personnages.");
+    }
+
+    static void AddDeathStates(AnimatorStateMachine sm, AnimationClip[] deaths)
+    {
+        for (int i = 0; i < deaths.Length; i++) AddState(sm, "Death" + i, deaths[i], 1f);
+    }
+
+    static CharacterLibrary.Entry SetupCharacter(string name, AnimationClip sneak, AnimationClip[] deaths)
     {
         string dir = Root + "/" + name + "/";
         string riggedPath = dir + name + "_Rigged.fbx";
@@ -65,6 +100,7 @@ public static class CharacterSetup
         AddState(sm, "Sneak", sneak, SneakStateSpeed);
         // Arrêt en marche discrète : même clip, figé (CharacterAvatar choisit l'image).
         AddState(sm, "SneakIdle", sneak, 0f);
+        AddDeathStates(sm, deaths);
         sm.defaultState = idle;
 
         var model = AssetDatabase.LoadAssetAtPath<GameObject>(riggedPath);

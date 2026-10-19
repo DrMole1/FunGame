@@ -11,6 +11,11 @@ public class CharacterAvatar : MonoBehaviour
     // Marche discrète à l'arrêt : posture baissée figée sur une image du clip où les deux pieds sont au sol.
     const float SneakIdlePose = 2.12f;
     const float DeathDuration = 1.1f;
+    // Morts Meshy (Death0 à Death2) : début, fin (au sol) et vitesse de lecture, mesurés sur les clips
+    // (électrocuté : convulsions puis chute ; étranglé : on saute le début de la lutte ; à la renverse).
+    static readonly (float start, float end, float speed)[] DeathClips = { (0f, 5.4f, 1.6f), (2.5f, 7.8f, 1.6f), (0f, 2.2f, 1f) };
+    static int DeathVariants => DeathClips.Length;
+    const float HitStop = 0.28f, LieDuration = 2.2f, SinkDuration = 1.2f;
 
     public int CharacterIndex { get; private set; } = -1;
     public AnimState State { get; private set; }
@@ -79,7 +84,6 @@ public class CharacterAvatar : MonoBehaviour
         if (!hidden && !dead && animator != null && model.activeInHierarchy) animator.Play(State.ToString(), 0, 0f);
     }
 
-    // Mort : le personnage bascule, rétrécit et disparaît.
     public void SetDead(bool value)
     {
         if (value == dead) return;
@@ -106,7 +110,46 @@ public class CharacterAvatar : MonoBehaviour
         }
     }
 
+    // Mort : arrêt sur image (le temps se fige), puis une des animations de mort Meshy jouée en entier ;
+    // le corps reste un moment au sol, puis s'enfonce et disparaît.
     IEnumerator DeathAnimation()
+    {
+        int variant = Random.Range(0, DeathVariants);
+        int hash = Animator.StringToHash("Death" + variant);
+        if (animator == null || !animator.HasState(0, hash))
+        {
+            yield return FallbackDeath();
+            yield break;
+        }
+        Transform t = model.transform;
+        // Le coup fige le personnage, secoué de spasmes.
+        animator.speed = 0f;
+        for (float time = 0f; time < HitStop; time += Time.deltaTime)
+        {
+            t.localPosition = modelPos + Random.insideUnitSphere * 0.03f;
+            yield return null;
+        }
+        t.localPosition = modelPos;
+        var clip = DeathClips[variant];
+        animator.speed = clip.speed;
+        animator.CrossFadeInFixedTime(hash, 0.06f, 0, clip.start);
+        yield return new WaitForSeconds((clip.end - clip.start) / clip.speed);
+        // Figé au sol.
+        animator.speed = 0f;
+        yield return new WaitForSeconds(LieDuration);
+        // Le corps s'enfonce dans le sol.
+        for (float time = 0f; time < SinkDuration; time += Time.deltaTime)
+        {
+            t.localPosition = modelPos + Vector3.down * (Mathf.SmoothStep(0f, 1f, time / SinkDuration) * 0.7f);
+            yield return null;
+        }
+        model.SetActive(false);
+        t.localPosition = modelPos;
+        deathRoutine = null;
+    }
+
+    // Sans animation de mort : le personnage bascule, rétrécit et disparaît.
+    IEnumerator FallbackDeath()
     {
         Transform t = model.transform;
         float side = Random.value < 0.5f ? -1f : 1f;

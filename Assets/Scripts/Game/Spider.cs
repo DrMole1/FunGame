@@ -6,7 +6,7 @@ using UnityEngine;
 // vision (12 m) est attaqué : elle fonce sur lui, l'immobilise à 0,8 m, le frappe (dégâts, recul), s'arrête 1 seconde puis
 // le poursuit 10 secondes à sa vitesse, en l'attaquant de nouveau si elle le rattrape. Un joueur accroupi passe inaperçu,
 // sauf s'il aboie, saute, ramasse ou pose un objet sous ses yeux.
-// Modèle low-poly construit en code : le rig Meshy ne gère que les bipèdes ; les huit pattes sont animées ici.
+// Modèle Meshy découpé en corps et pattes rigides (le rig Meshy ne gère que les bipèdes) : les pattes sont animées ici.
 public class Spider : Entity
 {
     public enum State : byte { Prowl = 0, Rush = 1, Strike = 2, Pause = 3, Pursuit = 4 }
@@ -22,57 +22,65 @@ public class Spider : Entity
     float stateTimer, pursuitTimer;
     bool hitDone;
 
-    // Pattes : hanche (pivot), segment haut, genou, segment bas.
-    class Leg { public Transform hip, knee; public float phase, side, baseYaw; }
+    // Modèle Meshy (Resources/Art/Spider, découpé par "FunGame/Installer l'Araignée") : un corps et des pattes rigides,
+    // chacune pivotant à sa hanche. Hauteur visée : un peu plus grande qu'un joueur.
+    const float ModelScale = 1.35f, FeetDepth = 0.68f;
+
+    class Leg { public Transform pivot; public Vector3 swingAxis, liftAxis; public float phase; public bool front; }
     readonly List<Leg> legs = new List<Leg>();
     Transform body;
-    float gait, strikeAnim;
+    Light eyes;
+    float gait, strikeAnim, twitch;
 
     protected override void BuildVisual()
     {
-        Material skin = GameArt.Lit("SpiderSkin", new Color(0.05f, 0.05f, 0.055f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 31), 0.35f);
-        Material eye = GameArt.Emissive("SpiderEye", new Color(0.4f, 0f, 0f), new Color(2.2f, 0.12f, 0.05f));
-        Material drool = GameArt.Lit("SpiderDrool", new Color(0.3f, 0.02f, 0.02f), null, 0.9f);
-
         body = new GameObject("Corps").transform;
         body.SetParent(transform, false);
-        body.localPosition = new Vector3(0f, 0.95f, 0f);
-        GameArt.Prim(PrimitiveType.Sphere, body, new Vector3(0f, 0.12f, -0.55f), new Vector3(0.95f, 0.8f, 1.1f), skin); // abdomen
-        GameArt.Prim(PrimitiveType.Sphere, body, new Vector3(0f, 0f, 0.15f), new Vector3(0.62f, 0.45f, 0.62f), skin);    // céphalothorax
-        GameArt.Prim(PrimitiveType.Sphere, body, new Vector3(0f, -0.02f, 0.45f), new Vector3(0.38f, 0.32f, 0.3f), skin);  // tête
-        GameArt.Prim(PrimitiveType.Sphere, body, new Vector3(-0.09f, 0.05f, 0.58f), Vector3.one * 0.1f, eye);
-        GameArt.Prim(PrimitiveType.Sphere, body, new Vector3(0.09f, 0.05f, 0.58f), Vector3.one * 0.1f, eye);
-        GameArt.Prim(PrimitiveType.Sphere, body, new Vector3(-0.04f, 0.13f, 0.56f), Vector3.one * 0.05f, eye);
-        GameArt.Prim(PrimitiveType.Sphere, body, new Vector3(0.04f, 0.13f, 0.56f), Vector3.one * 0.05f, eye);
-        // Crochets et filets de bave.
-        GameArt.Prim(PrimitiveType.Capsule, body, new Vector3(-0.06f, -0.2f, 0.55f), new Vector3(0.04f, 0.1f, 0.04f), skin);
-        GameArt.Prim(PrimitiveType.Capsule, body, new Vector3(0.06f, -0.2f, 0.55f), new Vector3(0.04f, 0.1f, 0.04f), skin);
-        GameArt.Prim(PrimitiveType.Cylinder, body, new Vector3(0.02f, -0.36f, 0.56f), new Vector3(0.012f, 0.14f, 0.012f), drool);
-        GameArt.Prim(PrimitiveType.Cylinder, body, new Vector3(-0.03f, -0.32f, 0.54f), new Vector3(0.01f, 0.1f, 0.01f), drool);
-
-        for (int i = 0; i < 8; i++)
+        body.localPosition = new Vector3(0f, FeetDepth * ModelScale, 0f);
+        var prefab = Resources.Load<GameObject>("Art/Spider");
+        if (prefab != null)
         {
-            float side = i < 4 ? -1f : 1f;
-            int k = i % 4;
-            var leg = new Leg
+            var model = Instantiate(prefab, body);
+            model.name = "Modele";
+            model.transform.localScale = Vector3.one * ModelScale;
+            var parts = new List<Transform>();
+            foreach (Transform t in model.transform) if (t.name.StartsWith("Patte")) parts.Add(t);
+            // Démarche alternée : de l'avant vers l'arrière, une patte sur deux, décalée d'un côté à l'autre.
+            foreach (float side in new[] { -1f, 1f })
             {
-                side = side,
-                // Pattes alternées (tétrapode) : 1-3 d'un côté avec 2-4 de l'autre.
-                phase = (k % 2 == 0 ? 0f : Mathf.PI) + (side > 0 ? Mathf.PI : 0f),
-                baseYaw = side * (35f + k * 35f),
-            };
-            leg.hip = new GameObject("Hanche" + i).transform;
-            leg.hip.SetParent(body, false);
-            leg.hip.localPosition = new Vector3(side * 0.22f, 0f, 0.28f - k * 0.13f);
-            GameArt.Prim(PrimitiveType.Capsule, leg.hip, new Vector3(0f, 0f, 0.42f), new Vector3(0.09f, 0.45f, 0.09f), skin)
-                .transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            leg.knee = new GameObject("Genou").transform;
-            leg.knee.SetParent(leg.hip, false);
-            leg.knee.localPosition = new Vector3(0f, 0f, 0.85f);
-            GameArt.Prim(PrimitiveType.Capsule, leg.knee, new Vector3(0f, 0f, 0.7f), new Vector3(0.07f, 0.72f, 0.07f), skin)
-                .transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            legs.Add(leg);
+                var row = parts.FindAll(t => Mathf.Sign(t.localPosition.x) == side);
+                row.Sort((a, b) => b.localPosition.z.CompareTo(a.localPosition.z));
+                for (int k = 0; k < row.Count; k++)
+                {
+                    Vector3 outward = row[k].GetComponent<MeshFilter>().sharedMesh.bounds.center;
+                    outward.y = 0f;
+                    if (outward.sqrMagnitude < 0.0001f) outward = new Vector3(side, 0f, 0f);
+                    legs.Add(new Leg
+                    {
+                        pivot = row[k],
+                        swingAxis = Vector3.up,
+                        liftAxis = Vector3.Cross(outward.normalized, Vector3.up),
+                        phase = (k % 2 == 0 ? 0f : Mathf.PI) + (side > 0f ? Mathf.PI : 0f),
+                        front = k == 0,
+                    });
+                }
+            }
         }
+        else
+        {
+            Material skin = GameArt.Lit("SpiderSkin", new Color(0.05f, 0.05f, 0.055f), null, 0.35f);
+            GameArt.Prim(PrimitiveType.Sphere, body, new Vector3(0f, 0.12f, -0.4f), new Vector3(0.95f, 0.8f, 1.1f), skin);
+            GameArt.Prim(PrimitiveType.Sphere, body, new Vector3(0f, 0f, 0.3f), new Vector3(0.6f, 0.45f, 0.6f), skin);
+        }
+        // Lueur rouge des yeux : on les devine dans le noir avant de voir l'Araignée.
+        eyes = new GameObject("Yeux").AddComponent<Light>();
+        eyes.transform.SetParent(body, false);
+        eyes.transform.localPosition = new Vector3(0f, 0.25f, 0.85f) * ModelScale;
+        eyes.type = LightType.Point;
+        eyes.color = new Color(1f, 0.08f, 0.04f);
+        eyes.range = 2.6f;
+        eyes.intensity = 1.5f;
+        eyes.shadows = LightShadows.None;
         foreach (var r in GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
     }
 
@@ -179,26 +187,26 @@ public class Spider : Entity
     protected override void Animate(float dt)
     {
         float speed = Mathf.Clamp(visualSpeed, 0f, 12f);
-        gait += dt * (2f + speed * 3.2f);
         float amount = Mathf.Clamp01(speed / 1.2f);
-        strikeAnim = Mathf.MoveTowards(strikeAnim, Current == State.Strike ? 1f : 0f, dt / 0.15f);
+        // Démarche saccadée : la cadence hésite, accélère, se fige un instant.
+        float jerk = Mathf.PerlinNoise(Time.time * 2.7f, Id * 3.1f);
+        gait += dt * (2f + speed * 3.4f) * Mathf.Lerp(0.15f, 1.9f, jerk);
+        strikeAnim = Mathf.MoveTowards(strikeAnim, Current == State.Strike ? 1f : 0f, dt / 0.12f);
+        // Petits soubresauts nerveux du corps, plus forts quand elle chasse.
+        bool hunting = Current == State.Rush || Current == State.Pursuit || Current == State.Strike;
+        twitch = Mathf.Lerp(twitch, (Mathf.PerlinNoise(Time.time * 9f, Id) - 0.5f) * (hunting ? 9f : 3f), 1f - Mathf.Exp(-20f * dt));
 
-        // Le corps tangue légèrement et se cabre pour frapper.
-        body.localPosition = new Vector3(0f, 0.95f + Mathf.Sin(gait * 2f) * 0.03f * amount + strikeAnim * 0.2f, 0f);
-        body.localRotation = Quaternion.Euler(-strikeAnim * 22f, 0f, Mathf.Sin(gait) * 2f * amount);
+        body.localPosition = new Vector3(0f, FeetDepth * ModelScale + Mathf.Sin(gait * 2f) * 0.035f * amount + strikeAnim * 0.25f, 0f);
+        body.localRotation = Quaternion.Euler(-strikeAnim * 24f + twitch * 0.4f, twitch, Mathf.Sin(gait) * 2.5f * amount);
 
-        for (int i = 0; i < legs.Count; i++)
+        foreach (var leg in legs)
         {
-            Leg leg = legs[i];
             float s = Mathf.Sin(gait + leg.phase);
-            float lift = Mathf.Max(0f, Mathf.Cos(gait + leg.phase)) * amount;
-            float yaw = leg.baseYaw + s * 18f * amount;
-            float raise = -28f + lift * -18f;
-            // Les deux pattes avant se lèvent pour l'attaque.
-            bool front = i % 4 == 0;
-            if (front) raise -= strikeAnim * 50f;
-            leg.hip.localRotation = Quaternion.Euler(raise, yaw, 0f);
-            leg.knee.localRotation = Quaternion.Euler(100f + lift * 14f - (front ? strikeAnim * 40f : 0f), 0f, 0f);
+            float lift = Mathf.Max(0f, Mathf.Cos(gait + leg.phase)) * amount * 14f;
+            // Les pattes avant se dressent pour frapper.
+            if (leg.front) lift += strikeAnim * 38f;
+            leg.pivot.localRotation = Quaternion.AngleAxis(s * 13f * amount, leg.swingAxis) * Quaternion.AngleAxis(lift, leg.liftAxis);
         }
+        eyes.intensity = (hunting ? 2.2f : 1.3f) * (0.8f + 0.2f * Mathf.PerlinNoise(Time.time * 6f, Id + 7f));
     }
 }

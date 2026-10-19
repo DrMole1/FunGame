@@ -14,7 +14,8 @@ public class LobbyUI : MonoBehaviour
 
     NetworkGame net;
 
-    GameObject lobbyPanel, pausePanel, hintPanel, pauseBackdrop;
+    GameObject lobbyPanel, pausePanel, hintPanel;
+    Text resumeLabel;
     InputField nameField, codeField;
     Button hostButton, joinButton;
     Text statusText, roomText, countText, copyLabel, lobbySkin, pauseSkin;
@@ -39,7 +40,6 @@ public class LobbyUI : MonoBehaviour
         inGame = false;
         lobbyPanel.SetActive(true);
         pausePanel.SetActive(false);
-        pauseBackdrop.SetActive(false);
         hintPanel.SetActive(false);
         SetInteractable(true);
         statusText.text = message;
@@ -99,9 +99,14 @@ public class LobbyUI : MonoBehaviour
         // Menu de pause : visible quand la souris est libérée.
         bool paused = inGame && Cursor.lockState != CursorLockMode.Locked && !TerminalUI.IsOpen && !PostItUI.IsOpen && !GameHud.GameOverVisible;
         if (pausePanel.activeSelf != paused) pausePanel.SetActive(paused);
-        if (pauseBackdrop.activeSelf != paused) pauseBackdrop.SetActive(paused);
-        bool hint = inGame && !TerminalUI.IsOpen && !GameHud.GameOverVisible && paused;
-        if (hintPanel.activeSelf != hint) hintPanel.SetActive(hint);
+        if (hintPanel.activeSelf != paused) hintPanel.SetActive(paused);
+        // Clignotement lent, en fondu.
+        if (paused)
+        {
+            var c = resumeLabel.color;
+            c.a = 0.25f + 0.75f * (0.5f + 0.5f * Mathf.Cos(Time.unscaledTime * Mathf.PI * 2f / 2.6f));
+            resumeLabel.color = c;
+        }
     }
 
     // ---------- Construction ----------
@@ -199,26 +204,11 @@ public class LobbyUI : MonoBehaviour
 
     void BuildPause(Transform root)
     {
-        // GDD 6.2 : le jeu ne se voit plus derrière le menu pause (fond gris-noir, avec des aspérités).
-        pauseBackdrop = UiKit.Panel(root, "FondPause", Vector2.zero, Color.black);
-        UiKit.Stretch((RectTransform)pauseBackdrop.transform);
-        // Un clic en dehors du menu reprend toujours le jeu.
-        pauseBackdrop.GetComponent<Image>().raycastTarget = false;
-        var strokes = new GameObject("Asperites", typeof(RectTransform), typeof(RawImage));
-        strokes.transform.SetParent(pauseBackdrop.transform, false);
-        UiKit.Stretch((RectTransform)strokes.transform, -40f);
-        var raw = strokes.GetComponent<RawImage>();
-        raw.texture = UiKit.BrushTexture(1024, 576, 23);
-        raw.color = new Color(0.17f, 0.17f, 0.18f);
-        raw.raycastTarget = false;
-        var resume = UiKit.Label(pauseBackdrop.transform, "Échap pour reprendre le jeu", 22, FontStyle.Italic, UiKit.MutedText, 40);
-        UiKit.Place(resume.gameObject, new Vector2(0.5f, 0.5f), Vector2.zero);
-        resume.rectTransform.sizeDelta = new Vector2(600, 40);
-
-        pausePanel = UiKit.Panel(root, "Pause", new Vector2(340, 410));
+        // À gauche : partie, skin, volumes, quitter.
+        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 470));
         UiKit.Paint(pausePanel, PanelBlack, 11);
         UiKit.Place(pausePanel, new Vector2(0f, 1f), new Vector2(16, -16));
-        UiKit.Column(pausePanel, 16, 8);
+        UiKit.Column(pausePanel, 34, 8);
         Transform p = pausePanel.transform;
 
         roomText = UiKit.Label(p, "", 14, FontStyle.Normal, Color.white, 26, TextAnchor.MiddleLeft);
@@ -237,15 +227,40 @@ public class LobbyUI : MonoBehaviour
         VolumeRows(p, 36, 15);
         UiKit.Spacer(p, 4);
         UiKit.Paint(UiKit.Button(p, "Quitter la partie", HostRed, 38, () => net.LeaveGame()), HostRed, 17);
-        UiKit.Label(p, "Échap pour reprendre le jeu", 14, FontStyle.Italic, UiKit.MutedText, 22);
 
-        hintPanel = UiKit.Panel(root, "Aide", new Vector2(1180, 64), new Color(0f, 0f, 0f, 0.55f));
-        UiKit.Place(hintPanel, new Vector2(0.5f, 0f), new Vector2(0, 116));
-        hintPanel.GetComponent<Image>().raycastTarget = false;
-        var hint = UiKit.Label(hintPanel.transform,
-            "ZQSD : bouger  ·  Shift : courir  ·  Ctrl (ou C) : marcher discrètement  ·  Espace : sauter  ·  A : aboyer  ·  Souris : caméra  ·  Molette : zoom\n" +
-            "E / Clic gauche : interagir, ramasser, utiliser l'objet sélectionné  ·  1 à 5 : sélectionner un objet  ·  Échap : menu",
-            15, FontStyle.Normal, UiKit.MutedText, 64);
-        UiKit.Stretch(hint.rectTransform);
+        // À droite : "Échap pour reprendre le jeu" (clignote lentement), puis les contrôles, un par ligne.
+        // Le centre de l'écran reste transparent : on voit le jeu.
+        hintPanel = new GameObject("Droite", typeof(RectTransform));
+        hintPanel.transform.SetParent(root, false);
+        UiKit.Place(hintPanel, new Vector2(1f, 1f), new Vector2(-16, -16));
+        ((RectTransform)hintPanel.transform).sizeDelta = new Vector2(400, 520);
+
+        resumeLabel = UiKit.Label(hintPanel.transform, "Échap pour reprendre le jeu", 22, FontStyle.BoldAndItalic, Color.white, 40, TextAnchor.MiddleRight);
+        UiKit.Place(resumeLabel.gameObject, new Vector2(1f, 1f), new Vector2(-12, 0));
+        resumeLabel.rectTransform.sizeDelta = new Vector2(400, 40);
+        resumeLabel.raycastTarget = false;
+
+        string[] controls =
+        {
+            "ZQSD : se déplacer",
+            "Shift : courir",
+            "Ctrl (ou C) : marcher discrètement",
+            "Espace : sauter",
+            "A : aboyer",
+            "Souris : orienter la caméra",
+            "Molette : zoom (1re personne au plus près)",
+            "E / Clic gauche : interagir, ramasser",
+            "Clic gauche : utiliser l'objet sélectionné",
+            "1 à 5 : sélectionner un objet",
+            "Échap : menu pause",
+        };
+        var list = UiKit.Panel(hintPanel.transform, "Controles", new Vector2(400, 68 + 26 + controls.Length * 25));
+        UiKit.Paint(list, PanelBlack, 19);
+        UiKit.Place(list, new Vector2(1f, 1f), new Vector2(0, -52));
+        UiKit.Column(list, 34, 3);
+        UiKit.Label(list.transform, "Contrôles", 16, FontStyle.Bold, UiKit.MutedText, 24, TextAnchor.MiddleLeft);
+        foreach (string line in controls)
+            UiKit.Label(list.transform, line, 15, FontStyle.Normal, Color.white, 22, TextAnchor.MiddleLeft);
+        foreach (var g in hintPanel.GetComponentsInChildren<Graphic>()) g.raycastTarget = false;
     }
 }

@@ -16,6 +16,7 @@ public static class EntitySetup
         CreateRedBeacon();
         SetupCreature("Tour", 2.66f, new[] { ("Walk", true), ("Run", true), ("Look", true), ("Stance", true) });
         SetupCreature("Cloche", 1f, new[] { ("Walk", true), ("Run", true) });
+        SpiderSetup.Setup();
         IconRenderer.Generate();
         AssetDatabase.SaveAssets();
         Debug.Log("Entités et objets de la V0.4 installés.");
