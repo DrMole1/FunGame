@@ -17,6 +17,8 @@ public static class SoundBank
         "hub_music", "maze_drone", "insects", "neon", "blink", "step_tile", "step_dirt",
         "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
+        "tour_step", "tour_breath", "tour_charge", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
+        "spider_hiss", "spider_attack", "teleport", "heal",
     };
 
     public static void Preload()
@@ -83,6 +85,17 @@ public static class SoundBank
             case "jack_bells": return JackBells(rnd);
             case "jack_growl": return JackGrowl(rnd);
             case "jack_hit": return JackHit(rnd);
+            case "tour_step": return TourStep(rnd);
+            case "tour_breath": return TourBreath(rnd);
+            case "tour_charge": return TourCharge(rnd);
+            case "tour_impact": return TourImpact(rnd);
+            case "tour_alert": return TourAlert();
+            case "pion_cry": return PionCry(rnd);
+            case "cloche_ring": return ClocheRing(rnd);
+            case "spider_hiss": return SpiderHiss(rnd);
+            case "spider_attack": return SpiderAttack(rnd);
+            case "teleport": return Teleport(rnd);
+            case "heal": return Heal(rnd);
         }
         return null;
     }
@@ -897,6 +910,204 @@ public static class SoundBank
             float s = bp.Process(Noise(rnd), Mathf.Lerp(400f, 2200f, t), 0.4f) * ASR(t, 0.15f, 0.4f, 0.9f) * 0.8f;
             phase += Mathf.Lerp(600f, 300f, t) / Rate;
             s += f1.Process(Saw(phase) + Noise(rnd) * 0.4f, 1500f, 0.15f) * ASR(t - 0.35f, 0.02f, 0.35f, 0.6f);
+            d[i] = s;
+        }
+        return d;
+    }
+
+    // ---------- Entités de la V0.4 ----------
+
+    // Pas lourd de La Tour : bloc de pierre posé, grave et granuleux.
+    static float[] TourStep(System.Random rnd)
+    {
+        var d = Buffer(0.45f);
+        var lp = new LowPass();
+        var grit = new BandPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float thud = Sine((58f - 20f * t) * t) * Decay(t, 0.09f);
+            float rubble = grit.Process(Noise(rnd), 900f, 0.7f) * Decay(t, 0.05f) * 0.6f;
+            d[i] = lp.Process(thud + Noise(rnd) * Decay(t, 0.02f), 600f) * 1.4f + rubble;
+        }
+        return d;
+    }
+
+    // Respiration forte, caverneuse (état de surveillance) : inspiration puis expiration.
+    static float[] TourBreath(System.Random rnd)
+    {
+        var d = Buffer(1.9f);
+        var bp = new BandPass();
+        var low = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float env = ASR(t, 0.35f, 0.3f, 0.85f) * 0.7f + ASR(t - 0.95f, 0.1f, 0.6f, 0.95f);
+            float cutoff = t < 0.9f ? 700f + 500f * t : 520f;
+            float s = bp.Process(Noise(rnd), cutoff, 0.5f) + low.Process(Noise(rnd), 180f) * 1.5f;
+            d[i] = s * env;
+        }
+        return d;
+    }
+
+    // La Tour se prépare à charger : grondement qui monte, raclement métallique.
+    static float[] TourCharge(System.Random rnd)
+    {
+        var d = Buffer(3f);
+        var bp = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float f = 45f + 20f * t * t;
+            phase += f / Rate;
+            float rumble = Saw(phase) * 0.6f + Saw(phase * 1.01f) * 0.4f;
+            float scrape = bp.Process(Noise(rnd), 1800f + 900f * t, 0.15f) * 0.3f;
+            d[i] = (rumble + scrape) * Mathf.Min(1f, t / 2.6f) * Mathf.Clamp01((3f - t) / 0.08f);
+        }
+        return d;
+    }
+
+    // Impact de la charge : choc énorme et éboulis.
+    static float[] TourImpact(System.Random rnd)
+    {
+        var d = Buffer(1.2f);
+        var lp = new LowPass();
+        var bp = new BandPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float boom = Sine((70f - 40f * Mathf.Min(t, 0.5f)) * t) * Decay(t, 0.25f) * 1.2f;
+            float crack = lp.Process(Noise(rnd), 3000f) * Decay(t, 0.03f) * 1.5f;
+            float debris = bp.Process(rnd.NextDouble() < 0.02 ? Noise(rnd) * 6f : 0f, 1400f, 0.3f) * Decay(t, 0.5f);
+            d[i] = boom + crack + debris;
+        }
+        return d;
+    }
+
+    // Alerte (joueur repéré par La Tour) : deux coups de cloche métallique, aigus et dissonants.
+    static float[] TourAlert()
+    {
+        var d = Buffer(0.9f);
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate, s = 0f;
+            for (int k = 0; k < 2; k++)
+            {
+                float u = t - k * 0.22f;
+                if (u < 0f) continue;
+                s += (Sine(988f * u) + Sine(1047f * u) * 0.8f + Sine(2310f * u) * 0.3f) * Decay(u, 0.18f);
+            }
+            d[i] = s;
+        }
+        return d;
+    }
+
+    // Cri du Pion : glapissement nasillard qui grimpe.
+    static float[] PionCry(System.Random rnd)
+    {
+        var d = Buffer(0.7f);
+        var f1 = new BandPass();
+        var f2 = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float pitch = Mathf.Lerp(520f, 1150f, Mathf.SmoothStep(0f, 1f, t / 0.45f)) * (1f + 0.06f * Mathf.Sin(TwoPi * 14f * t));
+            phase += pitch / Rate;
+            float src = Square(phase) * 0.6f + Saw(phase * 2f) * 0.4f + Noise(rnd) * 0.15f;
+            d[i] = (f1.Process(src, 1600f, 0.2f) + f2.Process(src, 3200f, 0.25f) * 0.6f) * ASR(t, 0.02f, 0.25f, 0.7f);
+        }
+        return d;
+    }
+
+    // Scintillement de La Cloche : tintement clair, inharmonique, qui vibre longtemps.
+    static float[] ClocheRing(System.Random rnd)
+    {
+        var d = Buffer(2.2f);
+        float f = 660f;
+        (float ratio, float amp, float decay)[] partials =
+        {
+            (1f, 0.9f, 1.1f), (2.4f, 0.5f, 0.6f), (3.1f, 0.35f, 0.45f), (4.6f, 0.25f, 0.3f), (6.2f, 0.15f, 0.2f),
+        };
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate, s = 0f;
+            foreach (var (ratio, amp, decay) in partials)
+                s += Sine(f * ratio * t) * amp * Decay(t, decay) * (1f + 0.25f * Sine(5.5f * t));
+            s += lp.Process(Noise(rnd), 6000f) * Decay(t, 0.006f);
+            d[i] = s * Mathf.Clamp01((2.2f - t) / 0.3f);
+        }
+        return d;
+    }
+
+    // Sifflement de l'Araignée qui repère sa proie.
+    static float[] SpiderHiss(System.Random rnd)
+    {
+        var d = Buffer(0.9f);
+        var bp = new BandPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float chatter = 0.6f + 0.4f * Square(t * 32f);
+            d[i] = bp.Process(Noise(rnd), 4200f - 1500f * t, 0.35f) * chatter * ASR(t, 0.04f, 0.4f, 0.9f);
+        }
+        return d;
+    }
+
+    // Morsure de l'Araignée : claquement de crochets et râle humide.
+    static float[] SpiderAttack(System.Random rnd)
+    {
+        var d = Buffer(0.6f);
+        var bp = new BandPass();
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float clack = 0f;
+            for (int k = 0; k < 3; k++)
+            {
+                float u = t - k * 0.06f;
+                if (u >= 0f) clack += bp.Process(Noise(rnd), 2600f, 0.3f) * Decay(u, 0.01f);
+            }
+            float gurgle = lp.Process(Noise(rnd), 400f) * (0.6f + 0.4f * Sine(23f * t)) * ASR(t, 0.05f, 0.3f, 0.6f) * 2f;
+            d[i] = clack * 2f + gurgle;
+        }
+        return d;
+    }
+
+    // Téléporteur : canalisation qui monte, puis aspiration de la boule d'énergie.
+    static float[] Teleport(System.Random rnd)
+    {
+        var d = Buffer(1.2f);
+        var bp = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float f = 220f * Mathf.Pow(2f, t * 2.5f);
+            phase += f / Rate;
+            float s = Sine(phase) * 0.6f + Sine(phase * 1.5f) * 0.3f + bp.Process(Noise(rnd), f * 2f, 0.2f) * 0.5f;
+            d[i] = s * ASR(t, 0.05f, 0.35f, 1.2f);
+        }
+        return d;
+    }
+
+    // Station Curative : petit carillon doux et pétillement.
+    static float[] Heal(System.Random rnd)
+    {
+        var d = Buffer(0.8f);
+        int[] notes = { 76, 81, 88 };
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate, s = 0f;
+            for (int n = 0; n < notes.Length; n++)
+            {
+                float u = t - n * 0.08f;
+                if (u >= 0f) s += Sine(Midi(notes[n]) * u) * Decay(u, 0.25f) * 0.5f;
+            }
+            s += (rnd.NextDouble() < 0.004 ? Noise(rnd) : 0f) * 0.8f;
             d[i] = s;
         }
         return d;

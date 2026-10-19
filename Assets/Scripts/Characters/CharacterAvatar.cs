@@ -49,13 +49,15 @@ public class CharacterAvatar : MonoBehaviour
         CharacterIndex = index;
         State = AnimState.Idle;
         animator.Play("Idle", 0, 0f);
-        model.SetActive(!dead);
+        model.SetActive(!dead && !hidden);
     }
 
     public void SetState(AnimState state)
     {
         if (state == State || animator == null) return;
         State = state;
+        // Corps caché (téléportation) : rien à animer.
+        if (!animator.gameObject.activeInHierarchy) return;
         // Le clip de saut suit la durée raccourcie du saut.
         animator.speed = state == AnimState.Jump ? 1f / GameRules.JumpTimeScale : 1f;
         if (state == AnimState.Jump)
@@ -64,6 +66,17 @@ public class CharacterAvatar : MonoBehaviour
             animator.CrossFadeInFixedTime("SneakIdle", 0.25f, 0, SneakIdlePose);
         else
             animator.CrossFadeInFixedTime(state.ToString(), state == AnimState.Sneak ? 0.25f : 0.15f);
+    }
+
+    // En téléportation, le corps disparaît (remplacé par une boule d'énergie).
+    bool hidden;
+
+    public void SetHidden(bool value)
+    {
+        hidden = value;
+        if (model != null) model.SetActive(!dead && !hidden);
+        // De retour : l'animation reprend sur l'état courant.
+        if (!hidden && !dead && animator != null && model.activeInHierarchy) animator.Play(State.ToString(), 0, 0f);
     }
 
     // Mort : le personnage bascule, rétrécit et disparaît.

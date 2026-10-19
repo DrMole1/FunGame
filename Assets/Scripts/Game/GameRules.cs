@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.3.3).
+// Variables numériques du document de Game Design (V0.4).
 public static class GameRules
 {
     public const int MaxPlayers = 8;
@@ -34,7 +34,7 @@ public static class GameRules
     // Distance maximale entre le personnage et l'objet visé pour interagir.
     public const float InteractRange = 2.2f;
 
-    public const float LaserTriggerDistance = 2f;
+    public const float LaserTriggerDistance = 4f;
     public const int LaserDamage = 20;
 
     // Course : multiplicateur de la vitesse de base selon le nombre d'objets portés (0 à 5).
@@ -93,14 +93,76 @@ public static class GameRules
     public const float DameSightRange = 20f;
     public const float DameKnockback = 9f;
 
-    // Zone 2 : les orbes s'activent à la fin des manches 1, 2 et 3.
+    // Hurlement spatialisé toutes les 5 à 8 secondes, audible à 40 m (pitch au hasard entre -1 et +1 demi-ton).
+    public const float DameScreamMin = 5f, DameScreamMax = 8f, DameScreamRange = 40f;
+
+    // ---------- La Tour (entité ID 3, Cauchemar) ----------
+
+    public const int TourDamage = 100;
+    public const float TourWalkMultiplier = 0.7f;        // "modérément lente"
+    public const float TourInvestigateMultiplier = 1.35f; // "modérément rapide", vers la localisation tampon
+    public const float TourSightRange = 50f;
+    public const float TourStepRange = 30f;
+    public const float TourSurveyMin = 15f, TourSurveyMax = 30f, TourSurveyDuration = 2f;
+    public const float TourTurnBackChance = 0.3f;
+    public const float TourChannel = 3f;
+    public const float TourChargeSpeed = 45f;            // "à la vitesse de la lumière" : quasi instantané
+    public const float TourKnockback = 10f;
+
+    // ---------- Le Pion (entité ID 4, Normal) ----------
+
+    public const int PionDamage = 30;
+    public const float PionHabitat = 30f;
+    public const float PionWatchDistance = 5f;
+    public const float PionCuriousMin = 4f, PionCuriousMax = 8f;
+    public const float PionRushMultiplier = 1.4f;        // il "se met à courir" : vitesse de course d'un joueur
+    public const float PionKnockback = 6f;
+
+    // ---------- La Cloche (entité ID 5, Normal) ----------
+
+    public const int ClocheDamage = 10;
+    public const float ClocheSightRange = 50f;
+    public const float ClocheTick = 2f;                  // dégâts toutes les 2 secondes passées à la regarder
+    public const float ClocheStopDistance = 2f;
+    public const float ClocheSearchMin = 50f, ClocheSearchMax = 70f;
+    public const float ClocheSearchMultiplier = 1.5f;
+
+    // ---------- L'Araignée (entité ID 6, Abjuration) ----------
+
+    public const int SpiderDamage = 50;
+    public const int SpidersPerZone = 5;
+    public const float SpiderSpawnClearance = 25f;
+    public const float SpiderSightRange = 12f;
+    public const float SpiderProwlMultiplier = 0.5f;
+    public const float SpiderRushMultiplier = 2.6f;      // "très rapidement"
+    public const float SpiderAttackDistance = 0.8f;
+    public const float SpiderPause = 1f, SpiderPursuit = 10f;
+    public const float SpiderKnockback = 7f;
+    // Une action bruyante (aboiement, saut, objet ramassé ou posé) trahit un joueur accroupi pendant ce délai.
+    public const float NoiseMemory = 0.6f;
+
+    // Non précisé dans le GDD : entités de type "Normal" (Pion, Cloche) au début de chaque manche,
+    // dans chaque zone qui reçoit des Cauchemars (Zone 1 dès la manche 1) : 1, puis +1 toutes les 2 manches (4 au plus).
+    public static int NormalsForRound(int round, int zone) =>
+        zone == 0 || NightmaresForRound(round, zone) > 0 ? Mathf.Min(4, 1 + (round - 1) / 2) : 0;
+
+    // Zone 2 : les orbes s'activent au début des manches 1, 2 et 3 (V0.3.4).
     public const int OrbCount = 3;
-    public static bool OrbActive(int orb, int round) => round >= orb + 2;
+    public static bool OrbActive(int orb, int round) => round >= orb + 1;
 
     // ---------- Balises (chapitre 7.1) ----------
 
     // Charge de la Balise du Hub (au début du jeu, et après chaque Chargeur).
     public const float BeaconCharge = 10f * 60f;
+    // Balise Améliorée (7.3) : ni Abjuration ni apparition d'entité dans ce rayon.
+    public const float EnhancedBeaconRadius = 5f;
+
+    // ---------- Téléporteur (7.2) et Station Curative (7.4) ----------
+
+    public const float DeviceRange = 1f;
+    public const float TeleportChannel = 3f;
+    public const float TeleportSpeed = 14f;   // boule d'énergie le long des liens
+    public const float StationHealPerSecond = 10f;
 
     // ---------- Pogo (chapitre 4) ----------
 
@@ -109,7 +171,7 @@ public static class GameRules
     public const float PogoCooldown = 5f;      // après avoir frappé, impossible de l'appeler pendant 5 s
 }
 
-public enum ItemType { None = 0, Croquette = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7 }
+public enum ItemType { None = 0, Croquette = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8, BaliseAmelioree = 9, StationCurative = 10 }
 
 public class ItemDef
 {
@@ -132,16 +194,26 @@ public static class Items
 
     static readonly ItemDef[] All =
     {
-        // Objets obtenables au Terminal (ID 1 à 6), dans l'ordre du document.
+        // Objets obtenables au Terminal (ID 1 à 9), dans l'ordre du document.
         new ItemDef { type = ItemType.Croquette, terminalId = 1, name = "Croquette", shortName = "Croquette", buyPrice = 20, sellPrice = 1, color = new Color(0.62f, 0.4f, 0.22f) },
         new ItemDef { type = ItemType.Balise, terminalId = 2, name = "Balise", shortName = "Balise", buyPrice = 30, sellPrice = 1, color = new Color(0.3f, 0.6f, 1f) },
         new ItemDef { type = ItemType.PostIt, terminalId = 3, name = "Post-It", shortName = "Post-It", buyPrice = 5, sellPrice = 1, color = new Color(1f, 0.93f, 0.35f) },
         new ItemDef { type = ItemType.Cle, terminalId = 4, name = "Clé", shortName = "Clé", buyPrice = 200, sellPrice = 1, color = new Color(0.55f, 0.8f, 1f) },
         new ItemDef { type = ItemType.Boussole, terminalId = 5, name = "Boussole", shortName = "Boussole", buyPrice = 100, sellPrice = 0, color = new Color(0.9f, 0.9f, 0.9f), inventory = false },
         new ItemDef { type = ItemType.Chargeur, terminalId = 6, name = "Chargeur", shortName = "Chargeur", buyPrice = 50, sellPrice = 1, color = new Color(0.35f, 0.8f, 1f) },
+        new ItemDef { type = ItemType.Teleporteur, terminalId = 7, name = "Téléporteur", shortName = "Téléport.", buyPrice = 200, sellPrice = 1, color = new Color(1f, 0.7f, 0.15f) },
+        new ItemDef { type = ItemType.BaliseAmelioree, terminalId = 8, name = "Balise Améliorée", shortName = "Balise +", buyPrice = 50, sellPrice = 1, color = new Color(1f, 0.3f, 0.3f) },
+        new ItemDef { type = ItemType.StationCurative, terminalId = 9, name = "Station Curative", shortName = "Station", buyPrice = 150, sellPrice = 1, color = new Color(0.4f, 1f, 0.45f) },
         // Autres objets.
         new ItemDef { type = ItemType.Canard, name = "Canard en Plastique", shortName = "Canard", buyPrice = 0, sellPrice = 20, color = new Color(1f, 0.84f, 0.15f) },
     };
+
+    // Mort d'un joueur (3.4) : les objets du Terminal sont détruits, les autres (avec un modèle 3D) restent à terre.
+    public static bool DropsOnDeath(ItemType type)
+    {
+        var def = Get(type);
+        return def != null && def.buyPrice <= 0 && type == ItemType.Canard;
+    }
 
     public static ItemDef Get(ItemType type)
     {

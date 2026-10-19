@@ -39,6 +39,8 @@ public class PlayerController : MonoBehaviour
     public float SpeedFactor { get; set; } = 1f;
 
     public AnimState CurrentAnimState => avatar != null ? avatar.State : AnimState.Idle;
+    // Saut : action bruyante (L'Araignée repère alors même un joueur accroupi).
+    public event System.Action Jumped;
     public bool Sneaking => gait == Gait.Sneak;
     // Capsule raccourcie (marche discrète).
     public bool Crouched { get; private set; }
@@ -105,6 +107,7 @@ public class PlayerController : MonoBehaviour
             jumpRequested = true;
             // Juste après l'impulsion, le sol est encore détecté : on reste en état "saut".
             airborneLock = 0.2f;
+            Jumped?.Invoke();
         }
         airborneLock -= Time.deltaTime;
 

@@ -167,6 +167,16 @@ public static class GameArt
     public static Material Ectoplasm => FromTemplate("Ectoplasm", () => Emissive("EctoFallback", new Color(0.1f, 0.3f, 0.7f), new Color(0.1f, 0.35f, 0.9f)));
     // Aura bleue des orbes activés.
     public static Material GhostAura => FromTemplate("GhostAura", () => Unlit("AuraFallback", new Color(0.2f, 0.5f, 1f)));
+
+    // Variante colorée de l'aura (Balise Améliorée, Téléporteur, Station Curative, boule d'énergie).
+    public static Material GhostAuraTinted(string key, Color color)
+    {
+        if (cache.TryGetValue("GhostAura" + key, out var m) && m != null) return m;
+        m = new Material(GhostAura) { name = "GhostAura" + key };
+        m.SetColor("_Color", color);
+        m.color = color;
+        return cache["GhostAura" + key] = m;
+    }
     // Rayon d'énergie entre Balises chargées (LineRenderer).
     public static Material EnergyBeam => FromTemplate("EnergyBeam", () => Unlit("BeamFallback", new Color(0.2f, 0.5f, 1f)));
 

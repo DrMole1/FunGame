@@ -18,13 +18,16 @@ public static class IconRenderer
         Render("Croquette", ItemType.Croquette, new Vector3(20f, -35f, 0f), 0.22f);
         Render("Duck", ItemType.Canard, new Vector3(8f, -140f, 0f), 0.5f);
         Render("Balise", ItemType.Balise, new Vector3(10f, -150f, 0f), 0f);
+        Render("Balise", ItemType.BaliseAmelioree, new Vector3(10f, -150f, 0f), 0f, "BaliseRouge");
+        Render("Teleporteur", ItemType.Teleporteur, new Vector3(45f, -150f, 0f), 0f);
+        Render("StationCurative", ItemType.StationCurative, new Vector3(10f, -150f, 0f), 0f);
         AssetDatabase.Refresh();
         foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { IconDir }))
             ConfigureSprite(AssetDatabase.GUIDToAssetPath(guid));
         Debug.Log("Icônes d'inventaire générées.");
     }
 
-    static void Render(string model, ItemType type, Vector3 viewAngles, float skipBottom)
+    static void Render(string model, ItemType type, Vector3 viewAngles, float skipBottom, string material = null)
     {
         var prefab = Resources.Load<GameObject>("Art/" + model);
         if (prefab == null)
@@ -38,6 +41,10 @@ public static class IconRenderer
         var go = Object.Instantiate(prefab, root.transform);
         go.transform.localPosition = Vector3.zero;
         go.transform.localRotation = Quaternion.identity;
+        // Variante d'un modèle (Balise Améliorée) : même maillage, autre matériau.
+        var swap = material != null ? Resources.Load<Material>("Art/" + material) : null;
+        if (swap != null)
+            foreach (var r in go.GetComponentsInChildren<Renderer>()) r.sharedMaterial = swap;
 
         Bounds all = new Bounds(go.transform.position, Vector3.zero);
         foreach (var r in go.GetComponentsInChildren<Renderer>()) all.Encapsulate(r.bounds);

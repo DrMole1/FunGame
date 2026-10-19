@@ -14,7 +14,7 @@ public class LobbyUI : MonoBehaviour
 
     NetworkGame net;
 
-    GameObject lobbyPanel, pausePanel, hintPanel;
+    GameObject lobbyPanel, pausePanel, hintPanel, pauseBackdrop;
     InputField nameField, codeField;
     Button hostButton, joinButton;
     Text statusText, roomText, countText, copyLabel, lobbySkin, pauseSkin;
@@ -39,6 +39,7 @@ public class LobbyUI : MonoBehaviour
         inGame = false;
         lobbyPanel.SetActive(true);
         pausePanel.SetActive(false);
+        pauseBackdrop.SetActive(false);
         hintPanel.SetActive(false);
         SetInteractable(true);
         statusText.text = message;
@@ -96,8 +97,9 @@ public class LobbyUI : MonoBehaviour
         }
 
         // Menu de pause : visible quand la souris est libérée.
-        bool paused = inGame && Cursor.lockState != CursorLockMode.Locked && !TerminalUI.IsOpen && !GameHud.GameOverVisible;
+        bool paused = inGame && Cursor.lockState != CursorLockMode.Locked && !TerminalUI.IsOpen && !PostItUI.IsOpen && !GameHud.GameOverVisible;
         if (pausePanel.activeSelf != paused) pausePanel.SetActive(paused);
+        if (pauseBackdrop.activeSelf != paused) pauseBackdrop.SetActive(paused);
         bool hint = inGame && !TerminalUI.IsOpen && !GameHud.GameOverVisible && paused;
         if (hintPanel.activeSelf != hint) hintPanel.SetActive(hint);
     }
@@ -197,6 +199,22 @@ public class LobbyUI : MonoBehaviour
 
     void BuildPause(Transform root)
     {
+        // GDD 6.2 : le jeu ne se voit plus derrière le menu pause (fond gris-noir, avec des aspérités).
+        pauseBackdrop = UiKit.Panel(root, "FondPause", Vector2.zero, Color.black);
+        UiKit.Stretch((RectTransform)pauseBackdrop.transform);
+        // Un clic en dehors du menu reprend toujours le jeu.
+        pauseBackdrop.GetComponent<Image>().raycastTarget = false;
+        var strokes = new GameObject("Asperites", typeof(RectTransform), typeof(RawImage));
+        strokes.transform.SetParent(pauseBackdrop.transform, false);
+        UiKit.Stretch((RectTransform)strokes.transform, -40f);
+        var raw = strokes.GetComponent<RawImage>();
+        raw.texture = UiKit.BrushTexture(1024, 576, 23);
+        raw.color = new Color(0.17f, 0.17f, 0.18f);
+        raw.raycastTarget = false;
+        var resume = UiKit.Label(pauseBackdrop.transform, "Échap pour reprendre le jeu", 22, FontStyle.Italic, UiKit.MutedText, 40);
+        UiKit.Place(resume.gameObject, new Vector2(0.5f, 0.5f), Vector2.zero);
+        resume.rectTransform.sizeDelta = new Vector2(600, 40);
+
         pausePanel = UiKit.Panel(root, "Pause", new Vector2(340, 410));
         UiKit.Paint(pausePanel, PanelBlack, 11);
         UiKit.Place(pausePanel, new Vector2(0f, 1f), new Vector2(16, -16));
@@ -219,7 +237,7 @@ public class LobbyUI : MonoBehaviour
         VolumeRows(p, 36, 15);
         UiKit.Spacer(p, 4);
         UiKit.Paint(UiKit.Button(p, "Quitter la partie", HostRed, 38, () => net.LeaveGame()), HostRed, 17);
-        UiKit.Label(p, "Cliquez dans le jeu pour reprendre", 14, FontStyle.Italic, UiKit.MutedText, 22);
+        UiKit.Label(p, "Échap pour reprendre le jeu", 14, FontStyle.Italic, UiKit.MutedText, 22);
 
         hintPanel = UiKit.Panel(root, "Aide", new Vector2(1180, 64), new Color(0f, 0f, 0f, 0.55f));
         UiKit.Place(hintPanel, new Vector2(0.5f, 0f), new Vector2(0, 116));

@@ -16,6 +16,8 @@ public class RemotePlayer : MonoBehaviour
     NameTag nameTag;
     CapsuleCollider body;
     CharacterLibrary library;
+    GameObject energyBall;
+    bool teleporting;
 
     public static RemotePlayer Create(string id, string playerName, Color color, CharacterLibrary library, int character, Vector3 position)
     {
@@ -74,6 +76,16 @@ public class RemotePlayer : MonoBehaviour
             nameTag.height = library.height * (sneaking ? GameRules.SneakHeightFactor - 0.5f : 0.5f) + 0.35f;
         }
         presence.Sneaking = sneaking;
+        // En téléportation : une boule d'énergie à la place du personnage.
+        bool tele = (flags & NetworkGame.FlagTeleport) != 0 && !dead;
+        if (tele != teleporting)
+        {
+            teleporting = tele;
+            if (energyBall == null) energyBall = GameSession.BuildEnergyBall(transform);
+            energyBall.SetActive(tele);
+            avatar.SetHidden(tele);
+            nameTag.Show(!tele && !dead);
+        }
         if (dead != Dead)
         {
             var session = GameSession.Instance;

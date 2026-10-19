@@ -5,14 +5,14 @@ using UnityEngine;
 // prend en chasse le premier personnage qu'elle voit (x1,05 ; x2,2 tant qu'il la regarde) pendant 20 à 30 secondes
 // et attaque au contact (100 de dégâts, le survivant est repoussé). Elle ne saute pas, ne tombe pas et ne flotte pas :
 // elle suit la grille de navigation (MazeNav), qui passe par les escaliers et les dalles surélevées mais pas au-dessus du vide.
-// L'hôte simule son comportement (Simulate) ; les autres clients affichent l'état reçu (SetNetState).
-public class Dame : MonoBehaviour
+// Toutes les 5 à 8 secondes, elle pousse un hurlement audible à 40 m (V0.4).
+public class Dame : Entity
 {
     public enum State : byte { Wander = 0, Chase = 1, Attack = 2 }
 
     const float Height = 2.66f;
     // Elle lance son attaque quand le personnage est à moins de 0,8 m ; le coup touche jusqu'à environ 2,12 m.
-    const float AttackStartDistance = 0.8f, ReachVertical = 1.7f;
+    const float AttackStartDistance = 0.8f;
     const float HitDistance = (1.15f + 0.6f) * 1.1f * 1.1f;
     // Attaque courte : le clip est accéléré pour se jouer en entier pendant AttackDuration.
     const float AttackDuration = 0.7f;
@@ -22,54 +22,22 @@ public class Dame : MonoBehaviour
     const float EyeHeight = 2.28f, FieldOfView = 160f;
     // Hors chasse, elle sent un personnage qui passe tout près, devant comme dans son dos.
     const float SenseRadius = 4f;
-    const float WaypointReach = 0.12f; // points de la grille tous les 0,5 m : on ne coupe pas les angles
     const float IgnoreAfterChase = 6f;
 
-    public int Id { get; private set; }
-    public State Current { get; private set; }
-    public string TargetId { get; private set; } = "";
+    public override EntityKind Kind => EntityKind.Dame;
+    public override string DisplayName => "La Dame";
+    public override float ChestHeight => 1.4f;
+    public State Current { get => (State)state; private set => state = (byte)value; }
     public bool Watched;
 
-    // Simulation (hôte).
-    MazeNav nav;
-    System.Random rnd;
-    readonly List<int> path = new List<int>();
-    int pathIndex;
-    float repathTimer, chaseTimer, attackTimer;
+    float chaseTimer, attackTimer, screamTimer;
     bool hitDone;
     readonly Dictionary<string, float> ignoreUntil = new Dictionary<string, float>();
-    System.Action<Dame, string> onHit, onAttack;
-
-    // Affichage.
-    Animator animator;
-    readonly NetSmoother smoother = new NetSmoother();
-    bool hasNet;
-    Vector3 lastPos;
-    float visualSpeed;
-    string animState = "";
     float attackClipLength = AttackDuration;
 
-    public float Speed { get; private set; }
+    protected override void Init() => screamTimer = Range(GameRules.DameScreamMin, GameRules.DameScreamMax);
 
-    // 'onAttack' : l'attaque commence contre ce joueur (il est immobilisé) ; 'onHit' : le coup porte.
-    public static Dame Create(Transform parent, int id, Vector3 pos, float yaw, MazeNav nav, System.Action<Dame, string> onHit,
-        System.Action<Dame, string> onAttack = null)
-    {
-        var go = new GameObject("La Dame " + id);
-        go.transform.SetParent(parent, false);
-        go.transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
-        var dame = go.AddComponent<Dame>();
-        dame.Id = id;
-        dame.nav = nav;
-        dame.onHit = onHit;
-        dame.onAttack = onAttack;
-        dame.rnd = new System.Random(id * 7919 + 13);
-        dame.lastPos = pos;
-        dame.BuildVisual();
-        return dame;
-    }
-
-    void BuildVisual()
+    protected override void BuildVisual()
     {
         var art = Resources.Load<DameArt>("DameArt");
         if (art != null && art.model != null)
@@ -104,8 +72,15 @@ public class Dame : MonoBehaviour
 
     // ================= Simulation (hôte) =================
 
-    public void Simulate(float dt, IReadOnlyList<PlayerPresence> players)
+    public override void Simulate(float dt, IReadOnlyList<PlayerPresence> players)
     {
+        screamTimer -= dt;
+        if (screamTimer <= 0f)
+        {
+            screamTimer = Range(GameRules.DameScreamMin, GameRules.DameScreamMax);
+            Pulse++;
+        }
+
         switch (Current)
         {
             case State.Attack:
@@ -114,7 +89,7 @@ public class Dame : MonoBehaviour
                 {
                     hitDone = true;
                     var target = Find(players, TargetId);
-                    if (target != null && InReach(target, HitDistance)) onHit?.Invoke(this, TargetId);
+                    if (target != null && InReach(target, HitDistance)) Host?.Hit(this, TargetId, GameRules.DameDamage, GameRules.DameKnockback);
                 }
                 if (attackTimer >= AttackDuration)
                 {
@@ -130,15 +105,7 @@ public class Dame : MonoBehaviour
                 var target = Find(players, TargetId);
                 if (chaseTimer <= 0f || !Valid(target)) { StopChase(); break; }
                 Speed = GameRules.BaseSpeed * (Watched ? GameRules.DameWatchedMultiplier : GameRules.DameChaseMultiplier);
-                repathTimer -= dt;
-                Vector3 feet = Feet(target);
-                // Chemin recalculé souvent de près, plus rarement de loin (le calcul coûte quelques millisecondes).
-                if (repathTimer <= 0f)
-                    PlanPath(nav.NodeAt(feet), Mathf.Clamp(Horizontal(feet - transform.position).magnitude * 0.04f, 0.3f, 1.2f), 8000);
-                // Au bout du chemin, tout près et au même niveau : droit sur le personnage.
-                if (pathIndex >= path.Count && Horizontal(feet - transform.position).magnitude < 1f && Mathf.Abs(feet.y - transform.position.y) < 0.4f)
-                    MoveTowards(new Vector3(feet.x, transform.position.y, feet.z), dt);
-                else FollowPath(dt);
+                Pursue(target, dt);
                 if (InReach(target, AttackStartDistance)) StartAttack(target.PlayerId);
                 break;
             }
@@ -154,15 +121,9 @@ public class Dame : MonoBehaviour
                     if (InReach(p, AttackStartDistance)) { BeginChase(p); StartAttack(p.PlayerId); return; }
                     if (Senses(p)) { BeginChase(p); return; }
                     if (ignoreUntil.TryGetValue(p.PlayerId, out float until) && Time.time < until) continue;
-                    if (Sees(p, true)) { BeginChase(p); return; }
+                    if (Sees(p, EyeHeight, GameRules.DameSightRange, FieldOfView)) { BeginChase(p); return; }
                 }
-                if (pathIndex >= path.Count)
-                {
-                    int node = nav.NodeAt(transform.position);
-                    int zone = node >= 0 ? nav.ZoneOfNode(node) : 0;
-                    PlanPath(nav.RandomNode(zone, rnd, transform.position, 10f, 40f), 0f);
-                }
-                FollowPath(dt);
+                Wander(dt);
                 break;
             }
         }
@@ -172,7 +133,7 @@ public class Dame : MonoBehaviour
     {
         Current = State.Chase;
         TargetId = p.PlayerId;
-        chaseTimer = Mathf.Lerp(GameRules.DameChaseMin, GameRules.DameChaseMax, (float)rnd.NextDouble());
+        chaseTimer = Range(GameRules.DameChaseMin, GameRules.DameChaseMax);
         Watched = false;
         repathTimer = 0f;
     }
@@ -183,8 +144,7 @@ public class Dame : MonoBehaviour
         Current = State.Wander;
         TargetId = "";
         Watched = false;
-        path.Clear();
-        pathIndex = 0;
+        ClearPath();
     }
 
     void StartAttack(string targetId)
@@ -194,25 +154,8 @@ public class Dame : MonoBehaviour
         attackTimer = 0f;
         hitDone = false;
         Speed = 0f;
-        onAttack?.Invoke(this, targetId);
-    }
-
-    public static float AttackLength => AttackDuration;
-
-    static PlayerPresence Find(IReadOnlyList<PlayerPresence> players, string id)
-    {
-        if (string.IsNullOrEmpty(id)) return null;
-        foreach (var p in players) if (p.PlayerId == id) return p;
-        return null;
-    }
-
-    // Cible possible : vivante, hors du Hub (endroit sûr).
-    static bool Valid(PlayerPresence p) => p != null && p.Alive && p.isActiveAndEnabled && !WorldBuilder.IsInHub(p.Position);
-
-    bool InReach(PlayerPresence p, float distance)
-    {
-        Vector3 d = p.Position - transform.position;
-        return Horizontal(d).magnitude < distance && Mathf.Abs(d.y - 0.9f) < ReachVertical;
+        // Le joueur visé ne peut plus bouger jusqu'à la fin de son geste.
+        Host?.Immobilize(this, targetId, AttackDuration);
     }
 
     // Personnage à moins de 4 m (2 m en marche discrète), quel que soit l'angle, sans mur entre eux.
@@ -221,113 +164,28 @@ public class Dame : MonoBehaviour
         Vector3 d = p.Position - transform.position;
         float radius = SenseRadius * (p.Sneaking ? 0.5f : 1f);
         if (Horizontal(d).magnitude > radius || Mathf.Abs(d.y - 0.9f) > 2.5f) return false;
-        return !Physics.Linecast(transform.position + Vector3.up * 1.2f, p.Position + Vector3.up * 0.4f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+        return ClearLine(transform.position + Vector3.up * 1.2f, p.Position + Vector3.up * 0.4f);
     }
 
-    // Repère un personnage : à portée (moitié moins en marche discrète), dans son champ de vision et sans obstacle.
-    bool Sees(PlayerPresence p, bool useFieldOfView)
+    // ================= Affichage =================
+
+    protected override void OnStateChanged(byte previous, byte next)
     {
-        Vector3 eye = transform.position + Vector3.up * EyeHeight;
-        Vector3 target = p.Position + Vector3.up * 0.4f;
-        Vector3 d = target - eye;
-        float range = GameRules.DameSightRange * (p.Sneaking ? 0.5f : 1f);
-        if (d.magnitude > range) return false;
-        if (useFieldOfView && Vector3.Angle(transform.forward, Horizontal(d)) > FieldOfView * 0.5f) return false;
-        return !Physics.Linecast(eye, target, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+        if ((State)next == State.Chase && (State)previous == State.Wander) GameAudio.Play3D("dame_scream", transform.position + Vector3.up * 1.7f, 1f, 35f, 0.05f);
+        if ((State)next == State.Attack) GameAudio.Play3D("dame_attack", transform.position + Vector3.up * 1.4f, 1f, 25f, 0.05f);
     }
 
-    // Pieds du personnage (sa position est le centre de sa capsule).
-    static Vector3 Feet(PlayerPresence p) => p.Position + Vector3.down * 0.9f;
+    // Hurlement périodique, entendu par tous les joueurs à 40 m.
+    protected override void OnPulse() =>
+        GameAudio.Play3DSmooth("dame_scream", transform.position + Vector3.up * 1.7f, 0.9f, GameRules.DameScreamRange, RandomPitch());
 
-    void PlanPath(int goal, float delay, int maxExpansions = 20000)
+    protected override void Animate(float dt)
     {
-        repathTimer = delay;
-        path.Clear();
-        if (goal >= 0) path.AddRange(nav.Path(nav.NodeAt(transform.position), goal, maxExpansions));
-        pathIndex = path.Count > 1 ? 1 : path.Count;
-    }
-
-    void FollowPath(float dt)
-    {
-        if (pathIndex >= path.Count) return;
-        Vector3 wp = nav.Position(path[pathIndex]);
-        if (Horizontal(wp - transform.position).magnitude < WaypointReach)
-        {
-            pathIndex++;
-            if (pathIndex >= path.Count) return;
-            wp = nav.Position(path[pathIndex]);
-        }
-        MoveTowards(wp, dt);
-    }
-
-    // Avance vers 'goal' (un point de la grille, ou le personnage au même niveau) ; la hauteur suit le segment,
-    // donc les escaliers, sans jamais quitter le sol.
-    void MoveTowards(Vector3 goal, float dt)
-    {
-        Vector3 d = Horizontal(goal - transform.position);
-        float dist = d.magnitude;
-        if (dist < 0.01f) return;
-        float move = Mathf.Min(dist, Speed * dt);
-        Vector3 p = transform.position + d / dist * move;
-        p.y = Mathf.Lerp(transform.position.y, goal.y, move / dist);
-        transform.position = p;
-        transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(d), 1f - Mathf.Exp(-8f * dt));
-    }
-
-    static Vector3 Horizontal(Vector3 v) => new Vector3(v.x, 0f, v.z);
-
-    // ================= Réseau et affichage =================
-
-    public void SetNetState(double time, Vector3 pos, float yaw, State state, string target)
-    {
-        smoother.Push(time, pos, yaw);
-        if (state != Current) OnStateChanged(state);
-        Current = state;
-        TargetId = target;
-        if (!hasNet)
-        {
-            hasNet = true;
-            transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
-        }
-    }
-
-    public void OnStateChanged(State next)
-    {
-        if (next == State.Chase && Current == State.Wander) GameAudio.Play3D("dame_scream", transform.position + Vector3.up * 1.7f, 1f, 35f, 0.05f);
-        if (next == State.Attack) GameAudio.Play3D("dame_attack", transform.position + Vector3.up * 1.4f, 1f, 25f, 0.05f);
-    }
-
-    // L'hôte appelle ceci avant de modifier l'état, pour jouer les mêmes sons que les clients.
-    State lastSimState;
-
-    public void Present(bool isHost, float dt)
-    {
-        if (isHost)
-        {
-            if (Current != lastSimState) OnStateChanged(Current);
-        }
-        else if (hasNet)
-        {
-            smoother.Sample(out Vector3 pos, out float yaw);
-            transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
-        }
-        lastSimState = Current;
-
-        // Vitesse affichée (identique chez tous) : animations.
-        float moved = Horizontal(transform.position - lastPos).magnitude / Mathf.Max(dt, 0.0001f);
-        lastPos = transform.position;
-        visualSpeed = Mathf.Lerp(visualSpeed, moved, 1f - Mathf.Exp(-6f * dt));
-        if (animator != null)
-        {
-            // En chasse, elle court (même à peine plus vite que sa marche).
-            string wanted = Current == State.Attack ? "Attack" : visualSpeed < 0.3f ? "Idle" : Current == State.Chase ? "Run" : "Walk";
-            if (wanted != animState)
-            {
-                animState = wanted;
-                // L'attaque démarre presque sans fondu : le geste reste calé sur le moment du coup.
-                animator.CrossFadeInFixedTime(wanted, wanted == "Attack" ? 0.03f : 0.2f);
-            }
-            animator.speed = wanted == "Walk" ? Mathf.Clamp(visualSpeed / 1.3f, 0.6f, 2f) : wanted == "Run" ? Mathf.Clamp(visualSpeed / 4.5f, 0.8f, 2.2f) : wanted == "Attack" ? attackClipLength / AttackDuration : 1f;
-        }
+        if (animator == null) return;
+        // En chasse, elle court (même à peine plus vite que sa marche).
+        string wanted = Current == State.Attack ? "Attack" : visualSpeed < 0.3f ? "Idle" : Current == State.Chase ? "Run" : "Walk";
+        // L'attaque démarre presque sans fondu : le geste reste calé sur le moment du coup.
+        PlayAnim(wanted, wanted == "Attack" ? 0.03f : 0.2f);
+        animator.speed = wanted == "Walk" ? Mathf.Clamp(visualSpeed / 1.3f, 0.6f, 2f) : wanted == "Run" ? Mathf.Clamp(visualSpeed / 4.5f, 0.8f, 2.2f) : wanted == "Attack" ? attackClipLength / AttackDuration : 1f;
     }
 }

@@ -1,47 +1,93 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+// Appareils posés au sol, ramassables, reliés au réseau d'énergie des Balises (GDD 7.1 à 7.4).
+public enum DeviceKind : byte { Beacon = 0, Enhanced = 1, Teleporter = 2, Station = 3 }
+
 // Balise (GDD 7.1) : petite borne posée au sol, ramassable. La Balise du Hub, plus grande, ne se ramasse pas :
 // elle est chargée 10 minutes au début du jeu (jauge circulaire autour d'elle) et se recharge avec un Chargeur.
+// Balise Améliorée (7.3) : cristal et aura rouges, coordonnées affichées au-dessus d'elle ; ni Abjuration ni apparition
+// d'entité à moins de 5 m. Téléporteur (7.2) et Station Curative (7.4) : chargés s'ils voient une Balise chargée.
 public class Beacon : Interactable
 {
-    public const float HubHeight = 1.5f, Height = 0.85f;
+    public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f, StationHeight = 1.15f;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
     public int Id { get; private set; }   // -1 : Balise du Hub
+    public DeviceKind Kind { get; private set; }
     public bool IsHub => Id < 0;
+    // Balises (simples ou améliorées) : elles relaient l'énergie ; Téléporteur et Station ne font que la recevoir.
+    public bool Relays => Kind == DeviceKind.Beacon || Kind == DeviceKind.Enhanced;
     public bool Charged { get; private set; }
-    // Point d'attache des rayons d'énergie : le cristal.
-    public Vector3 Top => transform.position + Vector3.up * (IsHub ? HubHeight : Height) * 0.86f;
+    public ItemType Item => Kind == DeviceKind.Enhanced ? ItemType.BaliseAmelioree : Kind == DeviceKind.Teleporter ? ItemType.Teleporteur
+        : Kind == DeviceKind.Station ? ItemType.StationCurative : ItemType.Balise;
+    float VisualHeight => IsHub ? HubHeight : Kind == DeviceKind.Teleporter ? PadHeight : Kind == DeviceKind.Station ? StationHeight : Height;
+    // Point d'attache des rayons d'énergie : le cristal (le centre du disque, le haut du tube).
+    public Vector3 Top => transform.position + Vector3.up * (Kind == DeviceKind.Teleporter ? 0.12f : VisualHeight * 0.86f);
 
     Renderer[] bodies;
     GameObject halo;
     Light glow;
     MaterialPropertyBlock block;
+    TextMesh coordinates;
+    ParticleSystem gas;
 
-    public static Beacon Create(Transform parent, int id, Vector3 pos, float yaw)
+    public static Beacon Create(Transform parent, int id, Vector3 pos, float yaw, DeviceKind kind = DeviceKind.Beacon)
     {
         bool hub = id < 0;
-        float height = hub ? HubHeight : Height;
-        var go = new GameObject(hub ? "Balise du Hub" : "Balise " + id);
+        var go = new GameObject(hub ? "Balise du Hub" : kind + " " + id);
         go.transform.SetParent(parent, false);
         go.transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
-        var visual = new GameObject("Visuel").transform;
-        visual.SetParent(go.transform, false);
-        if (GameArt.SpawnModel("Balise", visual, height) == null)
-        {
-            Material stone = GameArt.Lit("BeaconStone", new Color(0.45f, 0.43f, 0.38f), null, 0.15f);
-            GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, height * 0.35f, 0f), new Vector3(0.22f, height * 0.35f, 0.22f) * (height / Height), stone);
-            GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, height * 0.84f, 0f), new Vector3(0.3f, 0.26f, 0.3f) * (height / Height),
-                GameArt.Emissive("BeaconCrystal", new Color(0.2f, 0.45f, 1f), new Color(0.1f, 0.3f, 0.9f)));
-        }
-
         var beacon = go.AddComponent<Beacon>();
         beacon.Id = id;
+        beacon.Kind = kind;
+        float height = beacon.VisualHeight;
+        var visual = new GameObject("Visuel").transform;
+        visual.SetParent(go.transform, false);
+        switch (kind)
+        {
+            case DeviceKind.Teleporter:
+                if (GameArt.SpawnModel("Teleporteur", visual, height) == null)
+                {
+                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.04f, 0f), new Vector3(0.9f, 0.04f, 0.9f), GameArt.Lit("PadBronze", new Color(0.55f, 0.42f, 0.25f), null, 0.6f));
+                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.09f, 0f), new Vector3(0.6f, 0.03f, 0.6f), GameArt.Emissive("PadCore", new Color(1f, 0.65f, 0.1f), new Color(0.8f, 0.45f, 0.05f)));
+                }
+                break;
+            case DeviceKind.Station:
+                if (GameArt.SpawnModel("StationCurative", visual, height) == null)
+                {
+                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.12f, 0f), new Vector3(0.45f, 0.12f, 0.45f), GameArt.Metal);
+                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.6f, 0f), new Vector3(0.32f, 0.38f, 0.32f), GameArt.Lit("StationGlass", new Color(0.7f, 0.9f, 0.75f), null, 0.9f));
+                }
+                beacon.gas = BuildGas(go.transform, height);
+                break;
+            default:
+                if (GameArt.SpawnModel("Balise", visual, height) == null)
+                {
+                    Material stone = GameArt.Lit("BeaconStone", new Color(0.45f, 0.43f, 0.38f), null, 0.15f);
+                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, height * 0.35f, 0f), new Vector3(0.22f, height * 0.35f, 0.22f) * (height / Height), stone);
+                    GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, height * 0.84f, 0f), new Vector3(0.3f, 0.26f, 0.3f) * (height / Height),
+                        kind == DeviceKind.Enhanced ? GameArt.Emissive("BeaconCrystalRed", new Color(1f, 0.2f, 0.15f), new Color(0.9f, 0.1f, 0.05f))
+                                                    : GameArt.Emissive("BeaconCrystal", new Color(0.2f, 0.45f, 1f), new Color(0.1f, 0.3f, 0.9f)));
+                }
+                else if (kind == DeviceKind.Enhanced)
+                {
+                    // Même modèle, cristal rouge (texture virée au rouge par "Installer les entités V0.4").
+                    var red = Resources.Load<Material>("Art/BaliseRouge");
+                    if (red != null) foreach (var r in visual.GetComponentsInChildren<Renderer>()) r.sharedMaterial = red;
+                }
+                break;
+        }
+
         beacon.bodies = visual.GetComponentsInChildren<Renderer>();
         beacon.block = new MaterialPropertyBlock();
-        // Halo bleu autour du cristal quand la Balise est chargée.
-        beacon.halo = GameArt.Prim(PrimitiveType.Sphere, go.transform, new Vector3(0f, height * 0.86f, 0f), Vector3.one * height * 0.26f, GameArt.GhostAura);
+        // Halo autour du cristal quand l'appareil est chargé (rouge pour la Balise Améliorée).
+        Material aura = kind == DeviceKind.Enhanced ? GameArt.GhostAuraTinted("Red", new Color(1f, 0.2f, 0.15f))
+            : kind == DeviceKind.Teleporter ? GameArt.GhostAuraTinted("Amber", new Color(1f, 0.65f, 0.2f))
+            : kind == DeviceKind.Station ? GameArt.GhostAuraTinted("Green", new Color(0.3f, 1f, 0.4f)) : GameArt.GhostAura;
+        float haloSize = kind == DeviceKind.Teleporter ? 0.7f : kind == DeviceKind.Station ? 0.55f : height * 0.26f;
+        beacon.halo = GameArt.Prim(PrimitiveType.Sphere, go.transform, beacon.Top - pos, Vector3.one * haloSize, aura);
+        if (kind == DeviceKind.Teleporter) beacon.halo.transform.localScale = new Vector3(haloSize, 0.18f, haloSize);
         Object.Destroy(beacon.halo.GetComponent<Collider>());
         if (hub)
         {
@@ -59,9 +105,47 @@ public class Beacon : Interactable
             solid.height = height;
             solid.radius = 0.22f;
         }
-        beacon.FitTrigger(new Vector3(0.6f, height, 0.6f));
+        if (kind == DeviceKind.Enhanced)
+        {
+            // Coordonnées (hors hauteur), arrondies à l'entier le plus proche, dans l'air au-dessus d'elle.
+            beacon.coordinates = GameArt.CreateText(go.transform, "Coordonnees", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(1f, 0.45f, 0.4f));
+            beacon.coordinates.text = Mathf.RoundToInt(pos.x) + " / " + Mathf.RoundToInt(pos.z);
+        }
+        beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;
+    }
+
+    // Gaz vert pétillant dans le tube de la Station Curative.
+    static ParticleSystem BuildGas(Transform parent, float height)
+    {
+        var go = new GameObject("Gaz");
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = new Vector3(0f, height * 0.25f, 0f);
+        go.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+        var ps = go.AddComponent<ParticleSystem>();
+        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        var main = ps.main;
+        main.loop = true;
+        main.startLifetime = 1.3f;
+        main.startSpeed = new ParticleSystem.MinMaxCurve(0.15f, 0.45f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.03f, 0.08f);
+        main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.3f, 1f, 0.35f, 0.9f), new Color(0.75f, 1f, 0.5f, 0.9f));
+        main.maxParticles = 60;
+        main.simulationSpace = ParticleSystemSimulationSpace.Local;
+        var emission = ps.emission;
+        emission.rateOverTime = 28f;
+        var shape = ps.shape;
+        shape.shapeType = ParticleSystemShapeType.Circle;
+        shape.radius = 0.12f;
+        var color = ps.colorOverLifetime;
+        color.enabled = true;
+        var g = new Gradient();
+        g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                  new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.2f), new GradientAlphaKey(0f, 1f) });
+        color.color = g;
+        go.GetComponent<ParticleSystemRenderer>().sharedMaterial = GameArt.Spark;
+        return ps;
     }
 
     public void SetCharged(bool on)
@@ -69,15 +153,18 @@ public class Beacon : Interactable
         Charged = on;
         halo.SetActive(on);
         if (glow != null) glow.enabled = on;
+        if (gas != null) { if (on && !gas.isPlaying) gas.Play(); else if (!on && gas.isPlaying) gas.Stop(); }
         block.SetColor("_Color", on ? ChargedTint : DischargedTint);
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
     }
 
     void Update()
     {
-        if (!Charged) return;
+        if (coordinates != null && Camera.main != null)
+            coordinates.transform.rotation = Quaternion.LookRotation(coordinates.transform.position - Camera.main.transform.position);
+        if (!Charged || Kind == DeviceKind.Teleporter) return;
         // Le halo respire doucement.
-        float s = (IsHub ? HubHeight : Height) * (0.26f + 0.03f * Mathf.Sin(Time.time * 2.4f + Id));
+        float s = (Kind == DeviceKind.Station ? 0.55f : VisualHeight * 0.26f) * (1f + 0.12f * Mathf.Sin(Time.time * 2.4f + Id));
         halo.transform.localScale = Vector3.one * s;
     }
 
@@ -85,7 +172,7 @@ public class Beacon : Interactable
     {
         get
         {
-            if (!IsHub) return "Ramasser la Balise";
+            if (!IsHub) return "Ramasser " + Items.Get(Item).name;
             var session = GameSession.Instance;
             if (session != null && session.SelectedItem == ItemType.Chargeur) return "Recharger la Balise du Hub";
             return Charged ? "Balise du Hub (chargée)" : "Balise du Hub (déchargée) : utilisez un Chargeur";
@@ -99,6 +186,7 @@ public class Beacon : Interactable
 
 // Ensemble des Balises d'une partie : charge de la Balise du Hub, propagation de la charge (vision directe,
 // aucun mur entre deux Balises) et rayons d'énergie bleus, qui circulent des Balises éloignées vers le Hub.
+// Téléporteurs et Stations Curatives se chargent en voyant une Balise chargée, sans relayer l'énergie.
 public class BeaconNetwork : MonoBehaviour
 {
     const float RecomputeInterval = 0.4f;
@@ -137,16 +225,30 @@ public class BeaconNetwork : MonoBehaviour
         return net;
     }
 
-    public Beacon Add(int id, Vector3 pos)
+    public Beacon Add(int id, Vector3 pos, DeviceKind kind = DeviceKind.Beacon)
     {
         if (placed.TryGetValue(id, out var existing) && existing != null) return existing;
-        var b = Beacon.Create(transform, id, pos, Random.Range(0f, 360f));
+        var b = Beacon.Create(transform, id, pos, Random.Range(0f, 360f), kind);
         placed[id] = b;
         dirty = true;
         return b;
     }
 
     public Beacon Get(int id) => placed.TryGetValue(id, out var b) ? b : null;
+    public IEnumerable<Beacon> Placed => placed.Values;
+
+    // Liens d'énergie d'un appareil chargé jusqu'à la Balise du Hub (points d'attache), ou null s'il n'est pas relié.
+    public List<Vector3> PathToHub(Beacon from)
+    {
+        var points = new List<Vector3>();
+        for (Beacon b = from; b != null; b = parentOf.TryGetValue(b, out var next) ? next : null)
+        {
+            points.Add(b.Top);
+            if (b == hub) return points;
+            if (points.Count > 256) break;
+        }
+        return null;
+    }
 
     public void Remove(int id)
     {
@@ -184,7 +286,8 @@ public class BeaconNetwork : MonoBehaviour
         var charged = new List<Beacon>();
         if (HubCharged) charged.Add(hub);
         var pending = new List<Beacon>();
-        foreach (var b in placed.Values) if (b != null) pending.Add(b);
+        var leaves = new List<Beacon>();
+        foreach (var b in placed.Values) if (b != null) (b.Relays ? pending : leaves).Add(b);
         for (int head = 0; head < charged.Count; head++)
         {
             Beacon from = charged[head];
@@ -195,6 +298,18 @@ public class BeaconNetwork : MonoBehaviour
                 charged.Add(pending[i]);
                 pending.RemoveAt(i);
             }
+        }
+        // Téléporteurs et Stations : reliés à la Balise chargée la plus proche qu'ils voient.
+        foreach (var leaf in leaves)
+        {
+            Beacon best = null;
+            float bestDist = float.MaxValue;
+            foreach (var from in charged)
+            {
+                float d = (from.Top - leaf.Top).sqrMagnitude;
+                if (d < bestDist && InSight(from, leaf)) { best = from; bestDist = d; }
+            }
+            if (best != null) parentOf[leaf] = best;
         }
         hub.SetCharged(HubCharged);
         foreach (var b in placed.Values)
@@ -212,7 +327,7 @@ public class BeaconNetwork : MonoBehaviour
         {
             Collider c = hits[i].collider;
             if (!c.transform.IsChildOf(world)) continue;
-            if (c.GetComponentInParent<Interactable>() != null || c.GetComponentInParent<Dame>() != null) continue;
+            if (c.GetComponentInParent<Interactable>() != null || c.GetComponentInParent<Entity>() != null) continue;
             return false;
         }
         return true;

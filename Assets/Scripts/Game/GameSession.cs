@@ -3,7 +3,8 @@ using System.Text;
 using UnityEngine;
 
 // Boucle de jeu : Hub, manches, quota, cagnotte, objets, Terminal, Chenils, logs, morts et réanimations,
-// sérénité et Abjuration, La Dame, orbes et porte de la Zone 2, Post-It et Boussole.
+// sérénité et Abjuration, entités (La Dame, La Tour, Le Pion, La Cloche, L'Araignée), orbes et porte de la Zone 2,
+// Post-It, Boussole, Balises, Téléporteurs et Stations Curatives.
 // L'hôte fait autorité sur l'état de la partie ; chaque client gère les PV, la sérénité et l'inventaire de son personnage.
 // Messages (en plus de ceux de NetworkGame) :
 //   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|orbes   hôte -> tous : état de la partie
@@ -19,17 +20,22 @@ using UnityEngine;
 //   PP|x|y|z|nx|ny|nz|texte -> PA|id|x|y|z|nx|ny|nz|texte       Post-It accroché
 //   PD|id -> PX|id                                              Post-It retiré
 //   OB|orbe|case -> OU|case (-1 = refusé)                       Clé utilisée sur un orbe
-//   EN|t|id,x,y,z,lacet,état,cible;...                          hôte -> tous : entités (La Dame), t = heure d'envoi (canal rapide)
+//   EN|t|id,type,x,y,z,lacet,état,cible,événements,données;...  hôte -> tous : entités, t = heure d'envoi (canal rapide)
 //   LK|id|1/0                                                   le joueur chassé regarde (ou non) La Dame
-//   DH|x|z                                                      hôte -> joueur : La Dame vous frappe depuis (x, z)
-//   BN|x|y|z / BG|id / BC                                       joueur -> hôte : poser / ramasser une Balise, utiliser un Chargeur
-//   BW|id|x|y|z / BZ|id                                         hôte -> tous : Balise posée / retirée
+//   EH|dégâts|x|z|recul|type                                    hôte -> joueur : une entité vous frappe depuis (x, z)
+//   TA                                                          hôte -> joueur : La Tour vous a repéré (alerte)
+//   PS|entité -> PT|entité|objet                                le Pion vole un objet ramassable (0 : rien à voler)
+//   NZ                                                          joueur -> hôte : saut (action bruyante, pour L'Araignée)
+//   DR|objet|x|y|z -> IA|id|objet|x|y|z                         objet laissé à terre (mort, Pion), ramassable comme les autres
+//   BN|x|y|z|appareil / BG|id / BC                              joueur -> hôte : poser / ramasser un appareil, utiliser un Chargeur
+//   BW|id|x|y|z|appareil / BZ|id                                hôte -> tous : appareil posé / retiré (Balise, Balise Améliorée,
+//                                                               Téléporteur, Station Curative)
 //   JO / JS|objet / JE                                          joueur -> hôte : ouvrir Pogo / lui vendre un objet / cliquer les mains vides
 //   JX|état|sourire|frappé / JK / JN|raison                     hôte -> tous : état de Pogo ; -> joueur : coup mortel / refus
 //   DF|durée                                                    hôte -> joueur : La Dame vous attaque, immobilisé
 //   SK -> SR|bonus (-1 = refusé)                                /skip round : passer à la manche suivante
 //   BK|pitch -> BA|id|pitch                                     aboiement d'un joueur
-public class GameSession : MonoBehaviour
+public class GameSession : MonoBehaviour, IEntityHost
 {
     enum Phase { Waiting = 0, Running = 1, GameOver = 2 }
 
@@ -61,7 +67,12 @@ public class GameSession : MonoBehaviour
     readonly Dictionary<string, Kennel> kennels = new Dictionary<string, Kennel>();
     readonly Dictionary<int, ItemPickup> items = new Dictionary<int, ItemPickup>();
     readonly Dictionary<int, PostItNote> notes = new Dictionary<int, PostItNote>();
-    readonly Dictionary<int, Dame> dames = new Dictionary<int, Dame>();
+    readonly Dictionary<int, Entity> entities = new Dictionary<int, Entity>();
+    // Objets laissés à terre (mort d'un joueur, Pion) : ids à partir de DropIdBase, objet, position et Pion voleur.
+    const int DropIdBase = 100000;
+    class Dropped { public ItemType type; public Vector3 pos; public int stolenBy = -1; }
+    readonly Dictionary<int, Dropped> dropped = new Dictionary<int, Dropped>();
+    int nextDropId;
 
     // État de la partie (autorité : hôte).
     int seed, builtSeed = -1, itemsRound = -1;
@@ -80,7 +91,7 @@ public class GameSession : MonoBehaviour
     // Post-It accrochés (hôte : message complet, pour les joueurs qui arrivent).
     readonly Dictionary<int, string> noteMessages = new Dictionary<int, string>();
     readonly Dictionary<int, float> notePlacedAt = new Dictionary<int, float>();
-    int nextNoteId, nextDameId;
+    int nextNoteId, nextEntityId;
     // Balises posées (hôte : message complet, pour les joueurs qui arrivent).
     readonly Dictionary<int, string> beaconMessages = new Dictionary<int, string>();
     int nextBeaconId;
@@ -96,6 +107,17 @@ public class GameSession : MonoBehaviour
     float invincibleUntil; // fin de l'invincibilité qui suit un /tp
     readonly Queue<float> barkTimes = new Queue<float>();
     readonly Dictionary<int, bool> watching = new Dictionary<int, bool>();
+    // Hôte : dernière action bruyante de chaque joueur (L'Araignée), vols du Pion en attente de réponse.
+    readonly Dictionary<string, float> noiseAt = new Dictionary<string, float>();
+    readonly Dictionary<int, System.Action<ItemType>> pendingSteals = new Dictionary<int, System.Action<ItemType>>();
+    // Téléportation (joueur local) : canalisation près d'un Téléporteur chargé, puis voyage en boule d'énergie.
+    Beacon channelPad;
+    float channelTime, clocheTimer, stationAcc;
+    bool healing;
+    List<Vector3> teleportPath;
+    int teleportLeg;
+    GameObject energyBall;
+    public static bool Teleporting { get; private set; }
 
     public PlayerPresence LocalPresence => net.InGame ? presence : null;
     public bool LocalDead => status.Dead;
@@ -106,6 +128,7 @@ public class GameSession : MonoBehaviour
     public bool HasFreeSlot => status.FreeSlots - pendingPickups > 0;
     public bool CompassUnlocked => compass;
     public ItemType SelectedItem => status.Selected >= 0 ? status[status.Selected] : ItemType.None;
+    public IEnumerable<Entity> Entities => entities.Values;
     bool AbjurationActive => phase == Phase.Running && timeLeft <= GameRules.AbjurationStart;
 
     public void Init(NetworkGame network, PlayerController localPlayer)
@@ -118,8 +141,10 @@ public class GameSession : MonoBehaviour
         avatar = player.GetComponent<CharacterAvatar>();
         orbit = FindObjectOfType<OrbitCamera>();
         status.Changed += RefreshHud;
+        player.Jumped += () => net.ToHost("NZ");
 
         ConfigureRendering();
+        Entity.Host = this;
         GameAudio.Init();
         player.gameObject.AddComponent<Footsteps>();
         worldRoot = new GameObject("Monde").transform;
@@ -196,7 +221,8 @@ public class GameSession : MonoBehaviour
         statsRound = 1;
         noteMessages.Clear();
         notePlacedAt.Clear();
-        nextNoteId = nextDameId = nextBeaconId = 0;
+        nextNoteId = nextEntityId = nextBeaconId = nextDropId = 0;
+        dropped.Clear();
         hostAbjuration = false;
         ResetHubFixtures();
         ApplyWorld();
@@ -254,6 +280,8 @@ public class GameSession : MonoBehaviour
         noteMessages.Clear();
         notePlacedAt.Clear();
         hostAbjuration = false;
+        dropped.Clear();
+        EndTeleport(false);
         ResetHubFixtures();
         status.ClearInventory();
         status.SetDead(false);
@@ -319,6 +347,8 @@ public class GameSession : MonoBehaviour
             for (int k = 0; k < count; k++, id++)
                 items[id] = ItemPickup.Create(itemsRoot, id, ItemType.Canard, spots[k]);
         }
+        // Les objets laissés à terre restent d'une manche à l'autre.
+        foreach (var kv in dropped) items[kv.Key] = ItemPickup.Create(itemsRoot, kv.Key, kv.Value.type, kv.Value.pos);
     }
 
     void ClearItems()
@@ -329,6 +359,7 @@ public class GameSession : MonoBehaviour
 
     void RemoveItem(int id)
     {
+        dropped.Remove(id);
         if (items.TryGetValue(id, out var it))
         {
             if (it != null) Destroy(it.gameObject);
@@ -347,7 +378,7 @@ public class GameSession : MonoBehaviour
     void Update()
     {
         bool inGame = net.InGame;
-        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || phase == Phase.GameOver;
+        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || phase == Phase.GameOver || Teleporting;
         OrbitCamera.CursorLockBlocked = TerminalUI.IsOpen || PostItUI.IsOpen || GameHud.GameOverVisible;
 
         if (phase == Phase.Running)
@@ -403,6 +434,9 @@ public class GameSession : MonoBehaviour
         else serenityRegenAcc = 0f;
 
         if (!PlayerController.InputLocked && !status.Dead && Input.GetKeyDown(KeyLayout.Bark)) TryBark();
+        UpdateTeleport();
+        UpdateStations();
+        UpdateCloches();
         UpdateMistContact();
         UpdateWatching();
         UpdateSpectate();
@@ -417,7 +451,9 @@ public class GameSession : MonoBehaviour
 
         var target = player.GetComponent<PlayerInteractor>().Current;
         string prompt = target != null ? target.Prompt : "";
-        hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : "[E] " + prompt);
+        if (channelPad != null)
+            hud.SetPrompt("Téléportation dans " + Mathf.CeilToInt(GameRules.TeleportChannel - channelTime) + " s... (éloignez-vous pour annuler)");
+        else hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : "[E] " + prompt);
         hud.SetCompass(compass && !status.Dead, player.transform.eulerAngles.y);
     }
 
@@ -434,6 +470,7 @@ public class GameSession : MonoBehaviour
         bool abjuration = net.InGame && AbjurationActive;
         mistAmount = Mathf.MoveTowards(mistAmount, abjuration ? 1f : 0f, Time.deltaTime / 4f);
         Shader.SetGlobalFloat("_Abjuration", mistAmount);
+        UpdateMistHoles();
         if (maze != null && maze.mist.activeSelf != mistAmount > 0.001f) maze.mist.SetActive(mistAmount > 0.001f);
         float low = cam != null && !inHub ? Mathf.Clamp01((2.2f - cam.transform.position.y) / 1.5f) : 0f;
         RenderSettings.fogColor = Color.Lerp(Color.black, MistFog, mistAmount * low);
@@ -521,8 +558,8 @@ public class GameSession : MonoBehaviour
         Vector3 p = player.transform.position;
         var capsule = player.GetComponent<CapsuleCollider>();
         float feet = p.y + capsule.center.y - capsule.height * 0.5f;
-        bool inMist = !status.Dead && AbjurationActive && mistAmount > 0.5f && maze != null
-            && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop;
+        bool inMist = !status.Dead && !Teleporting && AbjurationActive && mistAmount > 0.5f && maze != null
+            && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
         // Dans la brume, le personnage avance 20 % moins vite.
         player.SpeedFactor = inMist ? GameRules.MistSpeedMultiplier : 1f;
         if (!inMist)
@@ -715,7 +752,7 @@ public class GameSession : MonoBehaviour
     public void DamageLocal(int amount, string cause)
     {
         if (status.Dead || phase == Phase.GameOver || !net.InGame) return;
-        if (WorldBuilder.IsInHub(player.transform.position) || Invincible) return;
+        if (WorldBuilder.IsInHub(player.transform.position) || Invincible || Teleporting) return;
         status.SetHp(status.Hp - amount);
         hud.FlashDamage();
         GameAudio.Play2D("hurt", 0.9f, 0.08f);
@@ -726,11 +763,20 @@ public class GameSession : MonoBehaviour
     {
         if (status.Dead) return;
         status.SetDead(true);
-        status.ClearInventory(); // tous les objets portés sont perdus
+        EndTeleport(false);
+        channelPad = null;
+        // Les objets du Terminal sont détruits ; les autres (avec un modèle 3D) restent à terre près du corps.
+        var left = new List<ItemType>();
+        if (cause != null)
+            for (int i = 0; i < GameRules.InventorySize; i++)
+                if (Items.DropsOnDeath(status[i])) left.Add(status[i]);
+        status.ClearInventory();
         pendingPickups = 0;
         presence.Alive = false;
         avatar.SetDead(true);
         player.SetFrozen(true);
+        // Capsule désactivée : les objets tombent jusqu'au sol.
+        foreach (var type in left) DropNear(type, player.transform.position);
         terminal.Close();
         postItUI.Close();
         // Au game over, l'accord lugubre remplace les râles.
@@ -761,7 +807,16 @@ public class GameSession : MonoBehaviour
                 hud.Toast("Le Canard en Plastique ne sert qu'à être vendu (à Pogo, dans le Hub).");
                 break;
             case ItemType.Balise:
-                TryPlaceBeacon(slot);
+                TryPlaceBeacon(slot, DeviceKind.Beacon);
+                break;
+            case ItemType.BaliseAmelioree:
+                TryPlaceBeacon(slot, DeviceKind.Enhanced);
+                break;
+            case ItemType.Teleporteur:
+                TryPlaceBeacon(slot, DeviceKind.Teleporter);
+                break;
+            case ItemType.StationCurative:
+                TryPlaceBeacon(slot, DeviceKind.Station);
                 break;
             case ItemType.Chargeur:
                 hud.Toast("Visez la Balise du Hub, près de la porte, pour la recharger.");
@@ -821,9 +876,10 @@ public class GameSession : MonoBehaviour
 
     // ================= Balises =================
 
-    // Viser le sol (hors du Hub, assez près) pose la Balise.
-    void TryPlaceBeacon(int slot)
+    // Viser le sol (hors du Hub, assez près) pose la Balise (ou la Balise Améliorée, le Téléporteur, la Station Curative).
+    void TryPlaceBeacon(int slot, DeviceKind kind)
     {
+        string what = Items.Get(status[slot]).name;
         Camera cam = Camera.main;
         if (cam == null) return;
         Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
@@ -833,16 +889,16 @@ public class GameSession : MonoBehaviour
             && Vector3.Distance(hit.point, player.transform.position) <= GameRules.InteractRange + 1.5f;
         if (!ground)
         {
-            hud.Toast("Visez le sol, tout près de vous, pour y poser la Balise.");
+            hud.Toast("Visez le sol, tout près de vous, pour y poser : " + what + ".");
             return;
         }
         if (WorldBuilder.IsInHub(hit.point))
         {
-            hud.Toast("Les Balises se posent hors du Hub.");
+            hud.Toast(what + " : à poser hors du Hub.");
             return;
         }
         status.RemoveAt(slot);
-        net.ToHost("BN|" + NetworkGame.F(hit.point.x) + "|" + NetworkGame.F(hit.point.y) + "|" + NetworkGame.F(hit.point.z));
+        net.ToHost("BN|" + NetworkGame.F(hit.point.x) + "|" + NetworkGame.F(hit.point.y) + "|" + NetworkGame.F(hit.point.z) + "|" + (int)kind);
     }
 
     public void InteractBeacon(Beacon beacon)
@@ -920,24 +976,28 @@ public class GameSession : MonoBehaviour
         net.ToHost("OB|" + orb + "|" + slot);
     }
 
-    // ================= Entités (La Dame) =================
+    // ================= Entités =================
 
     // /spawn : fait apparaître l'entité 'id' dans la Zone 1. Retourne le message du Terminal.
     public string SpawnEntity(int id)
     {
         if (!net.IsHost) return "Commande Incorrecte.";
         if (maze == null || phase == Phase.GameOver) return "Impossible pour le moment.";
+        var rnd = new System.Random(seed + nextEntityId * 131 + Mathf.RoundToInt(Time.time * 10f));
         switch (id)
         {
             case 1: return "Les Lasers ne peuvent plus apparaître une fois le terrain généré.";
-            case 2:
-                SpawnDame(0, new System.Random(seed + nextDameId * 131 + Mathf.RoundToInt(Time.time * 10f)));
-                return "La Dame rôde désormais dans la Zone 1...";
+            case 2: return SpawnAt<Dame>(0, rnd, 18f) != null ? "La Dame rôde désormais dans la Zone 1..." : "Impossible pour le moment.";
+            case 3: return SpawnAt<Tour>(0, rnd, 18f) != null ? "La Tour arpente désormais la Zone 1..." : "Impossible pour le moment.";
+            case 4: return SpawnPions(0, rnd) > 0 ? "Des Pions s'installent dans la Zone 1..." : "Impossible pour le moment.";
+            case 5: return SpawnAt<Cloche>(0, rnd, 18f) != null ? "La Cloche attend dans la Zone 1..." : "Impossible pour le moment.";
+            case 6: return SpawnAt<Spider>(0, rnd, GameRules.SpiderSpawnClearance) != null ? "Une Araignée rôde dans la Zone 1..." : "Impossible pour le moment.";
             default: return "Aucune entité n'a l'ID " + id + ".";
         }
     }
 
-    // Début de manche (hôte) : les entités de la manche précédente disparaissent, celles du tableau apparaissent.
+    // Début de manche (hôte) : les entités de la manche précédente disparaissent, celles du tableau apparaissent,
+    // avec les entités de type Normal (Pion, Cloche).
     void SpawnRoundEntities()
     {
         ClearEntities();
@@ -945,8 +1005,10 @@ public class GameSession : MonoBehaviour
         if (maze == null || phase != Phase.Running) return;
         var rnd = new System.Random(seed * 17 + round * 613);
         for (int zone = 0; zone < 2; zone++)
-            for (int k = 0; k < GameRules.NightmaresForRound(round, zone); k++)
-                SpawnDame(zone, rnd);
+        {
+            for (int k = 0; k < GameRules.NightmaresForRound(round, zone); k++) SpawnNightmare(zone, rnd);
+            for (int k = 0; k < GameRules.NormalsForRound(round, zone); k++) SpawnNormal(zone, rnd);
+        }
     }
 
     // Cauchemar retardé de la manche 1 (hôte), sans aucun message dans les logs.
@@ -960,31 +1022,93 @@ public class GameSession : MonoBehaviour
         SpawnNightmare(0, new System.Random(seed * 31 + 7919));
     }
 
-    // Entités de type Cauchemar (La Dame est la seule pour l'instant) : l'une d'elles, au hasard.
+    // Entités de type Cauchemar (La Dame, La Tour) : l'une d'elles, au hasard.
     void SpawnNightmare(int zone, System.Random rnd)
     {
-        System.Action<int, System.Random>[] nightmares = { SpawnDame };
-        nightmares[rnd.Next(nightmares.Length)](zone, rnd);
+        if (rnd.Next(2) == 0) SpawnAt<Dame>(zone, rnd, 18f);
+        else SpawnAt<Tour>(zone, rnd, 18f);
     }
 
-    void SpawnDame(int zone, System.Random rnd)
+    // Entités de type Normal (un groupe de Pions, La Cloche) : l'une d'elles, au hasard.
+    void SpawnNormal(int zone, System.Random rnd)
     {
-        // Sur la grille de navigation, loin du Hub et des joueurs.
-        if (!maze.nav.Ready) maze.nav.BuildAll();
-        Vector3 away = Vector3.zero;
-        int node = maze.nav.RandomNode(zone, rnd, away, 30f);
-        if (node < 0) return;
-        for (int attempt = 0; attempt < 20; attempt++)
+        if (rnd.Next(2) == 0) SpawnPions(zone, rnd);
+        else SpawnAt<Cloche>(zone, rnd, 18f);
+    }
+
+    // "Faire apparaître un Pion", c'est faire apparaître un groupe de 1 à 3 Pions, côte à côte.
+    int SpawnPions(int zone, System.Random rnd)
+    {
+        var first = SpawnAt<Pion>(zone, rnd, 18f);
+        if (first == null) return 0;
+        int count = 1 + rnd.Next(3);
+        for (int k = 1; k < count; k++)
         {
-            bool near = false;
-            foreach (var p in PlayerPresence.All)
-                if (p.Alive && Vector3.Distance(p.Position, maze.nav.Position(node)) < 18f) near = true;
-            if (!near) break;
-            node = maze.nav.RandomNode(zone, rnd, away, 30f);
+            Vector3 offset = Quaternion.Euler(0f, k * 120f, 0f) * Vector3.forward * 1.2f;
+            int node = maze.nav.NodeAt(first.transform.position + offset);
+            Vector3 pos = node >= 0 ? maze.nav.Position(node) : first.transform.position;
+            var pion = Entity.Create<Pion>(entitiesRoot, nextEntityId++, pos, (float)rnd.NextDouble() * 360f, maze.nav);
+            pion.Home = first.Home;
+            entities[pion.Id] = pion;
         }
-        Vector3 pos = maze.nav.Position(node);
-        int id = nextDameId++;
-        dames[id] = Dame.Create(entitiesRoot, id, pos, (float)rnd.NextDouble() * 360f, maze.nav, OnDameHit, OnDameAttack);
+        return count;
+    }
+
+    // L'Abjuration commence (hôte) : 5 Araignées par zone déverrouillée, loin des joueurs.
+    void SpawnSpiders()
+    {
+        if (maze == null || phase != Phase.Running) return;
+        var rnd = new System.Random(seed * 41 + round * 977);
+        int zones = maze.zoneDoor.IsOpen ? 2 : 1;
+        for (int zone = 0; zone < zones; zone++)
+            for (int k = 0; k < GameRules.SpidersPerZone; k++)
+                SpawnAt<Spider>(zone, rnd, GameRules.SpiderSpawnClearance);
+    }
+
+    // Sur la grille de navigation de la zone, loin du Hub, des joueurs et des Balises Améliorées.
+    T SpawnAt<T>(int zone, System.Random rnd, float playerClearance) where T : Entity
+    {
+        if (!maze.nav.Ready) maze.nav.BuildAll();
+        int node = -1;
+        for (int attempt = 0; attempt < 30; attempt++)
+        {
+            int candidate = maze.nav.RandomNode(zone, rnd, Vector3.zero, 30f);
+            if (candidate < 0) continue;
+            node = candidate;
+            Vector3 p = maze.nav.Position(candidate);
+            bool blocked = NearEnhancedBeacon(p);
+            foreach (var pl in PlayerPresence.All)
+                if (pl.Alive && Vector3.Distance(pl.Position, p) < playerClearance) blocked = true;
+            if (!blocked) break;
+        }
+        if (node < 0) return null;
+        var e = Entity.Create<T>(entitiesRoot, nextEntityId++, maze.nav.Position(node), (float)rnd.NextDouble() * 360f, maze.nav);
+        entities[e.Id] = e;
+        return e;
+    }
+
+    Entity CreateEntity(EntityKind kind, int id, Vector3 pos, float yaw)
+    {
+        switch (kind)
+        {
+            case EntityKind.Tour: return Entity.Create<Tour>(entitiesRoot, id, pos, yaw, maze.nav);
+            case EntityKind.Pion: return Entity.Create<Pion>(entitiesRoot, id, pos, yaw, maze.nav);
+            case EntityKind.Cloche: return Entity.Create<Cloche>(entitiesRoot, id, pos, yaw, maze.nav);
+            case EntityKind.Spider: return Entity.Create<Spider>(entitiesRoot, id, pos, yaw, maze.nav);
+            default: return Entity.Create<Dame>(entitiesRoot, id, pos, yaw, maze.nav);
+        }
+    }
+
+    static string EntityName(EntityKind kind)
+    {
+        switch (kind)
+        {
+            case EntityKind.Tour: return "La Tour";
+            case EntityKind.Pion: return "Le Pion";
+            case EntityKind.Cloche: return "La Cloche";
+            case EntityKind.Spider: return "L'Araignée";
+            default: return "La Dame";
+        }
     }
 
     float GroundBelow(Vector3 p)
@@ -997,60 +1121,103 @@ public class GameSession : MonoBehaviour
 
     void ClearEntities()
     {
-        foreach (var d in dames.Values) if (d != null) Destroy(d.gameObject);
-        dames.Clear();
+        foreach (var d in entities.Values) if (d != null) Destroy(d.gameObject);
+        entities.Clear();
         watching.Clear();
+        pendingSteals.Clear();
         lastEntityTime = double.NegativeInfinity;
     }
 
     void SimulateEntities()
     {
         if (phase == Phase.Running)
-            foreach (var d in dames.Values) d.Simulate(Time.deltaTime, PlayerPresence.All);
+            foreach (var d in new List<Entity>(entities.Values)) if (d != null) d.Simulate(Time.deltaTime, PlayerPresence.All);
         entityTimer += Time.unscaledDeltaTime;
         if (entityTimer < EntitySyncInterval) return;
         // Rythme régulier : le temps en trop est reporté sur l'envoi suivant.
         entityTimer = Mathf.Min(entityTimer - EntitySyncInterval, EntitySyncInterval);
         var sb = new StringBuilder("EN|").Append(NetworkGame.Clock()).Append('|');
         bool first = true;
-        foreach (var d in dames.Values)
+        foreach (var d in entities.Values)
         {
+            if (d == null) continue;
             if (!first) sb.Append(';');
             first = false;
             Vector3 p = d.transform.position;
-            sb.Append(d.Id).Append(',').Append(NetworkGame.F(p.x)).Append(',').Append(NetworkGame.F(p.y)).Append(',').Append(NetworkGame.F(p.z))
-              .Append(',').Append(NetworkGame.F(d.transform.eulerAngles.y)).Append(',').Append((int)d.Current).Append(',').Append(d.TargetId);
+            sb.Append(d.Id).Append(',').Append((int)d.Kind).Append(',').Append(NetworkGame.F(p.x)).Append(',').Append(NetworkGame.F(p.y))
+              .Append(',').Append(NetworkGame.F(p.z)).Append(',').Append(NetworkGame.F(d.transform.eulerAngles.y)).Append(',').Append(d.NetState)
+              .Append(',').Append(d.TargetId).Append(',').Append(d.Pulse).Append(',').Append(d.Extra);
         }
         PeerNet.BroadcastFast(sb.ToString());
     }
 
     void UpdateEntities()
     {
-        foreach (var d in dames.Values) d.Present(net.IsHost, Time.deltaTime);
+        foreach (var d in entities.Values) if (d != null) d.Present(net.IsHost, Time.deltaTime);
     }
 
-    // La Dame commence son attaque : le joueur visé ne peut plus bouger jusqu'à la fin de son geste.
-    void OnDameAttack(Dame dame, string targetId) =>
-        net.ToPeer(targetId, "DF|" + NetworkGame.F(Dame.AttackLength));
+    // ---------- Demandes des entités (hôte) ----------
 
-    // La Dame frappe : le joueur visé encaisse les dégâts chez lui (hôte : message direct).
-    void OnDameHit(Dame dame, string targetId)
+    public void Hit(Entity entity, string targetId, int damage, float knockback)
     {
-        Vector3 p = dame.transform.position;
-        net.ToPeer(targetId, "DH|" + NetworkGame.F(p.x) + "|" + NetworkGame.F(p.z));
+        Vector3 p = entity.transform.position;
+        net.ToPeer(targetId, "EH|" + damage + "|" + NetworkGame.F(p.x) + "|" + NetworkGame.F(p.z) + "|" + NetworkGame.F(knockback) + "|" + (int)entity.Kind);
     }
+
+    public void Immobilize(Entity entity, string targetId, float seconds) => net.ToPeer(targetId, "DF|" + NetworkGame.F(seconds));
+
+    public void Alert(Entity entity, string targetId) => net.ToPeer(targetId, "TA");
+
+    public void Steal(Entity entity, string targetId, System.Action<ItemType> done)
+    {
+        pendingSteals[entity.Id] = done;
+        net.ToPeer(targetId, "PS|" + entity.Id);
+    }
+
+    public void DropStolen(Entity entity, ItemType type, Vector3 position)
+    {
+        if (type == ItemType.None) return;
+        AddDropped(type, new Vector3(position.x, position.y + 0.05f, position.z), entity.Id);
+    }
+
+    public float NoiseAge(string playerId) => noiseAt.TryGetValue(playerId, out float t) ? Time.time - t : float.MaxValue;
+
+    // ---------- Objets laissés à terre ----------
+
+    string DropMsg(int id, Dropped d) => "IA|" + id + "|" + (int)d.type + "|" + NetworkGame.F(d.pos.x) + "|" + NetworkGame.F(d.pos.y)
+        + "|" + NetworkGame.F(d.pos.z) + "|" + d.stolenBy;
+
+    // Hôte : nouvel objet à terre, annoncé à tous.
+    void AddDropped(ItemType type, Vector3 pos, int stolenBy)
+    {
+        int id = DropIdBase + nextDropId++;
+        net.ToAll(DropMsg(id, new Dropped { type = type, pos = pos, stolenBy = stolenBy }));
+    }
+
+    // Joueur local : l'objet tombe au sol, à moins d'un mètre du personnage.
+    void DropNear(ItemType type, Vector3 center)
+    {
+        Vector2 o = Random.insideUnitCircle * 0.9f;
+        Vector3 probe = center + new Vector3(o.x, 0.5f, o.y);
+        Vector3 pos = Physics.Raycast(probe, Vector3.down, out RaycastHit hit, 4f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+            ? hit.point : center + Vector3.down * 0.9f;
+        net.ToHost("DR|" + (int)type + "|" + NetworkGame.F(pos.x) + "|" + NetworkGame.F(pos.y) + "|" + NetworkGame.F(pos.z));
+    }
+
+    // ---------- La Dame regardée, La Cloche qui obnubile ----------
 
     // Le joueur chassé signale à l'hôte s'il regarde La Dame (elle accélère alors).
     void UpdateWatching()
     {
         Camera cam = Camera.main;
-        foreach (var d in dames.Values)
+        foreach (var e in entities.Values)
         {
+            if (!(e is Dame d)) continue;
             bool chased = d.Current != Dame.State.Wander && d.TargetId == net.MyId && !status.Dead;
             bool looking = false;
             if (chased && cam != null)
             {
-                Vector3 chest = d.transform.position + Vector3.up * 1.4f;
+                Vector3 chest = d.transform.position + Vector3.up * d.ChestHeight;
                 Vector3 to = chest - cam.transform.position;
                 looking = Vector3.Angle(cam.transform.forward, to) < 32f && to.magnitude < 40f
                     && !Physics.Linecast(cam.transform.position, chest, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
@@ -1060,6 +1227,192 @@ public class GameSession : MonoBehaviour
             watching[d.Id] = looking;
             net.ToHost("LK|" + d.Id + "|" + (looking ? 1 : 0));
         }
+    }
+
+    // Obnubilé par une Cloche : la caméra est forcée de la regarder, et toutes les 2 secondes, des dégâts.
+    void UpdateCloches()
+    {
+        Cloche nearest = null;
+        float best = float.MaxValue;
+        if (!status.Dead && !Teleporting)
+            foreach (var e in entities.Values)
+                if (e is Cloche c && c.Obsesses(net.MyId))
+                {
+                    float d = (c.transform.position - player.transform.position).sqrMagnitude;
+                    if (d < best) { best = d; nearest = c; }
+                }
+        OrbitCamera.ForcedLook = nearest != null ? nearest.transform.position + Vector3.up * nearest.ChestHeight : (Vector3?)null;
+        if (nearest == null)
+        {
+            clocheTimer = 0f;
+            return;
+        }
+        clocheTimer += Time.deltaTime;
+        if (clocheTimer < GameRules.ClocheTick) return;
+        clocheTimer -= GameRules.ClocheTick;
+        DamageLocal(GameRules.ClocheDamage, "La Cloche");
+    }
+
+    // ---------- Balises Améliorées : pas d'Abjuration à moins de 5 m ----------
+
+    readonly Vector4[] mistHoles = new Vector4[8];
+
+    bool NearEnhancedBeacon(Vector3 p)
+    {
+        foreach (var b in beacons.Placed)
+            if (b != null && b.Kind == DeviceKind.Enhanced)
+            {
+                Vector3 d = b.transform.position - p;
+                d.y = 0f;
+                if (d.magnitude < GameRules.EnhancedBeaconRadius) return true;
+            }
+        return false;
+    }
+
+    void UpdateMistHoles()
+    {
+        int n = 0;
+        foreach (var b in beacons.Placed)
+            if (b != null && b.Kind == DeviceKind.Enhanced && n < mistHoles.Length)
+            {
+                Vector3 p = b.transform.position;
+                mistHoles[n++] = new Vector4(p.x, p.y, p.z, GameRules.EnhancedBeaconRadius);
+            }
+        for (int i = n; i < mistHoles.Length; i++) mistHoles[i] = Vector4.zero;
+        Shader.SetGlobalVectorArray("_MistHoles", mistHoles);
+    }
+
+    // ---------- Station Curative : +10 PV par seconde à moins d'1 m ----------
+
+    void UpdateStations()
+    {
+        bool near = false;
+        if (!status.Dead && !Teleporting && status.Hp < GameRules.MaxHp)
+            foreach (var b in beacons.Placed)
+                if (b != null && b.Kind == DeviceKind.Station && b.Charged && NearDevice(b)) near = true;
+        if (near && !healing) GameAudio.Play2D("heal", 0.5f);
+        healing = near;
+        if (!near)
+        {
+            stationAcc = 0f;
+            return;
+        }
+        stationAcc += GameRules.StationHealPerSecond * Time.deltaTime;
+        int add = Mathf.FloorToInt(stationAcc);
+        if (add <= 0) return;
+        stationAcc -= add;
+        status.SetHp(status.Hp + add);
+    }
+
+    bool NearDevice(Beacon b)
+    {
+        Vector3 feet = player.transform.position + Vector3.down * 0.9f;
+        Vector3 d = b.transform.position - feet;
+        return Mathf.Abs(d.y) < 1.2f && new Vector2(d.x, d.z).magnitude < GameRules.DeviceRange;
+    }
+
+    // ---------- Téléporteur ----------
+
+    // Moins d'1 m d'un Téléporteur chargé : 3 secondes de canalisation, puis voyage en boule d'énergie le long des liens
+    // jusqu'à la Balise du Hub. Pendant le voyage : aucune action (la caméra reste libre), ni dégâts ni perte de sérénité.
+    void UpdateTeleport()
+    {
+        if (Teleporting)
+        {
+            // La Balise du Hub tombe à 0 : la téléportation se rompt.
+            if (!beacons.HubCharged || status.Dead || phase == Phase.GameOver) { EndTeleport(true); return; }
+            TravelStep(Time.deltaTime);
+            return;
+        }
+        Beacon pad = null;
+        if (!status.Dead && phase != Phase.GameOver && !PlayerController.InputLocked)
+            foreach (var b in beacons.Placed)
+                if (b != null && b.Kind == DeviceKind.Teleporter && b.Charged && NearDevice(b)) { pad = b; break; }
+        if (pad != channelPad)
+        {
+            channelPad = pad;
+            channelTime = 0f;
+            if (pad != null) GameAudio.Play3D("teleport", pad.transform.position, 0.6f, 15f, 0f, 0.7f);
+        }
+        if (pad == null) return;
+        channelTime += Time.deltaTime;
+        if (channelTime < GameRules.TeleportChannel) return;
+        channelPad = null;
+        var path = beacons.PathToHub(pad);
+        if (path == null) return;
+        StartTeleport(pad, path);
+    }
+
+    void StartTeleport(Beacon pad, List<Vector3> path)
+    {
+        Teleporting = true;
+        // Avalé par le Téléporteur : la boule part du disque.
+        path.Insert(0, pad.transform.position + Vector3.up * 0.9f);
+        teleportPath = path;
+        teleportLeg = 0;
+        player.SetFrozen(true);
+        avatar.SetHidden(true);
+        if (energyBall == null) energyBall = BuildEnergyBall(player.transform);
+        energyBall.SetActive(true);
+        terminal.Close();
+        postItUI.Close();
+        GameAudio.Play3D("teleport", pad.transform.position, 1f, 25f, 0f);
+    }
+
+    void TravelStep(float dt)
+    {
+        float move = GameRules.TeleportSpeed * dt;
+        Vector3 pos = player.transform.position;
+        while (move > 0f && teleportLeg < teleportPath.Count)
+        {
+            Vector3 goal = teleportPath[teleportLeg];
+            float d = Vector3.Distance(pos, goal);
+            if (d <= move) { pos = goal; move -= d; teleportLeg++; }
+            else { pos += (goal - pos) / d * move; move = 0f; }
+        }
+        player.transform.position = pos;
+        if (teleportLeg >= teleportPath.Count) EndTeleport(true, true);
+    }
+
+    // Fin du voyage : à côté de la Balise du Hub (arrivée) ou là où il s'est rompu.
+    void EndTeleport(bool restore, bool arrived = false)
+    {
+        if (!Teleporting) return;
+        Teleporting = false;
+        if (energyBall != null) energyBall.SetActive(false);
+        avatar.SetHidden(false);
+        if (!restore) return;
+        Vector3 pos = player.transform.position;
+        if (arrived)
+        {
+            Vector3 hubPos = beacons.Hub.transform.position;
+            Vector3 toCenter = new Vector3(-hubPos.x, 0f, -hubPos.z).normalized;
+            pos = new Vector3(hubPos.x, 0.95f, hubPos.z) + toCenter * 1.3f;
+        }
+        player.SetFrozen(false);
+        player.Teleport(pos, player.transform.eulerAngles.y);
+        if (arrived) GameAudio.Play3D("revive", pos, 0.7f, 20f, 0f, 1.3f);
+    }
+
+    // Boule d'énergie : sphère lumineuse et halo bleu, à la place du personnage.
+    public static GameObject BuildEnergyBall(Transform parent)
+    {
+        var ball = new GameObject("BouleEnergie");
+        ball.transform.SetParent(parent, false);
+        var core = GameArt.Prim(PrimitiveType.Sphere, ball.transform, Vector3.zero, Vector3.one * 0.35f,
+            GameArt.Emissive("EnergyCore", new Color(0.6f, 0.85f, 1f), new Color(1.2f, 1.8f, 3f)));
+        core.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        var aura = GameArt.Prim(PrimitiveType.Sphere, ball.transform, Vector3.zero, Vector3.one * 0.8f, GameArt.GhostAura);
+        aura.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        var light = new GameObject("Lueur").AddComponent<Light>();
+        light.transform.SetParent(ball.transform, false);
+        light.type = LightType.Point;
+        light.color = new Color(0.4f, 0.7f, 1f);
+        light.range = 5f;
+        light.intensity = 2f;
+        light.shadows = LightShadows.None;
+        ball.SetActive(false);
+        return ball;
     }
 
     // ================= Actions (interactions) =================
@@ -1085,6 +1438,7 @@ public class GameSession : MonoBehaviour
         if (phase != Phase.Waiting) return;
         phase = Phase.Running;
         timeLeft = GameRules.RoundDuration;
+        Log("Un orbe s'éveille devant la porte de la Zone 2...");
         ApplyWorld();
         SpawnRoundEntities();
         BroadcastState();
@@ -1171,13 +1525,13 @@ public class GameSession : MonoBehaviour
         string lower = target.ToLowerInvariant();
         if (lower == "enemy")
         {
-            Dame nearest = null;
-            foreach (var d in dames.Values)
+            Entity nearest = null;
+            foreach (var d in entities.Values)
                 if (d != null && (nearest == null || (d.transform.position - here).sqrMagnitude < (nearest.transform.position - here).sqrMagnitude))
                     nearest = d;
             if (nearest == null) return null;
             TeleportNear(nearest.transform.position);
-            return "Téléporté près de La Dame.";
+            return "Téléporté près de " + nearest.DisplayName + ".";
         }
         if (lower == "door")
         {
@@ -1240,6 +1594,7 @@ public class GameSession : MonoBehaviour
         net.ToPeer(to, StatsMsg());
         foreach (string note in noteMessages.Values) net.ToPeer(to, note);
         foreach (string beacon in beaconMessages.Values) net.ToPeer(to, beacon);
+        foreach (var kv in dropped) net.ToPeer(to, DropMsg(kv.Key, kv.Value));
         net.ToPeer(to, PogoMsg(""));
     }
 
@@ -1253,7 +1608,11 @@ public class GameSession : MonoBehaviour
     void UpdateHostAbjuration()
     {
         bool active = AbjurationActive;
-        if (active && !hostAbjuration) Log("L'Abjuration se répand ... Le désespoir attend les plus faibles.");
+        if (active && !hostAbjuration)
+        {
+            Log("L'Abjuration se répand ... Le désespoir attend les plus faibles.");
+            SpawnSpiders();
+        }
         hostAbjuration = active;
     }
 
@@ -1286,7 +1645,7 @@ public class GameSession : MonoBehaviour
             Log("Le quota de la manche " + done + " est validé ! Nouveau quota : " + quota);
             if (hostAbjuration) Log("L'Abjuration se retire ... Pour le moment.");
             hostAbjuration = false;
-            if (done <= GameRules.OrbCount) Log("Un orbe s'éveille devant la porte de la Zone 2...");
+            if (round <= GameRules.OrbCount) Log("Un orbe s'éveille devant la porte de la Zone 2...");
             ResetRoundStats(round);
             ApplyWorld();
             SpawnRoundEntities();
@@ -1317,6 +1676,7 @@ public class GameSession : MonoBehaviour
         picked.Clear();
         noteMessages.Clear();
         notePlacedAt.Clear();
+        dropped.Clear();
         ResetRoundStats(1);
         ResetHubFixtures();
         net.ToAll(PogoMsg(""));
@@ -1341,6 +1701,7 @@ public class GameSession : MonoBehaviour
     void OnRestart()
     {
         hud.HideGameOver();
+        dropped.Clear();
         status.ClearInventory();
         pendingPickups = 0;
         ClearNotes();
@@ -1395,6 +1756,11 @@ public class GameSession : MonoBehaviour
                 if (items.TryGetValue(id, out var it) && it != null && !picked.Contains(id))
                 {
                     picked.Add(id);
+                    noiseAt[from] = Time.time;
+                    // Ramasser un objet volé par un Pion : il attaque sur-le-champ.
+                    if (dropped.TryGetValue(id, out var drop) && drop.stolenBy >= 0
+                        && entities.TryGetValue(drop.stolenBy, out var thief) && thief is Pion pion)
+                        pion.Provoke(from);
                     net.ToAll("IR|" + round + "|" + id);
                     net.ToPeer(from, "GV|" + (int)it.Type);
                 }
@@ -1515,6 +1881,7 @@ public class GameSession : MonoBehaviour
             // ---------- Post-It ----------
             case "PP" when host && f.Length >= 8:
             {
+                noiseAt[from] = Time.time;
                 string text = SanitizeNote(f[7]);
                 if (text.Length == 0) break;
                 int id = nextNoteId++;
@@ -1558,8 +1925,10 @@ public class GameSession : MonoBehaviour
             // ---------- Balises ----------
             case "BN" when host && f.Length >= 4:
             {
+                noiseAt[from] = Time.time;
                 int id = nextBeaconId++;
-                string msg = "BW|" + id + "|" + f[1] + "|" + f[2] + "|" + f[3];
+                int kind = f.Length >= 5 ? Mathf.Clamp(NetworkGame.I(f[4]), 0, 3) : 0;
+                string msg = "BW|" + id + "|" + f[1] + "|" + f[2] + "|" + f[3] + "|" + kind;
                 beaconMessages[id] = msg;
                 net.ToAll(msg);
                 break;
@@ -1567,17 +1936,20 @@ public class GameSession : MonoBehaviour
             case "BW" when f.Length >= 5:
             {
                 var pos = new Vector3(NetworkGame.P(f[2]), NetworkGame.P(f[3]), NetworkGame.P(f[4]));
-                beacons.Add(NetworkGame.I(f[1]), pos);
+                var kind = f.Length >= 6 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[5]), 0, 3) : DeviceKind.Beacon;
+                beacons.Add(NetworkGame.I(f[1]), pos, kind);
                 GameAudio.Play3D("pop", pos, 0.8f, 15f, 0.1f, 0.8f);
                 break;
             }
             case "BG" when host && f.Length >= 2:
             {
                 int id = NetworkGame.I(f[1]);
-                if (beaconMessages.Remove(id))
+                Beacon device = beacons.Get(id);
+                if (device != null && beaconMessages.Remove(id))
                 {
+                    noiseAt[from] = Time.time;
                     net.ToAll("BZ|" + id);
-                    net.ToPeer(from, "GV|" + (int)ItemType.Balise);
+                    net.ToPeer(from, "GV|" + (int)device.Item);
                 }
                 else net.ToPeer(from, "GV|0");
                 break;
@@ -1677,6 +2049,7 @@ public class GameSession : MonoBehaviour
             // ---------- Aboiements ----------
             case "BK" when host && f.Length >= 2:
             {
+                noiseAt[from] = Time.time;
                 float pitch = Mathf.Clamp(NetworkGame.P(f[1]), 0.9f, 1.1f);
                 PeerNet.Broadcast("BA|" + from + "|" + NetworkGame.F(pitch));
                 // L'hôte l'entend aussi (son propre aboiement est déjà joué).
@@ -1714,18 +2087,62 @@ public class GameSession : MonoBehaviour
                 ReceiveEntities(NetworkGame.D(f[1]), f[2]);
                 break;
             case "LK" when host && f.Length >= 3:
-                if (dames.TryGetValue(NetworkGame.I(f[1]), out var watched) && watched.TargetId == from)
-                    watched.Watched = f[2] == "1";
+                if (entities.TryGetValue(NetworkGame.I(f[1]), out var watched) && watched is Dame watchedDame && watched.TargetId == from)
+                    watchedDame.Watched = f[2] == "1";
                 break;
             case "DF" when f.Length >= 2:
-                if (!status.Dead && !Invincible) player.Immobilize(NetworkGame.P(f[1]));
+                if (!status.Dead && !Invincible && !Teleporting) player.Immobilize(NetworkGame.P(f[1]));
                 break;
-            case "DH" when f.Length >= 3:
+            case "EH" when f.Length >= 6:
             {
-                if (status.Dead || Invincible) break;
-                var from2 = new Vector3(NetworkGame.P(f[1]), player.transform.position.y, NetworkGame.P(f[2]));
-                DamageLocal(GameRules.DameDamage, "La Dame");
-                if (!status.Dead) player.Knockback(player.transform.position - from2, GameRules.DameKnockback);
+                if (status.Dead || Invincible || Teleporting) break;
+                var from2 = new Vector3(NetworkGame.P(f[2]), player.transform.position.y, NetworkGame.P(f[3]));
+                DamageLocal(NetworkGame.I(f[1]), EntityName((EntityKind)NetworkGame.I(f[5])));
+                if (!status.Dead) player.Knockback(player.transform.position - from2, NetworkGame.P(f[4]));
+                break;
+            }
+            case "TA":
+                if (!status.Dead) GameAudio.Play2D("tour_alert", 0.8f);
+                break;
+            case "NZ" when host:
+                noiseAt[from] = Time.time;
+                break;
+            case "PS" when f.Length >= 2:
+            {
+                // Le Pion vous vole un objet ramassable (le premier trouvé dans l'inventaire).
+                int slot = -1;
+                for (int i = 0; i < GameRules.InventorySize && slot < 0; i++)
+                    if (Items.DropsOnDeath(status[i])) slot = i;
+                ItemType stolen = slot >= 0 && !status.Dead ? status.RemoveAt(slot) : ItemType.None;
+                if (stolen != ItemType.None) hud.Toast("Le Pion vous a volé : " + Items.Get(stolen).name + " !");
+                net.ToHost("PT|" + f[1] + "|" + (int)stolen);
+                break;
+            }
+            case "PT" when host && f.Length >= 3:
+            {
+                int id = NetworkGame.I(f[1]);
+                if (pendingSteals.TryGetValue(id, out var done))
+                {
+                    pendingSteals.Remove(id);
+                    done((ItemType)NetworkGame.I(f[2]));
+                }
+                break;
+            }
+            case "DR" when host && f.Length >= 5:
+            {
+                var type = (ItemType)NetworkGame.I(f[1]);
+                if (!Items.DropsOnDeath(type)) break;
+                AddDropped(type, new Vector3(NetworkGame.P(f[2]), NetworkGame.P(f[3]), NetworkGame.P(f[4])), -1);
+                break;
+            }
+            case "IA" when f.Length >= 6:
+            {
+                int id = NetworkGame.I(f[1]);
+                var drop = new Dropped { type = (ItemType)NetworkGame.I(f[2]), pos = new Vector3(NetworkGame.P(f[3]), NetworkGame.P(f[4]), NetworkGame.P(f[5])) };
+                if (f.Length >= 7) drop.stolenBy = NetworkGame.I(f[6]);
+                if (items.ContainsKey(id) || drop.type == ItemType.None) break;
+                dropped[id] = drop;
+                items[id] = ItemPickup.Create(itemsRoot, id, drop.type, drop.pos);
                 break;
             }
         }
@@ -1738,28 +2155,32 @@ public class GameSession : MonoBehaviour
     void ReceiveEntities(double time, string data)
     {
         if (maze == null) return;
-        // Canal non ordonné : un état plus ancien que le dernier reçu ne doit pas recréer ni reculer La Dame.
+        // Canal non ordonné : un état plus ancien que le dernier reçu ne doit pas recréer ni reculer une entité.
         if (time <= lastEntityTime) return;
         lastEntityTime = time;
         seenEntities.Clear();
         foreach (string entry in data.Split(';'))
         {
             string[] p = entry.Split(',');
-            if (p.Length < 7) continue;
+            if (p.Length < 10) continue;
             int id = NetworkGame.I(p[0]);
-            var pos = new Vector3(NetworkGame.P(p[1]), NetworkGame.P(p[2]), NetworkGame.P(p[3]));
-            float yaw = NetworkGame.P(p[4]);
+            var kind = (EntityKind)Mathf.Clamp(NetworkGame.I(p[1]), (int)EntityKind.Dame, (int)EntityKind.Spider);
+            var pos = new Vector3(NetworkGame.P(p[2]), NetworkGame.P(p[3]), NetworkGame.P(p[4]));
+            float yaw = NetworkGame.P(p[5]);
             seenEntities.Add(id);
-            if (!dames.TryGetValue(id, out var dame) || dame == null)
-                dames[id] = dame = Dame.Create(entitiesRoot, id, pos, yaw, maze.nav, null);
-            dame.SetNetState(time, pos, yaw, (Dame.State)Mathf.Clamp(NetworkGame.I(p[5]), 0, 2), p[6]);
+            if (!entities.TryGetValue(id, out var e) || e == null || e.Kind != kind)
+            {
+                if (e != null) Destroy(e.gameObject);
+                entities[id] = e = CreateEntity(kind, id, pos, yaw);
+            }
+            e.SetNetState(time, pos, yaw, (byte)Mathf.Clamp(NetworkGame.I(p[6]), 0, 255), p[7], NetworkGame.I(p[8]), p[9]);
         }
         var gone = new List<int>();
-        foreach (int id in dames.Keys) if (!seenEntities.Contains(id)) gone.Add(id);
+        foreach (int id in entities.Keys) if (!seenEntities.Contains(id)) gone.Add(id);
         foreach (int id in gone)
         {
-            if (dames[id] != null) Destroy(dames[id].gameObject);
-            dames.Remove(id);
+            if (entities[id] != null) Destroy(entities[id].gameObject);
+            entities.Remove(id);
             watching.Remove(id);
         }
     }

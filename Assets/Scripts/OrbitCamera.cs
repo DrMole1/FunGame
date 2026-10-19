@@ -26,6 +26,8 @@ public class OrbitCamera : MonoBehaviour
     public static bool Looking => ControlsEnabled && Cursor.lockState == CursorLockMode.Locked;
     // Vue à la première personne du personnage local (le PlayerController s'oriente alors selon le regard).
     public static bool FirstPerson { get; private set; }
+    // Obnubilé par La Cloche : la caméra est forcée de regarder ce point.
+    public static Vector3? ForcedLook;
     public static float Yaw { get; private set; }
 
     float yaw;
@@ -51,7 +53,8 @@ public class OrbitCamera : MonoBehaviour
             if (Cursor.lockState != CursorLockMode.None) LockCursor(false);
             return;
         }
-        if (Input.GetKeyDown(KeyCode.Escape)) LockCursor(false);
+        // Échap ouvre le menu pause, et le referme (GDD 6.2 : "Echap pour reprendre le jeu").
+        if (Input.GetKeyDown(KeyCode.Escape)) LockCursor(Cursor.lockState != CursorLockMode.Locked);
         else if (Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked && !IsPointerOverUI())
         {
             LockCursor(true);
@@ -82,6 +85,17 @@ public class OrbitCamera : MonoBehaviour
         bool fp = firstPerson && ControlsEnabled && target.GetComponent<PlayerController>() != null;
         if (!ControlsEnabled)
             yaw += 6f * Time.deltaTime;
+        else if (ForcedLook.HasValue)
+        {
+            // La souris n'y peut rien : le regard est tiré vers La Cloche.
+            Vector3 from = fp ? target.position + Vector3.up * eyeHeight : target.position + Vector3.up * height;
+            Vector3 look = ForcedLook.Value - from;
+            float k = 1f - Mathf.Exp(-10f * Time.deltaTime);
+            yaw = Mathf.LerpAngle(yaw, Mathf.Atan2(look.x, look.z) * Mathf.Rad2Deg, k);
+            float wantedPitch = -Mathf.Atan2(look.y, new Vector2(look.x, look.z).magnitude) * Mathf.Rad2Deg;
+            // À la troisième personne, la caméra se place derrière et un peu au-dessus du personnage.
+            pitch = Mathf.Lerp(pitch, fp ? wantedPitch : Mathf.Max(wantedPitch + 12f, 8f), k);
+        }
         else if (Cursor.lockState == CursorLockMode.Locked)
         {
             yaw += Input.GetAxis("Mouse X") * mouseSensitivity;

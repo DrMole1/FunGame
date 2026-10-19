@@ -29,6 +29,8 @@ Shader "FunGame/Mist"
             fixed4 _Color, _Glow;
             float _Density, _Scale, _Speed;
             float _Abjuration; // global
+            // Balises Améliorées (xyz, rayon) : la brume n'apparaît pas autour d'elles (global).
+            float4 _MistHoles[8];
 
             struct v2f
             {
@@ -79,7 +81,13 @@ Shader "FunGame/Mist"
 
                 float camDist = distance(i.worldPos, _WorldSpaceCameraPos);
                 float nearFade = saturate((camDist - 0.4) / 1.6);
-                float alpha = density * _Density * nearFade * saturate(_Abjuration);
+                float clearing = 1.0;
+                for (int h = 0; h < 8; h++)
+                {
+                    float r = _MistHoles[h].w;
+                    if (r > 0.0) clearing *= saturate((distance(i.worldPos.xz, _MistHoles[h].xz) - r) / 1.2);
+                }
+                float alpha = density * _Density * nearFade * saturate(_Abjuration) * clearing;
 
                 fixed4 col = fixed4(lerp(_Color.rgb, _Glow.rgb, wisps), alpha);
                 UNITY_APPLY_FOG_COLOR(i.fogCoord, col, fixed4(0, 0, 0, 0));

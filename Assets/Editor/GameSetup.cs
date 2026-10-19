@@ -136,7 +136,7 @@ public static class GameSetup
     }
 
     // Modèles statiques Meshy : pas d'animation, matériaux et textures extraits à côté du modèle.
-    static void ImportArt()
+    internal static void ImportArt()
     {
         if (!AssetDatabase.IsValidFolder(ArtDir)) return;
         foreach (string guid in AssetDatabase.FindAssets("t:Model", new[] { ArtDir }))
