@@ -97,7 +97,9 @@ public class LobbyUI : MonoBehaviour
         }
 
         // Menu de pause : visible quand la souris est libérée.
-        bool paused = inGame && Cursor.lockState != CursorLockMode.Locked && !TerminalUI.IsOpen && !PostItUI.IsOpen && !GameHud.GameOverVisible;
+        // Après avoir quitté le Terminal ou un Post-It avec Échap, pas de menu pause : on revient directement au jeu.
+        bool paused = inGame && Cursor.lockState != CursorLockMode.Locked && !TerminalUI.IsOpen && !PostItUI.IsOpen && !GameHud.GameOverVisible
+            && !OrbitCamera.ResumePending;
         if (pausePanel.activeSelf != paused) pausePanel.SetActive(paused);
         if (hintPanel.activeSelf != paused) hintPanel.SetActive(paused);
         // Clignotement lent, en fondu.
@@ -244,7 +246,7 @@ public class LobbyUI : MonoBehaviour
         {
             "ZQSD : se déplacer",
             "Shift : courir",
-            "Ctrl (ou C) : marcher discrètement",
+            "C : marcher discrètement",
             "Espace : sauter",
             "A : aboyer",
             "Souris : orienter la caméra",

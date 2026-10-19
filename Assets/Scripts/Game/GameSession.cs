@@ -7,7 +7,7 @@ using UnityEngine;
 // Post-It, Boussole, Balises, Téléporteurs et Stations Curatives.
 // L'hôte fait autorité sur l'état de la partie ; chaque client gère les PV, la sérénité et l'inventaire de son personnage.
 // Messages (en plus de ceux de NetworkGame) :
-//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|orbes   hôte -> tous : état de la partie
+//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|orbes|balise|bonus   hôte -> tous : état de la partie
 //   IL|manche|id,id...   IR|manche|id                          objets déjà ramassés / ramassé
 //   PK|id -> GV|type (0 = refusé)                              ramassage
 //   SL|type                                                     vente au Terminal
@@ -76,6 +76,8 @@ public class GameSession : MonoBehaviour, IEntityHost
 
     // État de la partie (autorité : hôte).
     int seed, builtSeed = -1, itemsRound = -1;
+    // Génération d'objets de valeur multipliée selon le nombre de joueurs (x3 seul, x2 à deux), fixée par l'hôte.
+    int valueBoost = 1, itemsBoost = -1;
     int round = 1, quota, progress, cash;
     Phase phase = Phase.Waiting;
     float timeLeft = GameRules.RoundDuration;
@@ -226,6 +228,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         dropped.Clear();
         hostAbjuration = false;
         ResetHubFixtures();
+        valueBoost = GameRules.ValueBoost(net.Roster.Count);
         ApplyWorld();
     }
 
@@ -282,6 +285,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         notePlacedAt.Clear();
         hostAbjuration = false;
         dropped.Clear();
+        Godmode = false;
         EndTeleport(false);
         ResetHubFixtures();
         status.ClearInventory();
@@ -311,7 +315,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             itemsRound = -1;
             rebuilt = true;
         }
-        if (itemsRound != round) SpawnItems();
+        if (itemsRound != round || itemsBoost != valueBoost) SpawnItems();
         hub.door.SetOpen(phase != Phase.Waiting);
         button.gameObject.SetActive(phase == Phase.Waiting);
         UpdateZone2(!rebuilt && Time.unscaledTime > audioMuteUntil);
@@ -334,6 +338,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     {
         ClearItems();
         itemsRound = round;
+        itemsBoost = valueBoost;
         int id = 0;
         for (int zone = 0; zone < 2; zone++)
         {
@@ -344,7 +349,7 @@ public class GameSession : MonoBehaviour, IEntityHost
                 int j = rnd.Next(i + 1);
                 (spots[i], spots[j]) = (spots[j], spots[i]);
             }
-            int count = Mathf.Min(GameRules.DucksForRound(round, zone), spots.Count);
+            int count = Mathf.Min(GameRules.DucksForRound(round, zone, valueBoost), spots.Count);
             for (int k = 0; k < count; k++, id++)
                 items[id] = ItemPickup.Create(itemsRoot, id, ItemType.Canard, spots[k]);
         }
@@ -386,7 +391,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         {
             timeLeft = Mathf.Max(0f, timeLeft - Time.deltaTime);
             if (net.IsHost && inGame && timeLeft <= 0f) EndRound();
-            if (net.IsHost && inGame && phase == Phase.Running) SpawnLateNightmare();
+            if (net.IsHost && inGame && phase == Phase.Running) SpawnLateEntities();
             // La Balise du Hub se décharge pendant la manche.
             beacons.Charge = Mathf.Max(0f, beacons.Charge - Time.deltaTime);
         }
@@ -566,7 +571,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
         // Dans la brume, le personnage avance 20 % moins vite.
         player.SpeedFactor = inMist ? GameRules.MistSpeedMultiplier : 1f;
-        if (!inMist)
+        if (!inMist || Godmode)
         {
             mistTimer = 0f;
             return;
@@ -592,7 +597,8 @@ public class GameSession : MonoBehaviour, IEntityHost
         if (sinceDeath < OrbitCamera.DeathViewDuration && phase != Phase.GameOver)
         {
             orbit.target = player.transform;
-            OrbitCamera.DeathView = sinceDeath;
+            // Avant (Pogo), la caméra garde sa place habituelle.
+            OrbitCamera.DeathView = sinceDeath >= 0f ? sinceDeath : -1f;
             hud.SetSpectate("");
             return;
         }
@@ -765,7 +771,18 @@ public class GameSession : MonoBehaviour, IEntityHost
         RefreshHud();
     }
 
-    bool Invincible => Time.time < invincibleUntil;
+    // /godmod (hôte) : achats gratuits au Terminal, aucun dégât, aucune perte de sérénité, jamais immobilisé.
+    public bool Godmode { get; private set; }
+
+    public string SetGodmode(bool on)
+    {
+        if (!net.IsHost) return null;
+        Godmode = on;
+        if (on) player.ReleaseImmobilize();
+        return on ? "Godmod activé : achats gratuits, invincible, sérénité intacte, jamais immobilisé." : "Godmod désactivé.";
+    }
+
+    bool Invincible => Time.time < invincibleUntil || Godmode;
 
     // Dégâts reçus par le personnage local. Le Hub est un endroit sûr ; juste après un /tp, aucun dégât.
     public void DamageLocal(int amount, string cause)
@@ -1027,7 +1044,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     void SpawnRoundEntities()
     {
         ClearEntities();
-        lateNightmareDone = false;
+        lateNightmareDone = lateNormalsDone = false;
         if (maze == null || phase != Phase.Running) return;
         var rnd = new System.Random(seed * 17 + round * 613);
         for (int zone = 0; zone < 2; zone++)
@@ -1037,15 +1054,24 @@ public class GameSession : MonoBehaviour, IEntityHost
         }
     }
 
-    // Cauchemar retardé de la manche 1 (hôte), sans aucun message dans les logs.
-    bool lateNightmareDone;
+    // Manche 1 (hôte), sans aucun message dans les logs : 2 entités Normal après 2 minutes, un Cauchemar après 3 minutes.
+    bool lateNightmareDone, lateNormalsDone;
 
-    void SpawnLateNightmare()
+    void SpawnLateEntities()
     {
-        if (lateNightmareDone || round != GameRules.LateNightmareRound || maze == null) return;
-        if (GameRules.RoundDuration - timeLeft < GameRules.LateNightmareDelay) return;
-        lateNightmareDone = true;
-        SpawnNightmare(0, new System.Random(seed * 31 + 7919));
+        if (round != GameRules.LateSpawnRound || maze == null) return;
+        float played = GameRules.RoundDuration - timeLeft;
+        if (!lateNormalsDone && played >= GameRules.LateNormalsDelay)
+        {
+            lateNormalsDone = true;
+            var rnd = new System.Random(seed * 37 + 104729);
+            for (int k = 0; k < GameRules.NormalsPerZone; k++) SpawnNormal(0, rnd);
+        }
+        if (!lateNightmareDone && played >= GameRules.LateNightmareDelay)
+        {
+            lateNightmareDone = true;
+            SpawnNightmare(0, new System.Random(seed * 31 + 7919));
+        }
     }
 
     // Entités de type Cauchemar (La Dame, La Tour) : l'une d'elles, au hasard.
@@ -1464,6 +1490,8 @@ public class GameSession : MonoBehaviour, IEntityHost
         if (phase != Phase.Waiting) return;
         phase = Phase.Running;
         timeLeft = GameRules.RoundDuration;
+        // Le nombre de joueurs au départ fixe la quantité d'objets de valeur (personne n'a encore pu en ramasser).
+        valueBoost = GameRules.ValueBoost(net.Roster.Count);
         Log("Un orbe s'éveille devant la porte de la Zone 2...");
         ApplyWorld();
         SpawnRoundEntities();
@@ -1599,7 +1627,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     // ================= Hôte =================
 
     string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft)
-        + "|" + (compass ? 1 : 0) + "|" + orbsBroken + "|" + NetworkGame.F(beacons.Charge);
+        + "|" + (compass ? 1 : 0) + "|" + orbsBroken + "|" + NetworkGame.F(beacons.Charge) + "|" + valueBoost;
 
     void BroadcastState()
     {
@@ -1668,6 +1696,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             progress = 0;
             timeLeft = GameRules.RoundDuration;
             picked.Clear();
+            valueBoost = GameRules.ValueBoost(net.Roster.Count);
             Log("Le quota de la manche " + done + " est validé ! Nouveau quota : " + quota);
             if (hostAbjuration) Log("L'Abjuration se retire ... Pour le moment.");
             hostAbjuration = false;
@@ -1703,6 +1732,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         noteMessages.Clear();
         notePlacedAt.Clear();
         dropped.Clear();
+        valueBoost = GameRules.ValueBoost(net.Roster.Count);
         ResetRoundStats(1);
         ResetHubFixtures();
         net.ToAll(PogoMsg(""));
@@ -1757,6 +1787,7 @@ public class GameSession : MonoBehaviour, IEntityHost
                 compass = f[8] == "1";
                 orbsBroken = NetworkGame.I(f[9]);
                 if (f.Length >= 11) beacons.Charge = NetworkGame.P(f[10]);
+                if (f.Length >= 12) valueBoost = Mathf.Clamp(NetworkGame.I(f[11]), 1, 3);
                 ApplyWorld();
                 if (net.InGame)
                 {
@@ -1822,11 +1853,13 @@ public class GameSession : MonoBehaviour, IEntityHost
                     net.ToPeer(from, "BO|0|" + (int)def.type + "|" + cash + "|owned");
                     break;
                 }
-                if (cash >= def.buyPrice)
+                // En godmod, l'hôte achète pour 0 gold.
+                int price = from == net.MyId && Godmode ? 0 : def.buyPrice;
+                if (cash >= price)
                 {
-                    cash -= def.buyPrice;
+                    cash -= price;
                     if (def.type == ItemType.Boussole) compass = true;
-                    Log("Le joueur " + NameOf(from) + " a acheté " + def.name + " pour " + def.buyPrice + " golds.");
+                    Log("Le joueur " + NameOf(from) + " a acheté " + def.name + " pour " + price + " golds.");
                     BroadcastState();
                     net.ToPeer(from, "BO|1|" + (int)def.type + "|" + cash);
                 }
@@ -2038,7 +2071,13 @@ public class GameSession : MonoBehaviour, IEntityHost
                 pogo.SetState((Pogo.Mood)Mathf.Clamp(NetworkGame.I(f[1]), 0, 2), f[2] == "1", f[3]);
                 break;
             case "JK":
-                if (!status.Dead && !Invincible) KillLocal("Pogo");
+                if (!status.Dead && !Invincible)
+                {
+                    // Droit dans les yeux de Pogo, puis la mort (la caméra ne quitte le corps qu'après).
+                    OrbitCamera.StartJumpscare(pogo.Head, Pogo.EyesLocal);
+                    KillLocal("Pogo");
+                    deathAt = Time.time + 2f;
+                }
                 break;
             case "JN" when f.Length >= 2:
                 hud.Toast(f[1] == "0" ? "Pogo dort... Le Bouton Rouge n'est pas encore enclenché."

@@ -22,6 +22,17 @@ public class OrbitCamera : MonoBehaviour
     public static bool CursorLockBlocked;
     // Image où la souris vient d'être verrouillée : ce clic ne doit pas aussi déclencher d'action.
     public static int LockFrame = -1;
+    // Sortie du Terminal ou d'un Post-It par Échap : retour au jeu sans menu pause (le navigateur peut refuser de
+    // reverrouiller la souris tout de suite ; un clic dans le jeu le fera).
+    public static bool ResumePending;
+    static int resumeFrame = -1;
+
+    public static void ResumeGame()
+    {
+        ResumePending = true;
+        resumeFrame = Time.frameCount;
+        LockCursor(true);
+    }
 
     public static bool Looking => ControlsEnabled && Cursor.lockState == CursorLockMode.Locked;
     // Vue à la première personne du personnage local (le PlayerController s'oriente alors selon le regard).
@@ -53,11 +64,18 @@ public class OrbitCamera : MonoBehaviour
         // Échap libère la souris, un clic la reverrouille.
         if (!ControlsEnabled || CursorLockBlocked)
         {
-            if (Cursor.lockState != CursorLockMode.None) LockCursor(false);
+            // (Juste après la fermeture du Terminal par Échap, le blocage n'est pas encore levé : on garde le verrouillage.)
+            if (Cursor.lockState != CursorLockMode.None && Time.frameCount - resumeFrame > 1) LockCursor(false);
             return;
         }
         // Échap ouvre le menu pause, et le referme (GDD 6.2 : "Echap pour reprendre le jeu").
-        if (Input.GetKeyDown(KeyCode.Escape)) LockCursor(Cursor.lockState != CursorLockMode.Locked);
+        if (Cursor.lockState == CursorLockMode.Locked) ResumePending = false;
+        if (Input.GetKeyDown(KeyCode.Escape) && Time.frameCount != resumeFrame)
+        {
+            // Souris restée libre après le Terminal : Échap affiche le menu pause.
+            if (ResumePending) ResumePending = false;
+            else LockCursor(Cursor.lockState != CursorLockMode.Locked);
+        }
         else if (Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked && !IsPointerOverUI())
         {
             LockCursor(true);
@@ -80,7 +98,42 @@ public class OrbitCamera : MonoBehaviour
         }
     }
 
+    // Pogo tue le joueur (Note 04 du chapitre 4) : environ 2 secondes, la caméra se colle à son visage, droit dans
+    // les yeux, secouée frénétiquement, puis revient à sa position.
+    const float JumpscareDuration = 2f, JumpscareIn = 0.18f, JumpscareOut = 0.35f;
+    static Transform jumpscareHead;
+    static Vector3 jumpscareEyes, jumpscareDir;
+    static float jumpscareStart = -10f;
+
+    public static void StartJumpscare(Transform head, Vector3 eyesLocal)
+    {
+        jumpscareHead = head;
+        jumpscareEyes = eyesLocal;
+        jumpscareStart = Time.time;
+        // Face à face : du visage vers la caméra au moment du coup (Pogo peut ensuite tourner la tête).
+        Camera cam = Camera.main;
+        Vector3 eyes = head.TransformPoint(eyesLocal);
+        jumpscareDir = cam != null ? Vector3.ProjectOnPlane(cam.transform.position - eyes, Vector3.up).normalized : head.forward;
+        if (jumpscareDir.sqrMagnitude < 0.01f) jumpscareDir = head.forward;
+    }
+
+    public static bool JumpscareActive => jumpscareHead != null && Time.time - jumpscareStart < JumpscareDuration;
+
     void LateUpdate()
+    {
+        UpdateView();
+        if (!JumpscareActive) return;
+        float t = Time.time - jumpscareStart;
+        float w = Mathf.SmoothStep(0f, 1f, Mathf.Min(t / JumpscareIn, (JumpscareDuration - t) / JumpscareOut));
+        Vector3 eyes = jumpscareHead.TransformPoint(jumpscareEyes);
+        // Saccades : tremblement de position et de rotation, à haute fréquence.
+        Vector3 jitter = new Vector3(Mathf.PerlinNoise(t * 31f, 0f) - 0.5f, Mathf.PerlinNoise(0f, t * 29f) - 0.5f, Mathf.PerlinNoise(t * 23f, t * 17f) - 0.5f);
+        Vector3 pos = eyes + jumpscareDir * 0.34f + jitter * 0.08f;
+        Quaternion rot = Quaternion.LookRotation(eyes - pos) * Quaternion.Euler(jitter.y * 14f, jitter.x * 14f, jitter.z * 22f);
+        transform.SetPositionAndRotation(Vector3.Lerp(transform.position, pos, w), Quaternion.Slerp(transform.rotation, rot, w));
+    }
+
+    void UpdateView()
     {
         if (target == null) return;
 

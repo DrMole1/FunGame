@@ -81,7 +81,11 @@ public class TerminalUI : MonoBehaviour
 
     void Update()
     {
-        if (IsOpen && Input.GetKeyDown(KeyCode.Escape)) Close();
+        if (IsOpen && Input.GetKeyDown(KeyCode.Escape))
+        {
+            Close();
+            OrbitCamera.ResumeGame();
+        }
     }
 
     void Focus()
@@ -163,6 +167,10 @@ public class TerminalUI : MonoBehaviour
             Print(kicked != null ? "Le joueur " + kicked + " a été expulsé de la partie." + Quit
                                  : "Aucun autre joueur nommé " + target + "." + Quit);
         }
+        else if (System.Text.RegularExpressions.Regex.IsMatch(lower, @"^/godmod\s+(on|off)$") && session.IsHost)
+        {
+            Print(session.SetGodmode(lower.EndsWith("on")) + Quit);
+        }
         else if (lower.StartsWith("/spawn ") && session.IsHost)
         {
             string arg = text.Substring(7).Trim();
@@ -207,7 +215,7 @@ public class TerminalUI : MonoBehaviour
             Error("Votre inventaire est plein ! Impossible d'acheter " + def.name + "." + Quit);
             return;
         }
-        if (session.Cash < def.buyPrice)
+        if (session.Cash < def.buyPrice && !session.Godmode)
         {
             Error("Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
             return;
@@ -222,9 +230,9 @@ public class TerminalUI : MonoBehaviour
         waitingBuy = false;
         if (!IsOpen || def == null) return;
         if (ok && def.type == ItemType.Boussole)
-            Print("Vous avez acheté la Boussole pour " + def.buyPrice + " golds !\nElle s'affiche désormais en haut de l'écran de tous les joueurs." + Quit);
+            Print("Vous avez acheté la Boussole pour " + (session.Godmode ? 0 : def.buyPrice) + " golds !\nElle s'affiche désormais en haut de l'écran de tous les joueurs." + Quit);
         else if (ok)
-            Print("Vous avez acheté " + def.name + " pour " + def.buyPrice + " golds !" + Quit);
+            Print("Vous avez acheté " + def.name + " pour " + (session.Godmode ? 0 : def.buyPrice) + " golds !" + Quit);
         else if (alreadyOwned)
             Print("La Boussole a déjà été achetée." + Quit);
         else

@@ -18,6 +18,7 @@ public class Pogo : Interactable
     public Mood State { get; private set; }
 
     Transform lid, bust, head;
+    GameObject abyss;
     GameObject angryEyes;
     Light angryLight;
     float rise, riseVelocity, lidAngle;
@@ -55,6 +56,12 @@ public class Pogo : Interactable
         GameArt.Prim(PrimitiveType.Cube, pogo.lid, new Vector3(0f, 0.09f, width * 0.5f), new Vector3(width * 0.8f, 0.03f, width * 0.8f),
             GameArt.Lit("PogoGold", new Color(0.75f, 0.58f, 0.2f), null, 0.6f));
         foreach (var c in pogo.lid.GetComponentsInChildren<Collider>()) Destroy(c);
+
+        // V0.4.1 : boîte ouverte, une surface noire sous le rebord cache le bas du ressort et le fond de la boîte.
+        pogo.abyss = GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, BoxHeight - 0.06f, 0f),
+            new Vector3(width * 0.76f, 0.01f, width * 0.76f), GameArt.Unlit("PogoAbyss", new Color(0.005f, 0.005f, 0.008f)));
+        Destroy(pogo.abyss.GetComponent<Collider>());
+        pogo.abyss.SetActive(false);
 
         // Buste du clown : pivot à la base du cou pour regarder les joueurs.
         pogo.bust = new GameObject("Buste").transform;
@@ -106,6 +113,10 @@ public class Pogo : Interactable
     // Position des yeux peints dans le repère de la tête (réglée sur le modèle Meshy).
     const float EyeHeight = 0.52f, EyeDepth = 0.36f, EyeSpacing = 0.115f;
 
+    // Visage de Pogo : la caméra de sa victime vient s'y coller (Note 04 du chapitre 4).
+    public Transform Head => head;
+    public static readonly Vector3 EyesLocal = new Vector3(0f, EyeHeight, EyeDepth);
+
     // État décidé par l'hôte. 'attacker' : joueur que Pogo frappe (coup de tête), vide sinon.
     public void SetState(Mood mood, bool smiling, string attacked)
     {
@@ -153,6 +164,8 @@ public class Pogo : Interactable
         float lidTarget = open || rise > -Rise * 0.85f ? -118f : 0f;
         lidAngle = Mathf.MoveTowards(lidAngle, lidTarget, (open ? 600f : 240f) * dt);
         lid.localRotation = Quaternion.Euler(lidAngle, 0f, 0f);
+        bool showAbyss = lidAngle < -20f;
+        if (abyss.activeSelf != showAbyss) abyss.SetActive(showAbyss);
 
         // Ressort : Pogo jaillit avec du rebond, et redescend plus lentement.
         float target = open && lidAngle < -60f ? 0f : -Rise;
@@ -164,9 +177,12 @@ public class Pogo : Interactable
         // Regard fixé sur le joueur le plus proche ; sourire = dodelinement joyeux ; colère = tremblement.
         float wantYaw = 0f, wantPitch = 0f;
         PlayerPresence nearest = Nearest();
-        if (open && nearest != null)
+        // Juste après le coup de tête, il fixe encore sa victime (sa caméra est collée à son visage).
+        bool staring = Time.time - attackTime < 2.2f;
+        Vector3 lookAt = staring ? head.position + attackDir : nearest != null ? nearest.Position + Vector3.up * 0.5f : head.position;
+        if (open && (nearest != null || staring))
         {
-            Vector3 d = transform.InverseTransformDirection(nearest.Position + Vector3.up * 0.5f - head.position);
+            Vector3 d = transform.InverseTransformDirection(lookAt - head.position);
             wantYaw = Mathf.Clamp(Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg, -130f, 130f);
             wantPitch = Mathf.Clamp(-Mathf.Atan2(d.y, new Vector2(d.x, d.z).magnitude) * Mathf.Rad2Deg, -25f, 35f);
         }

@@ -53,7 +53,11 @@ public class PostItUI : MonoBehaviour
 
     void Update()
     {
-        if (IsOpen && Input.GetKeyDown(KeyCode.Escape)) Close();
+        if (IsOpen && Input.GetKeyDown(KeyCode.Escape))
+        {
+            Close();
+            OrbitCamera.ResumeGame();
+        }
     }
 
     void OnEndEdit(string text)

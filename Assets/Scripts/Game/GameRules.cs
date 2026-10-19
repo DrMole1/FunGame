@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.4).
+// Variables numériques du document de Game Design (V0.4.1).
 public static class GameRules
 {
     public const int MaxPlayers = 8;
@@ -54,25 +54,33 @@ public static class GameRules
 
     // Génération d'objets de valeur, en pourcentage du quota de la manche (manche 8 et suivantes : dernière valeur).
     static readonly float[] Zone1ValuePercent = { 1.5f, 1.4f, 1.3f, 1.2f, 1.1f, 1f, 0.9f, 0.8f };
-    static readonly float[] Zone2ValuePercent = { 0f, 0f, 0f, 1f, 1.1f, 1.2f, 1.2f, 1.2f };
+    // V0.4.1 : la Zone 2 reçoit objets et entités dès la manche 3.
+    static readonly float[] Zone2ValuePercent = { 0f, 0f, 1f, 1f, 1.1f, 1.2f, 1.2f, 1.2f };
     // Entités de type "Cauchemar" qui apparaissent au début de la manche.
     static readonly int[] Zone1Nightmares = { 0, 1, 2, 1, 2, 2, 2, 2 };
-    static readonly int[] Zone2Nightmares = { 0, 0, 0, 2, 2, 2, 3, 3 };
+    static readonly int[] Zone2Nightmares = { 0, 0, 2, 2, 2, 2, 3, 3 };
+    // Entités de type "Normal" (V0.4.1) : 2 par zone ouverte aux entités (manche 1 : après 2 minutes de jeu).
+    public const int NormalsPerZone = 2;
 
     static int RoundIndex(int round) => Mathf.Clamp(round - 1, 0, Zone1ValuePercent.Length - 1);
 
-    public static int DucksForRound(int round, int zone)
+    // Note 01 du chapitre 10 : à 2 joueurs connectés, la génération d'objets de valeur est doublée ; seul, triplée.
+    public static int ValueBoost(int players) => players <= 1 ? 3 : players == 2 ? 2 : 1;
+
+    public static int DucksForRound(int round, int zone, int boost)
     {
-        float percent = (zone == 0 ? Zone1ValuePercent : Zone2ValuePercent)[RoundIndex(round)];
+        float percent = (zone == 0 ? Zone1ValuePercent : Zone2ValuePercent)[RoundIndex(round)] * boost;
         int duckValue = Items.Get(ItemType.Canard).sellPrice;
         return Mathf.CeilToInt(QuotaForRound(round) * percent / duckValue);
     }
 
     public static int NightmaresForRound(int round, int zone) => (zone == 0 ? Zone1Nightmares : Zone2Nightmares)[RoundIndex(round)];
 
-    // Manche 1 : un Cauchemar choisi au hasard apparaît dans la Zone 1 après 2 minutes de jeu, sans prévenir les joueurs.
-    public const int LateNightmareRound = 1;
-    public const float LateNightmareDelay = 2f * 60f;
+    // Manche 1 : un Cauchemar choisi au hasard apparaît dans la Zone 1 après 3 minutes de jeu, et 2 entités de type Normal
+    // après 2 minutes, sans prévenir les joueurs.
+    public const int LateSpawnRound = 1;
+    public const float LateNightmareDelay = 3f * 60f;
+    public const float LateNormalsDelay = 2f * 60f;
 
     // ---------- L'Abjuration (chapitre 10.1) ----------
 
@@ -141,10 +149,9 @@ public static class GameRules
     // Une action bruyante (aboiement, saut, objet ramassé ou posé) trahit un joueur accroupi pendant ce délai.
     public const float NoiseMemory = 0.6f;
 
-    // Non précisé dans le GDD : entités de type "Normal" (Pion, Cloche) au début de chaque manche,
-    // dans chaque zone qui reçoit des Cauchemars (Zone 1 dès la manche 1) : 1, puis +1 toutes les 2 manches (4 au plus).
+    // Entités de type Normal au début de la manche : 2 dans chaque zone qui reçoit des Cauchemars (manche 1 : plus tard).
     public static int NormalsForRound(int round, int zone) =>
-        zone == 0 || NightmaresForRound(round, zone) > 0 ? Mathf.Min(4, 1 + (round - 1) / 2) : 0;
+        round > LateSpawnRound && NightmaresForRound(round, zone) > 0 ? NormalsPerZone : 0;
 
     // Zone 2 : les orbes s'activent au début des manches 1, 2 et 3 (V0.3.4).
     public const int OrbCount = 3;

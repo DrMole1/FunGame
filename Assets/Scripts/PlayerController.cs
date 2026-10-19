@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Déplacement du joueur en ZQSD (relatif à la caméra), course (Shift), marche discrète (Ctrl) et saut (Espace).
+// Déplacement du joueur en ZQSD (relatif à la caméra), course (Shift), marche discrète (C) et saut (Espace).
 [RequireComponent(typeof(Rigidbody))]
 public class PlayerController : MonoBehaviour
 {
@@ -74,8 +74,8 @@ public class PlayerController : MonoBehaviour
             if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) h += 1f;
             if (Input.GetKey(KeyLayout.Left) || Input.GetKey(KeyCode.LeftArrow)) h -= 1f;
             runHeld = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
-            // C en secours : certains navigateurs réservent Ctrl + touche.
-            sneakHeld = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl) || Input.GetKey(KeyCode.C);
+            // V0.4.1 : la marche discrète passe sur la touche C (Ctrl + touche est réservé par les navigateurs).
+            sneakHeld = Input.GetKey(KeyCode.C);
         }
 
         // Course et marche discrète sont exclusives : la première touche enfoncée fait foi.
