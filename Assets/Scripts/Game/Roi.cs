@@ -395,6 +395,7 @@ public class Roi : Entity
         Vector3 snap = ChainTipShown;
         foreach (var link in links)
             if (link.gameObject.activeSelf) ChainLink.Shatter(link, snap);
+        if (hook != null && hook.gameObject.activeSelf) ChainLink.Shatter(hook, snap, hookBoxCenter, hookBoxSize, 1f);
     }
 
     Vector3 ChainTipShown => tipShown ? shownTip : transform.position + Vector3.up;
@@ -463,9 +464,9 @@ public class Roi : Entity
         lower.rotation = Quaternion.Slerp(Quaternion.identity, straighten, weight) * lower.rotation;
     }
 
-    // Geste du lancer : bras tendu vers le joueur pendant la visée, puis, juste avant de lancer, deux tours de moulinet
-    // au-dessus de l'épaule, le bras armé en arrière, et un coup de fouet vers le joueur quand la chaîne part.
-    const float SpinTime = 0.9f, WindTime = 0.15f, WhipTime = 0.2f, SpinTurns = 2f;
+    // Geste du lancer : bras tendu vers le joueur pendant la visée ; juste avant de lancer, il lève légèrement le bras,
+    // puis le retend d'un coup sec vers le joueur quand la chaîne part.
+    const float LiftTime = 0.35f, SnapTime = 0.1f, LiftAngle = 35f;
     float aimShownAt = -10f, aimShownLen, throwShownAt = -10f;
 
     Vector3 AimPoint()
@@ -473,30 +474,22 @@ public class Roi : Entity
         PlayerPresence p = FindPresence(TargetId);
         Vector3 target = ChainOut ? ChainTipShown : p != null ? p.Position : transform.position + transform.forward * 5f + Vector3.up * 1.5f;
         Vector3 shoulder = upperArm != null ? upperArm.position : fallbackArm != null ? fallbackArm.position : transform.position + Vector3.up * 2.4f;
-        Vector3 toward = Horizontal(target - shoulder);
-        toward = toward.sqrMagnitude > 0.0001f ? toward.normalized : transform.forward;
-        Vector3 center = shoulder + Vector3.up * 0.7f;
-        Vector3 cocked = center - toward * 0.55f;
+        Vector3 toTarget = target - shoulder;
+        Vector3 side = Vector3.Cross(Vector3.up, toTarget);
+        // Bras relevé : la direction du joueur, inclinée de 35° vers le haut.
+        Vector3 lifted = side.sqrMagnitude > 0.0001f
+            ? shoulder + Quaternion.AngleAxis(-LiftAngle, side.normalized) * toTarget
+            : target + Vector3.up;
         if (Current == State.Aim)
         {
             float left = aimShownAt + aimShownLen - Time.time;
-            if (left <= WindTime) return cocked;
-            if (left < SpinTime + WindTime)
-            {
-                // Moulinet de plus en plus rapide, dans le plan vertical tourné vers le joueur ; il finit armé en arrière.
-                float t = (SpinTime + WindTime - left) / SpinTime;
-                // De l'avant (vers le joueur) par le haut jusqu'à l'arrière, après deux tours complets.
-                float angle = (Mathf.PI * 2f * SpinTurns + Mathf.PI) * t * t;
-                return center + (toward * Mathf.Cos(angle) + Vector3.up * Mathf.Sin(angle)) * 0.55f;
-            }
+            if (left < LiftTime) return Vector3.Lerp(target, lifted, Mathf.SmoothStep(0f, 1f, 1f - left / LiftTime));
         }
-        if (Current == State.Throw && Time.time - throwShownAt < WhipTime)
+        if (Current == State.Throw && Time.time - throwShownAt < SnapTime)
         {
-            // Coup de fouet : de l'arrière, par-dessus l'épaule, jusqu'au joueur (le bras reste tendu).
-            float k = Mathf.SmoothStep(0f, 1f, (Time.time - throwShownAt) / WhipTime);
-            float angle = Mathf.PI * (1f - k);
-            Vector3 arc = center + (toward * Mathf.Cos(angle) + Vector3.up * Mathf.Sin(angle)) * 0.55f;
-            return Vector3.Lerp(arc, target, k * k);
+            // Coup sec : le bras retombe vite au début, puis se pose sur le joueur.
+            float k = (Time.time - throwShownAt) / SnapTime;
+            return Vector3.Lerp(lifted, target, 1f - (1f - k) * (1f - k));
         }
         return target;
     }
@@ -516,6 +509,7 @@ public class Roi : Entity
         {
             tipShown = false;
             SetLinks(0);
+            if (hook != null) hook.gameObject.SetActive(false);
             return;
         }
         Vector3 goal = isHost ? ChainTip : netTip;
@@ -530,12 +524,53 @@ public class Roi : Entity
         Vector3 d = shownTip - from;
         int count = Mathf.Clamp(Mathf.CeilToInt(d.magnitude / LinkSpacing), 1, 220);
         SetLinks(count);
+        // Le crochet au bout : son anneau sur la pointe, le crochet tourné vers l'avant.
+        if (hook == null) BuildHook();
+        if (hook != null)
+        {
+            hook.gameObject.SetActive(true);
+            hook.position = shownTip;
+            if (d.sqrMagnitude > 0.0001f) hook.rotation = Quaternion.FromToRotation(Vector3.up, -d.normalized);
+        }
         Quaternion along = d.sqrMagnitude > 0.0001f ? Quaternion.LookRotation(d) : transform.rotation;
         for (int k = 0; k < count; k++)
         {
             links[k].position = from + d * ((k + 0.5f) / count);
             links[k].rotation = along * Quaternion.Euler(0f, 0f, k % 2 == 0 ? 0f : 90f);
         }
+    }
+
+    // Crochet de fer forgé (modèle Meshy Resources/Art/Crochet) : environ 60 cm, l'anneau à l'origine, la pointe vers -Y.
+    const float HookLength = 0.6f;
+    Transform hook;
+    Vector3 hookBoxCenter, hookBoxSize;
+    bool hookTried;
+
+    void BuildHook()
+    {
+        if (hookTried) return;
+        hookTried = true;
+        var model = Resources.Load<GameObject>("Art/Crochet");
+        if (model == null) return;
+        hook = new GameObject("Crochet").transform;
+        hook.SetParent(chainRoot, false);
+        var shape = Instantiate(model, hook);
+        shape.name = "Forme";
+        foreach (var c in shape.GetComponentsInChildren<Collider>()) Destroy(c);
+        foreach (var r in shape.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        // Mise à l'échelle et recentrage d'après le modèle : le haut (l'anneau) sur l'origine.
+        var filters = shape.GetComponentsInChildren<MeshFilter>();
+        if (filters.Length == 0) return;
+        Bounds b = filters[0].sharedMesh.bounds;
+        Matrix4x4 toHook = hook.worldToLocalMatrix * filters[0].transform.localToWorldMatrix;
+        Bounds local = new Bounds(toHook.MultiplyPoint3x4(b.center), Vector3.zero);
+        for (int i = 0; i < 8; i++)
+            local.Encapsulate(toHook.MultiplyPoint3x4(b.center + Vector3.Scale(b.extents, new Vector3(i & 1, (i >> 1) & 1, (i >> 2) & 1) * 2f - Vector3.one)));
+        float scale = HookLength / Mathf.Max(0.0001f, local.size.y);
+        shape.transform.localScale *= scale;
+        shape.transform.localPosition = -new Vector3(local.center.x, local.max.y, local.center.z) * scale;
+        hookBoxCenter = new Vector3(0f, -HookLength * 0.5f, 0f);
+        hookBoxSize = new Vector3(Mathf.Max(0.05f, local.size.x * scale), HookLength, Mathf.Max(0.05f, local.size.z * scale));
     }
 
     void SetLinks(int count)

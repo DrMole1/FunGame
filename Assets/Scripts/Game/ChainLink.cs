@@ -28,16 +28,22 @@ public static class ChainLink
 
     // Copie le maillon en débris physique : il est projeté loin du point de rupture, tombe, roule, puis rétrécit
     // et disparaît. Aucune incidence sur le jeu (calque Ignore Raycast, chez chaque joueur).
-    public static void Shatter(Transform link, Vector3 breakPoint)
+    public static void Shatter(Transform link, Vector3 breakPoint) =>
+        Shatter(link, breakPoint, Vector3.zero, new Vector3(0.05f, 0.1f, Length * 0.9f), 0.3f);
+
+    // Même chose pour un objet quelconque (le crochet) : boîte de collision de centre et de taille locaux donnés.
+    public static void Shatter(Transform link, Vector3 breakPoint, Vector3 boxCenter, Vector3 boxSize, float mass)
     {
         var piece = Object.Instantiate(link.gameObject, link.position, link.rotation);
-        piece.name = "Maillon brisé";
+        piece.transform.localScale = link.lossyScale;
+        piece.name = link.name + " brisé";
         piece.layer = 2;
         foreach (Transform t in piece.GetComponentsInChildren<Transform>()) t.gameObject.layer = 2;
         var box = piece.AddComponent<BoxCollider>();
-        box.size = new Vector3(0.05f, 0.1f, Length * 0.9f);
+        box.center = boxCenter;
+        box.size = boxSize;
         var rb = piece.AddComponent<Rigidbody>();
-        rb.mass = 0.3f;
+        rb.mass = mass;
         Vector3 away = link.position - breakPoint;
         // Plus près de la rupture, plus violemment projeté.
         float burst = Mathf.Lerp(3f, 0.6f, Mathf.Clamp01(away.magnitude / 4f));
