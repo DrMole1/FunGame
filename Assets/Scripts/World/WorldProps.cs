@@ -191,28 +191,31 @@ public class Eye : MonoBehaviour
     }
 }
 
-// Lampe qui grésille.
+// Néon du labyrinthe : suit le réglage de luminosité ; certains grésillent.
 public class FlickerLight : MonoBehaviour
 {
     Light lightSource;
     Renderer bulb;
-    float baseIntensity, timer;
-    bool off;
+    float baseIntensity, timer, level = 1f;
+    bool off, flickers;
 
-    public void Init(Light l, Renderer bulbRenderer)
+    public void Init(Light l, Renderer bulbRenderer, bool flicker)
     {
         lightSource = l;
         bulb = bulbRenderer;
         baseIntensity = l.intensity;
+        flickers = flicker;
     }
 
     void Update()
     {
+        lightSource.intensity = baseIntensity * level * Brightness.Factor;
+        if (!flickers) return;
         timer -= Time.deltaTime;
         if (timer > 0f) return;
         off = !off && Random.value < 0.35f;
         timer = off ? Random.Range(0.03f, 0.18f) : Random.Range(0.05f, 2.5f);
-        lightSource.intensity = off ? baseIntensity * 0.08f : baseIntensity * Random.Range(0.75f, 1.05f);
+        level = off ? 0.08f : Random.Range(0.75f, 1.05f);
         if (bulb != null) bulb.enabled = !off;
         if (off) GameAudio.Play3D("neon", transform.position, 0.3f, 14f, 0.15f);
     }

@@ -13,6 +13,8 @@ public class GameAudio : MonoBehaviour
     readonly List<AudioSource> pool = new List<AudioSource>();
     // Boucles attachées aux objets, avec leur volume de base (suivent le volume des effets sonores).
     readonly List<KeyValuePair<AudioSource, float>> loops = new List<KeyValuePair<AudioSource, float>>();
+    // Sources (du groupe ou en boucle) qui jouent un son d'entité : muettes dans le Hub.
+    readonly HashSet<AudioSource> entitySources = new HashSet<AudioSource>();
     int next;
     AudioSource hubMusic, mazeDrone, insects, abjurationMusic;
 
@@ -119,9 +121,28 @@ public class GameAudio : MonoBehaviour
         return src;
     }
 
+    // Sons émis par les entités (pièges, Abjuration, Normal, Cauchemar) : on ne les entend pas depuis le Hub.
+    static readonly string[] EntityPrefixes = { "laser_", "dame_", "tour_", "pion_", "cloche_", "spider_", "fou_", "roi_" };
+
+    static bool IsEntitySound(string clip)
+    {
+        foreach (string prefix in EntityPrefixes) if (clip.StartsWith(prefix)) return true;
+        return false;
+    }
+
+    static bool ListenerInHub
+    {
+        get
+        {
+            Camera cam = Camera.main;
+            return cam != null && WorldBuilder.IsInHub(cam.transform.position);
+        }
+    }
+
     public static void Play3D(string clip, Vector3 position, float volume = 1f, float maxDistance = 20f, float pitchVariation = 0.05f, float pitch = 1f)
     {
         if (instance == null || !InRange(position, maxDistance)) return;
+        if (IsEntitySound(clip) && ListenerInHub) return;
         var src = instance.NextSource();
         src.transform.position = position;
         Configure3D(src, maxDistance);
@@ -135,6 +156,7 @@ public class GameAudio : MonoBehaviour
     public static void Play3DSmooth(string clip, Vector3 position, float volume, float maxDistance, float pitch)
     {
         if (instance == null || !InRange(position, maxDistance)) return;
+        if (IsEntitySound(clip) && ListenerInHub) return;
         var src = instance.NextSource();
         src.transform.position = position;
         Configure3D(src, maxDistance);
@@ -146,6 +168,8 @@ public class GameAudio : MonoBehaviour
     static void Fire(AudioSource src, string clip, float volume, float pitchVariation, float pitch)
     {
         src.Stop();
+        if (IsEntitySound(clip)) instance.entitySources.Add(src);
+        else instance.entitySources.Remove(src);
         src.clip = SoundBank.Get(clip);
         src.loop = false;
         src.volume = volume * sfx;
@@ -175,6 +199,7 @@ public class GameAudio : MonoBehaviour
         src.loop = true;
         src.volume = volume * sfx;
         src.playOnAwake = false;
+        if (IsEntitySound(clip)) instance.entitySources.Add(src);
         instance.loops.Add(new KeyValuePair<AudioSource, float>(src, volume));
         return src;
     }
@@ -238,10 +263,19 @@ public class GameAudio : MonoBehaviour
         abjurationMusic.volume = Mathf.Lerp(abjurationMusic.volume, abj * 0.5f * music, ka);
         float ki = 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime);
         insects.volume = Mathf.Lerp(insects.volume, inHub ? 0f : InsectLevel * 0.9f * on * sfx, ki);
+        // Dans le Hub, les sons des entités se taisent (y compris ceux déjà commencés).
+        bool hubListener = cam != null && inHub;
         for (int i = loops.Count - 1; i >= 0; i--)
         {
-            if (loops[i].Key == null) loops.RemoveAt(i);
-            else loops[i].Key.volume = loops[i].Value * sfx;
+            if (loops[i].Key == null)
+            {
+                loops.RemoveAt(i);
+                entitySources.RemoveWhere(src => src == null);
+            }
+            else loops[i].Key.volume = hubListener && entitySources.Contains(loops[i].Key) ? 0f : loops[i].Value * sfx;
         }
+        if (hubListener)
+            foreach (var src in pool)
+                if (src.isPlaying && entitySources.Contains(src)) src.Stop();
     }
 }

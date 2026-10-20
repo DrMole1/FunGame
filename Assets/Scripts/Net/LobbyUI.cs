@@ -21,6 +21,7 @@ public class LobbyUI : MonoBehaviour
     Text statusText, roomText, countText, copyLabel, lobbySkin, pauseSkin;
     readonly System.Collections.Generic.List<Text> musicLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> sfxLabels = new System.Collections.Generic.List<Text>();
+    readonly System.Collections.Generic.List<Text> brightLabels = new System.Collections.Generic.List<Text>();
     float copyFeedbackTimer;
     bool inGame;
 
@@ -132,7 +133,7 @@ public class LobbyUI : MonoBehaviour
         UiKit.Label(p, "Skin", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         lobbySkin = UiKit.Selector(p, 48, () => ChangeSkin(-1), () => ChangeSkin(1));
         PaintSelector(lobbySkin, 3);
-        VolumeRows(p, 36, 20);
+        VolumeRows(p, 36, 20, false);
 
         UiKit.Spacer(p, 4);
         var hostGo = UiKit.Button(p, "Héberger une partie", HostRed, 54, () => net.HostGame(nameField.text));
@@ -163,11 +164,13 @@ public class LobbyUI : MonoBehaviour
         layout.padding = new RectOffset(36, 36, 30, 26);
     }
 
-    // Volumes de la musique et des effets sonores (GDD 6.1 et 6.2), par pas de 10 %.
-    void VolumeRows(Transform p, float height, int seed)
+    // Volumes de la musique et des effets sonores (GDD 6.1 et 6.2), et luminosité, par pas de 10 %.
+    void VolumeRows(Transform p, float height, int seed, bool brightness)
     {
         musicLabels.Add(VolumeRow(p, "Musique", height, seed, step => GameAudio.MusicVolume = Step(GameAudio.MusicVolume, step)));
         sfxLabels.Add(VolumeRow(p, "Effets sonores", height, seed + 2, step => GameAudio.SfxVolume = Step(GameAudio.SfxVolume, step)));
+        // Luminosité hors du Hub (50 % par défaut), dans le menu pause seulement (le lobby est déjà plein).
+        if (brightness) brightLabels.Add(VolumeRow(p, "Luminosité", height, seed + 4, step => Brightness.Value = Step(Brightness.Value, step)));
         RefreshVolumes();
     }
 
@@ -195,6 +198,7 @@ public class LobbyUI : MonoBehaviour
     {
         foreach (var t in musicLabels) t.text = Mathf.RoundToInt(GameAudio.MusicVolume * 100f) + " %";
         foreach (var t in sfxLabels) t.text = Mathf.RoundToInt(GameAudio.SfxVolume * 100f) + " %";
+        foreach (var t in brightLabels) t.text = Mathf.RoundToInt(Brightness.Value * 100f) + " %";
     }
 
     // Boutons "<" et ">" d'un sélecteur, en coups de pinceau.
@@ -207,7 +211,7 @@ public class LobbyUI : MonoBehaviour
     void BuildPause(Transform root)
     {
         // À gauche : partie, skin, volumes, quitter.
-        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 470));
+        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 514));
         UiKit.Paint(pausePanel, PanelBlack, 11);
         UiKit.Place(pausePanel, new Vector2(0f, 1f), new Vector2(16, -16));
         UiKit.Column(pausePanel, 34, 8);
@@ -226,7 +230,7 @@ public class LobbyUI : MonoBehaviour
         UiKit.Label(p, "Changer de skin", 15, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         pauseSkin = UiKit.Selector(p, 40, () => ChangeSkin(-1), () => ChangeSkin(1));
         PaintSelector(pauseSkin, 13);
-        VolumeRows(p, 36, 15);
+        VolumeRows(p, 36, 15, true);
         UiKit.Spacer(p, 4);
         UiKit.Paint(UiKit.Button(p, "Quitter la partie", HostRed, 38, () => net.LeaveGame()), HostRed, 17);
 

@@ -1655,7 +1655,7 @@ public static class WorldBuilder
         go.transform.localPosition = ceilingPos + Vector3.down * 0.05f;
         var bulb = GameArt.Prim(PrimitiveType.Cube, go.transform, Vector3.zero, new Vector3(0.9f, 0.05f, 0.25f), GameArt.Unlit("Neon", new Color(0.7f, 0.7f, 0.66f)));
         var l = AddLight(go.transform, Vector3.down * 0.4f, new Color(0.85f, 0.87f, 0.9f), intensity, range);
-        if (rnd.NextDouble() < 0.45) go.AddComponent<FlickerLight>().Init(l, bulb.GetComponent<Renderer>());
+        go.AddComponent<FlickerLight>().Init(l, bulb.GetComponent<Renderer>(), rnd.NextDouble() < 0.45);
     }
 
     static void AddEye(Transform parent, Vector3 pos, Vector3 normal, float size)

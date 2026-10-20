@@ -6,7 +6,7 @@ using UnityEngine;
 // "En recherche", il arpente le terrain sans un bruit (x0,7), s'arrête parfois 2 à 5 s, immobile (toutes les 7 à 15 s),
 // puis repart (10 % : demi-tour). S'il voit une Balise, il s'y rend (puis 40 s sans s'en soucier). Hors Abjuration, une
 // Abjuration de 10 m l'entoure (arrêtée par les murs, gérée chez chaque joueur). Un joueur repéré à 20 m devant lui est
-// "chassé" : aura blanche à ses pieds (-20 %, pas de course), rire ; le Roi s'immobilise et lève le bras droit 2,5 s,
+// "chassé" (de même, sans mur, à moins de 6 m, quel que soit l'angle) : aura blanche à ses pieds (-20 %, pas de course), rire ; le Roi s'immobilise et lève le bras droit 2,5 s,
 // puis lance une chaîne vers la position mémorisée, assez vite mais esquivable. Touché, le joueur est immobilisé et
 // ramené vers le Roi à vitesse normale, sauf s'il appuie 5 fois sur Espace (la chaîne se rompt). Chaîne ratée ou rompue :
 // 1 s de répit sans aura, puis s'il le voit encore, nouvelle visée (1,5 s), sinon il repart. À moins de 0,8 m, il
@@ -17,7 +17,9 @@ public class Roi : Entity
 
     const float Height = 2.66f;
     const float EyeHeight = 2.35f, FieldOfView = 120f;
-    const float GrabHitTime = 0.45f, GrabDuration = 1.1f;
+    // Mise à mort : il lève son épée au-dessus de sa tête, puis l'abat sur le joueur (le coup porte à la fin du geste).
+    const float GrabRaise = 0.6f, GrabStrike = 0.2f;
+    const float GrabHitTime = GrabRaise + GrabStrike, GrabDuration = 1.5f;
     const float LinkSpacing = 0.17f;
 
     public override EntityKind Kind => EntityKind.Roi;
@@ -61,7 +63,7 @@ public class Roi : Entity
             case State.Beacon:
             {
                 foreach (var p in players)
-                    if (Valid(p) && Sees(p, EyeHeight, GameRules.RoiSightRange, FieldOfView)) { BeginAim(p, true); return; }
+                    if (Valid(p) && (Sees(p, EyeHeight, GameRules.RoiSightRange, FieldOfView) || Senses(p))) { BeginAim(p, true); return; }
                 if (Current == State.Pause)
                 {
                     Speed = 0f;
@@ -216,6 +218,15 @@ public class Roi : Entity
         ClearPath();
     }
 
+    // À moins de 6 m (3 m en marche discrète), devant comme dans son dos, sans mur entre eux.
+    bool Senses(PlayerPresence p)
+    {
+        Vector3 d = p.Position - transform.position;
+        float radius = GameRules.RoiSenseRadius * (p.Sneaking ? 0.5f : 1f);
+        if (Horizontal(d).magnitude > radius || Mathf.Abs(d.y - 0.9f) > 2.5f) return false;
+        return ClearLine(transform.position + Vector3.up * 1.5f, p.Position + Vector3.up * 0.4f);
+    }
+
     bool SeesPoint(Vector3 point)
     {
         Vector3 eye = transform.position + Vector3.up * EyeHeight;
@@ -261,6 +272,8 @@ public class Roi : Entity
     // ================= Modèle =================
 
     Transform headBone, handBone, upperArm, lowerArm;
+    Transform swordHand, swordUpper, swordLower;
+    float grabShownAt = -1f;
     Transform fallbackArm;
     Transform chainRoot, whiteAura;
     readonly List<Transform> links = new List<Transform>();
@@ -280,6 +293,9 @@ public class Roi : Entity
             Transform left = animator.GetBoneTransform(HumanBodyBones.LeftHand);
             Transform leftFore = animator.GetBoneTransform(HumanBodyBones.LeftLowerArm);
             if (left != null && leftFore != null) BuildSword(left, left.position - leftFore.position);
+            swordHand = left;
+            swordLower = leftFore;
+            swordUpper = animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
         }
         else if (animator == null)
         {
@@ -340,15 +356,27 @@ public class Roi : Entity
     {
         Vector3 head = transform.position + Vector3.up * EyeHeight;
         if ((State)next == State.Aim && (State)previous < State.Aim) GameAudio.Play3D("roi_laugh", head, 1f, 35f, 0.05f);
-        if ((State)next == State.Grab) GameAudio.Play3D("roi_laugh", head, 1f, 30f, 0.15f);
+        if ((State)next == State.Grab)
+        {
+            grabShownAt = Time.time;
+            GameAudio.Play3D("roi_laugh", head, 1f, 30f, 0.15f);
+        }
         if ((State)next == State.Pull) GameAudio.Play3D("roi_chain", ChainTipShown, 0.9f, 25f, 0.1f);
     }
 
     // Lancer de la chaîne, puis chaîne rompue.
     protected override void OnPulse()
     {
-        if (Current == State.Throw) GameAudio.Play3D("roi_chain", HandPosition(), 0.9f, 30f, 0.08f);
-        else GameAudio.Play3D("roi_break", ChainTipShown, 1f, 25f, 0.08f);
+        if (Current == State.Throw)
+        {
+            GameAudio.Play3D("roi_chain", HandPosition(), 0.9f, 30f, 0.08f);
+            return;
+        }
+        GameAudio.Play3D("roi_break", ChainTipShown, 1f, 25f, 0.08f);
+        // La chaîne vole en éclats : chaque maillon encore affiché se détache et tombe au sol, puis disparaît.
+        Vector3 snap = ChainTipShown;
+        foreach (var link in links)
+            if (link.gameObject.activeSelf) ChainLink.Shatter(link, snap);
     }
 
     Vector3 ChainTipShown => tipShown ? shownTip : transform.position + Vector3.up;
@@ -371,20 +399,7 @@ public class Roi : Entity
         Vector3 aim = AimPoint();
         if (armRaise > 0.001f)
         {
-            if (upperArm != null && handBone != null)
-            {
-                Vector3 current = handBone.position - upperArm.position;
-                Vector3 wanted = aim - upperArm.position;
-                Quaternion turn = Quaternion.FromToRotation(current, wanted);
-                upperArm.rotation = Quaternion.Slerp(Quaternion.identity, turn, armRaise) * upperArm.rotation;
-                if (lowerArm != null)
-                {
-                    // L'avant-bras s'aligne aussi (bras tendu).
-                    Vector3 fore = handBone.position - lowerArm.position;
-                    Quaternion straighten = Quaternion.FromToRotation(fore, aim - lowerArm.position);
-                    lowerArm.rotation = Quaternion.Slerp(Quaternion.identity, straighten, armRaise) * lowerArm.rotation;
-                }
-            }
+            if (upperArm != null && handBone != null) PointArm(upperArm, lowerArm, handBone, aim, armRaise);
             else if (fallbackArm != null)
             {
                 Vector3 local = fallbackArm.parent.InverseTransformDirection(aim - fallbackArm.position);
@@ -392,10 +407,44 @@ public class Roi : Entity
             }
         }
         else if (fallbackArm != null) fallbackArm.localRotation = Quaternion.identity;
+        AnimateSword();
         UpdateChain();
         PlayerPresence target = Slows ? FindPresence(TargetId) : null;
         whiteAura.gameObject.SetActive(target != null && target.Alive);
         if (target != null) whiteAura.position = target.Position + Vector3.down * 0.85f;
+    }
+
+    // Mise à mort : le bras gauche monte l'épée au-dessus de la tête, puis l'abat d'un coup sec sur le joueur.
+    void AnimateSword()
+    {
+        if (Current != State.Grab || grabShownAt < 0f || swordUpper == null || swordHand == null) return;
+        float t = Time.time - grabShownAt;
+        float raise = Mathf.SmoothStep(0f, 1f, t / GrabRaise);
+        float strike = Mathf.SmoothStep(0f, 1f, (t - GrabRaise) / GrabStrike);
+        if (strike > 0f && !slashPlayed)
+        {
+            slashPlayed = true;
+            GameAudio.Play3D("roi_slash", swordHand.position, 1f, 25f, 0.08f);
+        }
+        if (strike <= 0f) slashPlayed = false;
+        Vector3 shoulder = swordUpper.position;
+        Vector3 overhead = shoulder + Vector3.up * 1.2f - transform.forward * 0.35f;
+        PlayerPresence target = FindPresence(TargetId);
+        Vector3 victim = target != null ? target.Position + Vector3.down * 0.3f : transform.position + transform.forward * 1f + Vector3.up * 0.6f;
+        Vector3 aim = Vector3.Lerp(overhead, victim, strike);
+        PointArm(swordUpper, swordLower, swordHand, aim, raise);
+    }
+
+    bool slashPlayed;
+
+    // Oriente le bras (épaule puis coude) pour que la main pointe vers 'aim', avec un poids de 0 à 1.
+    static void PointArm(Transform upper, Transform lower, Transform hand, Vector3 aim, float weight)
+    {
+        Quaternion turn = Quaternion.FromToRotation(hand.position - upper.position, aim - upper.position);
+        upper.rotation = Quaternion.Slerp(Quaternion.identity, turn, weight) * upper.rotation;
+        if (lower == null) return;
+        Quaternion straighten = Quaternion.FromToRotation(hand.position - lower.position, aim - lower.position);
+        lower.rotation = Quaternion.Slerp(Quaternion.identity, straighten, weight) * lower.rotation;
     }
 
     Vector3 AimPoint()

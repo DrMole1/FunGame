@@ -26,6 +26,26 @@ public static class ChainLink
         return link;
     }
 
+    // Copie le maillon en débris physique : il est projeté loin du point de rupture, tombe, roule, puis rétrécit
+    // et disparaît. Aucune incidence sur le jeu (calque Ignore Raycast, chez chaque joueur).
+    public static void Shatter(Transform link, Vector3 breakPoint)
+    {
+        var piece = Object.Instantiate(link.gameObject, link.position, link.rotation);
+        piece.name = "Maillon brisé";
+        piece.layer = 2;
+        foreach (Transform t in piece.GetComponentsInChildren<Transform>()) t.gameObject.layer = 2;
+        var box = piece.AddComponent<BoxCollider>();
+        box.size = new Vector3(0.05f, 0.1f, Length * 0.9f);
+        var rb = piece.AddComponent<Rigidbody>();
+        rb.mass = 0.3f;
+        Vector3 away = link.position - breakPoint;
+        // Plus près de la rupture, plus violemment projeté.
+        float burst = Mathf.Lerp(3f, 0.6f, Mathf.Clamp01(away.magnitude / 4f));
+        rb.velocity = away.normalized * burst + Random.insideUnitSphere * 1.2f + Vector3.up * Random.Range(0.5f, 2f);
+        rb.angularVelocity = Random.insideUnitSphere * 12f;
+        piece.AddComponent<LinkDebris>();
+    }
+
     static void Prepare()
     {
         var model = Resources.Load<GameObject>("Art/Maillon");
@@ -75,5 +95,22 @@ public static class ChainLink
         var m = new Mesh { name = "Maillon", vertices = verts, normals = normals, triangles = tris };
         m.RecalculateBounds();
         return m;
+    }
+}
+
+// Maillon tombé au sol : rétrécit puis disparaît au bout de quelques secondes.
+public class LinkDebris : MonoBehaviour
+{
+    const float Life = 3.5f, Fade = 0.6f;
+    float age;
+    Vector3 scale;
+
+    void Start() => scale = transform.localScale;
+
+    void Update()
+    {
+        age += Time.deltaTime;
+        if (age > Life - Fade) transform.localScale = scale * Mathf.Clamp01((Life - age) / Fade);
+        if (age >= Life) Destroy(gameObject);
     }
 }

@@ -19,7 +19,7 @@ public static class SoundBank
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
         "tour_step", "tour_breath", "tour_charge", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
         "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat",
-        "fou_bells", "fou_alert", "fou_attack", "fou_dance", "roi_laugh", "roi_chain", "roi_break",
+        "fou_bells", "fou_alert", "fou_attack", "fou_dance", "roi_laugh", "roi_chain", "roi_break", "roi_slash",
     };
 
     public static void Preload()
@@ -106,6 +106,7 @@ public static class SoundBank
             case "roi_laugh": return RoiLaugh(rnd);
             case "roi_chain": return RoiChain(rnd);
             case "roi_break": return RoiBreak(rnd);
+            case "roi_slash": return RoiSlash(rnd);
         }
         return null;
     }
@@ -1313,6 +1314,24 @@ public static class SoundBank
                 if (u >= 0f) v += (Sine(2900f * u) + 0.5f * Sine(4700f * u)) * AD(u, 0.0005f, 0.03f) * 0.5f;
             }
             d[i] = v;
+        }
+        return d;
+    }
+
+    // Coup d'épée : sifflement de la lame qui fend l'air, puis choc sourd et tranchant.
+    static float[] RoiSlash(System.Random rnd)
+    {
+        var d = Buffer(0.8f);
+        var bp = new BandPass();
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float whoosh = bp.Process(Noise(rnd), Mathf.Lerp(900f, 3200f, Mathf.Clamp01(t / 0.2f)), 0.3f) * ASR(t, 0.08f, 0.06f, 0.22f);
+            float u = t - 0.2f;
+            float hit = u < 0f ? 0f : Sine((80f - 30f * u) * u) * AD(u, 0.002f, 0.12f) * 1.2f
+                + lp.Process(Noise(rnd), 2200f) * AD(u, 0.001f, 0.06f) + Sine(1900f * u) * AD(u, 0.001f, 0.08f) * 0.3f;
+            d[i] = whoosh * 1.4f + hit;
         }
         return d;
     }

@@ -475,12 +475,15 @@ public class GameSession : MonoBehaviour, IEntityHost
         Camera cam = Camera.main;
         bool inHub = cam == null || WorldBuilder.IsInHub(cam.transform.position);
         float k = 1f - Mathf.Exp(-4f * Time.deltaTime);
-        RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, inHub ? HubAmbient : MazeAmbient, k);
-        RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog, k);
+        // Hors du Hub, selon le réglage de luminosité (±10 %).
+        float bright = Brightness.Factor;
+        RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, inHub ? HubAmbient : MazeAmbient * bright, k);
+        RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog / bright, k);
         // Pendant la mort, la lampe éclaire encore le corps puis faiblit, jusqu'au noir.
         bool dying = status.Dead && OrbitCamera.DeathView >= 0f;
         playerLight.enabled = net.InGame && (!status.Dead || dying) && !WorldBuilder.IsInHub(player.transform.position);
-        playerLight.intensity = dying ? PlayerLightIntensity * (1f - Mathf.Clamp01(OrbitCamera.DeathView / OrbitCamera.DeathViewDuration)) : PlayerLightIntensity;
+        float lamp = PlayerLightIntensity * bright;
+        playerLight.intensity = dying ? lamp * (1f - Mathf.Clamp01(OrbitCamera.DeathView / OrbitCamera.DeathViewDuration)) : lamp;
 
         // Brume de l'Abjuration : apparaît et se dissipe en douceur ; le brouillard bleuit quand on y est plongé.
         bool abjuration = net.InGame && AbjurationActive;
@@ -612,7 +615,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         player.Immobilize(0.2f);
         Vector3 to = holder.transform.position - me;
         to.y = 0f;
-        player.Pull = to.magnitude > 0.4f ? to.normalized * GameRules.BaseSpeed : Vector3.zero;
+        player.Pull = to.magnitude > 0.4f ? to.normalized * GameRules.BaseSpeed * GameRules.RoiPullMultiplier : Vector3.zero;
         if (!PlayerController.InputLocked && Input.GetKeyDown(KeyCode.Space) && ++chainPresses >= GameRules.RoiBreakPresses)
         {
             net.ToHost("RB|" + chainedBy);
@@ -2310,7 +2313,6 @@ public class GameSession : MonoBehaviour, IEntityHost
                 chainedBy = roiId;
                 chainedAt = Time.time;
                 chainPresses = 0;
-                hud.Toast("Le Roi vous a enchaîné ! Appuyez " + GameRules.RoiBreakPresses + " fois sur Espace pour rompre la chaîne.");
                 break;
             }
             case "RB" when host && f.Length >= 2:
