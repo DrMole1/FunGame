@@ -367,27 +367,37 @@ public class Roi : Entity
     protected override void OnStateChanged(byte previous, byte next)
     {
         Vector3 head = transform.position + Vector3.up * EyeHeight;
-        if ((State)next == State.Aim && (State)previous < State.Aim) GameAudio.Play3D("roi_laugh", head, 1f, 35f, 0.05f);
+        // Rire quand il commence à lever le bras.
+        if ((State)next == State.Aim && (State)previous < State.Aim) GameAudio.Play3D("roi_laugh", head, 1f, 35f, 0f);
         if ((State)next == State.Aim)
         {
             aimShownAt = Time.time;
             aimShownLen = (State)previous == State.Recover ? GameRules.RoiAimAgain : GameRules.RoiAimFirst;
+            // L'aura blanche apparaît chez le joueur visé.
+            PlayerPresence target = FindPresence(TargetId);
+            if (target != null) GameAudio.Play3D("roi_flash", target.Position, 1f, 30f, 0f);
         }
         if ((State)next == State.Throw) throwShownAt = Time.time;
-        if ((State)next == State.Grab)
+        // La chaîne a touché son objectif ou fini sa course : le son du lancer se coupe.
+        if ((State)previous == State.Throw && chainSound != null)
         {
-            grabShownAt = Time.time;
-            GameAudio.Play3D("roi_laugh", head, 1f, 30f, 0.15f);
+            // (La source a pu être reprise par un autre son entre-temps.)
+            if (chainSound.clip == SoundBank.Get("roi_chain")) chainSound.Stop();
+            chainSound = null;
         }
-        if ((State)next == State.Pull) GameAudio.Play3D("roi_chain", ChainTipShown, 0.9f, 25f, 0.1f);
+        if ((State)next == State.Grab) grabShownAt = Time.time;
     }
+
+    public override string KillSound => "roi_kill";
+
+    AudioSource chainSound;
 
     // Lancer de la chaîne, puis chaîne rompue.
     protected override void OnPulse()
     {
         if (Current == State.Throw)
         {
-            GameAudio.Play3D("roi_chain", HandPosition(), 0.9f, 30f, 0.08f);
+            chainSound = GameAudio.Play3D("roi_chain", HandPosition(), 1f, 30f, 0f);
             return;
         }
         GameAudio.Play3D("roi_break", ChainTipShown, 1f, 25f, 0.08f);
@@ -492,13 +502,6 @@ public class Roi : Entity
             return Vector3.Lerp(lifted, target, 1f - (1f - k) * (1f - k));
         }
         return target;
-    }
-
-    static PlayerPresence FindPresence(string id)
-    {
-        if (string.IsNullOrEmpty(id)) return null;
-        foreach (var p in PlayerPresence.All) if (p.PlayerId == id) return p;
-        return null;
     }
 
     // Maillons alignés de la main jusqu'à la pointe, tournés d'un quart de tour un sur deux.

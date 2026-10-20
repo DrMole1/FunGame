@@ -266,6 +266,9 @@ public class GameSession : MonoBehaviour, IEntityHost
         terminal.Close(false);
         postItUI.Close();
         hud.Show(false);
+        WipedOut = false;
+        allDeadSince = -1f;
+        GameAudio.CancelDeathSequence();
         ClearEntities();
         if (maze != null) Destroy(maze.root);
         maze = null;
@@ -391,7 +394,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || phase == Phase.GameOver || Teleporting;
         OrbitCamera.CursorLockBlocked = TerminalUI.IsOpen || PostItUI.IsOpen || GameHud.GameOverVisible;
 
-        if (phase == Phase.Running)
+        if (phase == Phase.Running && !WipedOut)
         {
             timeLeft = Mathf.Max(0f, timeLeft - Time.deltaTime);
             if (net.IsHost && inGame && timeLeft <= 0f) EndRound();
@@ -405,6 +408,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             syncTimer += Time.unscaledDeltaTime;
             if (syncTimer >= 1f) BroadcastState();
             UpdateHostAbjuration();
+            UpdateHostWipeOut();
             // La grille de navigation de La Dame se calcule en arrière-plan, quelques colonnes par image.
             if (maze != null && !maze.nav.Ready) maze.nav.BuildStep(6);
             SimulateEntities();
@@ -475,7 +479,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         Camera cam = Camera.main;
         bool inHub = cam == null || WorldBuilder.IsInHub(cam.transform.position);
         float k = 1f - Mathf.Exp(-4f * Time.deltaTime);
-        // Hors du Hub, selon le réglage de luminosité (±10 %).
+        // Hors du Hub, selon la luminosité (base +50 %, réglage ±10 %).
         float bright = Brightness.Factor;
         RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, inHub ? HubAmbient : MazeAmbient * bright, k);
         RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog / bright, k);
@@ -872,6 +876,8 @@ public class GameSession : MonoBehaviour, IEntityHost
         hud.FlashDamage();
         GameAudio.Play2D("hurt", 0.9f, 0.08f);
         if (status.Hp > 0) return;
+        // Son de mise à mort de l'entité, entendu par tous (GDD 12) : l'hôte le relaie.
+        if (by != null) net.ToHost("KL|" + by.Id);
         // Note 03 (V0.4.3) : tué par un Cauchemar, la caméra plonge environ 1,5 seconde dans ses yeux, puis le corps s'effondre.
         if (by != null && by.Nightmare)
         {
@@ -1835,6 +1841,7 @@ public class GameSession : MonoBehaviour, IEntityHost
 
     void EndRound()
     {
+        if (WipedOut) return;
         if (progress >= quota)
         {
             int done = round;
@@ -1887,9 +1894,42 @@ public class GameSession : MonoBehaviour, IEntityHost
         OnRestart();
     }
 
+    // Tous les joueurs connectés sont morts : fondu au noir, puis GAME OVER et retour au lobby (décidé par l'hôte, message WO).
+    public bool WipedOut { get; private set; }
+    float allDeadSince = -1f;
+    // Laisse la dernière mort se jouer avant le fondu.
+    const float WipeOutDelay = 2f;
+
+    void UpdateHostWipeOut()
+    {
+        bool allDead = !WipedOut && phase != Phase.GameOver && net.Roster.Count > 0;
+        if (allDead)
+            foreach (var id in net.Roster.Keys)
+                if (!IsDeadForHost(id)) { allDead = false; break; }
+        if (!allDead)
+        {
+            allDeadSince = -1f;
+            return;
+        }
+        if (allDeadSince < 0f) allDeadSince = Time.time;
+        if (Time.time - allDeadSince >= WipeOutDelay) net.ToAll("WO");
+    }
+
+    void OnWipeOut()
+    {
+        if (WipedOut) return;
+        WipedOut = true;
+        terminal.Close(false);
+        postItUI.Close();
+        OrbitCamera.LockCursor(false);
+        hud.PlayWipeOut();
+        GameAudio.PlayWipeOutSequence(GameHud.WipeFadeDuration, GameHud.WipeSilence);
+    }
+
     // Quota non atteint : tous les personnages meurent.
     void OnGameOver()
     {
+        if (WipedOut) return;
         terminal.Close(false);
         postItUI.Close();
         ClearEntities();
@@ -1942,6 +1982,9 @@ public class GameSession : MonoBehaviour, IEntityHost
                 }
                 break;
             }
+            case "WO":
+                if (net.InGame) OnWipeOut();
+                break;
             case "IL" when !host && f.Length >= 3:
                 if (NetworkGame.I(f[1]) != round) break;
                 foreach (string s in f[2].Split(','))
@@ -2330,6 +2373,12 @@ public class GameSession : MonoBehaviour, IEntityHost
             }
             case "TA":
                 if (!status.Dead) GameAudio.Play2D("tour_alert", 0.8f);
+                break;
+            case "KL" when host && f.Length >= 2:
+                net.ToAll("EK|" + f[1]);
+                break;
+            case "EK" when f.Length >= 2:
+                if (entities.TryGetValue(NetworkGame.I(f[1]), out var killer) && killer != null) killer.PlayKillSound();
                 break;
             case "NZ" when host:
                 noiseAt[from] = Time.time;

@@ -1,10 +1,10 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.4.4).
+// Variables numériques du document de Game Design (V0.4.5).
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.4.4";
+    public const string Version = "V0.4.5";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -129,7 +129,7 @@ public static class GameRules
     public const float TourChargeSpeed = 45f;            // "à la vitesse de la lumière" : quasi instantané
     public const float TourKnockback = 10f;
 
-    // ---------- Le Fou (entité ID 7, Cauchemar, V0.4.3) ----------
+    // ---------- Le Fou (entité ID 7, Cauchemar, V0.4.5) ----------
 
     public const int FouDamage = 20;
     public const float FouRunMultiplier = 1.5f;
@@ -141,9 +141,8 @@ public static class GameRules
     public const float FouSightRange = 40f;
     public const float FouStareTime = 2f;                   // regardé 2 s : il attaque
     public const float FouLookAgainWindow = 3f;             // regard détourné puis revenu dans les 3 s : il attaque aussi
-    public const float FouSwapCooldown = 2f;
-    public const float FouChaseDuration = 5f;
-    public const float FouChaseStareTime = 1f;              // en chasse, regardé plus d'une seconde : nouvelle attaque
+    public const float FouSwapCooldown = 5f;                // après un échange, 5 s sans pouvoir lancer son attaque
+    public const float FouChaseDuration = 5f;               // en chasse, il court vers le joueur, puis danse
     public const float FouKillDistance = 0.8f;
     public const float FouDanceChance = 0.15f, FouDanceDuration = 3f;
 

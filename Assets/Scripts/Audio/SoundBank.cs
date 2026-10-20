@@ -17,9 +17,12 @@ public static class SoundBank
         "hub_music", "maze_drone", "insects", "neon", "blink", "step_tile", "step_dirt",
         "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
-        "tour_step", "tour_breath", "tour_charge", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
+        "tour_step", "tour_breath", "tour_charge", "tour_channel", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
         "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat",
         "fou_bells", "fou_alert", "fou_attack", "fou_dance", "roi_laugh", "roi_chain", "roi_break", "roi_slash",
+        // Sons enregistrés seulement (GDD 12), sans équivalent synthétisé.
+        "dame_kill", "tour_kill", "fou_kill", "roi_flash", "roi_kill",
+        "doom",
     };
 
     public static void Preload()
@@ -54,6 +57,7 @@ public static class SoundBank
             case "tock": return Click(rnd, 1400f, 900f, 0.08f);
             case "fanfare": return Fanfare(rnd);
             case "gameover": return GameOver();
+            case "doom": return Doom(rnd);
             case "laser_on": return LaserOn(rnd);
             case "laser_hum": return LaserHum(rnd);
             case "laser_hit": return LaserHit(rnd);
@@ -89,6 +93,8 @@ public static class SoundBank
             case "tour_step": return TourStep(rnd);
             case "tour_breath": return TourBreath(rnd);
             case "tour_charge": return TourCharge(rnd);
+            // Repli si Tour_Canalisation manque : la montée en charge synthétisée.
+            case "tour_channel": return TourCharge(rnd);
             case "tour_impact": return TourImpact(rnd);
             case "tour_alert": return TourAlert();
             case "pion_cry": return PionCry(rnd);
@@ -290,6 +296,50 @@ public static class SoundBank
             s = lp.Process(s, Mathf.Lerp(1400f, 250f, t / 3.4f)) * ASR(t, 0.05f, 1.2f, 3.4f);
             s += Sine(55f * t - 8f * t * t) * Decay(t, 0.7f) * 0.7f;
             d[i] = s;
+        }
+        return d;
+    }
+
+    // Tous les joueurs sont morts : coup sourd, énorme cloche funèbre qui résonne longtemps dans une nef,
+    // et chœur grave qui monte puis s'éteint.
+    static float[] Doom(System.Random rnd)
+    {
+        const float len = 8f, f = 55f;
+        var d = Buffer(len);
+        (float ratio, float amp, float decay)[] partials =
+        {
+            (0.5f, 0.6f, 5f), (1f, 0.9f, 3.8f), (1.19f, 0.7f, 2.6f), (1.5f, 0.4f, 2f),
+            (2f, 0.45f, 1.6f), (2.52f, 0.3f, 1.1f), (3.01f, 0.2f, 0.8f), (4.1f, 0.12f, 0.5f),
+        };
+        float[] choir = { 82.4f, 110f, 110.7f, 130.8f, 164.8f };
+        float[] phases = new float[choir.Length];
+        var lp = new LowPass();
+        var choirLp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float s = 0f;
+            foreach (var (ratio, amp, decay) in partials)
+                s += Sine(f * ratio * t * (1f + 0.001f * Mathf.Sin(TwoPi * 1.3f * t))) * amp * Decay(t, decay);
+            // Choc du battant et grondement qui plonge.
+            s += lp.Process(Noise(rnd), 900f) * Decay(t, 0.05f) * 2f;
+            s += Sine(40f * t - 5f * t * t) * Decay(t, 0.9f) * 0.9f;
+            float c = 0f;
+            for (int v = 0; v < choir.Length; v++)
+            {
+                phases[v] += choir[v] * (1f + 0.004f * Mathf.Sin(TwoPi * (0.2f + v * 0.07f) * t)) / Rate;
+                c += Saw(phases[v]);
+            }
+            c = choirLp.Process(c, 600f) * 0.12f * ASR(t - 0.6f, 2.5f, 3.5f, len - 0.8f);
+            d[i] = (s + c) * Mathf.Clamp01((len - t) / 1.2f);
+        }
+        // Échos tardifs de la nef.
+        var dry = (float[])d.Clone();
+        (float delay, float gain)[] taps = { (0.11f, 0.35f), (0.23f, 0.25f), (0.37f, 0.15f) };
+        foreach (var (delay, gain) in taps)
+        {
+            int offset = Mathf.RoundToInt(delay * Rate);
+            for (int i = offset; i < d.Length; i++) d[i] += dry[i - offset] * gain;
         }
         return d;
     }

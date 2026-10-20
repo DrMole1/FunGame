@@ -1,15 +1,16 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Le Fou (entité ID 7, type Cauchemar, V0.4.3) : grande entité bipède et souriante à tête de soleil, de la taille de
-// La Dame. "En recherche", il arpente le terrain à la vitesse de marche d'un joueur, d'une démarche cartoon, et se met
-// à courir sans prévenir (x1,5 pendant 2 à 5 s, grelots audibles à 30 m ; 30 % de chances de faire demi-tour), puis
-// remarche 4 à 10 s. Un joueur dont la caméra le voit est fixé : le Fou se tourne vers lui, crie et tremble. Regardé
-// 2 secondes d'affilée (ou de nouveau dans les 3 secondes après un regard détourné), il attaque : cri, échange de
-// position avec le personnage et 20 de dégâts (puis 2 s sans pouvoir échanger). Il passe alors "en chasse" 5 secondes,
-// en marchant vers le joueur, les yeux rouges ; un regard de plus d'une seconde relance l'attaque et la chasse.
-// À moins de 0,8 m, il immobilise le joueur et le tue. Une fois sur 7 environ (15 %), il danse 3 secondes avant
-// d'attaquer : si le joueur ne le regarde plus à la fin, l'attaque est annulée.
+// Le Fou (entité ID 7, type Cauchemar, V0.4.5) : grande entité bipède et souriante à tête de soleil. "En recherche",
+// il arpente le terrain à la vitesse de marche d'un joueur, d'une démarche cartoon, et se met à courir sans prévenir
+// (x1,5 pendant 2 à 5 s, grelots audibles à 30 m ; 30 % de chances de faire demi-tour), puis remarche 4 à 10 s. Un
+// joueur dont la caméra le voit est fixé : le Fou se tourne vers lui, crie et tremble. Regardé 2 secondes d'affilée
+// (ou de nouveau dans les 3 secondes après un regard détourné), il attaque : cri, échange de position avec le
+// personnage et 20 de dégâts (puis 5 s sans pouvoir lancer son attaque). Il passe alors "en chasse" 5 secondes, en
+// courant vers le joueur, les yeux rouges, puis danse 3 secondes : si la caméra du joueur le regarde toujours à la fin
+// de sa danse, il attaque à nouveau ; sinon il repart "en recherche". À moins de 0,8 m, il immobilise le joueur et le
+// tue. Une fois sur 7 environ (15 %), il danse 3 secondes avant d'attaquer : si le joueur ne le regarde plus à la fin,
+// l'attaque est annulée.
 public class Fou : Entity
 {
     public enum State : byte { Walk = 0, Run = 1, Alert = 2, Dance = 3, Chase = 4, Grab = 5 }
@@ -106,12 +107,11 @@ public class Fou : Entity
             case State.Chase:
                 if (!Valid(target)) { Search(); break; }
                 chaseTimer -= dt;
-                if (chaseTimer <= 0f) { Search(); break; }
-                Speed = GameRules.BaseSpeed;
+                // Fin de la chasse : il ne poursuit plus le joueur et danse 3 secondes (la danse finie, voir State.Dance).
+                if (chaseTimer <= 0f) { BeginDance(); break; }
+                Speed = GameRules.BaseSpeed * GameRules.FouRunMultiplier;
                 Pursue(target, dt);
-                lookTime = Looks(target) ? lookTime + dt : 0f;
-                if (InReach(target, GameRules.FouKillDistance)) { BeginGrab(); break; }
-                if (lookTime > GameRules.FouChaseStareTime && swapCooldown <= 0f) LaunchAttack(target);
+                if (InReach(target, GameRules.FouKillDistance)) BeginGrab();
                 break;
 
             case State.Grab:
@@ -140,15 +140,17 @@ public class Fou : Entity
     // 15 % : une danse de 3 secondes avant l'attaque.
     void LaunchAttack(PlayerPresence target)
     {
-        // Il ne peut pas échanger de position pendant 2 secondes après un échange : il attend.
+        // Il ne peut pas lancer son attaque pendant 5 secondes après un échange : il attend.
         if (swapCooldown > 0f) return;
-        if (rnd.NextDouble() < GameRules.FouDanceChance)
-        {
-            Current = State.Dance;
-            stateTimer = 0f;
-            ClearPath();
-        }
+        if (rnd.NextDouble() < GameRules.FouDanceChance) BeginDance();
         else Attack(target);
+    }
+
+    void BeginDance()
+    {
+        Current = State.Dance;
+        stateTimer = 0f;
+        ClearPath();
     }
 
     // Cri d'attaque, échange de position avec le personnage et dégâts ; puis la chasse (ou sa relance).
@@ -166,7 +168,7 @@ public class Fou : Entity
         Pulse++;
         swapCooldown = GameRules.FouSwapCooldown;
         Current = State.Chase;
-        stateTimer = lookTime = 0f;
+        stateTimer = 0f;
         chaseTimer = GameRules.FouChaseDuration;
         ClearPath();
         repathTimer = 0f;
@@ -343,20 +345,20 @@ public class Fou : Entity
         {
             case State.Alert:
                 alertTime = 0f;
-                GameAudio.Play3D("fou_alert", mouth, 1f, 35f, 0.06f);
+                GameAudio.Play3D("fou_alert", mouth, 1f, 35f, 0f);
                 break;
             case State.Dance:
                 danceTime = 0f;
                 GameAudio.Play3D("fou_dance", mouth, 0.9f, 30f, 0f);
                 break;
-            case State.Grab:
-                GameAudio.Play3D("fou_attack", mouth, 1f, 30f, 0.1f);
-                break;
         }
     }
 
     // Attaque : cri (différent du cri d'alerte) au moment de l'échange de position.
-    protected override void OnPulse() => GameAudio.Play3D("fou_attack", transform.position + Vector3.up * EyeHeight, 1f, 35f, 0.05f);
+    protected override void OnPulse() => GameAudio.Play3D("fou_attack", transform.position + Vector3.up * EyeHeight, 1f, 35f, 0f);
+
+    // Tué au contact (immobilisé puis tué) ; l'échange de position ne compte pas.
+    public override string KillSound => Current == State.Grab ? "fou_kill" : null;
 
     protected override void Animate(float dt)
     {

@@ -26,6 +26,8 @@ public class GameAudio : MonoBehaviour
     public static bool AmbienceEnabled { get; set; } = true;
     // Séquence de mort : 1 = normal, 0 = ambiances coupées.
     float deathDuck = 1f;
+    // Tous les joueurs sont morts : plus rien ne s'entend, sauf les sons 2D (le glas).
+    static bool silenced;
 
     // Volumes réglés dans le lobby et le menu pause (0 à 1, 50 % à la première connexion) :
     // la musique (ambiances du chapiteau, du labyrinthe et de l'Abjuration) et les effets sonores (tout le reste).
@@ -139,14 +141,32 @@ public class GameAudio : MonoBehaviour
         }
     }
 
-    public static void Play3D(string clip, Vector3 position, float volume = 1f, float maxDistance = 20f, float pitchVariation = 0.05f, float pitch = 1f)
+    // Retourne la source utilisée (null si le son n'est pas joué), pour pouvoir le couper avant la fin.
+    public static AudioSource Play3D(string clip, Vector3 position, float volume = 1f, float maxDistance = 20f, float pitchVariation = 0.05f, float pitch = 1f)
     {
-        if (instance == null || !InRange(position, maxDistance)) return;
-        if (IsEntitySound(clip) && ListenerInHub) return;
+        if (instance == null || silenced || !InRange(position, maxDistance)) return null;
+        if (IsEntitySound(clip) && ListenerInHub) return null;
         var src = instance.NextSource();
         src.transform.position = position;
         Configure3D(src, maxDistance);
         Fire(src, clip, volume, pitchVariation, pitch);
+        return src;
+    }
+
+    // Son spatialisé dont la fin tombe dans 'seconds' secondes (GDD 12) : un son plus long démarre en cours de route,
+    // un son plus court démarre en retard.
+    public static AudioSource Play3DEndingIn(string clip, Vector3 position, float volume, float maxDistance, float seconds)
+    {
+        var src = Play3D(clip, position, volume, maxDistance, 0f);
+        if (src == null || src.clip == null) return src;
+        float lead = src.clip.length - Mathf.Max(0f, seconds);
+        if (lead > 0f) src.time = Mathf.Min(lead, src.clip.length - 0.01f);
+        else
+        {
+            src.Stop();
+            src.PlayDelayed(-lead);
+        }
+        return src;
     }
 
     // Son spatialisé à décroissance douce : plein près de la source, puis s'éteint progressivement jusqu'à maxDistance.
@@ -155,7 +175,7 @@ public class GameAudio : MonoBehaviour
 
     public static void Play3DSmooth(string clip, Vector3 position, float volume, float maxDistance, float pitch)
     {
-        if (instance == null || !InRange(position, maxDistance)) return;
+        if (instance == null || silenced || !InRange(position, maxDistance)) return;
         if (IsEntitySound(clip) && ListenerInHub) return;
         var src = instance.NextSource();
         src.transform.position = position;
@@ -218,7 +238,33 @@ public class GameAudio : MonoBehaviour
         if (instance == null) return;
         instance.StopAllCoroutines();
         instance.deathDuck = 1f;
+        silenced = false;
         AudioListener.volume = MasterGain;
+    }
+
+    // Tous les joueurs sont morts : le son s'éteint avec l'image, un silence total, puis le glas.
+    public static void PlayWipeOutSequence(float fade, float silence)
+    {
+        if (instance == null) return;
+        instance.StopAllCoroutines();
+        instance.StartCoroutine(instance.WipeOutSequence(fade, silence));
+    }
+
+    System.Collections.IEnumerator WipeOutSequence(float fade, float silence)
+    {
+        deathDuck = 0f;
+        for (float t = 0f; t < fade; t += Time.unscaledDeltaTime)
+        {
+            AudioListener.volume = MasterGain * (1f - t / fade);
+            yield return null;
+        }
+        AudioListener.volume = 0f;
+        silenced = true;
+        foreach (var src in pool) src.Stop();
+        yield return new WaitForSecondsRealtime(silence);
+        AudioListener.volume = MasterGain;
+        Play2D("doom", 1f);
+        Play2D("gameover", 0.55f, 0f, 0.8f);
     }
 
     System.Collections.IEnumerator DeathSequence()
@@ -254,7 +300,7 @@ public class GameAudio : MonoBehaviour
         Camera cam = Camera.main;
         bool inHub = cam == null || WorldBuilder.IsInHub(cam.transform.position);
         float k = 1f - Mathf.Exp(-1.5f * Time.unscaledDeltaTime);
-        float on = AmbienceEnabled ? 1f : 0f;
+        float on = AmbienceEnabled && !silenced ? 1f : 0f;
         float abj = AbjurationLevel * on;
         on *= deathDuck;
         hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? 0.32f * on * (1f - abj * 0.8f) * music : 0f, k);
@@ -272,7 +318,7 @@ public class GameAudio : MonoBehaviour
                 loops.RemoveAt(i);
                 entitySources.RemoveWhere(src => src == null);
             }
-            else loops[i].Key.volume = hubListener && entitySources.Contains(loops[i].Key) ? 0f : loops[i].Value * sfx;
+            else loops[i].Key.volume = silenced || hubListener && entitySources.Contains(loops[i].Key) ? 0f : loops[i].Value * sfx;
         }
         if (hubListener)
             foreach (var src in pool)

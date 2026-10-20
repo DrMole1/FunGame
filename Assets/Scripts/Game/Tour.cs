@@ -205,10 +205,22 @@ public class Tour : Entity
             case State.Survey: GameAudio.Play3D("tour_breath", mouth, 0.9f, 25f, 0.08f); break;
             case State.Channel:
                 channelShownAt = Time.time;
-                GameAudio.Play3D("tour_charge", mouth, 0.8f, 35f, 0.05f);
+                // La fin du son coïncide avec la fin de la canalisation (GDD 12).
+                GameAudio.Play3DEndingIn("tour_channel", mouth, 1f, 35f, GameRules.TourChannel);
                 break;
+            case State.Charge:
+            {
+                // La fin du son coïncide avec le moment où la Tour atteint le joueur (GDD 12).
+                PlayerPresence target = FindPresence(TargetId);
+                float distance = target != null ? Vector3.Distance(transform.position, target.Position + Vector3.down * 0.9f) : 0f;
+                float duration = Mathf.Min(Mathf.Max(0f, distance - ImpactDistance) / GameRules.TourChargeSpeed, 3f);
+                GameAudio.Play3DEndingIn("tour_charge", mouth, 1f, 35f, duration);
+                break;
+            }
         }
     }
+
+    public override string KillSound => "tour_kill";
 
     // ================= Canalisation : accroupissement lent et yeux rouges =================
 

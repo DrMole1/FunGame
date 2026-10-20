@@ -68,11 +68,25 @@ public static class GameSetup
         });
     }
 
-    // Sons enregistrés de Assets/Sounds et clé du son synthétisé qu'ils remplacent (voir SoundBank).
+    // Sons enregistrés de Assets/Sounds et clé du son synthétisé qu'ils remplacent (voir SoundBank) : tableau du
+    // chapitre 12 du GDD (Sound Design). Ces fichiers sont déjà égalisés : ne pas les remplacer par des sons synthétisés.
     static readonly (string key, string path)[] RecordedSounds =
     {
-        ("dame_attack", "Assets/Sounds/AttackDame.wav"),
         ("bark", "Assets/Sounds/Aboyer.wav"),
+        ("dame_attack", "Assets/Sounds/Dame_Attaque.wav"),
+        ("dame_kill", "Assets/Sounds/Dame_Tuer.wav"),
+        ("dame_scream", "Assets/Sounds/Dame_Cri.wav"),
+        ("death", "Assets/Sounds/Perso_Mort.wav"),
+        ("tour_charge", "Assets/Sounds/Tour_Charge.wav"),
+        ("tour_channel", "Assets/Sounds/Tour_Canalisation.wav"),
+        ("tour_kill", "Assets/Sounds/Tour_Tuer.wav"),
+        ("fou_alert", "Assets/Sounds/Fou_Alerte.wav"),
+        ("fou_attack", "Assets/Sounds/Fou_TP.wav"),
+        ("fou_kill", "Assets/Sounds/Fou_Tuer.wav"),
+        ("roi_laugh", "Assets/Sounds/Roi_Rire.wav"),
+        ("roi_flash", "Assets/Sounds/Roi_Flash.wav"),
+        ("roi_chain", "Assets/Sounds/Roi_Chaine.wav"),
+        ("roi_kill", "Assets/Sounds/Roi_Tuer.wav"),
     };
 
     static void CreateSounds()

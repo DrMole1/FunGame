@@ -13,7 +13,33 @@ MonoBehaviour:
   m_Name: GameSounds
   m_EditorClassIdentifier: 
   sounds:
-  - key: dame_attack
-    clip: {fileID: 8300000, guid: 832717bca2d3b3e4c99ff961f684cfb7, type: 3}
   - key: bark
     clip: {fileID: 8300000, guid: b3ee8067f1084bf47bbfded7c5bb4811, type: 3}
+  - key: dame_attack
+    clip: {fileID: 8300000, guid: 832717bca2d3b3e4c99ff961f684cfb7, type: 3}
+  - key: dame_kill
+    clip: {fileID: 8300000, guid: aee25e98fc81bb2439bb6e6ed547e748, type: 3}
+  - key: dame_scream
+    clip: {fileID: 8300000, guid: 9cd2273074d41944e8545439b4f54fcf, type: 3}
+  - key: death
+    clip: {fileID: 8300000, guid: 8a23b50b30c54f445a13b85493ac5ddf, type: 3}
+  - key: tour_charge
+    clip: {fileID: 8300000, guid: b6a4294699054c24e90b741a0c0f7049, type: 3}
+  - key: tour_channel
+    clip: {fileID: 8300000, guid: d9ecd1e629764b84fa5c6d503a014a9f, type: 3}
+  - key: tour_kill
+    clip: {fileID: 8300000, guid: 416187ac8abea8f4093931f09215a21a, type: 3}
+  - key: fou_alert
+    clip: {fileID: 8300000, guid: e980ff72058bdb84a8b7054d4684795b, type: 3}
+  - key: fou_attack
+    clip: {fileID: 8300000, guid: 5f885b6b57458e24d8434bf53f48dcda, type: 3}
+  - key: fou_kill
+    clip: {fileID: 8300000, guid: 09aa7242114915b49b85c3dc0023af80, type: 3}
+  - key: roi_laugh
+    clip: {fileID: 8300000, guid: 59ffd667f793da04e8379b3858b2021c, type: 3}
+  - key: roi_flash
+    clip: {fileID: 8300000, guid: be98b9ea606e49649a2e6002d7dfae33, type: 3}
+  - key: roi_chain
+    clip: {fileID: 8300000, guid: 735ff69ae4622b74197a0bc2b6aa946f, type: 3}
+  - key: roi_kill
+    clip: {fileID: 8300000, guid: 549775dd26213ec4aad2b9edd7522447, type: 3}

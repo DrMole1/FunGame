@@ -137,6 +137,15 @@ public abstract class Entity : MonoBehaviour
     protected virtual void OnPulse() { }
     protected virtual void Animate(float dt) { }
 
+    // Son joué chez tous quand l'entité tue un joueur (GDD 12), ou null.
+    public virtual string KillSound => null;
+
+    public void PlayKillSound()
+    {
+        string clip = KillSound;
+        if (clip != null) GameAudio.Play3D(clip, transform.position + Vector3.up * ChestHeight, 1f, 35f, 0f);
+    }
+
     // Modèle Meshy animé (Resources/<art>) ; faux si absent.
     protected bool LoadCreature(string art)
     {
@@ -171,6 +180,14 @@ public abstract class Entity : MonoBehaviour
     {
         if (string.IsNullOrEmpty(id)) return null;
         foreach (var p in players) if (p.PlayerId == id) return p;
+        return null;
+    }
+
+    // Personnage d'un joueur, chez tous (affichage).
+    protected static PlayerPresence FindPresence(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return null;
+        foreach (var p in PlayerPresence.All) if (p.PlayerId == id) return p;
         return null;
     }
 

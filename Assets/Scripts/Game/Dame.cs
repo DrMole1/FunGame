@@ -174,12 +174,14 @@ public class Dame : Entity
     protected override void OnStateChanged(byte previous, byte next)
     {
         if ((State)next == State.Chase && (State)previous == State.Wander) GameAudio.Play3D("dame_scream", transform.position + Vector3.up * 1.7f, 1f, 35f, 0.05f);
-        if ((State)next == State.Attack) GameAudio.Play3D("dame_attack", transform.position + Vector3.up * 1.4f, 1f, 25f, 0.05f);
+        if ((State)next == State.Attack) GameAudio.Play3D("dame_attack", transform.position + Vector3.up * 1.4f, 1f, 25f, 0f);
     }
+
+    public override string KillSound => "dame_kill";
 
     // Hurlement périodique, entendu par tous les joueurs à 40 m.
     protected override void OnPulse() =>
-        GameAudio.Play3DSmooth("dame_scream", transform.position + Vector3.up * 1.7f, 0.9f, GameRules.DameScreamRange, RandomPitch());
+        GameAudio.Play3DSmooth("dame_scream", transform.position + Vector3.up * 1.7f, 1f, GameRules.DameScreamRange, RandomPitch());
 
     protected override void Animate(float dt)
     {

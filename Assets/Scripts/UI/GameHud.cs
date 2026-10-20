@@ -41,6 +41,15 @@ public class GameHud : MonoBehaviour
     RawImage deathDim, deathVeil;
     float deathTime = -1f;
     const float FlashDuration = 0.7f;
+    // Tous les joueurs sont morts (-1 : inactif) : fondu au noir, silence, puis GAME OVER et bouton de retour au lobby.
+    public const float WipeFadeDuration = 4.5f, WipeSilence = 1.2f;
+    const float WipeTitleDuration = 2.6f, WipeButtonDelay = 3.5f;
+    static readonly Color BloodRed = new Color(0.7f, 0.03f, 0.02f);
+    GameObject wipeRoot;
+    RawImage wipeBlack, wipeVeil;
+    Text wipeTitle, wipeGlow, wipeSubtitle;
+    CanvasGroup wipeButton;
+    float wipeTime = -1f;
     readonly System.Collections.Generic.List<(RectTransform rt, float angle)> compassMarks = new System.Collections.Generic.List<(RectTransform, float)>();
 
     // ================= Textures procédurales =================
@@ -219,7 +228,46 @@ public class GameHud : MonoBehaviour
         UiKit.Button(box.transform, "Quitter la partie", UiKit.NeutralColor, 46, () => onQuit());
         gameOverPanel.SetActive(false);
 
+        BuildWipeOut(canvas.transform, vignette, onQuit);
+
         Show(false);
+    }
+
+    // Écran de fin quand tous les joueurs sont morts, au-dessus de tout le reste.
+    void BuildWipeOut(Transform parent, Texture2D vignette, System.Action onLobby)
+    {
+        wipeRoot = new GameObject("TousMorts", typeof(RectTransform));
+        wipeRoot.transform.SetParent(parent, false);
+        UiKit.Stretch((RectTransform)wipeRoot.transform);
+        Transform w = wipeRoot.transform;
+        wipeBlack = FullScreen(w, "Noir", null);
+        wipeVeil = FullScreen(w, "VoileDeSang", vignette);
+        // Halo rouge derrière le titre (une copie plus grande et transparente qui respire).
+        wipeGlow = WipeTitle(w, new Color(0.9f, 0f, 0f, 0f));
+        wipeTitle = WipeTitle(w, BloodRed);
+        var outline = wipeTitle.gameObject.AddComponent<Outline>();
+        outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
+        outline.effectDistance = new Vector2(3f, -3f);
+        wipeSubtitle = Floating(w, new Vector2(0.5f, 0.5f), new Vector2(0, -60), new Vector2(900, 34), 22);
+        wipeSubtitle.fontStyle = FontStyle.Italic;
+        wipeSubtitle.text = "Personne n'est revenu du labyrinthe.";
+        var button = UiKit.Button(w, "Revenir au Lobby", BloodRed, 58, () => onLobby());
+        ((RectTransform)button.transform).sizeDelta = new Vector2(340, 58);
+        UiKit.Place(button, new Vector2(0.5f, 0.5f), new Vector2(0, -150));
+        UiKit.Paint(button, new Color(0.45f, 0.02f, 0.02f), 23);
+        wipeButton = button.AddComponent<CanvasGroup>();
+        wipeRoot.SetActive(false);
+    }
+
+    static Text WipeTitle(Transform parent, Color color)
+    {
+        var t = UiKit.Label(parent, "GAME OVER", 150, FontStyle.Bold, color, 200);
+        var rt = t.rectTransform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(1400, 200);
+        rt.anchoredPosition = new Vector2(0, 60);
+        t.horizontalOverflow = HorizontalWrapMode.Overflow;
+        return t;
     }
 
     static RawImage FullScreen(Transform parent, string name, Texture texture)
@@ -345,6 +393,8 @@ public class GameHud : MonoBehaviour
         if (!visible)
         {
             HideGameOver();
+            wipeTime = -1f;
+            wipeRoot.SetActive(false);
             flashTimer = whiteTimer = 0f;
             damageFlash.color = whiteFlash.color = Color.clear;
             ClearDeath();
@@ -450,6 +500,49 @@ public class GameHud : MonoBehaviour
         GameOverVisible = false;
     }
 
+    public void PlayWipeOut()
+    {
+        if (wipeTime >= 0f) return;
+        wipeTime = Time.unscaledTime;
+        wipeRoot.SetActive(true);
+        GameOverVisible = true;
+        UpdateWipeOut(0f);
+    }
+
+    void UpdateWipeOut(float t)
+    {
+        // Le noir monte lentement, d'abord teinté de sang ; le rouge gagne les bords, puis tout s'éteint.
+        float f = Mathf.Clamp01(t / WipeFadeDuration);
+        float fade = Mathf.SmoothStep(0f, 1f, f);
+        wipeBlack.color = Color.Lerp(new Color(0.25f, 0f, 0f, 0f), Color.black, fade);
+        float veil = 0.85f * Mathf.Sin(f * Mathf.PI);
+
+        // Après le silence, le titre émerge des ténèbres comme une braise : il se resserre et tremble au coup du glas.
+        float r = t - WipeFadeDuration - WipeSilence;
+        float k = Mathf.Clamp01(r / WipeTitleDuration);
+        float ease = 1f - Mathf.Pow(1f - k, 3f);
+        float scale = Mathf.Lerp(1.18f, 1f, ease);
+        float tremor = r >= 0f ? 9f * Mathf.Exp(-r * 2.2f) : 0f;
+        Vector2 jitter = new Vector2(Random.Range(-1f, 1f), Random.Range(-1f, 1f)) * tremor;
+        // Ensuite, un battement lent, comme un cœur qui s'arrête.
+        float beat = r > 0f ? Mathf.Pow(0.5f + 0.5f * Mathf.Sin(r * 1.7f), 3f) : 0f;
+
+        wipeTitle.rectTransform.localScale = Vector3.one * scale;
+        wipeTitle.rectTransform.anchoredPosition = new Vector2(0, 60) + jitter;
+        wipeTitle.color = Color.Lerp(new Color(0.15f, 0f, 0f, 0f), BloodRed, ease);
+        wipeGlow.rectTransform.localScale = Vector3.one * scale * (1.05f + 0.025f * beat);
+        wipeGlow.rectTransform.anchoredPosition = new Vector2(0, 60) + jitter * 1.6f;
+        wipeGlow.color = new Color(0.9f, 0f, 0f, ease * (0.12f + 0.22f * beat));
+        if (r > 0f) veil = Mathf.Max(veil, ease * (0.22f + 0.2f * beat));
+        wipeVeil.color = new Color(0.55f, 0f, 0f, veil);
+
+        float sub = Mathf.Clamp01((r - WipeTitleDuration * 0.7f) / 1.5f);
+        wipeSubtitle.color = new Color(0.62f, 0.55f, 0.55f, 0.85f * sub);
+        float b = Mathf.Clamp01((r - WipeButtonDelay) / 1.2f);
+        wipeButton.alpha = b;
+        wipeButton.interactable = wipeButton.blocksRaycasts = b > 0.5f;
+    }
+
     void Update()
     {
         if (whiteTimer > 0f)
@@ -476,7 +569,7 @@ public class GameHud : MonoBehaviour
             deathVeil.color = Color.Lerp(new Color(0f, 0f, 0f, 0.92f * dark), new Color(0.75f, 0f, 0f, 0.95f), red);
             deathDim.color = new Color(0.04f, 0.03f, 0.03f, Mathf.Max(0.45f * dark, 0.35f * red));
         }
-
+        if (wipeTime >= 0f) UpdateWipeOut(Time.unscaledTime - wipeTime);
 
         if (toastTimer > 0f)
         {
