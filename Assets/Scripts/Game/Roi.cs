@@ -15,8 +15,7 @@ public class Roi : Entity
 {
     public enum State : byte { Walk = 0, Pause = 1, Beacon = 2, Aim = 3, Throw = 4, Pull = 5, Recover = 6, Grab = 7 }
 
-    const float Height = 2.66f;
-    const float EyeHeight = 2.35f, FieldOfView = 120f;
+    const float EyeHeight = 2.35f * GameRules.BigEntityScale, FieldOfView = 120f;
     // Mise à mort : il lève son épée au-dessus de sa tête, puis l'abat sur le joueur (le coup porte à la fin du geste).
     const float GrabRaise = 0.6f, GrabStrike = 0.2f;
     const float GrabHitTime = GrabRaise + GrabStrike, GrabDuration = 1.5f;
@@ -24,7 +23,8 @@ public class Roi : Entity
 
     public override EntityKind Kind => EntityKind.Roi;
     public override string DisplayName => "Le Roi";
-    public override float ChestHeight => 1.6f;
+    public override float ChestHeight => 1.6f * GameRules.BigEntityScale;
+    protected override float ModelScale => GameRules.BigEntityScale;
     public override bool Nightmare => true;
     public override Vector3 EyesLocal => headBone != null
         ? transform.InverseTransformPoint(headBone.position + transform.forward * 0.12f + Vector3.up * 0.04f)

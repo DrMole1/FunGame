@@ -11,12 +11,13 @@ public class Tour : Entity
 {
     public enum State : byte { Walk = 0, Survey = 1, Channel = 2, Charge = 3, Investigate = 4 }
 
-    const float EyeHeight = 2.3f, FieldOfView = 120f;
+    const float EyeHeight = 2.3f * GameRules.BigEntityScale, FieldOfView = 120f;
     const float ImpactDistance = 1.1f;
 
     public override EntityKind Kind => EntityKind.Tour;
     public override string DisplayName => "La Tour";
-    public override float ChestHeight => 1.5f;
+    public override float ChestHeight => 1.5f * GameRules.BigEntityScale;
+    protected override float ModelScale => GameRules.BigEntityScale;
     public override bool Nightmare => true;
     public override Vector3 EyesLocal => new Vector3(0f, EyeHeight, 0.3f);
     public State Current { get => (State)state; private set => state = (byte)value; }

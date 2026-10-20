@@ -48,6 +48,8 @@ public abstract class Entity : MonoBehaviour
     // Type Cauchemar : le personnage tué voit la caméra plonger dans ses yeux (EyesLocal, dans le repère de l'entité).
     public virtual bool Nightmare => false;
     public virtual Vector3 EyesLocal => new Vector3(0f, ChestHeight + 0.6f, 0.2f);
+    // Agrandissement du modèle (La Dame, La Tour, Le Roi : +25 %).
+    protected virtual float ModelScale => 1f;
 
     protected byte state;
     protected MazeNav nav;
@@ -78,6 +80,8 @@ public abstract class Entity : MonoBehaviour
         e.rnd = new System.Random(id * 7919 + 13 + (int)e.Kind * 104729);
         e.lastPos = pos;
         e.BuildVisual();
+        var model = go.transform.Find("Modele");
+        if (model != null) model.localScale *= e.ModelScale;
         e.Init();
         return e;
     }

@@ -94,6 +94,10 @@ public static class GameRules
     // Hauteur (absolue) du dessus de la brume : le ras du sol du Hub.
     public const float MistTop = 0.5f;
 
+    // La Dame, La Tour et Le Roi sont 25 % plus grands que la taille de leur modèle (3,33 m) ; le labyrinthe garde au moins
+    // 3,6 m sous plafond partout où ils passent (couloirs 4 m, porte de la Zone 2 3,6 m).
+    public const float BigEntityScale = 1.25f;
+
     // Note 03 du chapitre 3.4 (V0.4.3) : tué par un Cauchemar, la caméra fixe ses yeux environ 1,5 seconde.
     public const float NightmareStareDuration = 1.5f;
 

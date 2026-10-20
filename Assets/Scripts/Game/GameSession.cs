@@ -946,9 +946,6 @@ public class GameSession : MonoBehaviour, IEntityHost
                 GameAudio.Play2D("eat", 0.8f, 0.1f);
                 hud.Toast("Miam ! +" + Items.CroquetteHeal + " PV, +" + Items.CroquetteSerenity + " de sérénité");
                 break;
-            case ItemType.Canard:
-                hud.Toast("Le Canard en Plastique ne sert qu'à être vendu (à Pogo, dans le Hub).");
-                break;
             case ItemType.Balise:
                 TryPlaceBeacon(slot, DeviceKind.Beacon);
                 break;
