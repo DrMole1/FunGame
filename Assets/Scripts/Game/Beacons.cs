@@ -81,14 +81,15 @@ public class Beacon : Interactable
 
         beacon.bodies = visual.GetComponentsInChildren<Renderer>();
         beacon.block = new MaterialPropertyBlock();
-        // Halo autour du cristal quand l'appareil est chargé (rouge pour la Balise Améliorée).
-        Material aura = kind == DeviceKind.Enhanced ? GameArt.GhostAuraTinted("Red", new Color(1f, 0.2f, 0.15f))
-            : kind == DeviceKind.Teleporter ? GameArt.GhostAuraTinted("Amber", new Color(1f, 0.65f, 0.2f))
-            : kind == DeviceKind.Station ? GameArt.GhostAuraTinted("Green", new Color(0.3f, 1f, 0.4f)) : GameArt.GhostAura;
-        float haloSize = kind == DeviceKind.Teleporter ? 0.7f : kind == DeviceKind.Station ? 0.55f : height * 0.26f;
-        beacon.halo = GameArt.Prim(PrimitiveType.Sphere, go.transform, beacon.Top - pos, Vector3.one * haloSize, aura);
-        if (kind == DeviceKind.Teleporter) beacon.halo.transform.localScale = new Vector3(haloSize, 0.18f, haloSize);
-        Object.Destroy(beacon.halo.GetComponent<Collider>());
+        // Halo autour du cristal quand l'appareil est chargé (rouge pour la Balise Améliorée). Aucun sur le Téléporteur.
+        if (kind != DeviceKind.Teleporter)
+        {
+            Material aura = kind == DeviceKind.Enhanced ? GameArt.GhostAuraTinted("Red", new Color(1f, 0.2f, 0.15f))
+                : kind == DeviceKind.Station ? GameArt.GhostAuraTinted("Green", new Color(0.3f, 1f, 0.4f)) : GameArt.GhostAura;
+            float haloSize = kind == DeviceKind.Station ? 0.55f : height * 0.26f;
+            beacon.halo = GameArt.Prim(PrimitiveType.Sphere, go.transform, beacon.Top - pos, Vector3.one * haloSize, aura);
+            Object.Destroy(beacon.halo.GetComponent<Collider>());
+        }
         if (hub)
         {
             beacon.glow = new GameObject("Lueur").AddComponent<Light>();
@@ -107,9 +108,8 @@ public class Beacon : Interactable
         }
         if (kind == DeviceKind.Enhanced)
         {
-            // Coordonnées (hors hauteur), arrondies à l'entier le plus proche, dans l'air au-dessus d'elle.
-            beacon.coordinates = GameArt.CreateText(go.transform, "Coordonnees", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(1f, 0.45f, 0.4f));
-            beacon.coordinates.text = Mathf.RoundToInt(pos.x) + " / " + Mathf.RoundToInt(pos.z);
+            // Distance jusqu'au Hub, dans l'air au-dessus d'elle (renseignée par BeaconNetwork.Add).
+            beacon.coordinates = GameArt.CreateText(go.transform, "DistanceHub", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(1f, 0.45f, 0.4f));
         }
         beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
@@ -151,11 +151,19 @@ public class Beacon : Interactable
     public void SetCharged(bool on)
     {
         Charged = on;
-        halo.SetActive(on);
+        if (halo != null) halo.SetActive(on);
         if (glow != null) glow.enabled = on;
         if (gas != null) { if (on && !gas.isPlaying) gas.Play(); else if (!on && gas.isPlaying) gas.Stop(); }
         block.SetColor("_Color", on ? ChargedTint : DischargedTint);
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
+    }
+
+    // Balise Améliorée : distance au sol jusqu'à la Balise du Hub, arrondie au mètre (ex. "29m").
+    public void ShowHubDistance(Vector3 hubPos)
+    {
+        if (coordinates == null) return;
+        Vector3 d = transform.position - hubPos;
+        coordinates.text = Mathf.RoundToInt(new Vector2(d.x, d.z).magnitude) + "m";
     }
 
     void Update()
@@ -172,12 +180,12 @@ public class Beacon : Interactable
     {
         get
         {
-            if (!IsHub) return "Ramasser " + Items.Get(Item).name;
-            var session = GameSession.Instance;
-            if (session != null && session.SelectedItem == ItemType.Chargeur) return "Recharger la Balise du Hub";
-            return Charged ? "Balise du Hub (chargée)" : "Balise du Hub (déchargée) : utilisez un Chargeur";
+            return IsHub ? "Recharger la Balise du Hub" : "Ramasser " + Items.Get(Item).name;
         }
     }
+
+    // La Balise du Hub n'est interactive (contour, message, touche E) que Chargeur sélectionné.
+    public override bool CanInteract => !IsHub || (GameSession.Instance != null && GameSession.Instance.SelectedItem == ItemType.Chargeur);
 
     // La Balise du Hub lit l'objet sélectionné (un Chargeur) au moment du clic.
     public override bool KeepsSelection => IsHub;
@@ -229,6 +237,7 @@ public class BeaconNetwork : MonoBehaviour
     {
         if (placed.TryGetValue(id, out var existing) && existing != null) return existing;
         var b = Beacon.Create(transform, id, pos, Random.Range(0f, 360f), kind);
+        b.ShowHubDistance(hub.transform.position);
         placed[id] = b;
         dirty = true;
         return b;

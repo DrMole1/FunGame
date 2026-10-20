@@ -3,9 +3,9 @@ using UnityEngine;
 
 // L'Araignée (entité ID 6, type Abjuration) : n'apparaît que pendant l'Abjuration (5 par zone déverrouillée, à plus de
 // 25 m des joueurs). Plus grande qu'un joueur, elle rôde lentement dans les couloirs. Un joueur debout dans son champ de
-// vision (12 m) est attaqué : elle fonce sur lui, l'immobilise à 0,8 m, le frappe (dégâts, recul), s'arrête 1 seconde puis
-// le poursuit 10 secondes à sa vitesse, en l'attaquant de nouveau si elle le rattrape. Un joueur accroupi passe inaperçu,
-// sauf s'il aboie, saute, ramasse ou pose un objet sous ses yeux.
+// vision (12 m) qui bouge est attaqué : elle fonce sur lui, l'immobilise à 0,8 m, le frappe (dégâts, recul), s'arrête 1 seconde
+// puis le poursuit 10 secondes à sa vitesse, en l'attaquant de nouveau si elle le rattrape. Un joueur accroupi, ou debout et
+// immobile, passe inaperçu tant qu'elle rôde, sauf s'il aboie, saute, ramasse ou pose un objet sous ses yeux.
 // Modèle Meshy découpé en corps et pattes rigides (le rig Meshy ne gère que les bipèdes) : les pattes sont animées ici.
 public class Spider : Entity
 {
@@ -139,11 +139,12 @@ public class Spider : Entity
         }
     }
 
-    // Dans son champ de vision (12 m) : debout, ou accroupi mais trahi par une action bruyante.
+    // Dans son champ de vision (12 m) : debout et en mouvement, ou trahi par une action bruyante
+    // (accroupi ou debout immobile).
     bool Notices(PlayerPresence p)
     {
         if (!Sees(p, EyeHeight, GameRules.SpiderSightRange, FieldOfView, false)) return false;
-        if (!p.Sneaking) return true;
+        if (!p.Sneaking && !p.Still) return true;
         return Host != null && Host.NoiseAge(p.PlayerId) < GameRules.NoiseMemory;
     }
 

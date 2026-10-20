@@ -392,7 +392,7 @@ public class GameHud : MonoBehaviour
         return sprite;
     }
 
-    // Cap du personnage en degrés (0 = Nord, 90 = Est).
+    // Cap de la caméra en degrés (0 = Nord, 90 = Est).
     public void SetCompass(bool visible, float heading)
     {
         if (compassRoot.activeSelf != visible) compassRoot.SetActive(visible);

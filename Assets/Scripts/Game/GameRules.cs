@@ -168,7 +168,7 @@ public static class GameRules
 
     public const float DeviceRange = 1f;
     public const float TeleportChannel = 3f;
-    public const float TeleportSpeed = 14f;   // boule d'énergie le long des liens
+    public const float TeleportSpeed = 70f;   // boule d'énergie le long des liens
     public const float StationHealPerSecond = 10f;
 
     // ---------- Pogo (chapitre 4) ----------

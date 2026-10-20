@@ -115,6 +115,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     readonly Dictionary<int, System.Action<ItemType>> pendingSteals = new Dictionary<int, System.Action<ItemType>>();
     // Téléportation (joueur local) : canalisation près d'un Téléporteur chargé, puis voyage en boule d'énergie.
     Beacon channelPad;
+    AudioSource channelSound;
     float channelTime, clocheTimer, stationAcc;
     bool healing;
     List<Vector3> teleportPath;
@@ -457,10 +458,9 @@ public class GameSession : MonoBehaviour, IEntityHost
 
         var target = player.GetComponent<PlayerInteractor>().Current;
         string prompt = target != null ? target.Prompt : "";
-        if (channelPad != null)
-            hud.SetPrompt("Téléportation dans " + Mathf.CeilToInt(GameRules.TeleportChannel - channelTime) + " s... (éloignez-vous pour annuler)");
-        else hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : "[E] " + prompt);
-        hud.SetCompass(compass && !status.Dead, player.transform.eulerAngles.y);
+        hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : "[E] " + prompt);
+        // Cap de la caméra (là où le joueur regarde), pas celui du personnage.
+        hud.SetCompass(compass && !status.Dead, (orbit != null ? orbit.transform : player.transform).eulerAngles.y);
     }
 
     void UpdateAtmosphere()
@@ -628,7 +628,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         hub.cashText.text = "Cagnotte : " + cash + " golds";
         hub.logText.text = string.Join("\n", logs);
         string user = terminalUser.Length > 0 && net.Roster.TryGetValue(terminalUser, out var u) ? u.name : null;
-        hub.terminalText.text = TerminalUI.Menu + (user != null ? "\n\n> Utilisé par " + user : "");
+        hub.terminalText.text = TerminalUI.Menu(CanSkipRound) +(user != null ? "\n\n> Utilisé par " + user : "");
         hub.roundBoardText.text = RoundBoardText();
     }
 
@@ -801,6 +801,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         status.SetDead(true);
         EndTeleport(false);
         channelPad = null;
+        StopChannelSound();
         // Les objets du Terminal sont détruits ; les autres (avec un modèle 3D) restent à terre près du corps.
         var left = new List<ItemType>();
         if (cause != null)
@@ -1384,7 +1385,9 @@ public class GameSession : MonoBehaviour, IEntityHost
         {
             channelPad = pad;
             channelTime = 0f;
-            if (pad != null) GameAudio.Play3D("teleport", pad.transform.position, 0.6f, 15f, 0f, 0.7f);
+            // Le son de canalisation dure toute l'attente ; il est coupé si le joueur s'éloigne.
+            StopChannelSound();
+            if (pad != null) channelSound = GameAudio.Play2D("teleport_charge", 0.6f);
         }
         if (pad == null) return;
         channelTime += Time.deltaTime;
@@ -1393,6 +1396,13 @@ public class GameSession : MonoBehaviour, IEntityHost
         var path = beacons.PathToHub(pad);
         if (path == null) return;
         StartTeleport(pad, path);
+    }
+
+    void StopChannelSound()
+    {
+        // La source a pu être reprise par un autre son entre-temps : on ne coupe que la canalisation.
+        if (channelSound != null && channelSound.isPlaying && channelSound.clip == SoundBank.Get("teleport_charge")) channelSound.Stop();
+        channelSound = null;
     }
 
     void StartTeleport(Beacon pad, List<Vector3> path)
@@ -1549,10 +1559,12 @@ public class GameSession : MonoBehaviour, IEntityHost
         GameAudio.Play3DSmooth("bark", who.position + Vector3.up * 0.8f, 1f, GameRules.BarkRange, pitch);
 
     // /skip round : si le quota est atteint, l'hôte passe à la manche suivante. Retourne un refus, ou null si envoyé.
+    public bool CanSkipRound => phase == Phase.Running && progress >= quota;
+
     public string RequestSkipRound()
     {
         if (phase != Phase.Running) return "Aucune manche n'est en cours.";
-        if (progress < quota) return "Le quota de la manche n'est pas encore atteint.";
+        if (!CanSkipRound) return "Le quota de la manche n'est pas encore atteint.";
         net.ToHost("SK");
         return null;
     }
@@ -2080,8 +2092,6 @@ public class GameSession : MonoBehaviour, IEntityHost
                 }
                 break;
             case "JN" when f.Length >= 2:
-                hud.Toast(f[1] == "0" ? "Pogo dort... Le Bouton Rouge n'est pas encore enclenché."
-                                      : "Pogo boude au fond de sa boîte. Réessayez dans quelques secondes.");
                 GameAudio.Play2D("error", 0.35f);
                 break;
 
@@ -2179,7 +2189,6 @@ public class GameSession : MonoBehaviour, IEntityHost
                 for (int i = 0; i < GameRules.InventorySize && slot < 0; i++)
                     if (Items.DropsOnDeath(status[i])) slot = i;
                 ItemType stolen = slot >= 0 && !status.Dead ? status.RemoveAt(slot) : ItemType.None;
-                if (stolen != ItemType.None) hud.Toast("Le Pion vous a volé : " + Items.Get(stolen).name + " !");
                 net.ToHost("PT|" + f[1] + "|" + (int)stolen);
                 break;
             }

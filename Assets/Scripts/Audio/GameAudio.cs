@@ -108,13 +108,15 @@ public class GameAudio : MonoBehaviour
         return oldest;
     }
 
-    public static void Play2D(string clip, float volume = 1f, float pitchVariation = 0f, float pitch = 1f)
+    // Retourne la source utilisée, pour pouvoir couper le son avant la fin.
+    public static AudioSource Play2D(string clip, float volume = 1f, float pitchVariation = 0f, float pitch = 1f)
     {
-        if (instance == null) return;
+        if (instance == null) return null;
         var src = instance.NextSource();
         src.transform.localPosition = Vector3.zero;
         src.spatialBlend = 0f;
         Fire(src, clip, volume, pitchVariation, pitch);
+        return src;
     }
 
     public static void Play3D(string clip, Vector3 position, float volume = 1f, float maxDistance = 20f, float pitchVariation = 0.05f, float pitch = 1f)

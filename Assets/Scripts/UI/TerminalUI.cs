@@ -4,11 +4,13 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 // Zone de saisie du Terminal, affichée uniquement chez le joueur qui l'utilise.
-// Commandes insensibles à la casse : /buy, /info, /skip round, /sell (cachée depuis l'arrivée de Pogo)
+// Commandes insensibles à la casse : /buy (ou /buy <ID>), /info, /skip round, /sell (cachée depuis l'arrivée de Pogo)
 // et les commandes secrètes /kick, /spawn et /tp (hôte).
 public class TerminalUI : MonoBehaviour
 {
-    public const string Menu = "Bienvenue sur le Terminal !\nTaper une commande pour continuer :\n/buy\n/info";
+    // /skip round n'apparaît qu'une fois le quota de la manche atteint.
+    public static string Menu(bool canSkip) =>
+        "Bienvenue sur le Terminal !\nTaper une commande pour continuer :\n/buy\n/info" + (canSkip ? "\n/skip round" : "");
     const string Quit = "\nFaire ECHAP pour quitter.";
     const int MaxLines = 18;
 
@@ -63,7 +65,7 @@ public class TerminalUI : MonoBehaviour
         mode = Mode.Command;
         waitingBuy = waitingSkip = false;
         lines.Clear();
-        Print(Menu);
+        Print(Menu(session.CanSkipRound));
         panel.SetActive(true);
         OrbitCamera.LockCursor(false);
         Focus();
@@ -137,6 +139,11 @@ public class TerminalUI : MonoBehaviour
             sb.Append("\nÉcrire l'ID de l'objet à acheter.");
             Print(sb.ToString());
             mode = Mode.Buy;
+        }
+        else if (lower.StartsWith("/buy "))
+        {
+            // Raccourci : /buy <ID> achète directement, sans passer par la liste.
+            Buy(lower.Substring(5).Trim());
         }
         else if (lower == "/info")
         {

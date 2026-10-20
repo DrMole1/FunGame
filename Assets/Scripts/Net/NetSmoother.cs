@@ -9,8 +9,10 @@ public class NetSmoother
     // Retard d'affichage : couvre l'irrégularité d'arrivée et un paquet perdu (envoi à 20 Hz).
     const double Delay = 0.11;
     const double MaxExtrapolation = 0.25;
-    // Au-delà, c'est une téléportation : pas d'interpolation.
+    // Au-delà de cette distance ET de cette vitesse, c'est une téléportation : pas d'interpolation.
+    // (La boule d'énergie du Téléporteur file à 70 m/s : un paquet perdu ne doit pas la faire sauter.)
     const float TeleportDistance = 5f;
+    const float TeleportSpeed = 100f;
     // Remontée maximale du décalage d'horloge (s par s) quand les paquets arrivent plus tard qu'avant.
     const double OffsetRelax = 0.01;
 
@@ -61,7 +63,7 @@ public class NetSmoother
         Snap b = snaps[1];
         if (t <= b.t)
         {
-            if ((b.pos - a.pos).sqrMagnitude > TeleportDistance * TeleportDistance)
+            if (IsJump(a, b))
             {
                 pos = b.pos;
                 yaw = b.yaw;
@@ -74,9 +76,14 @@ public class NetSmoother
         }
         // Plus rien de récent : on prolonge brièvement le dernier mouvement, puis on s'arrête.
         double ahead = System.Math.Min(t - b.t, MaxExtrapolation);
-        bool teleport = (b.pos - a.pos).sqrMagnitude > TeleportDistance * TeleportDistance;
-        Vector3 velocity = teleport ? Vector3.zero : (b.pos - a.pos) / (float)(b.t - a.t);
+        Vector3 velocity = IsJump(a, b) ? Vector3.zero : (b.pos - a.pos) / (float)(b.t - a.t);
         pos = b.pos + velocity * (float)ahead;
         yaw = b.yaw;
+    }
+
+    static bool IsJump(Snap a, Snap b)
+    {
+        float d = Vector3.Distance(a.pos, b.pos);
+        return d > TeleportDistance && d > TeleportSpeed * (float)(b.t - a.t);
     }
 }

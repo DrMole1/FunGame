@@ -17,6 +17,22 @@ public class PlayerPresence : MonoBehaviour
 
     public Vector3 Position => HasNetPosition ? NetPosition : transform.position;
 
+    // Immobile : n'a pas bougé de plus de 10 cm depuis un quart de seconde (l'Araignée ne le voit pas).
+    const float StillDistance = 0.1f, StillDelay = 0.25f;
+    Vector3 stillAnchor;
+    float lastMove;
+    public bool Still => Time.time - lastMove > StillDelay;
+
+    void Update()
+    {
+        Vector3 pos = Position;
+        if ((pos - stillAnchor).sqrMagnitude > StillDistance * StillDistance)
+        {
+            stillAnchor = pos;
+            lastMove = Time.time;
+        }
+    }
+
     void OnEnable() => All.Add(this);
     void OnDisable() => All.Remove(this);
 }

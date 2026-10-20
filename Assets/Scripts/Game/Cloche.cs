@@ -130,9 +130,15 @@ public class Cloche : Entity
 
     // ================= Affichage =================
 
+    // Toutes Cloches confondues : jamais deux tintements à moins d'1 seconde d'intervalle.
+    const float RingInterval = 1f;
+    static float lastRing = float.NegativeInfinity;
+
     protected override void OnPulse()
     {
         shimmer = 1f;
+        if (Time.time - lastRing < RingInterval) return;
+        lastRing = Time.time;
         GameAudio.Play3D("cloche_ring", transform.position + Vector3.up * 0.7f, 1f, 40f, 0.04f);
     }
 

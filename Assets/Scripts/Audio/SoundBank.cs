@@ -18,7 +18,7 @@ public static class SoundBank
         "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
         "tour_step", "tour_breath", "tour_charge", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
-        "spider_hiss", "spider_attack", "teleport", "heal", "heartbeat",
+        "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat",
     };
 
     public static void Preload()
@@ -95,6 +95,7 @@ public static class SoundBank
             case "spider_hiss": return SpiderHiss(rnd);
             case "spider_attack": return SpiderAttack(rnd);
             case "teleport": return Teleport(rnd);
+            case "teleport_charge": return TeleportCharge(rnd);
             case "heal": return Heal(rnd);
             case "heartbeat": return Heartbeat();
         }
@@ -1091,6 +1092,28 @@ public static class SoundBank
             phase += f / Rate;
             float s = Sine(phase) * 0.6f + Sine(phase * 1.5f) * 0.3f + bp.Process(Noise(rnd), f * 2f, 0.2f) * 0.5f;
             d[i] = s * ASR(t, 0.05f, 0.35f, 1.2f);
+        }
+        return d;
+    }
+
+    // Canalisation du Téléporteur (dure exactement GameRules.TeleportChannel) : un bourdonnement qui monte,
+    // pulse de plus en plus vite et se charge de grésillements jusqu'au départ.
+    static float[] TeleportCharge(System.Random rnd)
+    {
+        float length = GameRules.TeleportChannel;
+        var d = Buffer(length);
+        var bp = new BandPass();
+        float phase = 0f, pulse = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate, k = t / length;
+            float f = 110f * Mathf.Pow(2f, k * 2f);
+            phase += f / Rate;
+            pulse += Mathf.Lerp(3f, 16f, k * k) / Rate;
+            float tremolo = 0.65f + 0.35f * Sine(pulse);
+            float s = (Sine(phase) * 0.5f + Saw(phase * 0.5f) * 0.25f + Sine(phase * 2.01f) * 0.2f) * tremolo;
+            s += bp.Process(Noise(rnd), 600f + 3400f * k, 0.25f) * (0.15f + 0.5f * k * k);
+            d[i] = s * Mathf.Lerp(0.35f, 1f, k) * Mathf.Min(1f, t / 0.15f) * Mathf.Clamp01((length - t) / 0.05f);
         }
         return d;
     }
