@@ -1638,7 +1638,6 @@ public class GameSession : MonoBehaviour, IEntityHost
         timeLeft = GameRules.RoundDuration;
         // Le nombre de joueurs au départ fixe la quantité d'objets de valeur (personne n'a encore pu en ramasser).
         valueBoost = GameRules.ValueBoost(net.Roster.Count);
-        Log("Un orbe s'éveille devant la porte de la Zone 2...");
         ApplyWorld();
         SpawnRoundEntities();
         BroadcastState();
@@ -1848,7 +1847,6 @@ public class GameSession : MonoBehaviour, IEntityHost
             Log("Le quota de la manche " + done + " est validé ! Nouveau quota : " + quota);
             if (hostAbjuration) Log("L'Abjuration se retire ... Pour le moment.");
             hostAbjuration = false;
-            if (round <= GameRules.OrbCount) Log("Un orbe s'éveille devant la porte de la Zone 2...");
             ResetRoundStats(round);
             ApplyWorld();
             SpawnRoundEntities();

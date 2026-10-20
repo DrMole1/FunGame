@@ -6,11 +6,11 @@ using UnityEngine;
 // "En recherche", il arpente le terrain sans un bruit (x0,7), s'arrête parfois 2 à 5 s, immobile (toutes les 7 à 15 s),
 // puis repart (10 % : demi-tour). S'il voit une Balise, il s'y rend (puis 40 s sans s'en soucier). Hors Abjuration, une
 // Abjuration de 10 m l'entoure (arrêtée par les murs, gérée chez chaque joueur). Un joueur repéré à 20 m devant lui est
-// "chassé" (de même, sans mur, à moins de 6 m, quel que soit l'angle) : aura blanche à ses pieds (-20 %, pas de course), rire ; le Roi s'immobilise et lève le bras droit 2,5 s,
-// puis lance une chaîne vers la position mémorisée, assez vite mais esquivable. Touché, le joueur est immobilisé et
-// ramené vers le Roi à vitesse normale, sauf s'il appuie 5 fois sur Espace (la chaîne se rompt). Chaîne ratée ou rompue :
-// 1 s de répit sans aura, puis s'il le voit encore, nouvelle visée (1,5 s), sinon il repart. À moins de 0,8 m, il
-// immobilise le joueur et le tue.
+// "chassé" (de même, sans mur, à moins de 6 m, quel que soit l'angle) : aura blanche à ses pieds (-20 %, pas de course),
+// rire ; le Roi marche vers lui en levant le bras droit 2,5 s, puis s'arrête pour lancer une chaîne vers la position
+// mémorisée, assez vite mais esquivable. Touché, le joueur est immobilisé et traîné vers le Roi, sauf s'il appuie 5 fois
+// sur Espace (la chaîne se rompt). Chaîne ratée ou rompue : le Roi repart vers lui, 1 s sans aura, puis s'il le voit
+// encore, nouvelle visée (1,5 s), sinon il reprend sa recherche. À moins de 0,8 m, il immobilise le joueur et le tue.
 public class Roi : Entity
 {
     public enum State : byte { Walk = 0, Pause = 1, Beacon = 2, Aim = 3, Throw = 4, Pull = 5, Recover = 6, Grab = 7 }
@@ -111,10 +111,12 @@ public class Roi : Entity
             }
 
             case State.Aim:
-                Speed = 0f;
                 if (!Valid(target)) { Search(); break; }
-                Face(target.Position, dt);
+                // En chasse, il marche vers le joueur en levant le bras ; il ne s'arrête que pour lancer la chaîne.
+                Speed = GameRules.BaseSpeed * GameRules.RoiWalkMultiplier;
+                Pursue(target, dt);
                 if (stateTimer < aimDuration) break;
+                ClearPath();
                 // Position tampon : la chaîne part vers l'endroit où était le joueur.
                 buffer = target.Position;
                 ChainTip = HandPosition();
@@ -154,9 +156,10 @@ public class Roi : Entity
                 break;
 
             case State.Recover:
-                Speed = 0f;
                 if (!Valid(target)) { Search(); break; }
-                Face(target.Position, dt);
+                // Chaîne ratée ou rompue : il se remet aussitôt en marche vers le joueur.
+                Speed = GameRules.BaseSpeed * GameRules.RoiWalkMultiplier;
+                Pursue(target, dt);
                 if (stateTimer < GameRules.RoiRecover) break;
                 // Toujours en vue : nouvelle visée, plus courte ; sinon il abaisse le bras et repart.
                 if (Sees(target, EyeHeight, GameRules.RoiSightRange, FieldOfView)) BeginAim(target, false);
@@ -191,12 +194,14 @@ public class Roi : Entity
         TargetId = p.PlayerId;
         aimDuration = first ? GameRules.RoiAimFirst : GameRules.RoiAimAgain;
         ClearPath();
+        repathTimer = 0f;
     }
 
     void BeginRecover()
     {
         Current = State.Recover;
         stateTimer = 0f;
+        repathTimer = 0f;
     }
 
     void BeginGrab()
@@ -363,6 +368,12 @@ public class Roi : Entity
     {
         Vector3 head = transform.position + Vector3.up * EyeHeight;
         if ((State)next == State.Aim && (State)previous < State.Aim) GameAudio.Play3D("roi_laugh", head, 1f, 35f, 0.05f);
+        if ((State)next == State.Aim)
+        {
+            aimShownAt = Time.time;
+            aimShownLen = (State)previous == State.Recover ? GameRules.RoiAimAgain : GameRules.RoiAimFirst;
+        }
+        if ((State)next == State.Throw) throwShownAt = Time.time;
         if ((State)next == State.Grab)
         {
             grabShownAt = Time.time;
@@ -452,11 +463,42 @@ public class Roi : Entity
         lower.rotation = Quaternion.Slerp(Quaternion.identity, straighten, weight) * lower.rotation;
     }
 
+    // Geste du lancer : bras tendu vers le joueur pendant la visée, puis, juste avant de lancer, deux tours de moulinet
+    // au-dessus de l'épaule, le bras armé en arrière, et un coup de fouet vers le joueur quand la chaîne part.
+    const float SpinTime = 0.9f, WindTime = 0.15f, WhipTime = 0.2f, SpinTurns = 2f;
+    float aimShownAt = -10f, aimShownLen, throwShownAt = -10f;
+
     Vector3 AimPoint()
     {
-        if (ChainOut) return ChainTipShown;
         PlayerPresence p = FindPresence(TargetId);
-        return p != null ? p.Position : transform.position + transform.forward * 5f + Vector3.up * 1.5f;
+        Vector3 target = ChainOut ? ChainTipShown : p != null ? p.Position : transform.position + transform.forward * 5f + Vector3.up * 1.5f;
+        Vector3 shoulder = upperArm != null ? upperArm.position : fallbackArm != null ? fallbackArm.position : transform.position + Vector3.up * 2.4f;
+        Vector3 toward = Horizontal(target - shoulder);
+        toward = toward.sqrMagnitude > 0.0001f ? toward.normalized : transform.forward;
+        Vector3 center = shoulder + Vector3.up * 0.7f;
+        Vector3 cocked = center - toward * 0.55f;
+        if (Current == State.Aim)
+        {
+            float left = aimShownAt + aimShownLen - Time.time;
+            if (left <= WindTime) return cocked;
+            if (left < SpinTime + WindTime)
+            {
+                // Moulinet de plus en plus rapide, dans le plan vertical tourné vers le joueur ; il finit armé en arrière.
+                float t = (SpinTime + WindTime - left) / SpinTime;
+                // De l'avant (vers le joueur) par le haut jusqu'à l'arrière, après deux tours complets.
+                float angle = (Mathf.PI * 2f * SpinTurns + Mathf.PI) * t * t;
+                return center + (toward * Mathf.Cos(angle) + Vector3.up * Mathf.Sin(angle)) * 0.55f;
+            }
+        }
+        if (Current == State.Throw && Time.time - throwShownAt < WhipTime)
+        {
+            // Coup de fouet : de l'arrière, par-dessus l'épaule, jusqu'au joueur (le bras reste tendu).
+            float k = Mathf.SmoothStep(0f, 1f, (Time.time - throwShownAt) / WhipTime);
+            float angle = Mathf.PI * (1f - k);
+            Vector3 arc = center + (toward * Mathf.Cos(angle) + Vector3.up * Mathf.Sin(angle)) * 0.55f;
+            return Vector3.Lerp(arc, target, k * k);
+        }
+        return target;
     }
 
     static PlayerPresence FindPresence(string id)
