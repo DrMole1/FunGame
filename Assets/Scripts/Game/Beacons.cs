@@ -192,9 +192,6 @@ public class Beacon : Interactable
 
     // La Balise du Hub n'est interactive (contour, message, touche E) que Chargeur sélectionné.
     public override bool CanInteract => !IsHub || (GameSession.Instance != null && GameSession.Instance.SelectedItem == ItemType.Chargeur);
-
-    // La Balise du Hub lit l'objet sélectionné (un Chargeur) au moment du clic.
-    public override bool KeepsSelection => IsHub;
     public override void Interact() => GameSession.Instance.InteractBeacon(this);
 }
 

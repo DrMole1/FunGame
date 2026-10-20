@@ -15,8 +15,6 @@ public abstract class Interactable : MonoBehaviour
 
     public abstract string Prompt { get; }
     public virtual bool CanInteract => true;
-    // Vrai si l'interaction utilise l'objet sélectionné dans l'inventaire (sinon, interagir le désélectionne).
-    public virtual bool KeepsSelection => false;
     public abstract void Interact();
 
     public void SetHighlight(bool on)

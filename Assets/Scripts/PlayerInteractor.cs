@@ -30,17 +30,16 @@ public class PlayerInteractor : MonoBehaviour
 
         for (int i = 0; i < SlotKeys.Length; i++)
             if (Input.GetKeyDown(SlotKeys[i]) || Input.GetKeyDown(PadKeys[i]))
-                status.ToggleSelect(i);
+                status.Select(i);
 
         bool click = Input.GetMouseButtonDown(0) && OrbitCamera.Looking && Time.frameCount != OrbitCamera.LockFrame;
         bool use = Input.GetKeyDown(KeyCode.E);
         if ((click || use) && current != null)
         {
-            // Interagir désélectionne l'objet de l'inventaire : il n'est pas utilisé (sauf Pogo, Balise du Hub).
-            if (!current.KeepsSelection) status.Deselect();
+            // Interagir n'utilise pas l'objet sélectionné dans l'inventaire (Pogo et la Balise du Hub le lisent au moment du clic).
             current.Interact();
         }
-        else if (click && status.Selected >= 0)
+        else if (click && status[status.Selected] != ItemType.None)
         {
             session.UseSelectedItem();
         }

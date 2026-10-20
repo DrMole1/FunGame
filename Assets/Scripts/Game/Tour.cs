@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // La Tour (entité ID 3, type Cauchemar) : grande entité bipède armée d'une épée, à tête de tour médiévale, de la taille
-// de La Dame. Elle arpente le terrain lentement (pas lourds de pierre audibles à 30 m) ; toutes les 15 à 30 secondes,
+// de La Dame. Elle arpente le terrain lentement (pas lourds de pierre audibles à 30 m) ; toutes les 7 à 15 secondes (V0.4.3),
 // elle s'arrête 2 secondes pour regarder autour d'elle en respirant fort, puis continue (70 %) ou fait demi-tour (30 %).
 // Elle voit à 50 m devant elle (les murs bloquent la vue). Un joueur repéré entend une alerte ; sa position est mémorisée
 // (localisation tampon) et la Tour se prépare 3 secondes. S'il est encore en vue, il est immobilisé et la Tour le charge
@@ -17,6 +17,8 @@ public class Tour : Entity
     public override EntityKind Kind => EntityKind.Tour;
     public override string DisplayName => "La Tour";
     public override float ChestHeight => 1.5f;
+    public override bool Nightmare => true;
+    public override Vector3 EyesLocal => new Vector3(0f, EyeHeight, 0.3f);
     public State Current { get => (State)state; private set => state = (byte)value; }
 
     float surveyTimer, stateTimer, stepTimer;

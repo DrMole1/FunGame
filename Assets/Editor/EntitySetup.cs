@@ -16,10 +16,19 @@ public static class EntitySetup
         CreateRedBeacon();
         SetupCreature("Tour", 2.66f, new[] { ("Walk", true), ("Run", true), ("Look", true), ("Stance", true) });
         SetupCreature("Cloche", 1f, new[] { ("Walk", true), ("Run", true) });
+        SetupFou();
         SpiderSetup.Setup();
         IconRenderer.Generate();
         AssetDatabase.SaveAssets();
         Debug.Log("Entités et objets de la V0.4 installés.");
+    }
+
+    // Le Fou (V0.4.3) : marche cartoon ("Funky Walk"), course, danse et cri d'alerte ; de la taille de La Dame.
+    [MenuItem("FunGame/Installer Le Fou")]
+    public static void SetupFou()
+    {
+        SetupCreature("Fou", 2.66f, new[] { ("Walk", true), ("Run", true), ("Dance", true), ("Scream", true) });
+        AssetDatabase.SaveAssets();
     }
 
     // Import Humanoid, Animator (Idle = première image de la marche, puis un état par clip) et asset Resources/<Nom>Art.

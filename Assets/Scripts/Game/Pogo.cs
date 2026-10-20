@@ -231,8 +231,5 @@ public class Pogo : Interactable
             return State == Mood.Angry ? "" : "Pogo attend un objet";
         }
     }
-
-    // Pogo lit l'objet sélectionné au moment du clic.
-    public override bool KeepsSelection => true;
     public override void Interact() => GameSession.Instance.InteractPogo();
 }

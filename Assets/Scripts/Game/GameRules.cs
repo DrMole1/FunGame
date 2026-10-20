@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.4.2).
+// Variables numériques du document de Game Design (V0.4.3).
 public static class GameRules
 {
     public const int MaxPlayers = 8;
@@ -94,6 +94,9 @@ public static class GameRules
     // Hauteur (absolue) du dessus de la brume : le ras du sol du Hub.
     public const float MistTop = 0.5f;
 
+    // Note 03 du chapitre 3.4 (V0.4.3) : tué par un Cauchemar, la caméra fixe ses yeux environ 1,5 seconde.
+    public const float NightmareStareDuration = 1.5f;
+
     // ---------- La Dame (entité ID 2) ----------
 
     public const int DameDamage = 100;
@@ -113,11 +116,29 @@ public static class GameRules
     public const float TourInvestigateMultiplier = 1.35f; // "modérément rapide", vers la localisation tampon
     public const float TourSightRange = 50f;
     public const float TourStepRange = 30f;
-    public const float TourSurveyMin = 15f, TourSurveyMax = 30f, TourSurveyDuration = 2f;
+    public const float TourSurveyMin = 7f, TourSurveyMax = 15f, TourSurveyDuration = 2f;
     public const float TourTurnBackChance = 0.3f;
     public const float TourChannel = 3f;
     public const float TourChargeSpeed = 45f;            // "à la vitesse de la lumière" : quasi instantané
     public const float TourKnockback = 10f;
+
+    // ---------- Le Fou (entité ID 7, Cauchemar, V0.4.3) ----------
+
+    public const int FouDamage = 20;
+    public const float FouRunMultiplier = 1.5f;
+    public const float FouRunMin = 2f, FouRunMax = 5f;      // durée d'une course
+    public const float FouWalkMin = 4f, FouWalkMax = 10f;   // marche avant la course suivante
+    public const float FouTurnBackChance = 0.3f;
+    public const float FouBellsRange = 30f;
+    // Non précisé : la caméra "le voit" s'il est à l'écran, sans mur entre eux, à moins de 40 m.
+    public const float FouSightRange = 40f;
+    public const float FouStareTime = 2f;                   // regardé 2 s : il attaque
+    public const float FouLookAgainWindow = 3f;             // regard détourné puis revenu dans les 3 s : il attaque aussi
+    public const float FouSwapCooldown = 2f;
+    public const float FouChaseDuration = 5f;
+    public const float FouChaseStareTime = 1f;              // en chasse, regardé plus d'une seconde : nouvelle attaque
+    public const float FouKillDistance = 0.8f;
+    public const float FouDanceChance = 0.15f, FouDanceDuration = 3f;
 
     // ---------- Le Pion (entité ID 4, Normal) ----------
 

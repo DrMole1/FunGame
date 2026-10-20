@@ -6,7 +6,8 @@ public class PlayerStatus : MonoBehaviour
     public int Hp { get; private set; } = GameRules.MaxHp;
     public int Serenity { get; private set; } = GameRules.MaxSerenity;
     public bool Dead { get; private set; }
-    public int Selected { get; private set; } = -1;
+    // Note 10 (V0.4.3) : une case est toujours sélectionnée, la case 1 par défaut.
+    public int Selected { get; private set; }
 
     readonly ItemType[] slots = new ItemType[GameRules.InventorySize];
 
@@ -42,7 +43,6 @@ public class PlayerStatus : MonoBehaviour
     {
         ItemType t = slots[slot];
         slots[slot] = ItemType.None;
-        if (Selected == slot) Selected = -1;
         Changed?.Invoke();
         return t;
     }
@@ -50,21 +50,15 @@ public class PlayerStatus : MonoBehaviour
     public void ClearInventory()
     {
         for (int i = 0; i < slots.Length; i++) slots[i] = ItemType.None;
-        Selected = -1;
+        Selected = 0;
         Changed?.Invoke();
     }
 
-    // Touche 1 à 5 : sélectionne la case, ou la désélectionne si elle l'était déjà.
-    public void ToggleSelect(int slot)
+    // Touche 1 à 5 : sélectionne la case (V0.4.3 : on ne peut plus la désélectionner).
+    public void Select(int slot)
     {
-        Selected = Selected == slot ? -1 : slot;
-        Changed?.Invoke();
-    }
-
-    public void Deselect()
-    {
-        if (Selected < 0) return;
-        Selected = -1;
+        if (Selected == slot) return;
+        Selected = slot;
         Changed?.Invoke();
     }
 

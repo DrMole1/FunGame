@@ -27,6 +27,8 @@ public class Dame : Entity
     public override EntityKind Kind => EntityKind.Dame;
     public override string DisplayName => "La Dame";
     public override float ChestHeight => 1.4f;
+    public override bool Nightmare => true;
+    public override Vector3 EyesLocal => new Vector3(0f, EyeHeight, 0.22f);
     public State Current { get => (State)state; private set => state = (byte)value; }
     public bool Watched;
 

@@ -593,6 +593,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     // Un joueur mort voit la caméra d'un autre joueur (clic pour changer).
     void UpdateSpectate()
     {
+        if (deathFxAt >= 0f && status.Dead && Time.time >= deathFxAt) PlayDeathFx(deathFxSound);
         if (!status.Dead || orbit == null)
         {
             OrbitCamera.DeathView = -1f;
@@ -763,6 +764,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     void ReviveLocal(Vector3 position, int hp)
     {
         deathAt = -100f;
+        deathFxAt = -1f;
         OrbitCamera.DeathView = -1f;
         hud.ClearDeath();
         GameAudio.CancelDeathSequence();
@@ -792,17 +794,26 @@ public class GameSession : MonoBehaviour, IEntityHost
     bool Invincible => Time.time < invincibleUntil || Godmode;
 
     // Dégâts reçus par le personnage local. Le Hub est un endroit sûr ; juste après un /tp, aucun dégât.
-    public void DamageLocal(int amount, string cause)
+    public void DamageLocal(int amount, string cause, Entity by = null)
     {
         if (status.Dead || phase == Phase.GameOver || !net.InGame) return;
         if (WorldBuilder.IsInHub(player.transform.position) || Invincible || Teleporting) return;
         status.SetHp(status.Hp - amount);
         hud.FlashDamage();
         GameAudio.Play2D("hurt", 0.9f, 0.08f);
-        if (status.Hp <= 0) KillLocal(cause);
+        if (status.Hp > 0) return;
+        // Note 03 (V0.4.3) : tué par un Cauchemar, la caméra plonge environ 1,5 seconde dans ses yeux, puis le corps s'effondre.
+        if (by != null && by.Nightmare)
+        {
+            OrbitCamera.StartJumpscare(by.transform, by.EyesLocal, GameRules.NightmareStareDuration, true, 0.6f);
+            KillLocal(cause, GameRules.NightmareStareDuration);
+        }
+        else KillLocal(cause);
     }
 
-    void KillLocal(string cause)
+    // fxDelay : la mort est immédiate, mais le râle, l'écran rouge et l'animation du corps attendent la fin d'un face-à-face
+    // (Cauchemar, Note 03 du chapitre 3.4).
+    void KillLocal(string cause, float fxDelay = 0f)
     {
         if (status.Dead) return;
         status.SetDead(true);
@@ -817,23 +828,36 @@ public class GameSession : MonoBehaviour, IEntityHost
         status.ClearInventory();
         pendingPickups = 0;
         presence.Alive = false;
-        avatar.SetDead(true);
         player.SetFrozen(true);
         // Capsule désactivée : les objets tombent jusqu'au sol.
         foreach (var type in left) DropNear(type, player.transform.position);
         terminal.Close();
         postItUI.Close();
-        // Au game over, l'accord lugubre remplace les râles.
-        if (cause != null)
+        if (fxDelay > 0f)
         {
-            GameAudio.Play3D("death", player.transform.position, 1f, 30f, 0.06f);
-            // Le râle, un silence total, puis un cœur qui s'arrête ; l'écran rougit et s'assombrit, la caméra quitte le corps.
-            GameAudio.PlayDeathSequence();
-            hud.PlayDeath();
-            deathAt = Time.time;
+            deathFxAt = Time.time + fxDelay;
+            deathAt = deathFxAt;
+            deathFxSound = cause != null;
         }
+        else PlayDeathFx(cause != null);
         if (cause != null) net.ToHost("DE|" + cause);
         RefreshHud();
+    }
+
+    float deathFxAt = -1f;
+    bool deathFxSound;
+
+    void PlayDeathFx(bool sound)
+    {
+        deathFxAt = -1f;
+        avatar.SetDead(true);
+        // Au game over, l'accord lugubre remplace les râles.
+        if (!sound) return;
+        GameAudio.Play3D("death", player.transform.position, 1f, 30f, 0.06f);
+        // Le râle, un silence total, puis un cœur qui s'arrête ; l'écran rougit et s'assombrit, la caméra quitte le corps.
+        GameAudio.PlayDeathSequence();
+        hud.PlayDeath();
+        deathAt = Time.time;
     }
 
     public void UseSelectedItem()
@@ -1009,7 +1033,6 @@ public class GameSession : MonoBehaviour, IEntityHost
         }
         // Comme /sell : l'objet quitte l'inventaire, l'hôte crédite quota et cagnotte.
         status.RemoveAt(slot);
-        status.Deselect();
         net.ToHost("JS|" + (int)type);
         GameAudio.Play2D("register", 0.8f);
     }
@@ -1043,6 +1066,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             case 4: return SpawnPions(0, rnd) > 0 ? "Des Pions s'installent dans la Zone 1..." : "Impossible pour le moment.";
             case 5: return SpawnAt<Cloche>(0, rnd, 18f) != null ? "La Cloche attend dans la Zone 1..." : "Impossible pour le moment.";
             case 6: return SpawnAt<Spider>(0, rnd, GameRules.SpiderSpawnClearance) != null ? "Une Araignée rôde dans la Zone 1..." : "Impossible pour le moment.";
+            case 7: return SpawnAt<Fou>(0, rnd, 18f) != null ? "Le Fou sourit désormais dans la Zone 1..." : "Impossible pour le moment.";
             default: return "Aucune entité n'a l'ID " + id + ".";
         }
     }
@@ -1082,11 +1106,15 @@ public class GameSession : MonoBehaviour, IEntityHost
         }
     }
 
-    // Entités de type Cauchemar (La Dame, La Tour) : l'une d'elles, au hasard.
+    // Entités de type Cauchemar (La Dame, La Tour, Le Fou) : l'une d'elles, au hasard.
     void SpawnNightmare(int zone, System.Random rnd)
     {
-        if (rnd.Next(2) == 0) SpawnAt<Dame>(zone, rnd, 18f);
-        else SpawnAt<Tour>(zone, rnd, 18f);
+        switch (rnd.Next(3))
+        {
+            case 0: SpawnAt<Dame>(zone, rnd, 18f); break;
+            case 1: SpawnAt<Tour>(zone, rnd, 18f); break;
+            default: SpawnAt<Fou>(zone, rnd, 18f); break;
+        }
     }
 
     // Entités de type Normal (un groupe de Pions, La Cloche) : l'une d'elles, au hasard.
@@ -1155,6 +1183,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             case EntityKind.Pion: return Entity.Create<Pion>(entitiesRoot, id, pos, yaw, maze.nav);
             case EntityKind.Cloche: return Entity.Create<Cloche>(entitiesRoot, id, pos, yaw, maze.nav);
             case EntityKind.Spider: return Entity.Create<Spider>(entitiesRoot, id, pos, yaw, maze.nav);
+            case EntityKind.Fou: return Entity.Create<Fou>(entitiesRoot, id, pos, yaw, maze.nav);
             default: return Entity.Create<Dame>(entitiesRoot, id, pos, yaw, maze.nav);
         }
     }
@@ -1167,6 +1196,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             case EntityKind.Pion: return "Le Pion";
             case EntityKind.Cloche: return "La Cloche";
             case EntityKind.Spider: return "L'Araignée";
+            case EntityKind.Fou: return "Le Fou";
             default: return "La Dame";
         }
     }
@@ -1221,12 +1251,16 @@ public class GameSession : MonoBehaviour, IEntityHost
     public void Hit(Entity entity, string targetId, int damage, float knockback)
     {
         Vector3 p = entity.transform.position;
-        net.ToPeer(targetId, "EH|" + damage + "|" + NetworkGame.F(p.x) + "|" + NetworkGame.F(p.z) + "|" + NetworkGame.F(knockback) + "|" + (int)entity.Kind);
+        net.ToPeer(targetId, "EH|" + damage + "|" + NetworkGame.F(p.x) + "|" + NetworkGame.F(p.z) + "|" + NetworkGame.F(knockback) + "|" + (int)entity.Kind
+            + "|" + entity.Id);
     }
 
     public void Immobilize(Entity entity, string targetId, float seconds) => net.ToPeer(targetId, "DF|" + NetworkGame.F(seconds));
 
     public void Alert(Entity entity, string targetId) => net.ToPeer(targetId, "TA");
+
+    public void Swap(Entity entity, string targetId, Vector3 position) =>
+        net.ToPeer(targetId, "FS|" + NetworkGame.F(position.x) + "|" + NetworkGame.F(position.y) + "|" + NetworkGame.F(position.z));
 
     public void Steal(Entity entity, string targetId, System.Action<ItemType> done)
     {
@@ -1266,27 +1300,47 @@ public class GameSession : MonoBehaviour, IEntityHost
 
     // ---------- La Dame regardée, La Cloche qui obnubile ----------
 
-    // Le joueur chassé signale à l'hôte s'il regarde La Dame (elle accélère alors).
+    // Le joueur chassé signale à l'hôte s'il regarde La Dame (elle accélère alors) ; chacun signale si sa caméra
+    // voit Le Fou.
     void UpdateWatching()
     {
         Camera cam = Camera.main;
         foreach (var e in entities.Values)
         {
-            if (!(e is Dame d)) continue;
-            bool chased = d.Current != Dame.State.Wander && d.TargetId == net.MyId && !status.Dead;
             bool looking = false;
-            if (chased && cam != null)
+            if (e is Dame d)
             {
-                Vector3 chest = d.transform.position + Vector3.up * d.ChestHeight;
-                Vector3 to = chest - cam.transform.position;
-                looking = Vector3.Angle(cam.transform.forward, to) < 32f && to.magnitude < 40f
-                    && !Physics.Linecast(cam.transform.position, chest, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+                bool chased = d.Current != Dame.State.Wander && d.TargetId == net.MyId && !status.Dead;
+                if (chased && cam != null)
+                {
+                    Vector3 chest = d.transform.position + Vector3.up * d.ChestHeight;
+                    Vector3 to = chest - cam.transform.position;
+                    looking = Vector3.Angle(cam.transform.forward, to) < 32f && to.magnitude < 40f
+                        && !Physics.Linecast(cam.transform.position, chest, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+                }
             }
-            watching.TryGetValue(d.Id, out bool before);
+            else if (e is Fou fou)
+                looking = !status.Dead && !Teleporting && cam != null && CameraSees(cam, fou);
+            else continue;
+            watching.TryGetValue(e.Id, out bool before);
             if (looking == before) continue;
-            watching[d.Id] = looking;
-            net.ToHost("LK|" + d.Id + "|" + (looking ? 1 : 0));
+            watching[e.Id] = looking;
+            net.ToHost("LK|" + e.Id + "|" + (looking ? 1 : 0));
         }
+    }
+
+    // Le Fou est à l'écran, à portée, et un point de son corps (tête, buste ou jambes) n'est caché par aucun mur.
+    static bool CameraSees(Camera cam, Fou fou)
+    {
+        Vector3 from = cam.transform.position;
+        foreach (float h in new[] { fou.EyesLocal.y, fou.ChestHeight, 0.6f })
+        {
+            Vector3 point = fou.transform.position + Vector3.up * h;
+            Vector3 v = cam.WorldToViewportPoint(point);
+            if (v.z <= 0f || v.z > GameRules.FouSightRange || v.x < 0f || v.x > 1f || v.y < 0f || v.y > 1f) continue;
+            if (!Physics.Linecast(from, point, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return true;
+        }
+        return false;
     }
 
     // Obnubilé par une Cloche : la caméra est forcée de la regarder, et toutes les 2 secondes, des dégâts.
@@ -2171,6 +2225,12 @@ public class GameSession : MonoBehaviour, IEntityHost
             case "LK" when host && f.Length >= 3:
                 if (entities.TryGetValue(NetworkGame.I(f[1]), out var watched) && watched is Dame watchedDame && watched.TargetId == from)
                     watchedDame.Watched = f[2] == "1";
+                else if (watched is Fou watchedFou) watchedFou.SetLooking(from, f[2] == "1");
+                break;
+            case "FS" when f.Length >= 4:
+                // Le Fou prend votre place : vous voilà à la sienne.
+                if (!status.Dead && !Invincible && !Teleporting)
+                    player.Teleport(new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]) + 0.95f, NetworkGame.P(f[3])), player.transform.eulerAngles.y);
                 break;
             case "DF" when f.Length >= 2:
                 if (!status.Dead && !Invincible && !Teleporting) player.Immobilize(NetworkGame.P(f[1]));
@@ -2179,8 +2239,9 @@ public class GameSession : MonoBehaviour, IEntityHost
             {
                 if (status.Dead || Invincible || Teleporting) break;
                 var from2 = new Vector3(NetworkGame.P(f[2]), player.transform.position.y, NetworkGame.P(f[3]));
-                DamageLocal(NetworkGame.I(f[1]), EntityName((EntityKind)NetworkGame.I(f[5])));
-                if (!status.Dead) player.Knockback(player.transform.position - from2, NetworkGame.P(f[4]));
+                entities.TryGetValue(f.Length >= 7 ? NetworkGame.I(f[6]) : -1, out var hitter);
+                DamageLocal(NetworkGame.I(f[1]), EntityName((EntityKind)NetworkGame.I(f[5])), hitter);
+                if (!status.Dead && NetworkGame.P(f[4]) > 0f) player.Knockback(player.transform.position - from2, NetworkGame.P(f[4]));
                 break;
             }
             case "TA":
@@ -2245,7 +2306,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             string[] p = entry.Split(',');
             if (p.Length < 10) continue;
             int id = NetworkGame.I(p[0]);
-            var kind = (EntityKind)Mathf.Clamp(NetworkGame.I(p[1]), (int)EntityKind.Dame, (int)EntityKind.Spider);
+            var kind = (EntityKind)Mathf.Clamp(NetworkGame.I(p[1]), (int)EntityKind.Dame, (int)EntityKind.Fou);
             var pos = new Vector3(NetworkGame.P(p[2]), NetworkGame.P(p[3]), NetworkGame.P(p[4]));
             float yaw = NetworkGame.P(p[5]);
             seenEntities.Add(id);

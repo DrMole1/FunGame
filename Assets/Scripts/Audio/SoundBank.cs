@@ -19,6 +19,7 @@ public static class SoundBank
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
         "tour_step", "tour_breath", "tour_charge", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
         "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat",
+        "fou_bells", "fou_alert", "fou_attack", "fou_dance",
     };
 
     public static void Preload()
@@ -98,6 +99,10 @@ public static class SoundBank
             case "teleport_charge": return TeleportCharge(rnd);
             case "heal": return Heal(rnd);
             case "heartbeat": return Heartbeat();
+            case "fou_bells": return FouBells(rnd);
+            case "fou_alert": return FouAlert(rnd);
+            case "fou_attack": return FouAttack(rnd);
+            case "fou_dance": return FouDance(rnd);
         }
         return null;
     }
@@ -1160,6 +1165,90 @@ public static class SoundBank
                 }
             }
             start += gaps[b];
+        }
+        return d;
+    }
+
+    // ---------- Le Fou ----------
+
+    // Course : grelots secoués en cadence (joués en boucle tant qu'il court).
+    static float[] FouBells(System.Random rnd)
+    {
+        var d = Buffer(0.8f);
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate, v = 0f;
+            for (int k = 0; k < 8; k++)
+            {
+                float tk = t - k * 0.1f - (k % 2) * 0.012f;
+                if (tk < 0f) continue;
+                float f = 2600f + 210f * (k % 3);
+                v += (Sine(f * tk) + 0.6f * Sine(f * 2.76f * tk) + 0.25f * Sine(f * 5.4f * tk)) * AD(tk, 0.001f, 0.07f) * (k % 2 == 0 ? 1f : 0.7f);
+            }
+            d[i] = v + Noise(rnd) * 0.03f * AD(Mathf.Repeat(t, 0.1f), 0.001f, 0.02f);
+        }
+        return d;
+    }
+
+    // Alerte : rire aigu et haché, qui s'étrangle.
+    static float[] FouAlert(System.Random rnd)
+    {
+        var d = Buffer(1.3f);
+        var f1 = new BandPass();
+        var f2 = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float pitch = Mathf.Lerp(380f, 620f, t / 1.3f) * (1f + 0.05f * Mathf.Sin(TwoPi * 7f * t));
+            phase += pitch / Rate;
+            // "Ha-ha-ha" : la voix s'ouvre et se ferme 7 fois par seconde.
+            float gate = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(TwoPi * 7f * t)), 0.6f);
+            float src = Saw(phase) + Noise(rnd) * 0.25f;
+            float s = f1.Process(src, 900f, 0.14f) + f2.Process(src, 2400f, 0.16f) * 0.8f;
+            d[i] = s * gate * ASR(t, 0.02f, 0.3f, 1.3f);
+        }
+        return d;
+    }
+
+    // Attaque : hurlement strident qui plonge, mêlé de grelots.
+    static float[] FouAttack(System.Random rnd)
+    {
+        var d = Buffer(1.1f);
+        var f1 = new BandPass();
+        var f2 = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float pitch = Mathf.Lerp(1250f, 260f, Mathf.SmoothStep(0f, 1f, t / 1.1f)) * (1f + 0.09f * Mathf.Sin(TwoPi * 23f * t));
+            phase += pitch / Rate;
+            float src = Saw(phase) * 0.7f + Square(phase * 1.01f) * 0.3f + Noise(rnd) * 0.5f;
+            float s = f1.Process(src, 1500f, 0.18f) + f2.Process(src, 3400f, 0.2f) * 0.7f;
+            float bells = Sine(2900f * t) * AD(Mathf.Repeat(t, 0.06f), 0.001f, 0.02f) * 0.3f;
+            d[i] = (s + bells) * ASR(t, 0.01f, 0.4f, 1.1f);
+        }
+        return d;
+    }
+
+    // Danse : 3 secondes de ritournelle de fête foraine, un peu faussée, sur un pas de grelots.
+    static float[] FouDance(System.Random rnd)
+    {
+        int[] notes = { 76, 79, 84, 79, 76, 72, 74, 76, 79, 77, 74, 71 };
+        const float step = 0.25f;
+        var d = Buffer(3f);
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate, v = 0f;
+            int n = Mathf.Min(notes.Length - 1, (int)(t / step));
+            float tn = t - n * step;
+            float f = Midi(notes[n]) * (1f + 0.01f * Mathf.Sin(t * 4f));
+            v += (Square(f * tn) * 0.25f + Sine(f * 2f * tn) * 0.4f) * AD(tn, 0.005f, 0.14f);
+            float beat = Mathf.Repeat(t, 0.5f);
+            v += Sine((110f - 60f * beat) * beat) * AD(beat, 0.002f, 0.08f) * 0.8f;
+            float off = Mathf.Repeat(t - 0.25f, 0.5f);
+            v += Sine(2700f * off) * AD(off, 0.001f, 0.05f) * 0.3f + Noise(rnd) * AD(off, 0.001f, 0.02f) * 0.1f;
+            d[i] = v * ASR(t, 0.02f, 0.2f, 3f);
         }
         return d;
     }

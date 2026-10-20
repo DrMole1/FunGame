@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // Identifiants du GDD (chapitre 8) ; le Laser (ID 1) est un piège du décor, pas une entité mobile.
-public enum EntityKind : byte { Dame = 2, Tour = 3, Pion = 4, Cloche = 5, Spider = 6 }
+public enum EntityKind : byte { Dame = 2, Tour = 3, Pion = 4, Cloche = 5, Spider = 6, Fou = 7 }
 
 // Ce que les entités demandent au jeu (implémenté par GameSession, chez l'hôte).
 public interface IEntityHost
@@ -17,6 +17,8 @@ public interface IEntityHost
     void Steal(Entity entity, string targetId, System.Action<ItemType> done);
     // Le Pion dépose l'objet volé au sol.
     void DropStolen(Entity entity, ItemType type, Vector3 position);
+    // Le Fou échange sa position avec celle du joueur visé : celui-ci est transporté en 'position' (au sol).
+    void Swap(Entity entity, string targetId, Vector3 position);
     // Secondes depuis la dernière action bruyante du joueur (aboiement, saut, objet ramassé ou posé).
     float NoiseAge(string playerId);
 }
@@ -39,6 +41,9 @@ public abstract class Entity : MonoBehaviour
     public int Pulse { get; protected set; }
     // Hauteur du regard des joueurs qui la fixent (La Dame, La Cloche).
     public virtual float ChestHeight => 1f;
+    // Type Cauchemar : le personnage tué voit la caméra plonger dans ses yeux (EyesLocal, dans le repère de l'entité).
+    public virtual bool Nightmare => false;
+    public virtual Vector3 EyesLocal => new Vector3(0f, ChestHeight + 0.6f, 0.2f);
 
     protected byte state;
     protected MazeNav nav;

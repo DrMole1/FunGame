@@ -98,37 +98,44 @@ public class OrbitCamera : MonoBehaviour
         }
     }
 
-    // Pogo tue le joueur (Note 04 du chapitre 4) : environ 2 secondes, la caméra se colle à son visage, droit dans
-    // les yeux, secouée frénétiquement, puis revient à sa position.
-    const float JumpscareDuration = 2f, JumpscareIn = 0.18f, JumpscareOut = 0.35f;
+    // Pogo tue le joueur (Note 04 du chapitre 4, environ 2 secondes) ou un Cauchemar le tue (Note 03 du chapitre 3.4,
+    // environ 1,5 seconde) : la caméra se colle à son visage, droit dans les yeux, secouée frénétiquement, puis revient.
+    const float JumpscareIn = 0.18f, JumpscareOut = 0.35f;
     static Transform jumpscareHead;
     static Vector3 jumpscareEyes, jumpscareDir;
-    static float jumpscareStart = -10f;
+    static float jumpscareStart = -10f, jumpscareDuration = 2f, jumpscareDistance = 0.34f;
+    static bool jumpscareFacing;
 
-    public static void StartJumpscare(Transform head, Vector3 eyesLocal)
+    // facing : la caméra reste devant le visage (l'entité continue de bouger) ; sinon, face à face du côté de la caméra
+    // au moment du coup (Pogo peut ensuite tourner la tête).
+    // distance : de la caméra aux yeux (au-delà du plan de coupe proche, pour voir le visage d'une grande entité).
+    public static void StartJumpscare(Transform head, Vector3 eyesLocal, float duration = 2f, bool facing = false, float distance = 0.34f)
     {
+        jumpscareDistance = distance;
         jumpscareHead = head;
         jumpscareEyes = eyesLocal;
         jumpscareStart = Time.time;
-        // Face à face : du visage vers la caméra au moment du coup (Pogo peut ensuite tourner la tête).
+        jumpscareDuration = duration;
+        jumpscareFacing = facing;
         Camera cam = Camera.main;
         Vector3 eyes = head.TransformPoint(eyesLocal);
         jumpscareDir = cam != null ? Vector3.ProjectOnPlane(cam.transform.position - eyes, Vector3.up).normalized : head.forward;
         if (jumpscareDir.sqrMagnitude < 0.01f) jumpscareDir = head.forward;
     }
 
-    public static bool JumpscareActive => jumpscareHead != null && Time.time - jumpscareStart < JumpscareDuration;
+    public static bool JumpscareActive => jumpscareHead != null && Time.time - jumpscareStart < jumpscareDuration;
 
     void LateUpdate()
     {
         UpdateView();
         if (!JumpscareActive) return;
         float t = Time.time - jumpscareStart;
-        float w = Mathf.SmoothStep(0f, 1f, Mathf.Min(t / JumpscareIn, (JumpscareDuration - t) / JumpscareOut));
+        float w = Mathf.SmoothStep(0f, 1f, Mathf.Min(t / JumpscareIn, (jumpscareDuration - t) / JumpscareOut));
         Vector3 eyes = jumpscareHead.TransformPoint(jumpscareEyes);
+        if (jumpscareFacing) jumpscareDir = Vector3.ProjectOnPlane(jumpscareHead.forward, Vector3.up).normalized;
         // Saccades : tremblement de position et de rotation, à haute fréquence.
         Vector3 jitter = new Vector3(Mathf.PerlinNoise(t * 31f, 0f) - 0.5f, Mathf.PerlinNoise(0f, t * 29f) - 0.5f, Mathf.PerlinNoise(t * 23f, t * 17f) - 0.5f);
-        Vector3 pos = eyes + jumpscareDir * 0.34f + jitter * 0.08f;
+        Vector3 pos = eyes + jumpscareDir * jumpscareDistance + jitter * 0.08f;
         Quaternion rot = Quaternion.LookRotation(eyes - pos) * Quaternion.Euler(jitter.y * 14f, jitter.x * 14f, jitter.z * 22f);
         transform.SetPositionAndRotation(Vector3.Lerp(transform.position, pos, w), Quaternion.Slerp(transform.rotation, rot, w));
     }
