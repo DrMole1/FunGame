@@ -428,9 +428,12 @@ public class GameSession : MonoBehaviour, IEntityHost
             }
         }
         else regenAcc = 0f;
-        if (!status.Dead && status.Serenity < GameRules.MaxSerenity && inHub)
+        // Pendant l'Abjuration, hors de la brume (Hub compris) : +10 par seconde ; sinon, lentement dans le Hub.
+        float serenityRate = AbjurationActive ? (inMist ? 0f : GameRules.AbjurationRegenPerSecond)
+                           : inHub ? GameRules.HubSerenityRegenPerSecond : 0f;
+        if (!status.Dead && status.Serenity < GameRules.MaxSerenity && serenityRate > 0f)
         {
-            serenityRegenAcc += GameRules.HubSerenityRegenPerSecond * Time.deltaTime;
+            serenityRegenAcc += serenityRate * Time.deltaTime;
             int add = Mathf.FloorToInt(serenityRegenAcc);
             if (add > 0)
             {
@@ -560,14 +563,16 @@ public class GameSession : MonoBehaviour, IEntityHost
         Shader.SetGlobalVectorArray("_InsectFlee", insectFlee);
     }
 
-    // Toutes les 3 secondes passées dans la brume de l'Abjuration : -1 de sérénité (à 0, le personnage meurt),
+    // Au contact de la brume de l'Abjuration : -2 de sérénité par seconde (à 0, le personnage meurt),
     // et le déplacement y est ralenti de 20 %.
+    bool inMist;
+
     void UpdateMistContact()
     {
         Vector3 p = player.transform.position;
         var capsule = player.GetComponent<CapsuleCollider>();
         float feet = p.y + capsule.center.y - capsule.height * 0.5f;
-        bool inMist = !status.Dead && !Teleporting && AbjurationActive && mistAmount > 0.5f && maze != null
+        inMist = !status.Dead && !Teleporting && AbjurationActive && mistAmount > 0.5f && maze != null
             && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
         // Dans la brume, le personnage avance 20 % moins vite.
         player.SpeedFactor = inMist ? GameRules.MistSpeedMultiplier : 1f;
@@ -576,10 +581,12 @@ public class GameSession : MonoBehaviour, IEntityHost
             mistTimer = 0f;
             return;
         }
-        mistTimer += Time.deltaTime;
-        if (mistTimer < GameRules.AbjurationTick) return;
-        mistTimer -= GameRules.AbjurationTick;
-        status.SetSerenity(status.Serenity - GameRules.AbjurationLoss);
+        // mistTimer : points de sérénité perdus pas encore retirés (fraction).
+        mistTimer += GameRules.AbjurationLossPerSecond * Time.deltaTime;
+        int loss = Mathf.FloorToInt(mistTimer);
+        if (loss <= 0) return;
+        mistTimer -= loss;
+        status.SetSerenity(status.Serenity - loss);
         if (status.Serenity <= 0) KillLocal("l'Abjuration");
     }
 
@@ -1066,7 +1073,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         {
             lateNormalsDone = true;
             var rnd = new System.Random(seed * 37 + 104729);
-            for (int k = 0; k < GameRules.NormalsPerZone; k++) SpawnNormal(0, rnd);
+            for (int k = 0; k < GameRules.LateNormals; k++) SpawnNormal(0, rnd);
         }
         if (!lateNightmareDone && played >= GameRules.LateNightmareDelay)
         {

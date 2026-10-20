@@ -158,12 +158,18 @@ public class Beacon : Interactable
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
     }
 
-    // Balise Améliorée : distance au sol jusqu'à la Balise du Hub, arrondie au mètre (ex. "29m").
+    // Balise Améliorée : distance au sol jusqu'à la Balise du Hub, arrondie au mètre (ex. "29m"), suivie de sa profondeur
+    // ou de sa hauteur par rapport au niveau du Hub quand elle dépasse 2 m (ex. "29m ↓3m", "29m ↑4m").
+    const float LevelShownBeyond = 2f;
+
     public void ShowHubDistance(Vector3 hubPos)
     {
         if (coordinates == null) return;
         Vector3 d = transform.position - hubPos;
-        coordinates.text = Mathf.RoundToInt(new Vector2(d.x, d.z).magnitude) + "m";
+        string text = Mathf.RoundToInt(new Vector2(d.x, d.z).magnitude) + "m";
+        float level = transform.position.y - hubPos.y;
+        if (Mathf.Abs(level) > LevelShownBeyond) text += (level < 0f ? " ↓" : " ↑") + Mathf.RoundToInt(Mathf.Abs(level)) + "m";
+        coordinates.text = text;
     }
 
     void Update()

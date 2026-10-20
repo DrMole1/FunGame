@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.4.1).
+// Variables numériques du document de Game Design (V0.4.2).
 public static class GameRules
 {
     public const int MaxPlayers = 8;
@@ -59,8 +59,9 @@ public static class GameRules
     // Entités de type "Cauchemar" qui apparaissent au début de la manche.
     static readonly int[] Zone1Nightmares = { 0, 1, 2, 1, 2, 2, 2, 2 };
     static readonly int[] Zone2Nightmares = { 0, 0, 2, 2, 2, 2, 3, 3 };
-    // Entités de type "Normal" (V0.4.1) : 2 par zone ouverte aux entités (manche 1 : après 2 minutes de jeu).
-    public const int NormalsPerZone = 2;
+    // Entités de type "Normal" (V0.4.2) : 3 par zone ouverte aux entités dès la manche 2 ; manche 1 : 2 après 2 minutes de jeu.
+    public const int NormalsPerZone = 3;
+    public const int LateNormals = 2;
 
     static int RoundIndex(int round) => Mathf.Clamp(round - 1, 0, Zone1ValuePercent.Length - 1);
 
@@ -86,8 +87,9 @@ public static class GameRules
 
     // Elle apparaît quand le Compteur de Temps affiche 7 minutes, jusqu'à la manche suivante.
     public const float AbjurationStart = 7f * 60f;
-    public const float AbjurationTick = 3f;     // toutes les 3 secondes de contact...
-    public const int AbjurationLoss = 1;        // ...1 point de sérénité en moins
+    public const float AbjurationLossPerSecond = 2f;   // sérénité perdue par seconde au contact de la brume (V0.4.2)
+    // Note 02 (V0.4.2) : hors de la brume, Hub compris, la sérénité remonte de 10 points par seconde.
+    public const float AbjurationRegenPerSecond = 10f;
     public const float MistSpeedMultiplier = 0.8f; // déplacement ralenti de 20 % dans la brume
     // Hauteur (absolue) du dessus de la brume : le ras du sol du Hub.
     public const float MistTop = 0.5f;
@@ -149,7 +151,7 @@ public static class GameRules
     // Une action bruyante (aboiement, saut, objet ramassé ou posé) trahit un joueur accroupi pendant ce délai.
     public const float NoiseMemory = 0.6f;
 
-    // Entités de type Normal au début de la manche : 2 dans chaque zone qui reçoit des Cauchemars (manche 1 : plus tard).
+    // Entités de type Normal au début de la manche : 3 dans chaque zone qui reçoit des Cauchemars (manche 1 : plus tard).
     public static int NormalsForRound(int round, int zone) =>
         round > LateSpawnRound && NightmaresForRound(round, zone) > 0 ? NormalsPerZone : 0;
 

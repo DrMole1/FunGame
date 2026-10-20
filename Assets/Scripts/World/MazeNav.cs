@@ -33,7 +33,7 @@ public class MazeNav
     sbyte[] zoneOf;   // -1 : hors zone
     byte[] links;     // bit k : relié au voisin k (8 directions)
     byte[] doorLinks; // bit k : lien qui traverse la porte de la Zone 2
-    int[] region;      // région connexe (porte fermée) ; les fonds de fosse, par exemple, sont des îlots
+    int[] region;      // région connexe (porte fermée) ; le dessus d'un bloc, par exemple, est un îlot
     int[] mainRegion;  // plus grande région de chaque zone
     Transform structure;
     Collider doorBlocker;

@@ -247,10 +247,29 @@ public static class WorldBuilder
     {
         public RectInt rect;
         public float floor, ceil; // hauteur du plancher et du plafond (absolues)
-        public float pitDepth;    // style Pit : profondeur de la fosse sous la passerelle
+        public float pitDepth;    // style Pit : profondeur maximale sous le niveau du Hub
         public RoomStyle style;
         public bool chess;
         public readonly List<Vector2Int> cells = new List<Vector2Int>();
+
+        // Style Pit (salle à profondeurs, chapitre 9.1) : grille fine de 0,5 m sur toute la salle.
+        public float[,] levels;     // hauteur du sol de chaque case (0 : pourtour au niveau du Hub)
+        public bool[,] stairCell;   // case occupée par un escalier
+        public readonly List<Stair> stairs = new List<Stair>();
+        public readonly List<(List<Vector2Int> cells, float level)> depths = new List<(List<Vector2Int>, float)>();
+        // Arêtes sans paroi : le haut de chaque escalier, qui donne sur le niveau supérieur.
+        public readonly HashSet<(Vector2Int, Vector2Int)> openEdges = new HashSet<(Vector2Int, Vector2Int)>();
+        // Passerelles (larges, praticables par les entités) et poutres (étroites) qui enjambent les fosses au niveau du Hub.
+        public readonly List<(RectInt cells, bool beam)> bridges = new List<(RectInt, bool)>();
+        public bool[,] bridgeCell;
+    }
+
+    // Escalier d'une profondeur : bande de cases de la grille fine, descendue dans le sens 'dir' (0 = +X, 1 = -X, 2 = +Z, 3 = -Z).
+    class Stair
+    {
+        public RectInt strip;
+        public int dir, steps;
+        public float top, bottom;
     }
 
     // Une zone du labyrinthe : grille de cellules de 5 m. La Zone 1 entoure le Hub ; la Zone 2 est collée à un côté
@@ -314,18 +333,24 @@ public static class WorldBuilder
     class ZoneStyle
     {
         public int maxRooms, minRoomSize, maxRoomSize;
+        // Part des cellules occupées par des salles (0 : seulement 'maxRooms' salles, espacées d'une cellule de couloir).
+        // Avec une part visée, les salles peuvent se toucher.
+        public float roomCoverage;
         public float pitChance, minPitDepth, maxPitDepth;
+        public float maxLayerDepth;     // profondeur d'une couche (plusieurs couches si la zone est assez profonde)
+        public float bridgeChance;      // chance qu'une fosse soit enjambée par une passerelle ou une poutre
         public float[] floors;          // plancher des salles (au-dessus du niveau du Hub)
         public float[] ceilings;        // hauteur sous plafond des salles
         public float[] chaoticCeilings; // salles chaotiques (plateformes)
-        public float[] pitCeilings;     // hauteur au-dessus de la passerelle des fosses
+        public float[] pitCeilings;     // hauteur au-dessus du pourtour des salles à profondeurs
     }
 
     // Zone 1 : le plancher descend jusqu'à 3 unités sous le Hub, le plafond monte jusqu'à 10 unités au-dessus du plancher.
+    // V0.4.2 : environ 25 % de couloirs pour 75 % de salles.
     static readonly ZoneStyle Zone1Style = new ZoneStyle
     {
-        maxRooms = 34, minRoomSize = 2, maxRoomSize = 4,
-        pitChance = 0.15f, minPitDepth = 1.5f, maxPitDepth = 3f,
+        maxRooms = 200, minRoomSize = 2, maxRoomSize = 4, roomCoverage = 0.75f,
+        pitChance = 0.2f, minPitDepth = 1.5f, maxPitDepth = 3f, maxLayerDepth = 3f,
         floors = new[] { 0f, 0f, 0.8f, 1.6f },
         ceilings = new[] { 4f, 6f, 8f },
         chaoticCeilings = new[] { 7f, 9f, 10f },
@@ -337,7 +362,7 @@ public static class WorldBuilder
     static readonly ZoneStyle Zone2Style = new ZoneStyle
     {
         maxRooms = 24, minRoomSize = 2, maxRoomSize = 5,
-        pitChance = 0.3f, minPitDepth = 4f, maxPitDepth = 10f,
+        pitChance = 0.3f, minPitDepth = 2f, maxPitDepth = 10f, maxLayerDepth = 4f, bridgeChance = 0.6f,
         floors = new[] { 0f, 0f, 0.8f, 1.6f, 2.4f },
         ceilings = new[] { 5f, 8f, 12f, 18f },
         chaoticCeilings = new[] { 14f, 20f, 26f },
@@ -345,7 +370,13 @@ public static class WorldBuilder
     };
 
     const float ZoneDoorWidth = 3.4f, ZoneDoorHeight = 3.6f;
-    const float PitMargin = 1.6f;
+
+    // Profondeurs (chapitre 9.1) : grille fine de 0,5 m, pourtour praticable de 1,5 m le long des murs de la salle,
+    // escaliers un peu plus raides que ceux des salles surélevées.
+    const float Sub = 0.5f;
+    const int SubPerCell = 10;
+    const int DepthMargin = 3;
+    const float DepthStepHeight = 0.25f;
 
     // Mur sur le côté 'dir' (0 = +X, 1 = -X, 2 = +Z, 3 = -Z) de la cellule.
     static bool HasWall(Maze m, int i, int j, int dir)
@@ -425,10 +456,25 @@ public static class WorldBuilder
             }
 
         // Salles : blocs de cellules ouverts, chacun avec sa hauteur de plancher et de plafond.
-        for (int attempt = 0; attempt < 700 && m.rooms.Count < style.maxRooms; attempt++)
+        bool coverage = style.roomCoverage > 0f;
+        int free = 0;
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
+                if (!m.Reserved(i, j)) free++;
+        int target = coverage ? Mathf.RoundToInt(free * style.roomCoverage) : int.MaxValue, covered = 0;
+        int attempts = coverage ? 12000 : 700;
+        for (int attempt = 0; attempt < attempts && m.rooms.Count < style.maxRooms && covered < target; attempt++)
         {
             int w, h;
-            if (style.maxRoomSize <= 4)
+            if (coverage)
+            {
+                // Tailles variées ; une fois la place devenue rare, de petites salles bouchent les trous.
+                int min = attempt < attempts / 2 ? style.minRoomSize : 1;
+                w = rnd.Next(min, style.maxRoomSize + 1);
+                h = rnd.Next(min, style.maxRoomSize + 1);
+                if (w * h < 2) continue;
+            }
+            else if (style.maxRoomSize <= 4)
             {
                 if (rnd.NextDouble() < 0.15) { w = 4; h = 3; }
                 else { w = rnd.NextDouble() < 0.4 ? 3 : 2; h = 2; }
@@ -445,18 +491,19 @@ public static class WorldBuilder
                 for (int j = j0 - 1; j <= j0 + h && ok; j++)
                 {
                     var cell = new Vector2Int(i, j);
-                    // Une cellule d'écart avec le Hub, les portes et les autres salles.
-                    if (m.InGrid(i, j) && (m.Reserved(i, j) || cell == m.start || m.keepClear.Contains(cell) || m.room[i, j] >= 0)) ok = false;
+                    bool inside = i >= i0 && i < i0 + w && j >= j0 && j < j0 + h;
+                    // Une cellule d'écart avec le Hub et les portes ; avec les autres salles aussi, sauf si elles peuvent se toucher.
+                    if (m.InGrid(i, j) && (m.Reserved(i, j) || cell == m.start || m.keepClear.Contains(cell)
+                        || (m.room[i, j] >= 0 && (inside || !coverage)))) ok = false;
                 }
             if (!ok) continue;
 
             var room = new Room { rect = new RectInt(i0, j0, w, h) };
-            if (rnd.NextDouble() < style.pitChance)
+            // Salle à profondeurs : pourtour au niveau du Hub, fosses de formes variées et escaliers pour y descendre.
+            if (w >= 2 && h >= 2 && rnd.NextDouble() < style.pitChance && GenerateDepths(room, style, rnd))
             {
-                // Fosse : passerelle au niveau du Hub tout autour, fond bien plus bas, plateformes pour remonter.
                 room.style = RoomStyle.Pit;
                 room.floor = 0f;
-                room.pitDepth = Mathf.Round(Rand(rnd, style.minPitDepth, style.maxPitDepth) * 2f) * 0.5f;
                 room.ceil = Pick(rnd, style.pitCeilings);
             }
             else
@@ -469,6 +516,7 @@ public static class WorldBuilder
             }
             int index = m.rooms.Count;
             m.rooms.Add(room);
+            covered += w * h;
             for (int i = i0; i < i0 + w; i++)
                 for (int j = j0; j < j0 + h; j++)
                 {
@@ -479,6 +527,236 @@ public static class WorldBuilder
                 }
         }
     }
+
+    // ---------- Profondeurs (chapitre 9.1) ----------
+
+    // Creuse les profondeurs d'une salle : une fosse en rectangle, en L, deux fosses séparées par une passerelle, ou une
+    // grande fosse à deux escaliers. Chaque fosse a au moins un escalier (les entités y descendent) ; si la zone est assez
+    // profonde, une fosse peut en contenir une autre, plus bas, avec son propre escalier. Retourne false si rien n'a tenu.
+    static bool GenerateDepths(Room room, ZoneStyle style, System.Random rnd)
+    {
+        int w = room.rect.width * SubPerCell, h = room.rect.height * SubPerCell;
+        room.levels = new float[w, h];
+        room.stairCell = new bool[w, h];
+        var inner = new RectInt(DepthMargin, DepthMargin, w - 2 * DepthMargin, h - 2 * DepthMargin);
+
+        var shapes = new List<(List<Vector2Int> cells, int stairs)>();
+        switch (rnd.Next(4))
+        {
+            case 0:
+                shapes.Add((CellsOf(RandomSubRect(inner, 0.55f, 1f, rnd), default), 1));
+                break;
+            case 1:
+            {
+                RectInt r = RandomSubRect(inner, 0.8f, 1f, rnd);
+                int cw = Mathf.RoundToInt(r.width * Rand(rnd, 0.35f, 0.55f)), chh = Mathf.RoundToInt(r.height * Rand(rnd, 0.35f, 0.55f));
+                var cut = new RectInt(rnd.Next(2) == 0 ? r.xMin : r.xMax - cw, rnd.Next(2) == 0 ? r.yMin : r.yMax - chh, cw, chh);
+                shapes.Add((CellsOf(r, cut), 1));
+                break;
+            }
+            case 2:
+            {
+                // Passerelle de 1,5 à 2,5 m entre les deux fosses, reliée au pourtour.
+                bool alongX = inner.width >= inner.height;
+                int length = alongX ? inner.width : inner.height, gap = 3 + rnd.Next(3);
+                int first = (length - gap) / 2 + rnd.Next(-2, 3);
+                int second = length - gap - first;
+                if (first < 8 || second < 8) goto case 0;
+                RectInt a = alongX ? new RectInt(inner.xMin, inner.yMin, first, inner.height) : new RectInt(inner.xMin, inner.yMin, inner.width, first);
+                RectInt b = alongX ? new RectInt(inner.xMin + first + gap, inner.yMin, second, inner.height) : new RectInt(inner.xMin, inner.yMin + first + gap, inner.width, second);
+                shapes.Add((CellsOf(RandomSubRect(a, 0.75f, 1f, rnd), default), 1));
+                shapes.Add((CellsOf(RandomSubRect(b, 0.75f, 1f, rnd), default), 1));
+                break;
+            }
+            default:
+                shapes.Add((CellsOf(RandomSubRect(inner, 0.85f, 1f, rnd), default), 2));
+                break;
+        }
+
+        bool any = false;
+        room.bridgeCell = new bool[w, h];
+        foreach (var (cells, stairs) in shapes)
+        {
+            if (cells.Count == 0 || !Dig(room, cells, 0f, style, rnd, stairs, 0)) continue;
+            any = true;
+            if (rnd.NextDouble() < style.bridgeChance) PlaceBridge(room, new HashSet<Vector2Int>(cells), rnd);
+        }
+        if (!any)
+        {
+            room.levels = null;
+            room.stairCell = null;
+            return false;
+        }
+        float lowest = 0f;
+        foreach (var (_, level) in room.depths) lowest = Mathf.Min(lowest, level);
+        room.pitDepth = -lowest;
+        return true;
+    }
+
+    // Sous-rectangle au hasard de 'r' (chaque côté entre 'min' et 'max' fois celui de 'r').
+    static RectInt RandomSubRect(RectInt r, float min, float max, System.Random rnd)
+    {
+        int w = Mathf.Clamp(Mathf.RoundToInt(r.width * Rand(rnd, min, max)), 1, r.width);
+        int h = Mathf.Clamp(Mathf.RoundToInt(r.height * Rand(rnd, min, max)), 1, r.height);
+        return new RectInt(r.xMin + rnd.Next(r.width - w + 1), r.yMin + rnd.Next(r.height - h + 1), w, h);
+    }
+
+    // Cases de 'r', moins celles de 'cut'.
+    static List<Vector2Int> CellsOf(RectInt r, RectInt cut)
+    {
+        var cells = new List<Vector2Int>();
+        for (int x = r.xMin; x < r.xMax; x++)
+            for (int z = r.yMin; z < r.yMax; z++)
+                if (!cut.Contains(new Vector2Int(x, z))) cells.Add(new Vector2Int(x, z));
+        return cells;
+    }
+
+    // Creuse les cases 'cells' (toutes au niveau 'parent') d'une couche, avec 'stairs' escaliers ; moins profond si
+    // l'escalier ne tient pas. Puis, s'il reste de la profondeur, une couche plus bas au milieu de celle-ci.
+    static bool Dig(Room room, List<Vector2Int> cells, float parent, ZoneStyle style, System.Random rnd, int stairs, int layer)
+    {
+        float available = style.maxPitDepth + parent;
+        if (available < style.minPitDepth - 0.01f) return false;
+        float wanted = Rand(rnd, style.minPitDepth, Mathf.Min(style.maxLayerDepth, available));
+        var region = new HashSet<Vector2Int>(cells);
+        for (float depth = Mathf.Round(wanted / DepthStepHeight) * DepthStepHeight; depth >= style.minPitDepth - 0.01f; depth -= 0.5f)
+        {
+            float level = parent - depth;
+            foreach (var c in cells) room.levels[c.x, c.y] = level;
+            int placed = 0;
+            for (int s = 0; s < stairs; s++) if (PlaceStair(room, region, parent, level, rnd)) placed++;
+            if (placed == 0)
+            {
+                foreach (var c in cells) room.levels[c.x, c.y] = parent;
+                continue;
+            }
+            room.depths.Add((cells, level));
+            if (layer < 2 && rnd.NextDouble() < 0.7) DigInside(room, region, level, style, rnd, layer + 1);
+            return true;
+        }
+        return false;
+    }
+
+    // Couche plus profonde : un rectangle au milieu de 'region', à 1,5 m de ses bords et loin de ses escaliers.
+    static void DigInside(Room room, HashSet<Vector2Int> region, float level, ZoneStyle style, System.Random rnd, int layer)
+    {
+        if (style.maxPitDepth + level < style.minPitDepth - 0.01f) return;
+        var core = new HashSet<Vector2Int>();
+        int xMin = int.MaxValue, xMax = int.MinValue, zMin = int.MaxValue, zMax = int.MinValue;
+        foreach (var c in region)
+        {
+            bool ok = true;
+            for (int dx = -DepthMargin; dx <= DepthMargin && ok; dx++)
+                for (int dz = -DepthMargin; dz <= DepthMargin && ok; dz++)
+                {
+                    var q = new Vector2Int(c.x + dx, c.y + dz);
+                    if (!region.Contains(q) || room.stairCell[q.x, q.y]) ok = false;
+                }
+            if (!ok) continue;
+            core.Add(c);
+            xMin = Mathf.Min(xMin, c.x); xMax = Mathf.Max(xMax, c.x);
+            zMin = Mathf.Min(zMin, c.y); zMax = Mathf.Max(zMax, c.y);
+        }
+        if (core.Count < 36) return;
+        var bounds = new RectInt(xMin, zMin, xMax - xMin + 1, zMax - zMin + 1);
+        for (int attempt = 0; attempt < 30; attempt++)
+        {
+            RectInt r = RandomSubRect(bounds, 0.5f, 1f, rnd);
+            if (r.width < 6 || r.height < 6) continue;
+            var cells = CellsOf(r, default);
+            if (cells.TrueForAll(core.Contains))
+            {
+                Dig(room, cells, level, style, rnd, 1, layer);
+                return;
+            }
+        }
+    }
+
+    // Escalier dans 'region' (au niveau 'bottom'), collé à son bord : le haut donne sur le niveau 'top', un palier
+    // de 1 m au pied.
+    static bool PlaceStair(Room room, HashSet<Vector2Int> region, float top, float bottom, System.Random rnd)
+    {
+        int steps = Mathf.RoundToInt((top - bottom) / DepthStepHeight);
+        int length = Mathf.CeilToInt(steps * StepDepth / Sub);
+        int width = 3 + rnd.Next(2);
+        int w = room.levels.GetLength(0), h = room.levels.GetLength(1);
+        var list = new List<Vector2Int>(region);
+        for (int attempt = 0; attempt < 400; attempt++)
+        {
+            int dir = rnd.Next(4);
+            var fwd = new Vector2Int(DI[dir], DJ[dir]);
+            var side = new Vector2Int(Mathf.Abs(DJ[dir]), Mathf.Abs(DI[dir]));
+            Vector2Int start = list[rnd.Next(list.Count)];
+            bool ok = true;
+            for (int a = 0; a < length + 2 && ok; a++)
+                for (int b = 0; b < width && ok; b++)
+                {
+                    var c = start + fwd * a + side * b;
+                    if (!region.Contains(c) || room.stairCell[c.x, c.y]) ok = false;
+                }
+            for (int b = 0; b < width && ok; b++)
+            {
+                var c = start - fwd + side * b;
+                if (c.x < 0 || c.y < 0 || c.x >= w || c.y >= h || region.Contains(c) || room.stairCell[c.x, c.y]
+                    || Mathf.Abs(room.levels[c.x, c.y] - top) > 0.01f) ok = false;
+            }
+            if (!ok) continue;
+
+            Vector2Int far = start + fwd * (length - 1) + side * (width - 1);
+            var strip = new RectInt(Mathf.Min(start.x, far.x), Mathf.Min(start.y, far.y), Mathf.Abs(far.x - start.x) + 1, Mathf.Abs(far.y - start.y) + 1);
+            for (int x = strip.xMin; x < strip.xMax; x++)
+                for (int z = strip.yMin; z < strip.yMax; z++)
+                    room.stairCell[x, z] = true;
+            for (int b = 0; b < width; b++) room.openEdges.Add(EdgeKey(start + side * b, start - fwd + side * b));
+            room.stairs.Add(new Stair { strip = strip, dir = dir, steps = steps, top = top, bottom = bottom });
+            return true;
+        }
+        return false;
+    }
+
+    // Passerelle (1 à 1,5 m de large) ou poutre (35 cm) d'un bord à l'autre d'une fosse, au niveau du Hub, sur une ligne
+    // droite qui ne croise aucun escalier et qui s'appuie de chaque côté sur le pourtour.
+    static void PlaceBridge(Room room, HashSet<Vector2Int> region, System.Random rnd)
+    {
+        int w = room.levels.GetLength(0), h = room.levels.GetLength(1);
+        bool beam = rnd.NextDouble() < 0.4;
+        int width = beam ? 1 : 2 + rnd.Next(2);
+        bool Rim(Vector2Int c) => c.x >= 0 && c.y >= 0 && c.x < w && c.y < h && !region.Contains(c) && !room.stairCell[c.x, c.y]
+            && Mathf.Abs(room.levels[c.x, c.y]) < 0.01f;
+        for (int attempt = 0; attempt < 40; attempt++)
+        {
+            bool alongX = rnd.Next(2) == 0;
+            var fwd = alongX ? Vector2Int.right : Vector2Int.up;
+            var side = alongX ? Vector2Int.up : Vector2Int.right;
+            Vector2Int start = new List<Vector2Int>(region)[rnd.Next(region.Count)];
+            // Recule jusqu'au bord de la fosse, puis avance jusqu'à l'autre bord.
+            while (region.Contains(start - fwd)) start -= fwd;
+            int length = 0;
+            while (region.Contains(start + fwd * length)) length++;
+            if (length < 8) continue;
+            bool ok = true;
+            for (int b = 0; b < width && ok; b++)
+            {
+                if (!Rim(start - fwd + side * b) || !Rim(start + fwd * length + side * b)) ok = false;
+                for (int a = 0; a < length && ok; a++)
+                {
+                    var c = start + fwd * a + side * b;
+                    if (!region.Contains(c) || room.stairCell[c.x, c.y]) ok = false;
+                }
+            }
+            if (!ok) continue;
+            var far = start + fwd * (length - 1) + side * (width - 1);
+            var cells = new RectInt(start.x, start.y, far.x - start.x + 1, far.y - start.y + 1);
+            for (int x = cells.xMin; x < cells.xMax; x++)
+                for (int z = cells.yMin; z < cells.yMax; z++)
+                    room.bridgeCell[x, z] = true;
+            room.bridges.Add((cells, beam));
+            return;
+        }
+    }
+
+    static (Vector2Int, Vector2Int) EdgeKey(Vector2Int a, Vector2Int b) =>
+        a.x < b.x || (a.x == b.x && a.y < b.y) ? (a, b) : (b, a);
 
     // Place la Zone 2 contre un côté de la Zone 1 : la porte est sur une cellule de couloir du bord de la Zone 1.
     static Maze PlaceZone2(Maze z1, System.Random rnd)
@@ -718,13 +996,12 @@ public static class WorldBuilder
         {
             if (room.style == RoomStyle.Pit)
             {
-                BuildPit(m, room, ChunkOf(room.rect.xMin, room.rect.yMin), AddCollider);
+                BuildDepths(m, room, ChunkOf(room.rect.xMin, room.rect.yMin), colliders.transform, AddCollider);
                 continue;
             }
-            // Salles surélevées : dalle au niveau du plancher et escalier à chaque entrée.
+            // Salles surélevées : dalle au niveau du plancher et escalier à chaque entrée, depuis le sol du voisin
+            // (couloir ou salle plus basse ; une salle voisine plus haute construit elle-même l'escalier).
             if (room.floor <= 0f) continue;
-            int steps = Mathf.RoundToInt(room.floor / StepHeight);
-            float depth = steps * StepDepth;
             foreach (var cell in room.cells)
             {
                 Vector3 c = m.Center(cell.x, cell.y);
@@ -734,6 +1011,10 @@ public static class WorldBuilder
                 {
                     int ni = cell.x + DI[d], nj = cell.y + DJ[d];
                     if (HasWall(m, cell.x, cell.y, d) || m.RoomAt(ni, nj) == room) continue;
+                    float below = m.Floor(ni, nj);
+                    if (below >= room.floor - 0.01f) continue;
+                    int steps = Mathf.RoundToInt((room.floor - below) / StepHeight);
+                    float depth = steps * StepDepth;
                     switch (d)
                     {
                         case 0: maxX -= depth; break;
@@ -741,7 +1022,7 @@ public static class WorldBuilder
                         case 2: maxZ -= depth; break;
                         default: minZ += depth; break;
                     }
-                    AddStairs(ch.floor, colliders.transform, c, d, steps, room.floor);
+                    AddStairs(ch.floor, colliders.transform, c, d, steps, below, room.floor);
                 }
                 var slab = new Vector3((minX + maxX) * 0.5f, room.floor * 0.5f, (minZ + maxZ) * 0.5f);
                 var size = new Vector3(maxX - minX, room.floor, maxZ - minZ);
@@ -768,49 +1049,119 @@ public static class WorldBuilder
             }
     }
 
-    // Rectangle (x, z) intérieur de la fosse d'une salle.
-    static Rect PitRect(Maze m, Room room)
-    {
-        Vector3 min = m.Center(room.rect.xMin, room.rect.yMin) - new Vector3(Cell, 0f, Cell) * 0.5f;
-        Vector3 max = m.Center(room.rect.xMax - 1, room.rect.yMax - 1) + new Vector3(Cell, 0f, Cell) * 0.5f;
-        return Rect.MinMaxRect(min.x + PitMargin, min.z + PitMargin, max.x - PitMargin, max.z - PitMargin);
-    }
+    // Coin (x et z minimaux) de la grille fine d'une salle.
+    static Vector3 DepthOrigin(Maze m, Room room) => m.origin + new Vector3(room.rect.xMin * Cell, 0f, room.rect.yMin * Cell);
 
-    // Fosse : passerelle au niveau du Hub le long des murs, parois infestées et fond loin en dessous.
-    static void BuildPit(Maze m, Room room, Chunk ch, System.Action<Vector3, Vector3> addCollider)
-    {
-        Rect pit = PitRect(m, room);
-        float ox0 = pit.xMin - PitMargin, ox1 = pit.xMax + PitMargin, oz0 = pit.yMin - PitMargin, oz1 = pit.yMax + PitMargin;
-        float d = room.pitDepth;
+    // Position (au sol) d'une case de la grille fine d'une salle.
+    static Vector3 SubCenter(Maze m, Room room, Vector2Int c) =>
+        DepthOrigin(m, room) + new Vector3((c.x + 0.5f) * Sub, room.levels[c.x, c.y], (c.y + 0.5f) * Sub);
 
-        void Slab(float ax, float bx, float az, float bz, float top)
+    // Salle à profondeurs : sols de chaque niveau (rectangles fusionnés), parois infestées entre deux niveaux et escaliers.
+    static void BuildDepths(Maze m, Room room, Chunk ch, Transform colliders, System.Action<Vector3, Vector3> addCollider)
+    {
+        float[,] lv = room.levels;
+        int w = lv.GetLength(0), h = lv.GetLength(1);
+        Vector3 o = DepthOrigin(m, room);
+        bool Same(float a, float b) => Mathf.Abs(a - b) < 0.01f;
+
+        // Sols : rectangles de cases au même niveau (les escaliers reposent sur le sol du bas).
+        var done = new bool[w, h];
+        for (int z = 0; z < h; z++)
+            for (int x = 0; x < w; x++)
+            {
+                if (done[x, z]) continue;
+                float level = lv[x, z];
+                int x1 = x;
+                while (x1 + 1 < w && !done[x1 + 1, z] && Same(lv[x1 + 1, z], level)) x1++;
+                int z1 = z;
+                while (z1 + 1 < h)
+                {
+                    bool row = true;
+                    for (int k = x; k <= x1 && row; k++) if (done[k, z1 + 1] || !Same(lv[k, z1 + 1], level)) row = false;
+                    if (!row) break;
+                    z1++;
+                }
+                for (int a = x; a <= x1; a++)
+                    for (int b = z; b <= z1; b++)
+                        done[a, b] = true;
+                float ax = o.x + x * Sub, bx = o.x + (x1 + 1) * Sub, az = o.z + z * Sub, bz = o.z + (z1 + 1) * Sub;
+                ch.floor.WorldQuad(new Vector3(ax, level, az), new Vector3(bx, level, az), new Vector3(bx, level, bz), new Vector3(ax, level, bz), Vector3.up, 0.5f);
+                addCollider(new Vector3((ax + bx) * 0.5f, level - 0.25f, (az + bz) * 0.5f), new Vector3(bx - ax, 0.5f, bz - az));
+            }
+
+        // Paroi entre deux cases voisines de niveaux différents (sauf en haut d'un escalier) ; 'aLow' : 'a' est en bas.
+        bool WallBetween(Vector2Int a, Vector2Int b, out float low, out float high, out bool aLow)
         {
-            var c = new Vector3((ax + bx) * 0.5f, top - 0.25f, (az + bz) * 0.5f);
-            var s = new Vector3(bx - ax, 0.5f, bz - az);
-            ch.floor.Box(c, s, 0.5f, 0b0000_0100);
-            addCollider(c, s);
+            float la = lv[a.x, a.y], lb = lv[b.x, b.y];
+            low = Mathf.Min(la, lb);
+            high = Mathf.Max(la, lb);
+            aLow = la < lb;
+            return !Same(la, lb) && !room.openEdges.Contains(EdgeKey(a, b));
         }
-        Slab(ox0, ox1, oz0, pit.yMin, 0f);
-        Slab(ox0, ox1, pit.yMax, oz1, 0f);
-        Slab(ox0, pit.xMin, pit.yMin, pit.yMax, 0f);
-        Slab(pit.xMax, ox1, pit.yMin, pit.yMax, 0f);
-        Slab(pit.xMin, pit.xMax, pit.yMin, pit.yMax, -d);
+        // Parois le long de X (entre x et x + 1) puis le long de Z, fusionnées en bandes ; face tournée vers le bas,
+        // collision du côté haut.
+        for (int axis = 0; axis < 2; axis++)
+        {
+            int lines = axis == 0 ? w - 1 : h - 1, length = axis == 0 ? h : w;
+            for (int line = 0; line < lines; line++)
+                for (int t = 0; t < length;)
+                {
+                    Vector2Int A(int k) => axis == 0 ? new Vector2Int(line, k) : new Vector2Int(k, line);
+                    Vector2Int B(int k) => axis == 0 ? new Vector2Int(line + 1, k) : new Vector2Int(k, line + 1);
+                    if (!WallBetween(A(t), B(t), out float low, out float high, out bool aLow)) { t++; continue; }
+                    int t1 = t + 1;
+                    while (t1 < length && WallBetween(A(t1), B(t1), out float l2, out float h2, out bool a2) && Same(l2, low) && Same(h2, high) && a2 == aLow) t1++;
+                    float edge = (axis == 0 ? o.x : o.z) + (line + 1) * Sub;
+                    float s0 = (axis == 0 ? o.z : o.x) + t * Sub, s1 = (axis == 0 ? o.z : o.x) + t1 * Sub;
+                    Vector3 P(float along, float y) => axis == 0 ? new Vector3(edge, y, along) : new Vector3(along, y, edge);
+                    Vector3 toLow = (axis == 0 ? Vector3.right : Vector3.forward) * (aLow ? -1f : 1f);
+                    ch.concrete.WorldQuad(P(s0, low), P(s1, low), P(s1, high), P(s0, high), toLow, 0.25f);
+                    Vector3 center = P((s0 + s1) * 0.5f, (low + high) * 0.5f) - toLow * 0.15f;
+                    addCollider(center, axis == 0 ? new Vector3(0.3f, high - low, s1 - s0) : new Vector3(s1 - s0, high - low, 0.3f));
+                    t = t1;
+                }
+        }
 
-        // Parois : boîtes de 0,3 m juste à l'extérieur de la fosse, seule la face intérieure est visible.
-        const float t = 0.3f;
-        float midX = pit.center.x, midZ = pit.center.y, y = -d * 0.5f;
-        var walls = new (Vector3 center, Vector3 size, int face)[]
+        foreach (var s in room.stairs) AddDepthStairs(ch.floor, colliders, o, s);
+
+        // Passerelles : dalles de 30 cm au niveau du Hub, d'un bord à l'autre (les poutres sont posées avec le décor).
+        foreach (var (cells, beam) in room.bridges)
         {
-            (new Vector3(pit.xMin - t * 0.5f, y, midZ), new Vector3(t, d, pit.height + 2f * t), 0b00_0001),
-            (new Vector3(pit.xMax + t * 0.5f, y, midZ), new Vector3(t, d, pit.height + 2f * t), 0b00_0010),
-            (new Vector3(midX, y, pit.yMin - t * 0.5f), new Vector3(pit.width + 2f * t, d, t), 0b01_0000),
-            (new Vector3(midX, y, pit.yMax + t * 0.5f), new Vector3(pit.width + 2f * t, d, t), 0b10_0000),
-        };
-        foreach (var (center, size, face) in walls)
-        {
-            ch.concrete.Box(center, size, 0.25f, face);
+            if (beam) continue;
+            var center = new Vector3(o.x + cells.center.x * Sub, -0.15f, o.z + cells.center.y * Sub);
+            var size = new Vector3(cells.width * Sub, 0.3f, cells.height * Sub);
+            ch.floor.Box(center, size, 0.5f);
             addCollider(center, size);
         }
+    }
+
+    // Escalier d'une profondeur : marches du haut de la bande (niveau 'top') vers le fond. Comme pour AddStairs,
+    // la collision est une rampe.
+    static void AddDepthStairs(MeshBuilder mb, Transform colliders, Vector3 o, Stair s)
+    {
+        Vector3 fwd = new Vector3(DI[s.dir], 0f, DJ[s.dir]);
+        Vector3 min = o + new Vector3(s.strip.xMin * Sub, 0f, s.strip.yMin * Sub), max = o + new Vector3(s.strip.xMax * Sub, 0f, s.strip.yMax * Sub);
+        Vector3 center = (min + max) * 0.5f;
+        float width = s.dir < 2 ? max.z - min.z : max.x - min.x;
+        float stripLength = s.dir < 2 ? max.x - min.x : max.z - min.z;
+        Vector3 topEdge = center - fwd * (stripLength * 0.5f);
+        float rise = (s.top - s.bottom) / s.steps, length = s.steps * StepDepth;
+        for (int k = 1; k <= s.steps; k++)
+        {
+            float surface = s.bottom + k * rise;
+            Vector3 c = topEdge + fwd * (length - (k - 0.5f) * StepDepth) + Vector3.up * ((s.bottom + surface) * 0.5f);
+            Vector3 size = s.dir < 2 ? new Vector3(StepDepth, surface - s.bottom, width) : new Vector3(width, surface - s.bottom, StepDepth);
+            mb.Box(c, size, 0.5f, 0b0011_0111);
+        }
+
+        Vector3 bottom = topEdge + fwd * length + Vector3.up * (s.bottom + 0.05f), top = topEdge + Vector3.up * s.top;
+        Vector3 slope = top - bottom;
+        var ramp = new GameObject("Rampe").transform;
+        ramp.SetParent(colliders, false);
+        ramp.localRotation = Quaternion.LookRotation(slope.normalized, Vector3.up);
+        ramp.localPosition = (bottom + top) * 0.5f - ramp.localRotation * Vector3.up * 0.1f;
+        var box = ramp.gameObject.AddComponent<BoxCollider>();
+        box.size = new Vector3(width, 0.2f, slope.magnitude);
     }
 
     // Porte massive vers la Zone 2 (fermée au départ) et ses trois orbes, côté Zone 1.
@@ -871,25 +1222,25 @@ public static class WorldBuilder
         return nav;
     }
 
-    // Escalier montant depuis le côté 'dir' de la cellule vers le plancher de la salle. Les marches sont visuelles ;
-    // la collision est une rampe (le personnage monte sans buter sur les marches).
-    static void AddStairs(MeshBuilder mb, Transform colliders, Vector3 cellCenter, int dir, int steps, float floor)
+    // Escalier montant depuis le côté 'dir' de la cellule (sol du voisin, à la hauteur 'from') vers le plancher de la salle.
+    // Les marches sont visuelles ; la collision est une rampe (le personnage monte sans buter sur les marches).
+    static void AddStairs(MeshBuilder mb, Transform colliders, Vector3 cellCenter, int dir, int steps, float from, float floor)
     {
         Vector3 outward = new Vector3(DI[dir], 0f, DJ[dir]);
         Vector3 inward = -outward;
         Vector3 edge = cellCenter + outward * (Cell * 0.5f);
         float width = Cell - Wall;
-        float rise = floor / steps;
+        float rise = (floor - from) / steps;
         for (int k = 1; k <= steps; k++)
         {
-            float h = k * rise;
+            float h = from + k * rise;
             Vector3 center = edge + inward * ((k - 0.5f) * StepDepth) + Vector3.up * (h * 0.5f);
             Vector3 size = dir < 2 ? new Vector3(StepDepth, h, width) : new Vector3(width, h, StepDepth);
             mb.Box(center, size, 0.5f, 0b0011_0111);
         }
 
         float depth = steps * StepDepth;
-        Vector3 bottom = edge + Vector3.up * 0.05f, top = edge + inward * depth + Vector3.up * floor;
+        Vector3 bottom = edge + Vector3.up * (from + 0.05f), top = edge + inward * depth + Vector3.up * floor;
         Vector3 slope = top - bottom;
         var ramp = new GameObject("Rampe").transform;
         ramp.SetParent(colliders, false);
@@ -1086,7 +1437,7 @@ public static class WorldBuilder
                     AddPlatforms(props, room, minX, maxX, minZ, maxZ, rnd, spots);
                     break;
                 case RoomStyle.Pit:
-                    AddPitPlatforms(props, PitRect(m, room), room.pitDepth, rnd, spots);
+                    AddDepthDecor(props, m, room, rnd, spots);
                     break;
                 default:
                     foreach (var c in room.cells)
@@ -1126,46 +1477,63 @@ public static class WorldBuilder
         crate.transform.localRotation = Quaternion.Euler(0f, Rand(rnd, -12f, 12f), 0f);
     }
 
-    // Fosse : plateformes en spirale le long des parois, de quoi remonter du fond en sautant (0,6 m au plus par saut).
-    static void AddPitPlatforms(Transform parent, Rect pit, float depth, System.Random rnd, List<Vector3> spots)
+    // Profondeurs : un objet au fond de chacune, et quelques obstacles (blocs, colonnes, plateformes sur pilier) là où
+    // il reste assez de place autour pour circuler, loin des escaliers.
+    static void AddDepthDecor(Transform parent, Maze m, Room room, System.Random rnd, List<Vector3> spots)
     {
-        Material mat = GameArt.CheckerWall;
-        Material pillar = GameArt.Concrete;
-        int steps = Mathf.CeilToInt(depth / 0.6f);
-        float rise = depth / steps;
-        // Chemin : rectangle à 0,6 m des parois, parcouru à partir d'un coin au hasard.
-        const float inset = 0.6f, spacing = 1.6f;
-        Rect path = Rect.MinMaxRect(pit.xMin + inset, pit.yMin + inset, pit.xMax - inset, pit.yMax - inset);
-        float perimeter = 2f * (path.width + path.height);
-        float t = Rand(rnd, 0f, perimeter);
-        Vector3 PointAt(float d)
+        int w = room.levels.GetLength(0), h = room.levels.GetLength(1);
+        bool Roomy(Vector2Int c, float level)
         {
-            d = Mathf.Repeat(d, perimeter);
-            if (d < path.width) return new Vector3(path.xMin + d, 0f, path.yMin);
-            d -= path.width;
-            if (d < path.height) return new Vector3(path.xMax, 0f, path.yMin + d);
-            d -= path.height;
-            if (d < path.width) return new Vector3(path.xMax - d, 0f, path.yMax);
-            d -= path.width;
-            return new Vector3(path.xMin, 0f, path.yMax - d);
+            for (int dx = -3; dx <= 3; dx++)
+                for (int dz = -3; dz <= 3; dz++)
+                {
+                    int x = c.x + dx, z = c.y + dz;
+                    if (x < 0 || z < 0 || x >= w || z >= h || room.stairCell[x, z] || room.bridgeCell[x, z] || Mathf.Abs(room.levels[x, z] - level) > 0.01f) return false;
+                }
+            return true;
         }
-        int lap = Mathf.Max(1, Mathf.FloorToInt(perimeter / spacing));
-        for (int k = 1; k < steps; k++)
+
+        // Poutres d'acier (décor : les entités ne s'y engagent pas) ; un objet au milieu d'une passerelle ou d'une poutre
+        // sur deux, à aller chercher au-dessus du vide.
+        Vector3 o = DepthOrigin(m, room);
+        foreach (var (cells, beam) in room.bridges)
         {
-            float top = -depth + k * rise;
-            Vector3 p = PointAt(t + k * spacing);
-            var plat = GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(p.x, top - 0.15f, p.z), new Vector3(1.2f, 0.3f, 1.2f), mat, true);
-            plat.name = "Plateforme";
-            // Le premier tour repose sur des piliers ; au-dessus, les plateformes flottent.
-            if (k < lap)
+            var center = new Vector3(o.x + cells.center.x * Sub, 0f, o.z + cells.center.y * Sub);
+            if (beam)
             {
-                float h = top - 0.3f + depth;
-                if (h > 0.1f) GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(p.x, -depth + h * 0.5f, p.z), new Vector3(0.35f, h, 0.35f), pillar, true).name = "Pilier";
+                var size = cells.width > cells.height ? new Vector3(cells.width * Sub, 0.4f, 0.35f) : new Vector3(0.35f, 0.4f, cells.height * Sub);
+                GameArt.Prim(PrimitiveType.Cube, parent, center + Vector3.down * 0.2f, size, GameArt.Metal, true).name = "Poutre";
             }
-            if (k == steps / 2) spots.Add(new Vector3(p.x, top, p.z));
+            if (rnd.NextDouble() < 0.5) spots.Add(center);
         }
-        // Objets au fond de la fosse.
-        spots.Add(new Vector3(pit.center.x + Rand(rnd, -1f, 1f), -depth, pit.center.y + Rand(rnd, -1f, 1f)));
+        foreach (var (cells, level) in room.depths)
+        {
+            var floor = cells.FindAll(c => Mathf.Abs(room.levels[c.x, c.y] - level) < 0.01f && !room.stairCell[c.x, c.y]);
+            if (floor.Count == 0) continue;
+            spots.Add(SubCenter(m, room, floor[rnd.Next(floor.Count)]));
+
+            var roomy = floor.FindAll(c => Roomy(c, level));
+            int count = Mathf.Min(roomy.Count / 30, 1 + rnd.Next(3));
+            for (int k = 0; k < count; k++)
+            {
+                Vector3 p = SubCenter(m, room, roomy[rnd.Next(roomy.Count)]);
+                double kind = rnd.NextDouble();
+                if (kind < 0.4) AddBlock(parent, p, level, room.ceil, rnd);
+                else if (kind < 0.7) AddColumn(parent, p, Rand(rnd, 0.3f, 0.5f), room.ceil - level, rnd);
+                else
+                {
+                    // Plateforme sur pilier, à portée de saut depuis le fond, avec un objet dessus.
+                    float top = level + Rand(rnd, 0.6f, 0.8f);
+                    var size = new Vector3(Rand(rnd, 1.2f, 1.8f), 0.25f, Rand(rnd, 1.2f, 1.8f));
+                    var plat = GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(p.x, top - size.y * 0.5f, p.z), size, GameArt.CheckerWall, true);
+                    plat.name = "Plateforme";
+                    plat.transform.localRotation = Quaternion.Euler(0f, Rand(rnd, -35f, 35f), 0f);
+                    float hgt = top - size.y - level;
+                    GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(p.x, level + hgt * 0.5f, p.z), new Vector3(0.35f, hgt, 0.35f), GameArt.Concrete, true).name = "Pilier";
+                    spots.Add(new Vector3(p.x, top, p.z));
+                }
+            }
+        }
     }
 
     static float Rand(System.Random rnd, float min, float max) => min + (float)rnd.NextDouble() * (max - min);
