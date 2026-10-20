@@ -159,8 +159,8 @@ public static class GameRules
     public const float RoiSenseRadius = 6f;                 // tout près, il sent le joueur même dans son dos
     public const float RoiSlowMultiplier = 0.8f;            // aura blanche : -20 %, sans course
     public const float RoiAimFirst = 2.5f, RoiAimAgain = 1.5f;
-    // Non précisé : "à grande vitesse", mais esquivable (environ 1 s pour 20 m).
-    public const float RoiChainSpeed = 20f;
+    // Non précisé : "à grande vitesse", mais esquivable (environ 0,8 s pour 20 m).
+    public const float RoiChainSpeed = 26f;                 // 20 m/s x 1,3
     public const float RoiChainRadius = 0.7f;               // la pointe touche le joueur à moins de 70 cm
     public const int RoiBreakPresses = 5;
     public const float RoiPullMultiplier = 2f;              // le joueur enchaîné est traîné deux fois plus vite qu'il ne marche                   // appuis sur Espace pour rompre la chaîne

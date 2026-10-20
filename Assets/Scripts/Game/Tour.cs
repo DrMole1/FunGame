@@ -35,6 +35,19 @@ public class Tour : Entity
             // Le modèle Meshy a perdu son épée : une longue lame en primitives, tenue dans la main droite.
             Transform hand = animator.isHuman ? animator.GetBoneTransform(HumanBodyBones.RightHand) : null;
             if (hand != null) BuildSword(hand);
+            if (animator.isHuman)
+            {
+                // L'accroupissement modifie la pose après l'Animator : il doit la recalculer à chaque image, même hors champ.
+                animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                hips = animator.GetBoneTransform(HumanBodyBones.Hips);
+                spine = animator.GetBoneTransform(HumanBodyBones.Spine);
+                head = animator.GetBoneTransform(HumanBodyBones.Head);
+                legs = new[]
+                {
+                    (animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg), animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg), animator.GetBoneTransform(HumanBodyBones.LeftFoot)),
+                    (animator.GetBoneTransform(HumanBodyBones.RightUpperLeg), animator.GetBoneTransform(HumanBodyBones.RightLowerLeg), animator.GetBoneTransform(HumanBodyBones.RightFoot)),
+                };
+            }
             return;
         }
         Material stone = GameArt.Lit("TourStone", new Color(0.32f, 0.32f, 0.33f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.05f);
@@ -186,13 +199,92 @@ public class Tour : Entity
 
     protected override void OnStateChanged(byte previous, byte next)
     {
-        Vector3 head = transform.position + Vector3.up * 2.2f;
+        Vector3 mouth = transform.position + Vector3.up * 2.2f;
         switch ((State)next)
         {
-            case State.Survey: GameAudio.Play3D("tour_breath", head, 0.9f, 25f, 0.08f); break;
-            case State.Channel: GameAudio.Play3D("tour_charge", head, 0.8f, 35f, 0.05f); break;
+            case State.Survey: GameAudio.Play3D("tour_breath", mouth, 0.9f, 25f, 0.08f); break;
+            case State.Channel:
+                channelShownAt = Time.time;
+                GameAudio.Play3D("tour_charge", mouth, 0.8f, 35f, 0.05f);
+                break;
         }
     }
+
+    // ================= Canalisation : accroupissement lent et yeux rouges =================
+
+    // Pendant les 3 s de canalisation, elle s'accroupit lentement (bassin abaissé, buste penché, genoux pliés, pieds
+    // au sol) ; ses yeux s'allument d'un rouge luisant, visible même dans le noir, jusqu'à la fin de la charge.
+    const float CrouchDrop = 0.7f, CrouchLean = 22f, CrouchRelease = 0.3f;
+    Transform hips, spine, head, eyes;
+    (Transform upper, Transform lower, Transform foot)[] legs;
+    Light eyeGlow;
+    float channelShownAt = -10f, crouch;
+
+    void LateUpdate()
+    {
+        float goal = Current == State.Channel ? Mathf.SmoothStep(0f, 1f, (Time.time - channelShownAt) / GameRules.TourChannel) : 0f;
+        crouch = goal >= crouch ? goal : Mathf.MoveTowards(crouch, goal, Time.deltaTime / CrouchRelease);
+        if (crouch > 0.001f) Crouch(crouch);
+        bool red = Current == State.Channel || Current == State.Charge;
+        if (red && eyes == null) BuildEyes();
+        if (eyes != null && eyes.gameObject.activeSelf != red) eyes.gameObject.SetActive(red);
+    }
+
+    void Crouch(float w)
+    {
+        if (hips == null || legs == null) return;
+        var feet = new Vector3[legs.Length];
+        for (int i = 0; i < legs.Length; i++) feet[i] = legs[i].foot != null ? legs[i].foot.position : Vector3.zero;
+        hips.position += Vector3.down * CrouchDrop * GameRules.BigEntityScale * w;
+        if (spine != null) spine.rotation = Quaternion.AngleAxis(CrouchLean * w, transform.right) * spine.rotation;
+        for (int i = 0; i < legs.Length; i++)
+            if (legs[i].upper != null && legs[i].lower != null && legs[i].foot != null) SolveLeg(legs[i].upper, legs[i].lower, legs[i].foot, feet[i]);
+    }
+
+    // IK à deux os : le pied revient à sa place, le genou plié vers l'avant.
+    void SolveLeg(Transform upper, Transform lower, Transform foot, Vector3 target)
+    {
+        Vector3 a = upper.position, b = lower.position, c = foot.position;
+        float ab = Vector3.Distance(a, b), bc = Vector3.Distance(b, c);
+        float dist = Mathf.Clamp(Vector3.Distance(a, target), Mathf.Abs(ab - bc) + 0.001f, ab + bc - 0.001f);
+        float current = Vector3.Angle(a - b, c - b);
+        float wanted = Mathf.Acos(Mathf.Clamp((ab * ab + bc * bc - dist * dist) / (2f * ab * bc), -1f, 1f)) * Mathf.Rad2Deg;
+        Vector3 axis = transform.right;
+        // Le sens de flexion qui envoie le genou vers l'avant.
+        Quaternion bendA = Quaternion.AngleAxis(current - wanted, axis), bendB = Quaternion.AngleAxis(wanted - current, axis);
+        Vector3 cA = b + bendA * (c - b), cB = b + bendB * (c - b);
+        Vector3 kneeA = a + Quaternion.FromToRotation(cA - a, target - a) * (b - a);
+        Vector3 kneeB = a + Quaternion.FromToRotation(cB - a, target - a) * (b - a);
+        bool useA = Vector3.Dot(kneeA - (a + target) * 0.5f, transform.forward) >= Vector3.Dot(kneeB - (a + target) * 0.5f, transform.forward);
+        lower.rotation = (useA ? bendA : bendB) * lower.rotation;
+        upper.rotation = Quaternion.FromToRotation(foot.position - a, target - a) * upper.rotation;
+    }
+
+    void BuildEyes()
+    {
+        Transform parent = head != null ? head : transform;
+        eyes = new GameObject("YeuxRouges").transform;
+        eyes.SetParent(parent, false);
+        eyes.localScale = Vector3.one / Mathf.Max(0.0001f, parent.lossyScale.x);
+        Vector3 at = head != null ? head.position + transform.up * EyeUp + transform.forward * EyeForward : transform.position + Vector3.up * EyeHeight + transform.forward * 0.4f;
+        eyes.SetPositionAndRotation(at, transform.rotation);
+        Material glow = GameArt.Glow("TourEyes", new Color(1f, 0.08f, 0.03f), 3.5f);
+        foreach (float x in new[] { -EyeGap, EyeGap })
+            GameArt.Prim(PrimitiveType.Sphere, eyes, new Vector3(x, 0f, 0f), new Vector3(0.09f, 0.05f, 0.04f), glow)
+                .GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        eyeGlow = new GameObject("Lueur").AddComponent<Light>();
+        eyeGlow.transform.SetParent(eyes, false);
+        eyeGlow.transform.localPosition = new Vector3(0f, 0f, 0.2f);
+        eyeGlow.type = LightType.Point;
+        eyeGlow.color = new Color(1f, 0.1f, 0.05f);
+        eyeGlow.range = 2.5f;
+        eyeGlow.intensity = 1.2f;
+        eyeGlow.shadows = LightShadows.None;
+        eyes.gameObject.SetActive(false);
+    }
+
+    // Position des yeux par rapport à l'os de la tête (modèle Meshy agrandi de 25 %).
+    const float EyeUp = 0.2f, EyeForward = 0.6f, EyeGap = 0.12f;
 
     // Impact de la charge.
     protected override void OnPulse() => GameAudio.Play3D("tour_impact", transform.position + Vector3.up, 1f, 35f, 0.05f);

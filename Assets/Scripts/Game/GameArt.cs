@@ -161,6 +161,18 @@ public static class GameArt
         return cache[name] = m;
     }
 
+    // Lueur qui se voit dans le noir (ni lumière ni brouillard) : yeux de La Tour.
+    public static Material Glow(string key, Color color, float intensity)
+    {
+        if (cache.TryGetValue("Glow" + key, out var m) && m != null) return m;
+        var template = Resources.Load<Material>("Materials/Glow");
+        m = template != null ? new Material(template) : Unlit("GlowFallback" + key, color);
+        m.name = "Glow" + key;
+        m.SetColor("_Color", color);
+        m.SetFloat("_Intensity", intensity);
+        return cache["Glow" + key] = m;
+    }
+
     // Brume de l'Abjuration (shader Mist, intensité globale _Abjuration).
     public static Material Mist => FromTemplate("Mist", () => Unlit("MistFallback", new Color(0.2f, 0.4f, 0.8f)));
     // Battant ectoplasmique de la porte de la Zone 2.
