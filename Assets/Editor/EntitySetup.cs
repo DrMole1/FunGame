@@ -17,6 +17,7 @@ public static class EntitySetup
         SetupCreature("Tour", 2.66f, new[] { ("Walk", true), ("Run", true), ("Look", true), ("Stance", true) });
         SetupCreature("Cloche", 1f, new[] { ("Walk", true), ("Run", true) });
         SetupFou();
+        SetupRoi();
         SpiderSetup.Setup();
         IconRenderer.Generate();
         AssetDatabase.SaveAssets();
@@ -28,6 +29,14 @@ public static class EntitySetup
     public static void SetupFou()
     {
         SetupCreature("Fou", 2.66f, new[] { ("Walk", true), ("Run", true), ("Dance", true), ("Scream", true) });
+        AssetDatabase.SaveAssets();
+    }
+
+    // Le Roi (V0.4.4) : marche lente (le bras qui lance la chaîne est orienté par le code) ; de la taille de La Dame.
+    [MenuItem("FunGame/Installer Le Roi")]
+    public static void SetupRoi()
+    {
+        SetupCreature("Roi", 2.66f, new[] { ("Walk", true), ("Run", true) });
         AssetDatabase.SaveAssets();
     }
 

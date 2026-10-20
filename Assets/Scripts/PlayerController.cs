@@ -37,6 +37,10 @@ public class PlayerController : MonoBehaviour
 
     // Multiplicateur de vitesse imposé par le jeu (brume de l'Abjuration).
     public float SpeedFactor { get; set; } = 1f;
+    // Aura blanche du Roi : impossible de courir.
+    public bool RunBlocked { get; set; }
+    // Chaîne du Roi : vitesse horizontale imposée (le personnage est traîné), null sinon.
+    public Vector3? Pull { get; set; }
 
     public AnimState CurrentAnimState => avatar != null ? avatar.State : AnimState.Idle;
     // Saut : action bruyante (L'Araignée repère alors même un joueur accroupi).
@@ -73,7 +77,7 @@ public class PlayerController : MonoBehaviour
             if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) v -= 1f;
             if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) h += 1f;
             if (Input.GetKey(KeyLayout.Left) || Input.GetKey(KeyCode.LeftArrow)) h -= 1f;
-            runHeld = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            runHeld = (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)) && !RunBlocked;
             // V0.4.1 : la marche discrète passe sur la touche C (Ctrl + touche est réservé par les navigateurs).
             sneakHeld = Input.GetKey(KeyCode.C);
         }
@@ -138,7 +142,8 @@ public class PlayerController : MonoBehaviour
             if (!HasGroundAhead(new Vector3(0f, 0f, move.z))) move.z = 0f;
         }
 
-        if (knockTimer > 0f)
+        if (Pull.HasValue) move = Pull.Value;
+        else if (knockTimer > 0f)
         {
             knockTimer -= Time.fixedDeltaTime;
             move = knockVelocity * Mathf.Clamp01(knockTimer / KnockDuration);

@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.4.3).
+// Variables numériques du document de Game Design (V0.4.4).
 public static class GameRules
 {
     public const int MaxPlayers = 8;
@@ -139,6 +139,24 @@ public static class GameRules
     public const float FouChaseStareTime = 1f;              // en chasse, regardé plus d'une seconde : nouvelle attaque
     public const float FouKillDistance = 0.8f;
     public const float FouDanceChance = 0.15f, FouDanceDuration = 3f;
+
+    // ---------- Le Roi (entité ID 8, Cauchemar, V0.4.4) ----------
+
+    public const float RoiWalkMultiplier = 0.7f;            // "légèrement lente"
+    public const float RoiWalkMin = 7f, RoiWalkMax = 15f;   // marche avant un arrêt
+    public const float RoiPauseMin = 2f, RoiPauseMax = 5f;  // arrêt, totalement immobile
+    public const float RoiTurnBackChance = 0.1f;
+    public const float RoiBeaconCooldown = 40f;             // après avoir atteint une Balise
+    public const float RoiAuraRadius = 10f;                 // Abjuration autour de lui, hors Abjuration
+    public const float RoiSightRange = 20f;
+    public const float RoiSlowMultiplier = 0.8f;            // aura blanche : -20 %, sans course
+    public const float RoiAimFirst = 2.5f, RoiAimAgain = 1.5f;
+    // Non précisé : "à grande vitesse", mais esquivable (environ 1 s pour 20 m).
+    public const float RoiChainSpeed = 20f;
+    public const float RoiChainRadius = 0.7f;               // la pointe touche le joueur à moins de 70 cm
+    public const int RoiBreakPresses = 5;                   // appuis sur Espace pour rompre la chaîne
+    public const float RoiRecover = 1f;
+    public const float RoiKillDistance = 0.8f;
 
     // ---------- Le Pion (entité ID 4, Normal) ----------
 

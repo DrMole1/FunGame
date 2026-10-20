@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // Identifiants du GDD (chapitre 8) ; le Laser (ID 1) est un piège du décor, pas une entité mobile.
-public enum EntityKind : byte { Dame = 2, Tour = 3, Pion = 4, Cloche = 5, Spider = 6, Fou = 7 }
+public enum EntityKind : byte { Dame = 2, Tour = 3, Pion = 4, Cloche = 5, Spider = 6, Fou = 7, Roi = 8 }
 
 // Ce que les entités demandent au jeu (implémenté par GameSession, chez l'hôte).
 public interface IEntityHost
@@ -19,6 +19,10 @@ public interface IEntityHost
     void DropStolen(Entity entity, ItemType type, Vector3 position);
     // Le Fou échange sa position avec celle du joueur visé : celui-ci est transporté en 'position' (au sol).
     void Swap(Entity entity, string targetId, Vector3 position);
+    // Le Roi a accroché (on) ou lâché (off) le joueur avec sa chaîne.
+    void Chain(Entity entity, string targetId, bool on);
+    // Balises posées dans le labyrinthe (Le Roi s'y dirige).
+    IEnumerable<Vector3> BeaconPositions();
     // Secondes depuis la dernière action bruyante du joueur (aboiement, saut, objet ramassé ou posé).
     float NoiseAge(string playerId);
 }

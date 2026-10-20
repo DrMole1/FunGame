@@ -19,7 +19,7 @@ public static class SoundBank
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
         "tour_step", "tour_breath", "tour_charge", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
         "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat",
-        "fou_bells", "fou_alert", "fou_attack", "fou_dance",
+        "fou_bells", "fou_alert", "fou_attack", "fou_dance", "roi_laugh", "roi_chain", "roi_break",
     };
 
     public static void Preload()
@@ -103,6 +103,9 @@ public static class SoundBank
             case "fou_alert": return FouAlert(rnd);
             case "fou_attack": return FouAttack(rnd);
             case "fou_dance": return FouDance(rnd);
+            case "roi_laugh": return RoiLaugh(rnd);
+            case "roi_chain": return RoiChain(rnd);
+            case "roi_break": return RoiBreak(rnd);
         }
         return null;
     }
@@ -1249,6 +1252,67 @@ public static class SoundBank
             float off = Mathf.Repeat(t - 0.25f, 0.5f);
             v += Sine(2700f * off) * AD(off, 0.001f, 0.05f) * 0.3f + Noise(rnd) * AD(off, 0.001f, 0.02f) * 0.1f;
             d[i] = v * ASR(t, 0.02f, 0.2f, 3f);
+        }
+        return d;
+    }
+
+    // ---------- Le Roi ----------
+
+    // Rire grave et lent, qui traîne et s'effrite.
+    static float[] RoiLaugh(System.Random rnd)
+    {
+        var d = Buffer(2f);
+        var f1 = new BandPass();
+        var f2 = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float pitch = Mathf.Lerp(150f, 95f, t / 2f) * (1f + 0.03f * Mathf.Sin(TwoPi * 5f * t));
+            phase += pitch / Rate;
+            // "Ho... ho... ho" : 3 éclats par seconde, de plus en plus espacés.
+            float gate = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(TwoPi * Mathf.Lerp(3.2f, 2.2f, t / 2f) * t)), 0.8f);
+            float src = Saw(phase) + Noise(rnd) * 0.4f;
+            float s = f1.Process(src, 600f, 0.18f) + f2.Process(src, 1500f, 0.25f) * 0.5f;
+            d[i] = s * gate * ASR(t, 0.05f, 0.5f, 2f);
+        }
+        return d;
+    }
+
+    // Chaîne lancée : cliquetis de maillons métalliques qui file.
+    static float[] RoiChain(System.Random rnd)
+    {
+        var d = Buffer(0.9f);
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate, v = 0f;
+            // Clics de plus en plus serrés.
+            float rate = Mathf.Lerp(18f, 40f, t / 0.9f);
+            float u = Mathf.Repeat(t * rate, 1f) / rate;
+            float f = 3100f + 400f * Mathf.Sin(t * 37f);
+            v += (Sine(f * u) + 0.5f * Sine(f * 1.73f * u)) * AD(u, 0.0005f, 0.012f);
+            v += Noise(rnd) * AD(u, 0.0005f, 0.004f) * 0.5f;
+            d[i] = v * ASR(t, 0.01f, 0.25f, 0.9f);
+        }
+        return d;
+    }
+
+    // Chaîne rompue : claquement sec, puis maillons qui tombent.
+    static float[] RoiBreak(System.Random rnd)
+    {
+        var d = Buffer(1f);
+        var lp = new LowPass();
+        float[] drops = { 0.12f, 0.2f, 0.31f, 0.38f, 0.52f, 0.66f };
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float v = (Sine(2600f * t) + Sine(4100f * t) * 0.6f) * AD(t, 0.0005f, 0.05f) + lp.Process(Noise(rnd), 3500f) * AD(t, 0.0005f, 0.03f) * 1.5f;
+            foreach (float s in drops)
+            {
+                float u = t - s;
+                if (u >= 0f) v += (Sine(2900f * u) + 0.5f * Sine(4700f * u)) * AD(u, 0.0005f, 0.03f) * 0.5f;
+            }
+            d[i] = v;
         }
         return d;
     }

@@ -1642,13 +1642,18 @@ public static class WorldBuilder
         return ps;
     }
 
+    // Labyrinthe plus sombre, plus terrifiant : néons affaiblis et de portée réduite.
+    const float LampDim = 0.55f, LampReach = 0.8f;
+
     // Néon fixé au plafond ('ceilingPos' : point du plafond).
     static void AddLamp(Transform parent, Vector3 ceilingPos, float range, float intensity, System.Random rnd)
     {
+        intensity *= LampDim;
+        range *= LampReach;
         var go = new GameObject("Lampe");
         go.transform.SetParent(parent, false);
         go.transform.localPosition = ceilingPos + Vector3.down * 0.05f;
-        var bulb = GameArt.Prim(PrimitiveType.Cube, go.transform, Vector3.zero, new Vector3(0.9f, 0.05f, 0.25f), GameArt.Unlit("Neon", new Color(0.95f, 0.95f, 0.9f)));
+        var bulb = GameArt.Prim(PrimitiveType.Cube, go.transform, Vector3.zero, new Vector3(0.9f, 0.05f, 0.25f), GameArt.Unlit("Neon", new Color(0.7f, 0.7f, 0.66f)));
         var l = AddLight(go.transform, Vector3.down * 0.4f, new Color(0.85f, 0.87f, 0.9f), intensity, range);
         if (rnd.NextDouble() < 0.45) go.AddComponent<FlickerLight>().Init(l, bulb.GetComponent<Renderer>());
     }

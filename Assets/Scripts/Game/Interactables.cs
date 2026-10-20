@@ -338,7 +338,8 @@ public class ZoneOrb : Interactable
     }
 
     public override bool CanInteract => Active;
-    public override string Prompt => "Briser l'orbe avec une Clé";
+    // Pas de message à l'écran : viser l'orbe et cliquer avec la Clé suffit.
+    public override string Prompt => "";
     public override void Interact() => GameSession.Instance.UseKeyOnOrb(Index);
 }
 

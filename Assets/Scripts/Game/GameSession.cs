@@ -40,9 +40,12 @@ public class GameSession : MonoBehaviour, IEntityHost
     enum Phase { Waiting = 0, Running = 1, GameOver = 2 }
 
     static readonly Color HubAmbient = new Color(0.42f, 0.36f, 0.32f);
-    static readonly Color MazeAmbient = new Color(0.035f, 0.035f, 0.04f);
+    // Hors du Hub : presque le noir complet (plus terrifiant).
+    static readonly Color MazeAmbient = new Color(0.016f, 0.016f, 0.02f);
     static readonly Color MistFog = new Color(0.02f, 0.05f, 0.12f);
-    const float HubFog = 0.01f, MazeFog = 0.085f;
+    const float HubFog = 0.01f, MazeFog = 0.11f;
+    // Lampe du personnage, hors du Hub : un halo court autour de lui.
+    const float PlayerLightIntensity = 0.75f;
     const float EntitySyncInterval = 1f / 20f;
 
     public static GameSession Instance { get; private set; }
@@ -170,8 +173,8 @@ public class GameSession : MonoBehaviour, IEntityHost
         playerLight.transform.SetParent(player.transform, false);
         playerLight.transform.localPosition = new Vector3(0f, 0.7f, 0.2f);
         playerLight.type = LightType.Point;
-        playerLight.range = 7.5f;
-        playerLight.intensity = 0.9f;
+        playerLight.range = 6f;
+        playerLight.intensity = PlayerLightIntensity;
         playerLight.color = new Color(0.95f, 0.92f, 0.85f);
         playerLight.shadows = LightShadows.None;
         playerLight.renderMode = LightRenderMode.ForcePixel;
@@ -447,6 +450,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         UpdateTeleport();
         UpdateStations();
         UpdateCloches();
+        UpdateRoi();
         UpdateMistContact();
         UpdateWatching();
         UpdateSpectate();
@@ -476,14 +480,15 @@ public class GameSession : MonoBehaviour, IEntityHost
         // Pendant la mort, la lampe éclaire encore le corps puis faiblit, jusqu'au noir.
         bool dying = status.Dead && OrbitCamera.DeathView >= 0f;
         playerLight.enabled = net.InGame && (!status.Dead || dying) && !WorldBuilder.IsInHub(player.transform.position);
-        playerLight.intensity = dying ? 0.9f * (1f - Mathf.Clamp01(OrbitCamera.DeathView / OrbitCamera.DeathViewDuration)) : 0.9f;
+        playerLight.intensity = dying ? PlayerLightIntensity * (1f - Mathf.Clamp01(OrbitCamera.DeathView / OrbitCamera.DeathViewDuration)) : PlayerLightIntensity;
 
         // Brume de l'Abjuration : apparaît et se dissipe en douceur ; le brouillard bleuit quand on y est plongé.
         bool abjuration = net.InGame && AbjurationActive;
         mistAmount = Mathf.MoveTowards(mistAmount, abjuration ? 1f : 0f, Time.deltaTime / 4f);
         Shader.SetGlobalFloat("_Abjuration", mistAmount);
         UpdateMistHoles();
-        if (maze != null && maze.mist.activeSelf != mistAmount > 0.001f) maze.mist.SetActive(mistAmount > 0.001f);
+        bool mistShown = mistAmount > 0.001f || roiMistCount > 0;
+        if (maze != null && maze.mist.activeSelf != mistShown) maze.mist.SetActive(mistShown);
         float low = cam != null && !inHub ? Mathf.Clamp01((2.2f - cam.transform.position.y) / 1.5f) : 0f;
         RenderSettings.fogColor = Color.Lerp(Color.black, MistFog, mistAmount * low);
         GameAudio.AbjurationLevel = abjuration ? 1f : 0f;
@@ -563,6 +568,66 @@ public class GameSession : MonoBehaviour, IEntityHost
         Shader.SetGlobalVectorArray("_InsectFlee", insectFlee);
     }
 
+    // ---------- Le Roi : aura blanche, chaîne, Abjuration qui l'entoure ----------
+
+    int chainedBy = -1, chainPresses;
+    float chainedAt;
+    bool roiSlowed, inRoiMist;
+    int roiMistCount;
+    readonly Vector4[] roiMist = new Vector4[4];
+
+    void UpdateRoi()
+    {
+        roiSlowed = inRoiMist = false;
+        roiMistCount = 0;
+        Vector3 me = player.transform.position;
+        foreach (var e in entities.Values)
+        {
+            if (!(e is Roi roi)) continue;
+            // Visé par le Roi : aura blanche aux pieds, -20 % et pas de course.
+            if (roi.Slows && roi.TargetId == net.MyId && !status.Dead) roiSlowed = true;
+            // Hors Abjuration, une Abjuration de 10 m l'entoure ; les murs l'arrêtent.
+            if (AbjurationActive || phase != Phase.Running) continue;
+            Vector3 c = roi.transform.position;
+            if (roiMistCount < roiMist.Length) roiMist[roiMistCount++] = new Vector4(c.x, c.y, c.z, GameRules.RoiAuraRadius);
+            Vector3 d = me - c;
+            if (new Vector2(d.x, d.z).magnitude < GameRules.RoiAuraRadius && Mathf.Abs(d.y) < 4f
+                && !Physics.Linecast(c + Vector3.up * 1.2f, me, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                inRoiMist = true;
+        }
+        for (int i = roiMistCount; i < roiMist.Length; i++) roiMist[i] = Vector4.zero;
+        Shader.SetGlobalVectorArray("_RoiMist", roiMist);
+        player.RunBlocked = roiSlowed;
+
+        // Enchaîné : immobilisé (la caméra reste libre) et traîné vers le Roi ; 5 appuis sur Espace rompent la chaîne.
+        if (chainedBy < 0) return;
+        bool held = entities.TryGetValue(chainedBy, out var holder) && holder is Roi chainer
+            && chainer.Current == Roi.State.Pull && chainer.TargetId == net.MyId;
+        // (L'état du Roi arrive un peu après le message de la chaîne.)
+        if (status.Dead || holder == null || !held && Time.time - chainedAt > 0.6f)
+        {
+            ReleaseChain();
+            return;
+        }
+        player.Immobilize(0.2f);
+        Vector3 to = holder.transform.position - me;
+        to.y = 0f;
+        player.Pull = to.magnitude > 0.4f ? to.normalized * GameRules.BaseSpeed : Vector3.zero;
+        if (!PlayerController.InputLocked && Input.GetKeyDown(KeyCode.Space) && ++chainPresses >= GameRules.RoiBreakPresses)
+        {
+            net.ToHost("RB|" + chainedBy);
+            ReleaseChain();
+        }
+    }
+
+    void ReleaseChain()
+    {
+        chainedBy = -1;
+        chainPresses = 0;
+        player.Pull = null;
+        player.ReleaseImmobilize();
+    }
+
     // Au contact de la brume de l'Abjuration : -2 de sérénité par seconde (à 0, le personnage meurt),
     // et le déplacement y est ralenti de 20 %.
     bool inMist;
@@ -572,10 +637,10 @@ public class GameSession : MonoBehaviour, IEntityHost
         Vector3 p = player.transform.position;
         var capsule = player.GetComponent<CapsuleCollider>();
         float feet = p.y + capsule.center.y - capsule.height * 0.5f;
-        inMist = !status.Dead && !Teleporting && AbjurationActive && mistAmount > 0.5f && maze != null
+        inMist = !status.Dead && !Teleporting && (AbjurationActive && mistAmount > 0.5f || inRoiMist) && maze != null
             && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
-        // Dans la brume, le personnage avance 20 % moins vite.
-        player.SpeedFactor = inMist ? GameRules.MistSpeedMultiplier : 1f;
+        // Dans la brume, le personnage avance 20 % moins vite ; l'aura blanche du Roi le ralentit encore de 20 %.
+        player.SpeedFactor = (inMist ? GameRules.MistSpeedMultiplier : 1f) * (roiSlowed ? GameRules.RoiSlowMultiplier : 1f);
         if (!inMist || Godmode)
         {
             mistTimer = 0f;
@@ -1067,6 +1132,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             case 5: return SpawnAt<Cloche>(0, rnd, 18f) != null ? "La Cloche attend dans la Zone 1..." : "Impossible pour le moment.";
             case 6: return SpawnAt<Spider>(0, rnd, GameRules.SpiderSpawnClearance) != null ? "Une Araignée rôde dans la Zone 1..." : "Impossible pour le moment.";
             case 7: return SpawnAt<Fou>(0, rnd, 18f) != null ? "Le Fou sourit désormais dans la Zone 1..." : "Impossible pour le moment.";
+            case 8: return SpawnAt<Roi>(0, rnd, 18f) != null ? "Le Roi arpente désormais la Zone 1..." : "Impossible pour le moment.";
             default: return "Aucune entité n'a l'ID " + id + ".";
         }
     }
@@ -1106,14 +1172,15 @@ public class GameSession : MonoBehaviour, IEntityHost
         }
     }
 
-    // Entités de type Cauchemar (La Dame, La Tour, Le Fou) : l'une d'elles, au hasard.
+    // Entités de type Cauchemar (La Dame, La Tour, Le Fou, Le Roi) : l'une d'elles, au hasard.
     void SpawnNightmare(int zone, System.Random rnd)
     {
-        switch (rnd.Next(3))
+        switch (rnd.Next(4))
         {
             case 0: SpawnAt<Dame>(zone, rnd, 18f); break;
             case 1: SpawnAt<Tour>(zone, rnd, 18f); break;
-            default: SpawnAt<Fou>(zone, rnd, 18f); break;
+            case 2: SpawnAt<Fou>(zone, rnd, 18f); break;
+            default: SpawnAt<Roi>(zone, rnd, 18f); break;
         }
     }
 
@@ -1184,6 +1251,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             case EntityKind.Cloche: return Entity.Create<Cloche>(entitiesRoot, id, pos, yaw, maze.nav);
             case EntityKind.Spider: return Entity.Create<Spider>(entitiesRoot, id, pos, yaw, maze.nav);
             case EntityKind.Fou: return Entity.Create<Fou>(entitiesRoot, id, pos, yaw, maze.nav);
+            case EntityKind.Roi: return Entity.Create<Roi>(entitiesRoot, id, pos, yaw, maze.nav);
             default: return Entity.Create<Dame>(entitiesRoot, id, pos, yaw, maze.nav);
         }
     }
@@ -1197,6 +1265,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             case EntityKind.Cloche: return "La Cloche";
             case EntityKind.Spider: return "L'Araignée";
             case EntityKind.Fou: return "Le Fou";
+            case EntityKind.Roi: return "Le Roi";
             default: return "La Dame";
         }
     }
@@ -1258,6 +1327,14 @@ public class GameSession : MonoBehaviour, IEntityHost
     public void Immobilize(Entity entity, string targetId, float seconds) => net.ToPeer(targetId, "DF|" + NetworkGame.F(seconds));
 
     public void Alert(Entity entity, string targetId) => net.ToPeer(targetId, "TA");
+
+    public void Chain(Entity entity, string targetId, bool on) => net.ToPeer(targetId, "RC|" + entity.Id + "|" + (on ? 1 : 0));
+
+    public IEnumerable<Vector3> BeaconPositions()
+    {
+        foreach (var b in beacons.Placed)
+            if (b != null && (b.Kind == DeviceKind.Beacon || b.Kind == DeviceKind.Enhanced)) yield return b.transform.position;
+    }
 
     public void Swap(Entity entity, string targetId, Vector3 position) =>
         net.ToPeer(targetId, "FS|" + NetworkGame.F(position.x) + "|" + NetworkGame.F(position.y) + "|" + NetworkGame.F(position.z));
@@ -2174,10 +2251,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             {
                 int slot = NetworkGame.I(f[1]);
                 if (slot >= 0 && slot < GameRules.InventorySize && status[slot] == ItemType.Cle)
-                {
                     status.RemoveAt(slot);
-                    hud.Toast("La Clé tourne dans la serrure... l'orbe se brise !");
-                }
                 else if (slot < 0) hud.Toast("Cet orbe ne peut pas être brisé.");
                 break;
             }
@@ -2226,6 +2300,21 @@ public class GameSession : MonoBehaviour, IEntityHost
                 if (entities.TryGetValue(NetworkGame.I(f[1]), out var watched) && watched is Dame watchedDame && watched.TargetId == from)
                     watchedDame.Watched = f[2] == "1";
                 else if (watched is Fou watchedFou) watchedFou.SetLooking(from, f[2] == "1");
+                break;
+            case "RC" when f.Length >= 3:
+            {
+                int roiId = NetworkGame.I(f[1]);
+                if (f[2] != "1") { if (chainedBy == roiId) ReleaseChain(); break; }
+                // Invincible (godmod, /tp, boule d'énergie) : la chaîne se rompt aussitôt.
+                if (status.Dead || Invincible || Teleporting) { net.ToHost("RB|" + roiId); break; }
+                chainedBy = roiId;
+                chainedAt = Time.time;
+                chainPresses = 0;
+                hud.Toast("Le Roi vous a enchaîné ! Appuyez " + GameRules.RoiBreakPresses + " fois sur Espace pour rompre la chaîne.");
+                break;
+            }
+            case "RB" when host && f.Length >= 2:
+                if (entities.TryGetValue(NetworkGame.I(f[1]), out var chainer) && chainer is Roi chainRoi) chainRoi.BreakFree(from);
                 break;
             case "FS" when f.Length >= 4:
                 // Le Fou prend votre place : vous voilà à la sienne.
@@ -2306,7 +2395,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             string[] p = entry.Split(',');
             if (p.Length < 10) continue;
             int id = NetworkGame.I(p[0]);
-            var kind = (EntityKind)Mathf.Clamp(NetworkGame.I(p[1]), (int)EntityKind.Dame, (int)EntityKind.Fou);
+            var kind = (EntityKind)Mathf.Clamp(NetworkGame.I(p[1]), (int)EntityKind.Dame, (int)EntityKind.Roi);
             var pos = new Vector3(NetworkGame.P(p[2]), NetworkGame.P(p[3]), NetworkGame.P(p[4]));
             float yaw = NetworkGame.P(p[5]);
             seenEntities.Add(id);
