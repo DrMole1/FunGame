@@ -23,6 +23,7 @@ public class LobbyUI : MonoBehaviour
     readonly System.Collections.Generic.List<Text> sfxLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> brightLabels = new System.Collections.Generic.List<Text>();
     float copyFeedbackTimer;
+    Text versionText;
     bool inGame;
 
     public void Init(NetworkGame network, string savedName, string roomFromUrl)
@@ -31,6 +32,7 @@ public class LobbyUI : MonoBehaviour
         var canvas = UiKit.CreateCanvas(transform, "LobbyCanvas", 100);
         BuildLobby(canvas.transform, savedName, roomFromUrl);
         BuildPause(canvas.transform);
+        BuildVersion(canvas.transform);
         ShowLobby(roomFromUrl.Length > 0 ? "Invitation reçue : choisissez un pseudo puis cliquez sur Rejoindre." : "");
     }
 
@@ -40,6 +42,7 @@ public class LobbyUI : MonoBehaviour
     {
         inGame = false;
         lobbyPanel.SetActive(true);
+        versionText.gameObject.SetActive(true);
         pausePanel.SetActive(false);
         hintPanel.SetActive(false);
         SetInteractable(true);
@@ -57,6 +60,7 @@ public class LobbyUI : MonoBehaviour
     {
         inGame = true;
         lobbyPanel.SetActive(false);
+        versionText.gameObject.SetActive(false);
         roomText.text = (isHost ? "Vous hébergez la partie  " : "Partie  ") + "<b>" + code + "</b>";
         copyLabel.text = "Copier le lien d'invitation";
         if (EventSystem.current != null) EventSystem.current.SetSelectedGameObject(null);
@@ -113,6 +117,15 @@ public class LobbyUI : MonoBehaviour
     }
 
     // ---------- Construction ----------
+
+    // Version du jeu, discrète, en bas à droite de l'écran du lobby.
+    void BuildVersion(Transform root)
+    {
+        versionText = UiKit.Label(root, GameRules.Version, 16, FontStyle.Bold, new Color(1f, 1f, 1f, 0.75f), 24, TextAnchor.LowerRight);
+        var rt = UiKit.Place(versionText.gameObject, new Vector2(1f, 0f), new Vector2(-16f, 12f));
+        rt.sizeDelta = new Vector2(200f, 24f);
+        versionText.gameObject.AddComponent<Shadow>().effectColor = new Color(0f, 0f, 0f, 0.8f);
+    }
 
     void BuildLobby(Transform root, string savedName, string roomFromUrl)
     {

@@ -324,6 +324,13 @@ public class Roi : Entity
         whiteAura.gameObject.SetActive(false);
     }
 
+    void UpdateAura(PlayerPresence target)
+    {
+        bool shown = target != null && target.Alive;
+        whiteAura.gameObject.SetActive(shown);
+        if (shown) whiteAura.position = target.Position + Vector3.down * 0.85f;
+    }
+
     // La lame prolonge l'avant-bras (bras tombant : pointe vers le sol), un peu inclinée vers l'avant.
     void BuildSword(Transform hand, Vector3 forearm)
     {
@@ -409,9 +416,7 @@ public class Roi : Entity
         else if (fallbackArm != null) fallbackArm.localRotation = Quaternion.identity;
         AnimateSword();
         UpdateChain();
-        PlayerPresence target = Slows ? FindPresence(TargetId) : null;
-        whiteAura.gameObject.SetActive(target != null && target.Alive);
-        if (target != null) whiteAura.position = target.Position + Vector3.down * 0.85f;
+        UpdateAura(Slows ? FindPresence(TargetId) : null);
     }
 
     // Mise à mort : le bras gauche monte l'épée au-dessus de la tête, puis l'abat d'un coup sec sur le joueur.

@@ -3,6 +3,9 @@ using UnityEngine;
 // Variables numériques du document de Game Design (V0.4.4).
 public static class GameRules
 {
+    // Version du jeu, affichée en bas à droite du lobby.
+    public const string Version = "V0.4.4";
+
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
     public const int MaxSerenity = 100;

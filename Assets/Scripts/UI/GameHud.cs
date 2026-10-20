@@ -33,8 +33,10 @@ public class GameHud : MonoBehaviour
     // Icônes d'inventaire (Resources/Icons/<ItemType>, créées par "FunGame/Générer les icônes d'inventaire").
     readonly System.Collections.Generic.Dictionary<ItemType, Sprite> icons = new System.Collections.Generic.Dictionary<ItemType, Sprite>();
     float toastTimer;
-    RawImage damageFlash;
-    float flashTimer;
+    RawImage damageFlash, whiteFlash;
+    float flashTimer, whiteTimer;
+    // Aura blanche du Roi : éclair blanc (luminosité +400 %) qui retombe en 0,5 s.
+    const float WhiteFlashDuration = 0.5f, WhiteFlashBoost = 4f;
     // Mort du joueur local : éclair rouge, puis l'écran s'assombrit par les bords (-1 : inactif).
     RawImage deathDim, deathVeil;
     float deathTime = -1f;
@@ -143,6 +145,7 @@ public class GameHud : MonoBehaviour
 
         // Flash rouge des dégâts (sous le reste de l'interface).
         damageFlash = FullScreen(canvas.transform, "FlashDegats", vignette);
+        whiteFlash = FullScreen(canvas.transform, "FlashBlanc", null);
         deathDim = FullScreen(canvas.transform, "AssombrissementMort", null);
         deathVeil = FullScreen(canvas.transform, "VoileMort", vignette);
 
@@ -342,8 +345,8 @@ public class GameHud : MonoBehaviour
         if (!visible)
         {
             HideGameOver();
-            flashTimer = 0f;
-            damageFlash.color = Color.clear;
+            flashTimer = whiteTimer = 0f;
+            damageFlash.color = whiteFlash.color = Color.clear;
             ClearDeath();
         }
     }
@@ -409,6 +412,8 @@ public class GameHud : MonoBehaviour
 
     public void FlashDamage() => flashTimer = FlashDuration;
 
+    public void FlashWhite() => whiteTimer = WhiteFlashDuration;
+
     public void PlayDeath()
     {
         deathTime = Time.unscaledTime;
@@ -447,6 +452,13 @@ public class GameHud : MonoBehaviour
 
     void Update()
     {
+        if (whiteTimer > 0f)
+        {
+            // L'image devient 5 fois plus claire : un voile blanc qui couvre 4/5 de l'écran, puis s'efface.
+            whiteTimer = Mathf.Max(0f, whiteTimer - Time.unscaledDeltaTime);
+            float k = whiteTimer / WhiteFlashDuration;
+            whiteFlash.color = new Color(1f, 1f, 1f, WhiteFlashBoost / (1f + WhiteFlashBoost) * k * k);
+        }
         if (flashTimer > 0f)
         {
             // Montée rapide puis fondu, avec un léger battement, le tout en moins d'une seconde.

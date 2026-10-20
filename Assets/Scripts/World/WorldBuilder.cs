@@ -163,6 +163,7 @@ public static class WorldBuilder
         refs.quotaText = Screen(root, "Rendu de Quota", QuotaAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
         refs.cashText = Screen(root, "Rendu de Cagnotte", CashAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
         refs.logText = Screen(root, "Ecran de Logs", LogAngle, HubRadius - 0.9f, 2.6f, new Vector2(8f, 3.6f), 0.027f, TextAnchor.MiddleLeft);
+        AddPavlov(refs.logText.transform.parent);
         refs.timerText.color = new Color(1f, 0.35f, 0.3f);
         refs.roundBoardText = Screen(root, "Tableau de Manche", RoundBoardAngle, HubRadius - 0.45f, 2.7f, new Vector2(4.4f, 2.8f), 0.026f);
         refs.roundBoardText.color = new Color(1f, 0.9f, 0.6f);
@@ -222,6 +223,23 @@ public static class WorldBuilder
         var tm = GameArt.CreateText(go, "Text", textPos, charSize, Color.white, anchor,
             anchor == TextAnchor.MiddleLeft ? TextAlignment.Left : TextAlignment.Center);
         return tm;
+    }
+
+    // Easter egg : le portrait d'Ivan Pavlov, collé au dos de l'écran de Logs (visible seulement en passant derrière).
+    static void AddPavlov(Transform screen)
+    {
+        var tex = Resources.Load<Texture2D>("EasterEgg/IvanPavlov");
+        if (tex == null) return;
+        float h = 2.4f, w = h * tex.width / tex.height;
+        Material mat = GameArt.Lit("Pavlov", Color.white, tex, 0.05f);
+        // Un peu lumineux par lui-même : l'espace derrière l'écran est dans l'ombre.
+        mat.EnableKeyword("_EMISSION");
+        mat.SetTexture("_EmissionMap", tex);
+        mat.SetColor("_EmissionColor", new Color(0.35f, 0.35f, 0.35f));
+        // Le quad est visible depuis son -Z : retourné vers le mur, derrière le cadre de l'écran.
+        var quad = GameArt.Prim(PrimitiveType.Quad, screen, new Vector3(0f, 0f, 0.105f), new Vector3(w, h, 1f), mat);
+        quad.name = "Pavlov";
+        quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
     }
 
     static Light AddLight(Transform parent, Vector3 pos, Color color, float intensity, float range)

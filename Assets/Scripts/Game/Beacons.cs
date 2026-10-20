@@ -154,6 +154,7 @@ public class Beacon : Interactable
         if (halo != null) halo.SetActive(on);
         if (glow != null) glow.enabled = on;
         if (gas != null) { if (on && !gas.isPlaying) gas.Play(); else if (!on && gas.isPlaying) gas.Stop(); }
+        if (block == null) block = new MaterialPropertyBlock();
         block.SetColor("_Color", on ? ChargedTint : DischargedTint);
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
     }

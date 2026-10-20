@@ -600,6 +600,8 @@ public class GameSession : MonoBehaviour, IEntityHost
         }
         for (int i = roiMistCount; i < roiMist.Length; i++) roiMist[i] = Vector4.zero;
         Shader.SetGlobalVectorArray("_RoiMist", roiMist);
+        // L'aura saisit le joueur : flash blanc, chez lui seulement.
+        if (roiSlowed && !player.RunBlocked) hud.FlashWhite();
         player.RunBlocked = roiSlowed;
 
         // Enchaîné : immobilisé (la caméra reste libre) et traîné vers le Roi ; 5 appuis sur Espace rompent la chaîne.
@@ -1107,11 +1109,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     public void UseKeyOnOrb(int orb)
     {
         int slot = status.IndexOf(ItemType.Cle);
-        if (slot < 0)
-        {
-            hud.Toast("Il faut une Clé (en vente au Terminal) pour briser cet orbe.");
-            return;
-        }
+        if (slot < 0) return;
         net.ToHost("OB|" + orb + "|" + slot);
     }
 

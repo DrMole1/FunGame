@@ -57,7 +57,9 @@ public class NetworkGame : MonoBehaviour
     public string MyName => myName;
     public int MySkin => mySkin;
     public int SkinCount => library.Count;
-    public string SkinName(int i) => "Perso " + (i + 1);
+    // Noms des personnages (Perso 1 à 4), affichés dans les menus de choix du skin.
+    static readonly string[] SkinNames = { "Snoopy", "Grumble", "Princess", "Jerk" };
+    public string SkinName(int i) => i >= 0 && i < SkinNames.Length ? SkinNames[i] : "Perso " + (i + 1);
     public PlayerController LocalPlayer => localPlayer;
     public IReadOnlyDictionary<string, PlayerInfo> Roster => roster;
     public IReadOnlyDictionary<string, RemotePlayer> Remotes => remotes;
