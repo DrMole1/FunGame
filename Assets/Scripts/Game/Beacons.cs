@@ -1,16 +1,17 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Appareils posés au sol, ramassables, reliés au réseau d'énergie des Balises (GDD 7.1 à 7.4).
-public enum DeviceKind : byte { Beacon = 0, Enhanced = 1, Teleporter = 2, Station = 3 }
+// Appareils posés au sol, ramassables, reliés au réseau d'énergie des Balises (GDD 7.1 à 7.5).
+public enum DeviceKind : byte { Beacon = 0, Enhanced = 1, Teleporter = 2, Station = 3, Canon = 4 }
 
 // Balise (GDD 7.1) : petite borne posée au sol, ramassable. La Balise du Hub, plus grande, ne se ramasse pas :
 // elle est chargée 10 minutes au début du jeu (jauge circulaire autour d'elle) et se recharge avec un Chargeur.
 // Balise Améliorée (7.3) : cristal et aura rouges, coordonnées affichées au-dessus d'elle ; ni Abjuration ni apparition
-// d'entité à moins de 5 m. Téléporteur (7.2) et Station Curative (7.4) : chargés s'ils voient une Balise chargée.
+// d'entité à moins de 5 m. Téléporteur (7.2), Station Curative (7.4) et Canon (7.5) : chargés s'ils voient une Balise
+// chargée. Le Canon de cirque tourne avec la visée du joueur qui est dedans, et recule en crachant des confettis au tir.
 public class Beacon : Interactable
 {
-    public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f, StationHeight = 1.15f;
+    public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f, StationHeight = 1.15f, CanonHeight = 0.8f;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
     public int Id { get; private set; }   // -1 : Balise du Hub
@@ -20,10 +21,13 @@ public class Beacon : Interactable
     public bool Relays => Kind == DeviceKind.Beacon || Kind == DeviceKind.Enhanced;
     public bool Charged { get; private set; }
     public ItemType Item => Kind == DeviceKind.Enhanced ? ItemType.BaliseAmelioree : Kind == DeviceKind.Teleporter ? ItemType.Teleporteur
-        : Kind == DeviceKind.Station ? ItemType.StationCurative : ItemType.Balise;
-    float VisualHeight => IsHub ? HubHeight : Kind == DeviceKind.Teleporter ? PadHeight : Kind == DeviceKind.Station ? StationHeight : Height;
-    // Point d'attache des rayons d'énergie : le cristal (le centre du disque, le haut du tube).
-    public Vector3 Top => transform.position + Vector3.up * (Kind == DeviceKind.Teleporter ? 0.12f : VisualHeight * 0.86f);
+        : Kind == DeviceKind.Station ? ItemType.StationCurative : Kind == DeviceKind.Canon ? ItemType.Canon : ItemType.Balise;
+    float VisualHeight => IsHub ? HubHeight : Kind == DeviceKind.Teleporter ? PadHeight : Kind == DeviceKind.Station ? StationHeight
+        : Kind == DeviceKind.Canon ? CanonHeight : Height;
+    // Point d'attache des rayons d'énergie : le cristal (le centre du disque, le haut du tube, le fût du Canon).
+    public Vector3 Top => transform.position + Vector3.up * (Kind == DeviceKind.Teleporter ? 0.12f : Kind == DeviceKind.Canon ? 0.5f : VisualHeight * 0.86f);
+    // Bouche du Canon, d'où part le boulet.
+    public Vector3 Muzzle => transform.position + Vector3.up * 0.75f;
 
     Renderer[] bodies;
     GameObject halo;
@@ -31,6 +35,8 @@ public class Beacon : Interactable
     MaterialPropertyBlock block;
     TextMesh coordinates;
     ParticleSystem gas;
+    Transform visualRoot;
+    float recoil = -1f;
 
     public static Beacon Create(Transform parent, int id, Vector3 pos, float yaw, DeviceKind kind = DeviceKind.Beacon)
     {
@@ -44,8 +50,19 @@ public class Beacon : Interactable
         float height = beacon.VisualHeight;
         var visual = new GameObject("Visuel").transform;
         visual.SetParent(go.transform, false);
+        beacon.visualRoot = visual;
         switch (kind)
         {
+            case DeviceKind.Canon:
+                // Le fût du modèle Meshy pointe vers +X : on le tourne vers l'avant de l'appareil.
+                visual.localRotation = Quaternion.Euler(0f, -90f, 0f);
+                if (GameArt.SpawnModel("CanonSolo", visual, height) == null)
+                {
+                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.05f, 0f), new Vector3(1.6f, 0.05f, 1.6f), GameArt.Lit("CanonPiste", new Color(0.5f, 0.06f, 0.06f), null, 0.3f));
+                    var barrel = GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0.1f, 0.5f, 0f), new Vector3(0.35f, 0.5f, 0.35f), GameArt.Lit("CanonFut", new Color(0.85f, 0.15f, 0.1f), null, 0.6f));
+                    barrel.transform.localRotation = Quaternion.Euler(0f, 0f, -70f);
+                }
+                break;
             case DeviceKind.Teleporter:
                 if (GameArt.SpawnModel("Teleporteur", visual, height) == null)
                 {
@@ -82,7 +99,7 @@ public class Beacon : Interactable
         beacon.bodies = visual.GetComponentsInChildren<Renderer>();
         beacon.block = new MaterialPropertyBlock();
         // Halo autour du cristal quand l'appareil est chargé (rouge pour la Balise Améliorée). Aucun sur le Téléporteur.
-        if (kind != DeviceKind.Teleporter)
+        if (kind != DeviceKind.Teleporter && kind != DeviceKind.Canon)
         {
             Material aura = kind == DeviceKind.Enhanced ? GameArt.GhostAuraTinted("Red", new Color(1f, 0.2f, 0.15f))
                 : kind == DeviceKind.Station ? GameArt.GhostAuraTinted("Green", new Color(0.3f, 1f, 0.4f)) : GameArt.GhostAura;
@@ -111,7 +128,8 @@ public class Beacon : Interactable
             // Distance jusqu'au Hub, dans l'air au-dessus d'elle (renseignée par BeaconNetwork.Add).
             beacon.coordinates = GameArt.CreateText(go.transform, "DistanceHub", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(1f, 0.45f, 0.4f));
         }
-        beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : new Vector3(0.6f, height, 0.6f));
+        beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.2f, 0.9f, 1.2f)
+            : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;
     }
@@ -175,12 +193,44 @@ public class Beacon : Interactable
 
     void Update()
     {
+        UpdateRecoil();
         if (coordinates != null && Camera.main != null)
             coordinates.transform.rotation = Quaternion.LookRotation(coordinates.transform.position - Camera.main.transform.position);
-        if (!Charged || Kind == DeviceKind.Teleporter) return;
+        if (!Charged || halo == null) return;
         // Le halo respire doucement.
         float s = (Kind == DeviceKind.Station ? 0.55f : VisualHeight * 0.26f) * (1f + 0.12f * Mathf.Sin(Time.time * 2.4f + Id));
         halo.transform.localScale = Vector3.one * s;
+    }
+
+    // Canon : le fût suit la visée (cap en degrés, dans le monde).
+    public void AimCanon(float yaw)
+    {
+        if (visualRoot != null) visualRoot.rotation = Quaternion.Euler(0f, yaw - 90f, 0f);
+    }
+
+    // Tir du Canon : recul du fût, confettis, fumée et détonation, vus et entendus par tous.
+    public void FireCanon(float yaw)
+    {
+        AimCanon(yaw);
+        recoil = 0f;
+        Vector3 dir = Quaternion.Euler(0f, yaw, 0f) * Vector3.forward;
+        Vector3 mouth = Muzzle + dir * 0.7f;
+        GameAudio.Play3D("cannon_fire", mouth, 1f, 35f, 0.05f);
+        foreach (var c in new[] { new Color(1f, 0.2f, 0.2f), new Color(1f, 0.85f, 0.2f), new Color(0.95f, 0.95f, 0.95f), new Color(0.3f, 0.55f, 1f) })
+            Fx.Burst(mouth, GameArt.Emissive("Confetti" + c, c, c * 0.6f), 14, 6f, 0.07f, 1.6f);
+        Fx.Burst(mouth, GameArt.Lit("Fumee", new Color(0.55f, 0.55f, 0.55f), null, 0f), 10, 2f, 0.3f, 1.2f);
+    }
+
+    void UpdateRecoil()
+    {
+        if (recoil < 0f || visualRoot == null) return;
+        // Le fût recule d'un coup sec puis revient en place.
+        recoil += Time.deltaTime;
+        float k = recoil < 0.06f ? recoil / 0.06f : 1f - Mathf.SmoothStep(0f, 1f, (recoil - 0.06f) / 0.5f);
+        Vector3 back = -visualRoot.parent.InverseTransformDirection(visualRoot.rotation * Vector3.right);
+        visualRoot.localPosition = back * (0.25f * k);
+        visualRoot.localScale = Vector3.one * (1f + 0.08f * k);
+        if (recoil > 0.6f) { recoil = -1f; visualRoot.localPosition = Vector3.zero; visualRoot.localScale = Vector3.one; }
     }
 
     public override string Prompt

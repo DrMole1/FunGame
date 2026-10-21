@@ -24,6 +24,12 @@ public class GameHud : MonoBehaviour
     }
 
     GameObject root, gameOverPanel, restartButton, compassRoot;
+    // Chaîne du Roi (V0.4.6) : une barre d'espace enfoncée et relâchée frénétiquement.
+    GameObject spaceKey;
+    RectTransform spaceKeyFace;
+    Image spaceKeyImage;
+    // Dans le Canon (V0.4.6) : le viseur devient un rond blanc et l'inventaire est caché.
+    GameObject crosshairDot, crosshairRing, inventoryBar;
     Gauge health, serenity;
     Text promptText, toastText, spectateText, gameOverText;
     readonly Image[] slotBg = new Image[GameRules.InventorySize];
@@ -166,6 +172,15 @@ public class GameHud : MonoBehaviour
         // Viseur au centre de l'écran.
         var dotOutline = UiKit.Panel(r, "ViseurContour", new Vector2(8, 8), new Color(0f, 0f, 0f, 0.6f));
         UiKit.Place(dotOutline, new Vector2(0.5f, 0.5f), Vector2.zero).GetComponent<Image>().raycastTarget = false;
+        crosshairDot = dotOutline;
+        crosshairRing = new GameObject("ViseurCanon", typeof(RectTransform), typeof(RawImage));
+        crosshairRing.transform.SetParent(r, false);
+        ((RectTransform)crosshairRing.transform).sizeDelta = new Vector2(44, 44);
+        UiKit.Place(crosshairRing, new Vector2(0.5f, 0.5f), Vector2.zero);
+        var ring = crosshairRing.GetComponent<RawImage>();
+        ring.texture = RingTexture(64, 0.38f, 0.47f);
+        ring.raycastTarget = false;
+        crosshairRing.SetActive(false);
         var dot = UiKit.Panel(dotOutline.transform, "Viseur", new Vector2(4, 4), Color.white);
         UiKit.Place(dot, new Vector2(0.5f, 0.5f), Vector2.zero).GetComponent<Image>().raycastTarget = false;
 
@@ -185,6 +200,7 @@ public class GameHud : MonoBehaviour
         float barWidth = GameRules.InventorySize * (size + gap) + gap;
         var bar = UiKit.Panel(r, "Inventaire", new Vector2(barWidth, size + gap * 2f), new Color(0.27f, 0.32f, 0.27f, 0.9f));
         UiKit.Place(bar, new Vector2(0.5f, 0f), new Vector2(0, 16));
+        inventoryBar = bar;
         var barImage = bar.GetComponent<Image>();
         barImage.sprite = rounded;
         barImage.type = Image.Type.Sliced;
@@ -214,6 +230,7 @@ public class GameHud : MonoBehaviour
         }
 
         BuildCompass(r);
+        BuildSpaceKey(r, rounded);
 
         // Game over.
         gameOverPanel = UiKit.Panel(canvas.transform, "GameOver", Vector2.zero, new Color(0.12f, 0f, 0f, 0.88f));
@@ -477,6 +494,58 @@ public class GameHud : MonoBehaviour
         deathVeil.color = Color.clear;
     }
     public void SetPrompt(string text) => promptText.text = text;
+
+    public void SetChainPrompt(bool visible)
+    {
+        if (spaceKey != null && spaceKey.activeSelf != visible) spaceKey.SetActive(visible);
+    }
+
+    public void SetCannonMode(bool on)
+    {
+        crosshairRing.SetActive(on);
+        crosshairDot.SetActive(!on);
+        inventoryBar.SetActive(!on);
+    }
+
+    // Touche Espace dessinée en bas de l'écran, avec son libellé.
+    void BuildSpaceKey(Transform parent, Sprite rounded)
+    {
+        spaceKey = new GameObject("ToucheEspace", typeof(RectTransform));
+        spaceKey.transform.SetParent(parent, false);
+        ((RectTransform)spaceKey.transform).sizeDelta = new Vector2(300, 110);
+        UiKit.Place(spaceKey, new Vector2(0.5f, 0.5f), new Vector2(0, -150));
+        var shadow = UiKit.Panel(spaceKey.transform, "Ombre", new Vector2(280, 58), new Color(0.05f, 0.05f, 0.06f, 0.9f));
+        UiKit.Place(shadow, new Vector2(0.5f, 0.5f), new Vector2(0, -6));
+        shadow.GetComponent<Image>().sprite = rounded;
+        shadow.GetComponent<Image>().type = Image.Type.Sliced;
+        var face = UiKit.Panel(spaceKey.transform, "Touche", new Vector2(280, 58), new Color(0.92f, 0.92f, 0.9f));
+        spaceKeyFace = UiKit.Place(face, new Vector2(0.5f, 0.5f), Vector2.zero);
+        spaceKeyImage = face.GetComponent<Image>();
+        spaceKeyImage.sprite = rounded;
+        spaceKeyImage.type = Image.Type.Sliced;
+        var label = UiKit.Label(face.transform, "ESPACE", 24, FontStyle.Bold, new Color(0.12f, 0.12f, 0.14f), 58);
+        UiKit.Stretch(label.rectTransform);
+        var hint = UiKit.Label(spaceKey.transform, "Rompre la chaîne !", 18, FontStyle.Bold, new Color(1f, 0.85f, 0.45f), 26);
+        UiKit.Place(hint.gameObject, new Vector2(0.5f, 0.5f), new Vector2(0, 46));
+        foreach (var img in spaceKey.GetComponentsInChildren<Graphic>()) img.raycastTarget = false;
+        spaceKey.SetActive(false);
+    }
+
+    // Anneau blanc (viseur du Canon) : rayons intérieur et extérieur en fraction de la taille.
+    static Texture2D RingTexture(int size, float inner, float outer)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        float c = (size - 1) * 0.5f;
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float d = new Vector2(x - c, y - c).magnitude / size;
+                float a = Mathf.Clamp01((d - inner) * size) * Mathf.Clamp01((outer - d) * size);
+                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+            }
+        tex.Apply();
+        return tex;
+    }
     public void SetSpectate(string text) => spectateText.text = text;
 
     public void Toast(string message)
@@ -570,6 +639,13 @@ public class GameHud : MonoBehaviour
             deathDim.color = new Color(0.04f, 0.03f, 0.03f, Mathf.Max(0.45f * dark, 0.35f * red));
         }
         if (wipeTime >= 0f) UpdateWipeOut(Time.unscaledTime - wipeTime);
+        if (spaceKey != null && spaceKey.activeSelf)
+        {
+            // Enfoncée, relâchée, une dizaine de fois par seconde.
+            bool down = Mathf.Repeat(Time.unscaledTime, 0.16f) < 0.08f;
+            spaceKeyFace.anchoredPosition = new Vector2(0f, down ? -6f : 0f);
+            spaceKeyImage.color = down ? new Color(0.72f, 0.72f, 0.7f) : new Color(0.92f, 0.92f, 0.9f);
+        }
 
         if (toastTimer > 0f)
         {

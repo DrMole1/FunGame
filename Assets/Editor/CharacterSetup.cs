@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
@@ -19,6 +20,12 @@ public static class CharacterSetup
     const float SneakStateSpeed = 1.5f;
     // Danse sur un Téléporteur ou une Station Curative : celle du Fou (Humanoid, partagée sans la réimporter).
     const string DancePath = "Assets/Models/Fou/Fou_Dance.fbx";
+    // V0.4.6 : danses 2 et 3 (touches O et P) et "Creuser", animations Meshy partagées par tous les personnages.
+    const string ExtrasPath = "Assets/Models/Animations/PlayerExtras.fbx";
+    static readonly (string take, string state, bool loop)[] Extras =
+        { ("FunnyDancing_02", "Dance2", true), ("Hip_Hop_Dance", "Dance3", true), ("Pull_Radish", "Dig", true) };
+    // Le clip "Pull Radish" dure 4,7 s : accéléré pour tenir dans les 2 secondes du creusage.
+    const float DigStateSpeed = 2.35f;
     // Morts (Meshy "Electrocuted Fall", "Strangled and Fall Forward", "Dying Backwards") : états Death0, Death1, Death2,
     // l'un d'eux tiré au hasard par CharacterAvatar. La chute est intégrée à la pose (sans mouvement de racine).
     static readonly string[] DeathPaths =
@@ -66,18 +73,50 @@ public static class CharacterSetup
             .FirstOrDefault(c => !c.name.StartsWith("__preview__"));
         if (dance == null) { Debug.LogError("Danse introuvable : " + DancePath); return; }
         AddState(sm, "Dance", dance, 1f);
+        foreach (var (take, state, _) in Extras)
+        {
+            AnimationClip clip = AssetDatabase.LoadAllAssetsAtPath(ExtrasPath).OfType<AnimationClip>().FirstOrDefault(c => c.name == state);
+            if (clip == null) { Debug.LogError("Animation introuvable : " + state + " (" + ExtrasPath + ")"); continue; }
+            AddState(sm, state, clip, state == "Dig" ? DigStateSpeed : 1f);
+        }
+    }
+
+    // Les trois clips du fichier Meshy, en Humanoid (avatar propre au fichier), le mouvement de racine intégré à la pose.
+    static void ImportExtras()
+    {
+        var importer = (ModelImporter)AssetImporter.GetAtPath(ExtrasPath);
+        if (importer == null) return;
+        importer.animationType = ModelImporterAnimationType.Human;
+        importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+        importer.materialImportMode = ModelImporterMaterialImportMode.None;
+        importer.importAnimation = true;
+        var clips = new List<ModelImporterClipAnimation>();
+        foreach (var c in importer.defaultClipAnimations)
+        {
+            int k = System.Array.FindIndex(Extras, e => e.take == c.takeName);
+            if (k < 0) continue;
+            c.name = Extras[k].state;
+            c.loopTime = c.loopPose = Extras[k].loop;
+            c.lockRootRotation = c.keepOriginalOrientation = true;
+            c.lockRootPositionXZ = c.keepOriginalPositionXZ = true;
+            c.lockRootHeightY = c.keepOriginalPositionY = true;
+            clips.Add(c);
+        }
+        importer.clipAnimations = clips.ToArray();
+        importer.SaveAndReimport();
     }
 
     // Ajoute la danse aux Animators existants, sans réinstaller les personnages ni toucher à la scène.
     [MenuItem("FunGame/Ajouter la danse aux personnages")]
     public static void AddDance()
     {
+        ImportExtras();
         foreach (string name in AssetDatabase.GetSubFolders(Root).Select(Path.GetFileName))
         {
             var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(Root + "/" + name + "/" + name + ".controller");
             if (controller == null) continue;
             AnimatorStateMachine sm = controller.layers[0].stateMachine;
-            foreach (var child in sm.states.Where(c => c.state.name == "Dance").ToArray()) sm.RemoveState(child.state);
+            foreach (var child in sm.states.Where(c => c.state.name.StartsWith("Dance") || c.state.name == "Dig").ToArray()) sm.RemoveState(child.state);
             AddDanceState(sm);
             EditorUtility.SetDirty(controller);
         }
@@ -128,6 +167,7 @@ public static class CharacterSetup
         // Arrêt en marche discrète : même clip, figé (CharacterAvatar choisit l'image).
         AddState(sm, "SneakIdle", sneak, 0f);
         AddDeathStates(sm, deaths);
+        ImportExtras();
         AddDanceState(sm);
         sm.defaultState = idle;
 

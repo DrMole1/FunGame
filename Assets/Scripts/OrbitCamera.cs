@@ -43,6 +43,16 @@ public class OrbitCamera : MonoBehaviour
     public static float DeathView = -1f;
     public const float DeathViewDuration = 3.5f;
     public static float Yaw { get; private set; }
+    // Dans le Canon (V0.4.6) : vue à la première personne depuis ce point, légèrement zoomée.
+    public static Vector3? CannonEye;
+    // En boulet de canon : la caméra suit le boulet en fixant son point d'arrivée.
+    public static Vector3? FlightLook;
+    static float shake;
+    // Secousse de la caméra (tir du Canon, impact), qui s'amortit d'elle-même.
+    public static void Shake(float amount) => shake = Mathf.Max(shake, amount);
+    const float CannonZoom = 0.8f;
+    float baseFov = -1f;
+    Camera cam;
 
     float yaw;
     float pitch = 20f;
@@ -128,6 +138,7 @@ public class OrbitCamera : MonoBehaviour
     void LateUpdate()
     {
         UpdateView();
+        UpdateLens();
         if (!JumpscareActive) return;
         float t = Time.time - jumpscareStart;
         float w = Mathf.SmoothStep(0f, 1f, Mathf.Min(t / JumpscareIn, (jumpscareDuration - t) / JumpscareOut));
@@ -140,12 +151,28 @@ public class OrbitCamera : MonoBehaviour
         transform.SetPositionAndRotation(Vector3.Lerp(transform.position, pos, w), Quaternion.Slerp(transform.rotation, rot, w));
     }
 
+    // Zoom dans le Canon et secousses (tir, impact).
+    void UpdateLens()
+    {
+        if (cam == null) cam = GetComponent<Camera>();
+        if (cam == null) return;
+        if (baseFov < 0f) baseFov = cam.fieldOfView;
+        float wanted = CannonEye.HasValue ? baseFov * CannonZoom : baseFov;
+        cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, wanted + shake * 12f, 1f - Mathf.Exp(-10f * Time.deltaTime));
+        if (shake <= 0f) return;
+        float t = Time.time * 40f;
+        Vector3 j = new Vector3(Mathf.PerlinNoise(t, 0f) - 0.5f, Mathf.PerlinNoise(0f, t) - 0.5f, Mathf.PerlinNoise(t, t) - 0.5f);
+        transform.position += j * shake * 0.25f;
+        transform.rotation *= Quaternion.Euler(j.x * shake * 6f, j.y * shake * 6f, j.z * shake * 8f);
+        shake = Mathf.MoveTowards(shake, 0f, Time.deltaTime * 1.5f);
+    }
+
     void UpdateView()
     {
         if (target == null) return;
 
-        // Première personne : seulement sur son propre personnage (pas en spectateur), hors du lobby.
-        bool fp = firstPerson && ControlsEnabled && target.GetComponent<PlayerController>() != null;
+        // Première personne : seulement sur son propre personnage (pas en spectateur), hors du lobby. Forcée dans le Canon.
+        bool fp = (firstPerson || CannonEye.HasValue) && ControlsEnabled && target.GetComponent<PlayerController>() != null;
         if (!ControlsEnabled)
             yaw += 6f * Time.deltaTime;
         else if (ForcedLook.HasValue)
@@ -192,6 +219,23 @@ public class OrbitCamera : MonoBehaviour
         }
 
         Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
+        if (CannonEye.HasValue && fp)
+        {
+            transform.SetPositionAndRotation(CannonEye.Value, rot);
+            return;
+        }
+        if (FlightLook.HasValue)
+        {
+            // Derrière et au-dessus du boulet, le regard rivé sur le point d'arrivée.
+            Vector3 toGoal = FlightLook.Value - target.position;
+            Vector3 flat = new Vector3(toGoal.x, 0f, toGoal.z);
+            Vector3 back = flat.sqrMagnitude > 0.01f ? -flat.normalized : -(rot * Vector3.forward);
+            Vector3 camPos = target.position + back * 3.2f + Vector3.up * 1.3f;
+            float follow = 1f - Mathf.Exp(-12f * Time.deltaTime);
+            transform.position = Vector3.Lerp(transform.position, camPos, follow);
+            transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(FlightLook.Value - transform.position), follow);
+            return;
+        }
         // En marche discrète, les yeux descendent en douceur avec la tête.
         var controller = target.GetComponent<PlayerController>();
         bool crouched = controller != null && controller.Crouched;

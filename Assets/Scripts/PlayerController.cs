@@ -1,6 +1,7 @@
 using UnityEngine;
 
 // Déplacement du joueur en ZQSD (relatif à la caméra), course (Shift), marche discrète (C) et saut (Espace).
+// Danses (V0.4.6) : I, O et P lancent les danses 1 à 3 ; une autre touche de danse change de danse, bouger ou sauter l'arrête.
 [RequireComponent(typeof(Rigidbody))]
 public class PlayerController : MonoBehaviour
 {
@@ -38,6 +39,15 @@ public class PlayerController : MonoBehaviour
     public bool Grounded => grounded;
     // Sur un Téléporteur ou une Station Curative en marche : le personnage danse tant qu'il ne bouge pas.
     public bool Dancing { get; set; }
+    // En train de creuser un monticule (animation "Creuser", commandes bloquées par le jeu).
+    public bool Digging { get; set; }
+    // Danse choisie au clavier (0 : aucune, 1 à 3).
+    int chosenDance;
+    static readonly AnimState[] Dances = { AnimState.Dance, AnimState.Dance2, AnimState.Dance3 };
+    // Un saut ou un déplacement demandé (même refusé) : sert à sortir du Canon.
+    public bool WantsToMove { get; private set; }
+    // Dernier saut (pour entrer dans le Canon en sautant dessus).
+    public float LastJumpTime { get; private set; } = -10f;
 
     // Multiplicateur de vitesse imposé par le jeu (brume de l'Abjuration).
     public float SpeedFactor { get; set; } = 1f;
@@ -109,12 +119,23 @@ public class PlayerController : MonoBehaviour
         }
         inputDir = Vector3.ClampMagnitude(forward * v + right * h, 1f);
 
+        // Danses : I, O, P (l'IA a choisi les danses 2 et 3) ; un déplacement ou un saut y met fin.
+        if (CanControl && !Immobilized)
+        {
+            if (Input.GetKeyDown(KeyCode.I)) chosenDance = 1;
+            else if (Input.GetKeyDown(KeyCode.O)) chosenDance = 2;
+            else if (Input.GetKeyDown(KeyCode.P)) chosenDance = 3;
+        }
+        WantsToMove = v != 0f || h != 0f || (CanControl && Input.GetKeyDown(KeyCode.Space));
+        if (WantsToMove || !CanControl) chosenDance = 0;
+
         grounded = IsGrounded();
         if (CanControl && !Immobilized && Input.GetKeyDown(KeyCode.Space) && grounded && airborneLock <= 0f)
         {
             jumpRequested = true;
             // Juste après l'impulsion, le sol est encore détecté : on reste en état "saut".
             airborneLock = 0.2f;
+            LastJumpTime = Time.time;
             Jumped?.Invoke();
         }
         airborneLock -= Time.deltaTime;
@@ -183,8 +204,10 @@ public class PlayerController : MonoBehaviour
 
     AnimState ComputeAnimState(bool onGround)
     {
+        if (Digging) return AnimState.Dig;
         if (!onGround) return AnimState.Jump;
-        if (inputDir.sqrMagnitude < 0.01f) return Dancing ? AnimState.Dance : gait == Gait.Sneak ? AnimState.SneakIdle : AnimState.Idle;
+        if (inputDir.sqrMagnitude < 0.01f)
+            return chosenDance > 0 ? Dances[chosenDance - 1] : Dancing ? AnimState.Dance : gait == Gait.Sneak ? AnimState.SneakIdle : AnimState.Idle;
         switch (gait)
         {
             case Gait.Run: return AnimState.Run;
@@ -247,6 +270,7 @@ public class PlayerController : MonoBehaviour
     {
         rb.isKinematic = frozen;
         col.enabled = !frozen;
+        jumpRequested = false;
         if (!frozen) rb.velocity = Vector3.zero;
     }
 }

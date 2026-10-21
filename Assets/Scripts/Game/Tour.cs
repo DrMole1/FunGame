@@ -4,12 +4,13 @@ using UnityEngine;
 // La Tour (entité ID 3, type Cauchemar) : grande entité bipède armée d'une épée, à tête de tour médiévale, de la taille
 // de La Dame. Elle arpente le terrain lentement (pas lourds de pierre audibles à 30 m) ; toutes les 7 à 15 secondes (V0.4.3),
 // elle s'arrête 2 secondes pour regarder autour d'elle en respirant fort, puis continue (70 %) ou fait demi-tour (30 %).
-// Elle voit à 50 m devant elle (les murs bloquent la vue). Un joueur repéré entend une alerte ; sa position est mémorisée
-// (localisation tampon) et la Tour se prépare 3 secondes. S'il est encore en vue, il est immobilisé et la Tour le charge
-// à une vitesse fulgurante, à travers obstacles et dénivelés. S'il s'est caché, elle va voir la localisation tampon.
+// Elle voit à 50 m devant elle (les murs bloquent la vue). Un joueur repéré à plus de 20 m (distance d'attaque) voit la
+// Tour courir vers lui (V0.4.6) ; à 20 m, il entend une alerte, sa position est mémorisée (localisation tampon) et la Tour
+// se prépare 3 secondes. S'il est encore en vue, il est immobilisé et la Tour le charge à une vitesse fulgurante, à travers
+// obstacles et dénivelés. S'il s'est caché, elle court vers la localisation tampon.
 public class Tour : Entity
 {
-    public enum State : byte { Walk = 0, Survey = 1, Channel = 2, Charge = 3, Investigate = 4 }
+    public enum State : byte { Walk = 0, Survey = 1, Channel = 2, Charge = 3, Investigate = 4, Approach = 5 }
 
     const float EyeHeight = 2.3f * GameRules.BigEntityScale, FieldOfView = 120f;
     const float ImpactDistance = 1.1f;
@@ -86,7 +87,7 @@ public class Tour : Entity
 
                 if (Current == State.Investigate)
                 {
-                    Speed = GameRules.BaseSpeed * GameRules.TourInvestigateMultiplier;
+                    Speed = GameRules.BaseSpeed * GameRules.TourRunMultiplier;
                     FollowPath(dt);
                     if (PathDone) BeginSurvey();
                     break;
@@ -111,6 +112,27 @@ public class Tour : Entity
                     if (turnBack || PathDone) PlanPath(NodeAround(turnBack ? -transform.forward : transform.forward), 0f);
                 }
                 break;
+
+            case State.Approach:
+            {
+                // Elle court vers le joueur repéré jusqu'à sa distance d'attaque.
+                var target = Find(players, TargetId);
+                bool seen = Valid(target) && Sees(target, EyeHeight, GameRules.TourSightRange, 360f);
+                if (seen) buffer = Feet(target);
+                if (!seen)
+                {
+                    // Perdu de vue en chemin : elle court là où elle l'a vu pour la dernière fois.
+                    TargetId = "";
+                    Current = State.Investigate;
+                    stateTimer = 0f;
+                    PlanPath(nav.NodeAt(buffer), 0f);
+                    break;
+                }
+                if (Horizontal(target.Position - transform.position).magnitude <= GameRules.TourAttackDistance) { BeginChannel(target); break; }
+                Speed = GameRules.BaseSpeed * GameRules.TourRunMultiplier;
+                Pursue(target, dt);
+                break;
+            }
 
             case State.Channel:
             {
@@ -162,7 +184,19 @@ public class Tour : Entity
         }
     }
 
+    // Joueur repéré : trop loin, elle court vers lui ; à sa distance d'attaque, elle canalise.
     void Spot(PlayerPresence p)
+    {
+        if (Horizontal(p.Position - transform.position).magnitude <= GameRules.TourAttackDistance) { BeginChannel(p); return; }
+        Current = State.Approach;
+        stateTimer = 0f;
+        TargetId = p.PlayerId;
+        buffer = Feet(p);
+        ClearPath();
+        repathTimer = 0f;
+    }
+
+    void BeginChannel(PlayerPresence p)
     {
         Current = State.Channel;
         stateTimer = 0f;
@@ -315,7 +349,7 @@ public class Tour : Entity
         }
         if (animator == null) return;
         string wanted = Current == State.Survey ? "Look" : Current == State.Channel ? "Stance"
-            : Current == State.Charge || Current == State.Investigate ? "Run" : visualSpeed < 0.3f ? "Idle" : "Walk";
+            : Current == State.Charge || Current == State.Investigate || Current == State.Approach ? "Run" : visualSpeed < 0.3f ? "Idle" : "Walk";
         PlayAnim(wanted);
         animator.speed = wanted == "Walk" ? Mathf.Clamp(visualSpeed / 1.6f, 0.5f, 1.6f) : wanted == "Run" && Current == State.Charge ? 2.5f : 1f;
     }

@@ -24,7 +24,8 @@ public class PlayerInteractor : MonoBehaviour
     void Update()
     {
         GameSession session = GameSession.Instance;
-        bool active = session != null && !PlayerController.InputLocked && !status.Dead;
+        // Dans le Canon, ni ramasser, ni poser, ni interagir : le clic tire.
+        bool active = session != null && !PlayerController.InputLocked && !status.Dead && !GameSession.InCannon;
         SetCurrent(active ? FindTarget() : null);
         if (!active) return;
 

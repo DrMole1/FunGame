@@ -1,16 +1,17 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Le Roi (entité ID 8, type Cauchemar, V0.4.4) : grande entité bipède et mince, long cou dressé, dents pointues, drap sur
+// Le Roi (entité ID 8, type Cauchemar, V0.4.6) : grande entité bipède et mince, long cou dressé, dents pointues, drap sur
 // les yeux et couronne, une longue épée bâtarde dans la main gauche ; de la taille de La Dame.
 // "En recherche", il arpente le terrain sans un bruit (x0,7), s'arrête parfois 2 à 5 s, immobile (toutes les 7 à 15 s),
 // puis repart (10 % : demi-tour). S'il voit une Balise, il s'y rend (puis 40 s sans s'en soucier). Hors Abjuration, une
 // Abjuration de 10 m l'entoure (arrêtée par les murs, gérée chez chaque joueur). Un joueur repéré à 20 m devant lui est
 // "chassé" (de même, sans mur, à moins de 6 m, quel que soit l'angle) : aura blanche à ses pieds (-20 %, pas de course),
-// rire ; le Roi marche vers lui en levant le bras droit 2,5 s, puis s'arrête pour lancer une chaîne vers la position
-// mémorisée, assez vite mais esquivable. Touché, le joueur est immobilisé et traîné vers le Roi, sauf s'il appuie 5 fois
-// sur Espace (la chaîne se rompt). Chaîne ratée ou rompue : le Roi repart vers lui, 1 s sans aura, puis s'il le voit
-// encore, nouvelle visée (1,5 s), sinon il reprend sa recherche. À moins de 0,8 m, il immobilise le joueur et le tue.
+// rire ; le Roi avance lentement vers lui en levant le bras droit 2,5 s, puis, si le joueur est toujours en ligne de vue,
+// lance une chaîne qui file droit sur lui. Touché, le joueur est immobilisé et traîné vers le Roi (qui ne bouge plus),
+// sauf s'il appuie 3 fois sur Espace (la chaîne se rompt). Pas de ligne de vue, ou chaîne rompue : le Roi repart vers lui,
+// 1 s sans aura, puis s'il le voit encore, nouvelle visée (1,5 s), sinon il reprend sa recherche. À moins de 0,8 m, il
+// immobilise le joueur et le tue.
 public class Roi : Entity
 {
     public enum State : byte { Walk = 0, Pause = 1, Beacon = 2, Aim = 3, Throw = 4, Pull = 5, Recover = 6, Grab = 7 }
@@ -112,12 +113,13 @@ public class Roi : Entity
 
             case State.Aim:
                 if (!Valid(target)) { Search(); break; }
-                // En chasse, il marche vers le joueur en levant le bras ; il ne s'arrête que pour lancer la chaîne.
-                Speed = GameRules.BaseSpeed * GameRules.RoiWalkMultiplier;
+                // En chasse, il avance lentement vers le joueur en levant le bras ; il ne s'arrête que pour lancer la chaîne.
+                Speed = GameRules.BaseSpeed * GameRules.RoiChaseMultiplier;
                 Pursue(target, dt);
                 if (stateTimer < aimDuration) break;
                 ClearPath();
-                // Position tampon : la chaîne part vers l'endroit où était le joueur.
+                // V0.4.6 : la chaîne ne part que si le joueur est encore en ligne de vue (aucun mur entre eux).
+                if (!ClearLine(transform.position + Vector3.up * EyeHeight, target.Position + Vector3.up * 0.4f)) { BeginRecover(); break; }
                 buffer = target.Position;
                 ChainTip = HandPosition();
                 Current = State.Throw;
@@ -128,6 +130,8 @@ public class Roi : Entity
             case State.Throw:
             {
                 Speed = 0f;
+                // Elle file droit sur le joueur, où qu'il aille.
+                if (Valid(target)) buffer = target.Position;
                 Vector3 to = buffer - ChainTip;
                 float step = GameRules.RoiChainSpeed * dt;
                 Vector3 next = to.magnitude <= step ? buffer : ChainTip + to.normalized * step;
@@ -144,7 +148,7 @@ public class Roi : Entity
                     break;
                 }
                 ChainTip = next;
-                if (blocked || next == buffer) BeginRecover();
+                if (blocked || next == buffer || stateTimer > 3f) BeginRecover();
                 break;
             }
 
@@ -158,7 +162,7 @@ public class Roi : Entity
             case State.Recover:
                 if (!Valid(target)) { Search(); break; }
                 // Chaîne ratée ou rompue : il se remet aussitôt en marche vers le joueur.
-                Speed = GameRules.BaseSpeed * GameRules.RoiWalkMultiplier;
+                Speed = GameRules.BaseSpeed * GameRules.RoiChaseMultiplier;
                 Pursue(target, dt);
                 if (stateTimer < GameRules.RoiRecover) break;
                 // Toujours en vue : nouvelle visée, plus courte ; sinon il abaisse le bras et repart.
@@ -179,7 +183,7 @@ public class Roi : Entity
         }
     }
 
-    // Le joueur chaîné a rompu la chaîne (5 appuis sur Espace).
+    // Le joueur chaîné a rompu la chaîne (3 appuis sur Espace).
     public void BreakFree(string playerId)
     {
         if (Current != State.Pull || playerId != TargetId) return;

@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.4.5";
+    public const string Version = "V0.4.6";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -71,12 +71,15 @@ public static class GameRules
     // Note 01 du chapitre 10 : à 2 joueurs connectés, la génération d'objets de valeur est doublée ; seul, triplée.
     public static int ValueBoost(int players) => players <= 1 ? 3 : players == 2 ? 2 : 1;
 
-    public static int DucksForRound(int round, int zone, int boost)
+    // V0.4.6 : les objets de valeur sont dans des monticules ; leur nombre tient compte des chances d'obtention.
+    public static int MoundsForRound(int round, int zone, int boost)
     {
         float percent = (zone == 0 ? Zone1ValuePercent : Zone2ValuePercent)[RoundIndex(round)] * boost;
-        int duckValue = Items.Get(ItemType.Canard).sellPrice;
-        return Mathf.CeilToInt(QuotaForRound(round) * percent / duckValue);
+        return Mathf.CeilToInt(QuotaForRound(round) * percent / Items.MoundValue());
     }
+
+    // Monticules (note 02 du chapitre 7) : creuser prend 2 secondes.
+    public const float DigDuration = 2f;
 
     public static int NightmaresForRound(int round, int zone) => (zone == 0 ? Zone1Nightmares : Zone2Nightmares)[RoundIndex(round)];
 
@@ -101,6 +104,9 @@ public static class GameRules
     // 3,6 m sous plafond partout où ils passent (couloirs 4 m, porte de la Zone 2 3,6 m).
     public const float BigEntityScale = 1.25f;
 
+    // Note 01 du chapitre 8 (V0.4.6) : aucune entité (hors piège) n'apparaît à moins de 20 m d'un joueur.
+    public const float EntitySpawnClearance = 20f;
+
     // Note 03 du chapitre 3.4 (V0.4.3) : tué par un Cauchemar, la caméra fixe ses yeux environ 1,5 seconde.
     public const float NightmareStareDuration = 1.5f;
 
@@ -109,18 +115,19 @@ public static class GameRules
     public const int DameDamage = 100;
     public const float DameChaseMultiplier = 1.05f;
     public const float DameWatchedMultiplier = 2.2f;
-    public const float DameChaseMin = 20f, DameChaseMax = 30f;
+    public const float DameChaseMin = 12f, DameChaseMax = 15f;    // V0.4.6 (avant : 20 à 30 s)
     public const float DameSightRange = 20f;
     public const float DameKnockback = 9f;
-
-    // Hurlement spatialisé toutes les 5 à 8 secondes, audible à 40 m (pitch au hasard entre -1 et +1 demi-ton).
-    public const float DameScreamMin = 5f, DameScreamMax = 8f, DameScreamRange = 40f;
+    // V0.4.6 : cri (Dame_Cri) quand elle repère un joueur, audible à 40 m ; ses pas résonnent en écho jusqu'à 30 m.
+    public const float DameScreamRange = 40f;
+    public const float DameStepRange = 30f;
 
     // ---------- La Tour (entité ID 3, Cauchemar) ----------
 
     public const int TourDamage = 100;
     public const float TourWalkMultiplier = 0.7f;        // "modérément lente"
-    public const float TourInvestigateMultiplier = 1.35f; // "modérément rapide", vers la localisation tampon
+    public const float TourRunMultiplier = 1.4f;          // V0.4.6 : elle court (vers sa distance d'attaque, ou la localisation tampon)
+    public const float TourAttackDistance = 20f;          // V0.4.6 : au-delà, elle court vers le joueur avant de canaliser
     public const float TourSightRange = 50f;
     public const float TourStepRange = 30f;
     public const float TourSurveyMin = 7f, TourSurveyMax = 15f, TourSurveyDuration = 2f;
@@ -137,14 +144,14 @@ public static class GameRules
     public const float FouWalkMin = 4f, FouWalkMax = 10f;   // marche avant la course suivante
     public const float FouTurnBackChance = 0.3f;
     public const float FouBellsRange = 30f;
-    // Non précisé : la caméra "le voit" s'il est à l'écran, sans mur entre eux, à moins de 40 m.
-    public const float FouSightRange = 40f;
-    public const float FouStareTime = 2f;                   // regardé 2 s : il attaque
-    public const float FouLookAgainWindow = 3f;             // regard détourné puis revenu dans les 3 s : il attaque aussi
+    // V0.4.6 : la caméra "le voit" s'il est à l'écran, sans mur entre eux, et à moins de 20 m du joueur.
+    public const float FouSightRange = 20f;
+    public const float FouStareTime = 1.5f;                 // regardé 1,5 s : il attaque (regard détourné avant : il danse)
     public const float FouSwapCooldown = 5f;                // après un échange, 5 s sans pouvoir lancer son attaque
     public const float FouChaseDuration = 5f;               // en chasse, il court vers le joueur, puis danse
     public const float FouKillDistance = 0.8f;
-    public const float FouDanceChance = 0.15f, FouDanceDuration = 3f;
+    public const float FouDanceDuration = 3f;
+    public const float FouBellsTail = 1.4f;                 // les grelots ne se coupent pas net : écho planant
 
     // ---------- Le Roi (entité ID 8, Cauchemar, V0.4.4) ----------
 
@@ -158,11 +165,12 @@ public static class GameRules
     public const float RoiSenseRadius = 6f;                 // tout près, il sent le joueur même dans son dos
     public const float RoiSlowMultiplier = 0.8f;            // aura blanche : -20 %, sans course
     public const float RoiAimFirst = 2.5f, RoiAimAgain = 1.5f;
-    // Non précisé : "à grande vitesse", mais esquivable (environ 0,8 s pour 20 m).
+    // "À grande vitesse" ; V0.4.6 : lancée seulement si le joueur est en ligne de vue, elle le suit jusqu'à lui.
     public const float RoiChainSpeed = 26f;                 // 20 m/s x 1,3
     public const float RoiChainRadius = 0.7f;               // la pointe touche le joueur à moins de 70 cm
-    public const int RoiBreakPresses = 5;
-    public const float RoiPullMultiplier = 2f;              // le joueur enchaîné est traîné deux fois plus vite qu'il ne marche                   // appuis sur Espace pour rompre la chaîne
+    public const int RoiBreakPresses = 3;                   // appuis sur Espace pour rompre la chaîne (V0.4.6, avant : 5)
+    public const float RoiPullMultiplier = 2f;              // le joueur enchaîné est traîné deux fois plus vite qu'il ne marche
+    public const float RoiChaseMultiplier = 0.5f;           // en chasse, il avance lentement vers sa proie
     public const float RoiRecover = 1f;
     public const float RoiKillDistance = 0.8f;
 
@@ -227,7 +235,7 @@ public static class GameRules
     public const float PogoCooldown = 5f;      // après avoir frappé, impossible de l'appeler pendant 5 s
 }
 
-public enum ItemType { None = 0, Croquette = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8, BaliseAmelioree = 9, StationCurative = 10 }
+public enum ItemType { None = 0, Croquette = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8, BaliseAmelioree = 9, StationCurative = 10, Os = 11, Canon = 12 }
 
 public class ItemDef
 {
@@ -250,7 +258,7 @@ public static class Items
 
     static readonly ItemDef[] All =
     {
-        // Objets obtenables au Terminal (ID 1 à 9), dans l'ordre du document.
+        // Objets obtenables au Terminal (ID 1 à 10), dans l'ordre du document.
         new ItemDef { type = ItemType.Croquette, terminalId = 1, name = "Croquette", shortName = "Croquette", buyPrice = 20, sellPrice = 1, color = new Color(0.62f, 0.4f, 0.22f) },
         new ItemDef { type = ItemType.Balise, terminalId = 2, name = "Balise", shortName = "Balise", buyPrice = 30, sellPrice = 1, color = new Color(0.3f, 0.6f, 1f) },
         new ItemDef { type = ItemType.PostIt, terminalId = 3, name = "Post-It", shortName = "Post-It", buyPrice = 5, sellPrice = 1, color = new Color(1f, 0.93f, 0.35f) },
@@ -260,15 +268,43 @@ public static class Items
         new ItemDef { type = ItemType.Teleporteur, terminalId = 7, name = "Téléporteur", shortName = "Téléport.", buyPrice = 200, sellPrice = 1, color = new Color(1f, 0.7f, 0.15f) },
         new ItemDef { type = ItemType.BaliseAmelioree, terminalId = 8, name = "Balise Améliorée", shortName = "Balise +", buyPrice = 50, sellPrice = 1, color = new Color(1f, 0.3f, 0.3f) },
         new ItemDef { type = ItemType.StationCurative, terminalId = 9, name = "Station Curative", shortName = "Station", buyPrice = 150, sellPrice = 1, color = new Color(0.4f, 1f, 0.45f) },
-        // Autres objets.
-        new ItemDef { type = ItemType.Canard, name = "Canard en Plastique", shortName = "Canard", buyPrice = 0, sellPrice = 20, color = new Color(1f, 0.84f, 0.15f) },
+        new ItemDef { type = ItemType.Canon, terminalId = 10, name = "Canon", shortName = "Canon", buyPrice = 200, sellPrice = 1, color = new Color(0.9f, 0.2f, 0.2f) },
+        // Autres objets (V0.4.6 : trouvés dans les monticules).
+        new ItemDef { type = ItemType.Canard, name = "Canard en Plastique", shortName = "Canard", buyPrice = 0, sellPrice = 30, color = new Color(1f, 0.84f, 0.15f) },
+        new ItemDef { type = ItemType.Os, name = "Os", shortName = "Os", buyPrice = 0, sellPrice = 20, color = new Color(0.93f, 0.9f, 0.8f) },
     };
+
+    // Modèle 3D (Resources/Art) d'un objet posé au sol ou porté par un Pion.
+    public static string ModelName(ItemType type) =>
+        type == ItemType.Canard ? "DuckSolo" : type == ItemType.Os ? "Os" : "Croquette";
+
+    // Tableaux des monticules (chapitre 9) : objet trouvé et chance d'obtention, identiques dans les deux zones.
+    public static readonly (ItemType type, float chance)[] MoundLoot = { (ItemType.Os, 0.9f), (ItemType.Canard, 0.1f) };
+
+    public static ItemType RollMound(System.Random rnd)
+    {
+        double roll = rnd.NextDouble();
+        foreach (var (type, chance) in MoundLoot)
+        {
+            if (roll < chance) return type;
+            roll -= chance;
+        }
+        return MoundLoot[MoundLoot.Length - 1].type;
+    }
+
+    // Valeur moyenne d'un monticule (sert à en générer assez pour le quota).
+    public static float MoundValue()
+    {
+        float v = 0f;
+        foreach (var (type, chance) in MoundLoot) v += Get(type).sellPrice * chance;
+        return v;
+    }
 
     // Mort d'un joueur (3.4) : les objets du Terminal sont détruits, les autres (avec un modèle 3D) restent à terre.
     public static bool DropsOnDeath(ItemType type)
     {
         var def = Get(type);
-        return def != null && def.buyPrice <= 0 && type == ItemType.Canard;
+        return def != null && def.buyPrice <= 0 && (type == ItemType.Canard || type == ItemType.Os);
     }
 
     public static ItemDef Get(ItemType type)

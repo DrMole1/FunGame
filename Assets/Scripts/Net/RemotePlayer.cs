@@ -16,7 +16,8 @@ public class RemotePlayer : MonoBehaviour
     NameTag nameTag;
     CapsuleCollider body;
     CharacterLibrary library;
-    GameObject energyBall;
+    GameObject energyBall, cannonBall;
+    bool hiddenInCannon, flyingBall;
     bool teleporting;
 
     public static RemotePlayer Create(string id, string playerName, Color color, CharacterLibrary library, int character, Vector3 position)
@@ -85,6 +86,18 @@ public class RemotePlayer : MonoBehaviour
             energyBall.SetActive(tele);
             avatar.SetHidden(tele);
             nameTag.Show(!tele && !dead);
+        }
+        // Dans un Canon : invisible ; projeté : un boulet de canon à la place du personnage (V0.4.6).
+        bool inCannon = (flags & NetworkGame.FlagHidden) != 0 && !dead;
+        bool ball = (flags & NetworkGame.FlagCannonball) != 0 && !dead;
+        if (inCannon != hiddenInCannon || ball != flyingBall)
+        {
+            hiddenInCannon = inCannon;
+            flyingBall = ball;
+            if (cannonBall == null) cannonBall = GameSession.BuildCannonBall(transform);
+            cannonBall.SetActive(ball);
+            avatar.SetHidden(inCannon || ball || teleporting);
+            nameTag.Show(!inCannon && !ball && !teleporting && !dead);
         }
         if (dead != Dead)
         {

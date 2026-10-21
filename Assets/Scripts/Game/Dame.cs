@@ -1,11 +1,11 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// La Dame (entité ID 2, type Cauchemar). Elle rôde au hasard dans le labyrinthe à la vitesse normale des joueurs,
-// prend en chasse le premier personnage qu'elle voit (x1,05 ; x2,2 tant qu'il la regarde) pendant 20 à 30 secondes
-// et attaque au contact (100 de dégâts, le survivant est repoussé). Elle ne saute pas, ne tombe pas et ne flotte pas :
-// elle suit la grille de navigation (MazeNav), qui passe par les escaliers et les dalles surélevées mais pas au-dessus du vide.
-// Toutes les 5 à 8 secondes, elle pousse un hurlement audible à 40 m (V0.4).
+// La Dame (entité ID 2, type Cauchemar, V0.4.6). Elle rôde au hasard dans le labyrinthe à la vitesse normale des joueurs ;
+// ses pas résonnent en écho jusqu'à 30 m. Dès qu'elle voit un personnage à 20 m (ou qu'il passe à moins de 4 m d'elle),
+// elle crie et le prend en chasse (x1,05 ; x2,2 tant qu'il la regarde) pendant 12 à 15 secondes, et attaque au contact
+// (100 de dégâts, le survivant est repoussé). Elle ne saute pas, ne tombe pas et ne flotte pas : elle suit la grille de
+// navigation (MazeNav), qui passe par les escaliers et les dalles surélevées mais pas au-dessus du vide.
 public class Dame : Entity
 {
     public enum State : byte { Wander = 0, Chase = 1, Attack = 2 }
@@ -32,12 +32,10 @@ public class Dame : Entity
     public State Current { get => (State)state; private set => state = (byte)value; }
     public bool Watched;
 
-    float chaseTimer, attackTimer, screamTimer;
+    float chaseTimer, attackTimer, stepTimer;
     bool hitDone;
     readonly Dictionary<string, float> ignoreUntil = new Dictionary<string, float>();
     float attackClipLength = AttackDuration;
-
-    protected override void Init() => screamTimer = Range(GameRules.DameScreamMin, GameRules.DameScreamMax);
 
     protected override void BuildVisual()
     {
@@ -76,13 +74,6 @@ public class Dame : Entity
 
     public override void Simulate(float dt, IReadOnlyList<PlayerPresence> players)
     {
-        screamTimer -= dt;
-        if (screamTimer <= 0f)
-        {
-            screamTimer = Range(GameRules.DameScreamMin, GameRules.DameScreamMax);
-            Pulse++;
-        }
-
         switch (Current)
         {
             case State.Attack:
@@ -173,18 +164,26 @@ public class Dame : Entity
 
     protected override void OnStateChanged(byte previous, byte next)
     {
-        if ((State)next == State.Chase && (State)previous == State.Wander) GameAudio.Play3D("dame_scream", transform.position + Vector3.up * 1.7f, 1f, 35f, 0.05f);
+        // Elle crie en repérant un joueur (Dame_Cri), pitché au hasard.
+        if ((State)next == State.Chase && (State)previous == State.Wander)
+            GameAudio.Play3DSmooth("dame_scream", transform.position + Vector3.up * 1.7f, 1f, GameRules.DameScreamRange, RandomPitch());
         if ((State)next == State.Attack) GameAudio.Play3D("dame_attack", transform.position + Vector3.up * 1.4f, 1f, 25f, 0f);
     }
 
     public override string KillSound => "dame_kill";
 
-    // Hurlement périodique, entendu par tous les joueurs à 40 m.
-    protected override void OnPulse() =>
-        GameAudio.Play3DSmooth("dame_scream", transform.position + Vector3.up * 1.7f, 1f, GameRules.DameScreamRange, RandomPitch());
-
     protected override void Animate(float dt)
     {
+        // Pas résonnant en écho, à moins de 30 m, au rythme de sa marche ou de sa course.
+        if (visualSpeed > 0.3f && Current != State.Attack)
+        {
+            stepTimer -= dt * Mathf.Clamp(visualSpeed / 2.4f, 0.6f, 2.4f);
+            if (stepTimer <= 0f)
+            {
+                stepTimer = 0.55f;
+                GameAudio.Play3D("dame_step", transform.position, 0.7f, GameRules.DameStepRange, 0.1f);
+            }
+        }
         if (animator == null) return;
         // En chasse, elle court (même à peine plus vite que sa marche).
         string wanted = Current == State.Attack ? "Attack" : visualSpeed < 0.3f ? "Idle" : Current == State.Chase ? "Run" : "Walk";

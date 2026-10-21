@@ -1,16 +1,16 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Le Fou (entité ID 7, type Cauchemar, V0.4.5) : grande entité bipède et souriante à tête de soleil. "En recherche",
+// Le Fou (entité ID 7, type Cauchemar, V0.4.6) : grande entité bipède et souriante à tête de soleil. "En recherche",
 // il arpente le terrain à la vitesse de marche d'un joueur, d'une démarche cartoon, et se met à courir sans prévenir
-// (x1,5 pendant 2 à 5 s, grelots audibles à 30 m ; 30 % de chances de faire demi-tour), puis remarche 4 à 10 s. Un
-// joueur dont la caméra le voit est fixé : le Fou se tourne vers lui, crie et tremble. Regardé 2 secondes d'affilée
-// (ou de nouveau dans les 3 secondes après un regard détourné), il attaque : cri, échange de position avec le
-// personnage et 20 de dégâts (puis 5 s sans pouvoir lancer son attaque). Il passe alors "en chasse" 5 secondes, en
-// courant vers le joueur, les yeux rouges, puis danse 3 secondes : si la caméra du joueur le regarde toujours à la fin
-// de sa danse, il attaque à nouveau ; sinon il repart "en recherche". À moins de 0,8 m, il immobilise le joueur et le
-// tue. Une fois sur 7 environ (15 %), il danse 3 secondes avant d'attaquer : si le joueur ne le regarde plus à la fin,
-// l'attaque est annulée.
+// (x1,5 pendant 2 à 5 s ; 30 % de chances de faire demi-tour), puis remarche 4 à 10 s. Dès qu'il court (en recherche
+// comme en chasse), ses grelots s'entendent à 30 m, et s'éteignent sur un écho planant. Un joueur dont la caméra le
+// voit, sans mur entre eux et à moins de 20 m, est fixé : le Fou se tourne vers lui, crie et tremble. Regardé
+// 1,5 seconde d'affilée, il attaque : cri, échange de position avec le personnage et 20 de dégâts (puis 5 s sans
+// pouvoir lancer son attaque). Si le joueur détourne le regard avant, le Fou danse 3 secondes : si la caméra du joueur
+// le regarde à la fin de sa danse, il attaque ; sinon il rôde à nouveau. Après un échange, il passe "en chasse"
+// 5 secondes, en courant vers le joueur, les yeux rouges, puis danse 3 secondes (même issue). À moins de 0,8 m, il
+// immobilise le joueur et le tue.
 public class Fou : Entity
 {
     public enum State : byte { Walk = 0, Run = 1, Alert = 2, Dance = 3, Chase = 4, Grab = 5 }
@@ -28,8 +28,8 @@ public class Fou : Entity
 
     // Joueurs dont la caméra voit le Fou (signalé par chacun à l'hôte).
     readonly HashSet<string> lookers = new HashSet<string>();
-    float stateTimer, runTimer, runDuration, lookTime, awayTime, chaseTimer, swapCooldown;
-    bool lookedAway, grabHit;
+    float stateTimer, runTimer, runDuration, lookTime, chaseTimer, swapCooldown;
+    bool grabHit;
 
     public void SetLooking(string playerId, bool looking)
     {
@@ -83,16 +83,11 @@ public class Fou : Entity
                 if (Looks(target))
                 {
                     lookTime += dt;
-                    // Regardé de nouveau dans les 3 secondes après avoir détourné les yeux, ou 2 secondes d'affilée.
-                    if (lookedAway || lookTime >= GameRules.FouStareTime) LaunchAttack(target);
+                    // Regardé 1,5 seconde d'affilée : il attaque (il attend la fin des 5 s qui suivent un échange).
+                    if (lookTime >= GameRules.FouStareTime && swapCooldown <= 0f) Attack(target);
                 }
-                else
-                {
-                    lookedAway = true;
-                    lookTime = 0f;
-                    awayTime += dt;
-                    if (awayTime >= GameRules.FouLookAgainWindow) Search();
-                }
+                // Regard détourné avant : il danse, et attaque à la fin de sa danse si le joueur le regarde.
+                else BeginDance();
                 break;
 
             case State.Dance:
@@ -131,19 +126,9 @@ public class Fou : Entity
     void BeginAlert(PlayerPresence p)
     {
         Current = State.Alert;
-        stateTimer = lookTime = awayTime = 0f;
-        lookedAway = false;
+        stateTimer = lookTime = 0f;
         TargetId = p.PlayerId;
         ClearPath();
-    }
-
-    // 15 % : une danse de 3 secondes avant l'attaque.
-    void LaunchAttack(PlayerPresence target)
-    {
-        // Il ne peut pas lancer son attaque pendant 5 secondes après un échange : il attend.
-        if (swapCooldown > 0f) return;
-        if (rnd.NextDouble() < GameRules.FouDanceChance) BeginDance();
-        else Attack(target);
     }
 
     void BeginDance()
@@ -217,6 +202,7 @@ public class Fou : Entity
     Light eyeGlow;
     Transform modelRoot, eyes;
     AudioSource bells;
+    float bellsLevel;
     // Modèle Meshy : position des yeux par rapport à l'os de la tête, vitesses de marche et de course des clips.
     const float ModelEyeUp = 0.2f, ModelEyeForward = 0.28f;
     const float ModelWalkSpeed = 1.6f, ModelRunSpeed = 5f;
@@ -362,13 +348,21 @@ public class Fou : Entity
 
     protected override void Animate(float dt)
     {
-        // Grelots, à moins de 30 mètres, tant qu'il court.
-        bool running = Current == State.Run;
+        // Grelots, à moins de 30 mètres, tant qu'il court (en recherche ou en chasse) ; à l'arrêt, ils s'éteignent
+        // en douceur sur un écho planant au lieu de se couper net.
+        bool running = Current == State.Run || Current == State.Chase;
         if (running && bells == null) bells = GameAudio.Loop3D("fou_bells", transform, Vector3.up * 2.2f, 0.8f, GameRules.FouBellsRange);
-        if (bells != null && running != bells.isPlaying)
+        if (bells != null)
         {
-            if (running) bells.Play();
-            else bells.Stop();
+            bellsLevel = running ? 1f : Mathf.MoveTowards(bellsLevel, 0f, dt / GameRules.FouBellsTail);
+            if (bellsLevel > 0f && !bells.isPlaying) bells.Play();
+            else if (bellsLevel <= 0f && bells.isPlaying) bells.Stop();
+            GameAudio.SetLoopVolume(bells, 0.8f * bellsLevel * bellsLevel);
+            var echo = bells.GetComponent<AudioEchoFilter>() ?? bells.gameObject.AddComponent<AudioEchoFilter>();
+            echo.delay = 180f;
+            echo.decayRatio = 0.55f;
+            echo.wetMix = running ? 0.2f : 0.7f;
+            echo.dryMix = 1f;
         }
 
         bool red = Current == State.Chase || Current == State.Grab;

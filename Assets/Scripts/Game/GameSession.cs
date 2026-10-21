@@ -36,7 +36,9 @@ using UnityEngine;
 //   SK -> SR|bonus (-1 = refusé)                                /skip round : passer à la manche suivante
 //   BK|pitch -> BA|id|pitch                                     aboiement d'un joueur
 //   GE|geste -> GS|id|geste                                     geste d'un joueur (ramasser, poser, utiliser, manger)
-public class GameSession : MonoBehaviour, IEntityHost
+//   MD|monticule -> MS|manche|monticule / MN|monticule          creuser un monticule : début (tous) ou refus (joueur)
+//   MO|manche|monticule   ML|manche|id,id...                   hôte -> tous : monticule creusé (objet libéré) / déjà creusés
+public partial class GameSession : MonoBehaviour, IEntityHost
 {
     enum Phase { Waiting = 0, Running = 1, GameOver = 2 }
 
@@ -68,6 +70,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     WorldBuilder.HubRefs hub;
     WorldBuilder.MazeRefs maze;
     RedButton button;
+    SkipButton skipButton;
     Pogo pogo;
     BeaconNetwork beacons;
     readonly Dictionary<string, Kennel> kennels = new Dictionary<string, Kennel>();
@@ -90,6 +93,14 @@ public class GameSession : MonoBehaviour, IEntityHost
     bool compass;
     int orbsBroken;
     readonly HashSet<int> picked = new HashSet<int>();
+    // Monticules de la manche (V0.4.6) : id = celui de l'objet qu'ils contiennent ; déjà creusés ; creusages en cours (hôte).
+    readonly Dictionary<int, Mound> mounds = new Dictionary<int, Mound>();
+    readonly Dictionary<int, (ItemType type, Vector3 pos)> moundLoot = new Dictionary<int, (ItemType, Vector3)>();
+    readonly HashSet<int> dugMounds = new HashSet<int>();
+    readonly Dictionary<int, float> digEnds = new Dictionary<int, float>();
+    // Monticule creusé par le joueur local (-1 : aucun) et fin du creusage.
+    int localDig = -1;
+    float localDigEnd;
     readonly List<string> logs = new List<string>();
     string terminalUser = "";
     // Tableau de Manche : golds gagnés et morts de chaque joueur pendant la manche en cours.
@@ -160,6 +171,8 @@ public class GameSession : MonoBehaviour, IEntityHost
         worldRoot = new GameObject("Monde").transform;
         hub = WorldBuilder.BuildHub(worldRoot);
         button = RedButton.Create(hub.buttonAnchor);
+        skipButton = SkipButton.Create(hub.skipAnchor);
+        skipButton.gameObject.SetActive(false);
         TerminalStation.Create(hub.terminalAnchor);
         pogo = Pogo.Create(hub.pogoAnchor);
         beacons = BeaconNetwork.Create(worldRoot, hub.beaconPosition, hub.beaconYaw);
@@ -277,6 +290,11 @@ public class GameSession : MonoBehaviour, IEntityHost
         maze = null;
         builtSeed = itemsRound = -1;
         ClearItems();
+        ClearMounds();
+        dugMounds.Clear();
+        digEnds.Clear();
+        EndLocalDig();
+        ResetCannon();
         ClearNotes();
         foreach (var k in kennels.Values) if (k != null) Destroy(k.gameObject);
         kennels.Clear();
@@ -343,12 +361,23 @@ public class GameSession : MonoBehaviour, IEntityHost
         maze.nav.DoorOpen = open;
     }
 
-    // Objets de valeur de la manche dans chaque zone (chapitre 10 : pourcentage du quota).
+    // Objets de valeur de la manche dans chaque zone (chapitre 10 : pourcentage du quota). V0.4.6 : ils sont enfouis dans
+    // des monticules de terre ; le contenu de chacun (Os 90 %, Canard 10 %) est tiré d'après la graine, chez tous les joueurs.
     void SpawnItems()
     {
-        ClearItems();
+        bool newRound = itemsRound != round;
+        // Passage à la manche suivante : les objets déterrés disparaissent dans une petite animation, sans son.
+        ClearItems(newRound);
+        ClearMounds();
+        if (newRound)
+        {
+            dugMounds.Clear();
+            digEnds.Clear();
+            EndLocalDig();
+        }
         itemsRound = round;
         itemsBoost = valueBoost;
+        moundLoot.Clear();
         int id = 0;
         for (int zone = 0; zone < 2; zone++)
         {
@@ -359,18 +388,80 @@ public class GameSession : MonoBehaviour, IEntityHost
                 int j = rnd.Next(i + 1);
                 (spots[i], spots[j]) = (spots[j], spots[i]);
             }
-            int count = Mathf.Min(GameRules.DucksForRound(round, zone, valueBoost), spots.Count);
+            int count = Mathf.Min(GameRules.MoundsForRound(round, zone, valueBoost), spots.Count);
             for (int k = 0; k < count; k++, id++)
-                items[id] = ItemPickup.Create(itemsRoot, id, ItemType.Canard, spots[k]);
+            {
+                ItemType loot = Items.RollMound(rnd);
+                float yaw = (float)rnd.NextDouble() * 360f;
+                moundLoot[id] = (loot, spots[k]);
+                if (!dugMounds.Contains(id)) mounds[id] = Mound.Create(itemsRoot, id, loot, spots[k], yaw);
+                else if (!picked.Contains(id)) items[id] = ItemPickup.Create(itemsRoot, id, loot, spots[k]);
+            }
         }
         // Les objets laissés à terre restent d'une manche à l'autre.
         foreach (var kv in dropped) items[kv.Key] = ItemPickup.Create(itemsRoot, kv.Key, kv.Value.type, kv.Value.pos);
     }
 
-    void ClearItems()
+    void ClearItems(bool vanishDug = false)
     {
-        foreach (var it in items.Values) if (it != null) Destroy(it.gameObject);
+        foreach (var kv in items)
+            if (kv.Value == null) continue;
+            else if (vanishDug && kv.Key < DropIdBase) Fx.Vanish(kv.Value.gameObject);
+            else Destroy(kv.Value.gameObject);
         items.Clear();
+    }
+
+    void ClearMounds()
+    {
+        foreach (var m in mounds.Values) if (m != null) Destroy(m.gameObject);
+        mounds.Clear();
+    }
+
+    // ================= Monticules =================
+
+    // Le joueur local creuse : 2 secondes sans bouger, sauter ni interagir ; il aboie en commençant.
+    public void RequestDig(Mound mound)
+    {
+        if (localDig >= 0 || status.Dead || mound.Digging) return;
+        localDig = mound.Id;
+        localDigEnd = Time.time + GameRules.DigDuration;
+        player.Digging = true;
+        Bark();
+        mound.StartDigging();
+        net.ToHost("MD|" + mound.Id);
+    }
+
+    void EndLocalDig()
+    {
+        localDig = -1;
+        if (player != null) player.Digging = false;
+    }
+
+    void UpdateDigs()
+    {
+        if (localDig >= 0 && (Time.time >= localDigEnd || status.Dead)) EndLocalDig();
+        if (!net.IsHost || digEnds.Count == 0) return;
+        var done = new List<int>();
+        foreach (var kv in digEnds) if (Time.time >= kv.Value) done.Add(kv.Key);
+        foreach (int id in done)
+        {
+            digEnds.Remove(id);
+            net.ToAll("MO|" + round + "|" + id);
+        }
+    }
+
+    // Monticule creusé : il disparaît (dernière gerbe de terre si 'animate') et libère son objet, à ramasser.
+    void OpenMound(int id, bool animate)
+    {
+        if (!dugMounds.Add(id)) return;
+        if (mounds.TryGetValue(id, out var m) && m != null)
+        {
+            if (animate) m.Open();
+            else Destroy(m.gameObject);
+        }
+        mounds.Remove(id);
+        if (moundLoot.TryGetValue(id, out var loot) && !picked.Contains(id) && !items.ContainsKey(id))
+            items[id] = ItemPickup.Create(itemsRoot, id, loot.type, loot.pos);
     }
 
     void RemoveItem(int id)
@@ -394,7 +485,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     void Update()
     {
         bool inGame = net.InGame;
-        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || phase == Phase.GameOver || Teleporting;
+        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || phase == Phase.GameOver || Teleporting || localDig >= 0 || CannonFlying;
         OrbitCamera.CursorLockBlocked = TerminalUI.IsOpen || PostItUI.IsOpen || GameHud.GameOverVisible;
 
         if (phase == Phase.Running && !WipedOut)
@@ -454,6 +545,8 @@ public class GameSession : MonoBehaviour, IEntityHost
         else serenityRegenAcc = 0f;
 
         if (!PlayerController.InputLocked && !status.Dead && Input.GetKeyDown(KeyLayout.Bark)) TryBark();
+        UpdateDigs();
+        UpdateCannon();
         UpdateTeleport();
         UpdateStations();
         player.Dancing = channelPad != null || healing;
@@ -615,7 +708,9 @@ public class GameSession : MonoBehaviour, IEntityHost
         if (roiSlowed && !player.RunBlocked) hud.FlashWhite();
         player.RunBlocked = roiSlowed;
 
-        // Enchaîné : immobilisé (la caméra reste libre) et traîné vers le Roi ; 5 appuis sur Espace rompent la chaîne.
+        // Enchaîné : immobilisé (la caméra reste libre) et traîné vers le Roi ; 3 appuis sur Espace rompent la chaîne,
+        // et une barre d'espace s'agite à l'écran.
+        hud.SetChainPrompt(chainedBy >= 0);
         if (chainedBy < 0) return;
         bool held = entities.TryGetValue(chainedBy, out var holder) && holder is Roi chainer
             && chainer.Current == Roi.State.Pull && chainer.TargetId == net.MyId;
@@ -653,7 +748,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         Vector3 p = player.transform.position;
         var capsule = player.GetComponent<CapsuleCollider>();
         float feet = p.y + capsule.center.y - capsule.height * 0.5f;
-        inMist = !status.Dead && !Teleporting && (AbjurationActive && mistAmount > 0.5f || inRoiMist) && maze != null
+        inMist = !status.Dead && !Teleporting && !CannonFlying && (AbjurationActive && mistAmount > 0.5f || inRoiMist) && maze != null
             && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
         // Dans la brume, le personnage avance 20 % moins vite ; l'aura blanche du Roi le ralentit encore de 20 %.
         player.SpeedFactor = (inMist ? GameRules.MistSpeedMultiplier : 1f) * (roiSlowed ? GameRules.RoiSlowMultiplier : 1f);
@@ -714,6 +809,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         string time = (seconds / 60).ToString("00") + ":" + (seconds % 60).ToString("00");
         hub.timerText.text = time;
         hub.quotaText.text = "Quota : " + progress + " / " + quota;
+        if (skipButton.gameObject.activeSelf != CanSkipRound) skipButton.gameObject.SetActive(CanSkipRound);
         hub.cashText.text = "Cagnotte : " + cash + " golds";
         hub.logText.text = string.Join("\n", logs);
         hub.roundBoardText.text = RoundBoardText();
@@ -870,7 +966,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         return on ? "Godmod activé : achats gratuits, invincible, sérénité intacte, jamais immobilisé." : "Godmod désactivé.";
     }
 
-    bool Invincible => Time.time < invincibleUntil || Godmode;
+    bool Invincible => Time.time < invincibleUntil || Godmode || CannonFlying;
 
     // Dégâts reçus par le personnage local. Le Hub est un endroit sûr ; juste après un /tp, aucun dégât.
     public void DamageLocal(int amount, string cause, Entity by = null)
@@ -971,6 +1067,9 @@ public class GameSession : MonoBehaviour, IEntityHost
                 break;
             case ItemType.StationCurative:
                 TryPlaceBeacon(slot, DeviceKind.Station);
+                break;
+            case ItemType.Canon:
+                TryPlaceBeacon(slot, DeviceKind.Canon);
                 break;
             case ItemType.Chargeur:
                 hud.Toast("Visez la Balise du Hub, près de la porte, pour la recharger.");
@@ -1149,13 +1248,13 @@ public class GameSession : MonoBehaviour, IEntityHost
         switch (id)
         {
             case 1: return "Les Lasers ne peuvent plus apparaître une fois le terrain généré.";
-            case 2: return SpawnAt<Dame>(0, rnd, 18f) != null ? "La Dame rôde désormais dans la Zone 1..." : "Impossible pour le moment.";
-            case 3: return SpawnAt<Tour>(0, rnd, 18f) != null ? "La Tour arpente désormais la Zone 1..." : "Impossible pour le moment.";
+            case 2: return SpawnAt<Dame>(0, rnd, GameRules.EntitySpawnClearance) != null ? "La Dame rôde désormais dans la Zone 1..." : "Impossible pour le moment.";
+            case 3: return SpawnAt<Tour>(0, rnd, GameRules.EntitySpawnClearance) != null ? "La Tour arpente désormais la Zone 1..." : "Impossible pour le moment.";
             case 4: return SpawnPions(0, rnd) > 0 ? "Des Pions s'installent dans la Zone 1..." : "Impossible pour le moment.";
-            case 5: return SpawnAt<Cloche>(0, rnd, 18f) != null ? "La Cloche attend dans la Zone 1..." : "Impossible pour le moment.";
+            case 5: return SpawnAt<Cloche>(0, rnd, GameRules.EntitySpawnClearance) != null ? "La Cloche attend dans la Zone 1..." : "Impossible pour le moment.";
             case 6: return SpawnAt<Spider>(0, rnd, GameRules.SpiderSpawnClearance) != null ? "Une Araignée rôde dans la Zone 1..." : "Impossible pour le moment.";
-            case 7: return SpawnAt<Fou>(0, rnd, 18f) != null ? "Le Fou sourit désormais dans la Zone 1..." : "Impossible pour le moment.";
-            case 8: return SpawnAt<Roi>(0, rnd, 18f) != null ? "Le Roi arpente désormais la Zone 1..." : "Impossible pour le moment.";
+            case 7: return SpawnAt<Fou>(0, rnd, GameRules.EntitySpawnClearance) != null ? "Le Fou sourit désormais dans la Zone 1..." : "Impossible pour le moment.";
+            case 8: return SpawnAt<Roi>(0, rnd, GameRules.EntitySpawnClearance) != null ? "Le Roi arpente désormais la Zone 1..." : "Impossible pour le moment.";
             default: return "Aucune entité n'a l'ID " + id + ".";
         }
     }
@@ -1200,10 +1299,10 @@ public class GameSession : MonoBehaviour, IEntityHost
     {
         switch (rnd.Next(4))
         {
-            case 0: SpawnAt<Dame>(zone, rnd, 18f); break;
-            case 1: SpawnAt<Tour>(zone, rnd, 18f); break;
-            case 2: SpawnAt<Fou>(zone, rnd, 18f); break;
-            default: SpawnAt<Roi>(zone, rnd, 18f); break;
+            case 0: SpawnAt<Dame>(zone, rnd, GameRules.EntitySpawnClearance); break;
+            case 1: SpawnAt<Tour>(zone, rnd, GameRules.EntitySpawnClearance); break;
+            case 2: SpawnAt<Fou>(zone, rnd, GameRules.EntitySpawnClearance); break;
+            default: SpawnAt<Roi>(zone, rnd, GameRules.EntitySpawnClearance); break;
         }
     }
 
@@ -1211,13 +1310,13 @@ public class GameSession : MonoBehaviour, IEntityHost
     void SpawnNormal(int zone, System.Random rnd)
     {
         if (rnd.Next(2) == 0) SpawnPions(zone, rnd);
-        else SpawnAt<Cloche>(zone, rnd, 18f);
+        else SpawnAt<Cloche>(zone, rnd, GameRules.EntitySpawnClearance);
     }
 
     // "Faire apparaître un Pion", c'est faire apparaître un groupe de 1 à 3 Pions, côte à côte.
     int SpawnPions(int zone, System.Random rnd)
     {
-        var first = SpawnAt<Pion>(zone, rnd, 18f);
+        var first = SpawnAt<Pion>(zone, rnd, GameRules.EntitySpawnClearance);
         if (first == null) return 0;
         int count = 1 + rnd.Next(3);
         for (int k = 1; k < count; k++)
@@ -1243,21 +1342,21 @@ public class GameSession : MonoBehaviour, IEntityHost
                 SpawnAt<Spider>(zone, rnd, GameRules.SpiderSpawnClearance);
     }
 
-    // Sur la grille de navigation de la zone, loin du Hub, des joueurs et des Balises Améliorées.
+    // Sur la grille de navigation de la zone, loin du Hub, des joueurs (au moins 20 m, note 01 du chapitre 8)
+    // et des Balises Améliorées ; sans emplacement valable, l'entité n'apparaît pas.
     T SpawnAt<T>(int zone, System.Random rnd, float playerClearance) where T : Entity
     {
         if (!maze.nav.Ready) maze.nav.BuildAll();
         int node = -1;
-        for (int attempt = 0; attempt < 30; attempt++)
+        for (int attempt = 0; attempt < 60 && node < 0; attempt++)
         {
             int candidate = maze.nav.RandomNode(zone, rnd, Vector3.zero, 30f);
             if (candidate < 0) continue;
-            node = candidate;
             Vector3 p = maze.nav.Position(candidate);
             bool blocked = NearEnhancedBeacon(p);
             foreach (var pl in PlayerPresence.All)
                 if (pl.Alive && Vector3.Distance(pl.Position, p) < playerClearance) blocked = true;
-            if (!blocked) break;
+            if (!blocked) node = candidate;
         }
         if (node < 0) return null;
         var e = Entity.Create<T>(entitiesRoot, nextEntityId++, maze.nav.Position(node), (float)rnd.NextDouble() * 360f, maze.nav);
@@ -1710,6 +1809,12 @@ public class GameSession : MonoBehaviour, IEntityHost
     {
         while (barkTimes.Count > 0 && Time.time - barkTimes.Peek() > GameRules.BarkWindow) barkTimes.Dequeue();
         if (barkTimes.Count >= GameRules.BarkLimit) return;
+        Bark();
+    }
+
+    // Aboiement sans limite (il compte tout de même dans les 3 aboiements des 10 dernières secondes).
+    void Bark()
+    {
         barkTimes.Enqueue(Time.time);
         float pitch = Mathf.Pow(2f, Random.Range(-1f, 1f) / 12f);
         PlayBark(player.transform, pitch);
@@ -1818,6 +1923,9 @@ public class GameSession : MonoBehaviour, IEntityHost
         net.ToPeer(to, StateMsg());
         var ids = new StringBuilder();
         foreach (int id in picked) { if (ids.Length > 0) ids.Append(','); ids.Append(id); }
+        var dug = new StringBuilder();
+        foreach (int id in dugMounds) { if (dug.Length > 0) dug.Append(','); dug.Append(id); }
+        net.ToPeer(to, "ML|" + round + "|" + dug);
         net.ToPeer(to, "IL|" + round + "|" + ids);
         foreach (string line in logs) net.ToPeer(to, "LG|" + line);
         net.ToPeer(to, "TS|" + terminalUser);
@@ -1981,6 +2089,7 @@ public class GameSession : MonoBehaviour, IEntityHost
     public void HandleMessage(string from, string[] f, string raw)
     {
         bool host = net.IsHost;
+        if (HandleCannonMessage(from, f, host)) return;
         switch (f[0])
         {
             case "G" when !host && f.Length >= 10:
@@ -2007,6 +2116,34 @@ public class GameSession : MonoBehaviour, IEntityHost
             }
             case "WO":
                 if (net.InGame) OnWipeOut();
+                break;
+            // ---------- Monticules ----------
+            case "MD" when host && f.Length >= 2:
+            {
+                int id = NetworkGame.I(f[1]);
+                if (mounds.ContainsKey(id) && !dugMounds.Contains(id) && !digEnds.ContainsKey(id))
+                {
+                    digEnds[id] = Time.time + GameRules.DigDuration;
+                    noiseAt[from] = Time.time;
+                    net.ToAll("MS|" + round + "|" + id);
+                }
+                else net.ToPeer(from, "MN|" + id);
+                break;
+            }
+            case "MS" when f.Length >= 3:
+                if (NetworkGame.I(f[1]) == round && mounds.TryGetValue(NetworkGame.I(f[2]), out var digMound) && digMound != null)
+                    digMound.StartDigging();
+                break;
+            case "MN" when f.Length >= 2:
+                if (localDig == NetworkGame.I(f[1])) EndLocalDig();
+                break;
+            case "MO" when f.Length >= 3:
+                if (NetworkGame.I(f[1]) == round) OpenMound(NetworkGame.I(f[2]), true);
+                break;
+            case "ML" when !host && f.Length >= 3:
+                if (NetworkGame.I(f[1]) != round) break;
+                foreach (string s in f[2].Split(','))
+                    if (s.Length > 0) OpenMound(NetworkGame.I(s), false);
                 break;
             case "IL" when !host && f.Length >= 3:
                 if (NetworkGame.I(f[1]) != round) break;
@@ -2198,7 +2335,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             {
                 noiseAt[from] = Time.time;
                 int id = nextBeaconId++;
-                int kind = f.Length >= 5 ? Mathf.Clamp(NetworkGame.I(f[4]), 0, 3) : 0;
+                int kind = f.Length >= 5 ? Mathf.Clamp(NetworkGame.I(f[4]), 0, (int)DeviceKind.Canon) : 0;
                 string msg = "BW|" + id + "|" + f[1] + "|" + f[2] + "|" + f[3] + "|" + kind;
                 beaconMessages[id] = msg;
                 net.ToAll(msg);
@@ -2207,7 +2344,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             case "BW" when f.Length >= 5:
             {
                 var pos = new Vector3(NetworkGame.P(f[2]), NetworkGame.P(f[3]), NetworkGame.P(f[4]));
-                var kind = f.Length >= 6 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[5]), 0, 3) : DeviceKind.Beacon;
+                var kind = f.Length >= 6 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[5]), 0, (int)DeviceKind.Canon) : DeviceKind.Beacon;
                 beacons.Add(NetworkGame.I(f[1]), pos, kind);
                 GameAudio.Play3D("pop", pos, 0.8f, 15f, 0.1f, 0.8f);
                 break;
@@ -2216,7 +2353,8 @@ public class GameSession : MonoBehaviour, IEntityHost
             {
                 int id = NetworkGame.I(f[1]);
                 Beacon device = beacons.Get(id);
-                if (device != null && beaconMessages.Remove(id))
+                // Un Canon occupé ne se ramasse pas.
+                if (device != null && !CannonOccupied(id) && beaconMessages.Remove(id))
                 {
                     noiseAt[from] = Time.time;
                     net.ToAll("BZ|" + id);

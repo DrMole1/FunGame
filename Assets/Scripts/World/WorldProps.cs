@@ -291,7 +291,8 @@ public class ZoneDoor : MonoBehaviour
         var door = go.AddComponent<ZoneDoor>();
         door.height = height;
 
-        // L'avant du modèle Meshy (+Z) regarde la Zone 1.
+        // L'avant du modèle Meshy (+Z) regarde la Zone 1. V0.4.6 : la porte est prise dans le mur qui délimite la Zone 1,
+        // à moitié dans la Zone 1 et à moitié dans la Zone 2.
         door.frame = GameArt.SpawnModel("ZoneDoor", go.transform, height + 0.6f);
         float front = 0.2f;
         if (door.frame != null)
@@ -300,8 +301,8 @@ public class ZoneDoor : MonoBehaviour
             float scale = Mathf.Min(1f, (width + 1.2f) / Mathf.Max(0.01f, b.size.x));
             door.frame.transform.localScale *= scale;
             b = GameArt.LocalBounds(door.frame.transform);
-            door.frame.transform.localPosition += new Vector3(0f, 0f, 0.15f - b.min.z);
-            front = 0.15f + b.size.z;
+            door.frame.transform.localPosition += new Vector3(0f, 0f, -b.center.z);
+            front = b.extents.z;
         }
         else
         {
@@ -309,10 +310,10 @@ public class ZoneDoor : MonoBehaviour
             door.frame.transform.SetParent(go.transform, false);
             Material stone = GameArt.Lit("DoorStone", new Color(0.18f, 0.18f, 0.2f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.05f);
             foreach (float s in new[] { -1f, 1f })
-                GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(s * (width * 0.5f + 0.25f), height * 0.5f + 0.1f, 0.3f), new Vector3(0.5f, height + 0.2f, 0.4f), stone);
-            GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height + 0.35f, 0.3f), new Vector3(width + 1f, 0.5f, 0.4f), stone);
+                GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(s * (width * 0.5f + 0.25f), height * 0.5f + 0.1f, 0f), new Vector3(0.5f, height + 0.2f, 0.8f), stone);
+            GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height + 0.35f, 0f), new Vector3(width + 1f, 0.5f, 0.8f), stone);
             GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height * 0.5f, 0f), new Vector3(width, height, 0.15f), GameArt.Lit("DoorSlab", new Color(0.05f, 0.07f, 0.1f), null, 0.4f));
-            front = 0.5f;
+            front = 0.4f;
         }
 
         // Battant ectoplasmique, devant la porte.

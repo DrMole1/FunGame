@@ -26,7 +26,7 @@ public static class WorldBuilder
     public class HubRefs
     {
         public HubDoor door;
-        public Transform buttonAnchor, terminalAnchor, pogoAnchor;
+        public Transform buttonAnchor, terminalAnchor, pogoAnchor, skipAnchor;
         public Vector3 beaconPosition;   // Balise du Hub, près de la porte
         public float beaconYaw;
         public TextMesh timerText, quotaText, cashText, logText, roundBoardText;
@@ -161,6 +161,11 @@ public static class WorldBuilder
         // Écrans.
         refs.timerText = Screen(root, "Compteur de Temps", 0f, HubRadius - 0.75f, 4.05f, new Vector2(3.2f, 1.1f), 0.075f);
         refs.quotaText = Screen(root, "Rendu de Quota", QuotaAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
+        // V0.4.6 : Bouton Skip sous le Rendu de Quota (affiché une fois le quota atteint), face au centre.
+        refs.skipAnchor = new GameObject("SkipAnchor").transform;
+        refs.skipAnchor.SetParent(root, false);
+        refs.skipAnchor.localPosition = Polar(QuotaAngle, HubRadius - 0.5f, 1.45f);
+        refs.skipAnchor.localRotation = FacingCenter(QuotaAngle);
         refs.cashText = Screen(root, "Rendu de Cagnotte", CashAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
         refs.logText = Screen(root, "Ecran de Logs", LogAngle, HubRadius - 0.9f, 2.6f, new Vector2(8f, 3.6f), 0.027f, TextAnchor.MiddleLeft);
         AddPavlov(refs.logText.transform.parent);
@@ -775,17 +780,23 @@ public static class WorldBuilder
         a.x < b.x || (a.x == b.x && a.y < b.y) ? (a, b) : (b, a);
 
     // Place la Zone 2 contre un côté de la Zone 1 : la porte est sur une cellule de couloir du bord de la Zone 1.
+    // V0.4.6 (note 01 du chapitre 9) : du côté opposé à l'ouverture du Hub (qui donne vers +Z) : tout le bord -Z, ou la
+    // moitié des bords -X et +X la plus éloignée de l'ouverture.
     static Maze PlaceZone2(Maze z1, System.Random rnd)
     {
         int n2 = Zone2Size;
-        int side = rnd.Next(4);
-        var candidates = new List<int>();
-        for (int d = 2; d <= Grid - 3; d++)
+        var candidates = new List<(int side, int index)>();
+        foreach (int s in new[] { 3, 0, 1 })
         {
-            Vector2Int c = BorderCell(side, d, Grid);
-            if (z1.room[c.x, c.y] < 0 && !z1.Reserved(c.x, c.y)) candidates.Add(d);
+            int last = s == 3 ? Grid - 3 : Grid / 2 - 1;
+            for (int d = 2; d <= last; d++)
+            {
+                Vector2Int c = BorderCell(s, d, Grid);
+                if (z1.room[c.x, c.y] < 0 && !z1.Reserved(c.x, c.y)) candidates.Add((s, d));
+            }
         }
-        int door = candidates.Count > 0 ? candidates[rnd.Next(candidates.Count)] : Grid / 2;
+        var pick = candidates.Count > 0 ? candidates[rnd.Next(candidates.Count)] : (3, Grid / 2);
+        int side = pick.Item1, door = pick.Item2;
         // Décalage de la Zone 2 le long du côté : la porte n'est pas sur un de ses coins.
         int kMin = Mathf.Max(0, door - (n2 - 3)), kMax = Mathf.Min(Grid - n2, door - 2);
         int k = kMin + rnd.Next(Mathf.Max(1, kMax - kMin + 1));

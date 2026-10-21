@@ -1,8 +1,9 @@
 using System.Collections;
 using UnityEngine;
 
-// Dance : immobile sur un Téléporteur (canalisation) ou une Station Curative (soin).
-public enum AnimState : byte { Idle, Walk, Run, Jump, Sneak, SneakIdle, Dance }
+// Dance : danse 1 (celle du Fou), aussi jouée immobile sur un Téléporteur ou une Station Curative ; Dance2 et Dance3 :
+// touches O et P ; Dig : creuser un monticule (V0.4.6).
+public enum AnimState : byte { Idle, Walk, Run, Jump, Sneak, SneakIdle, Dance, Dig, Dance2, Dance3 }
 
 // Gestes ponctuels du haut du corps, vus par tous les joueurs.
 public enum PlayerGesture : byte { Bark, PickUp, Place, Use, Eat }
@@ -75,7 +76,7 @@ public class CharacterAvatar : MonoBehaviour
         else if (state == AnimState.SneakIdle)
             animator.CrossFadeInFixedTime("SneakIdle", 0.25f, 0, SneakIdlePose);
         else
-            animator.CrossFadeInFixedTime(state.ToString(), state == AnimState.Sneak || state == AnimState.Dance ? 0.25f : 0.15f);
+            animator.CrossFadeInFixedTime(state.ToString(), state == AnimState.Sneak || state >= AnimState.Dance ? 0.25f : 0.15f);
     }
 
     // Gestes joués par-dessus l'animation en cours (le personnage peut marcher en même temps), sur le haut du corps :

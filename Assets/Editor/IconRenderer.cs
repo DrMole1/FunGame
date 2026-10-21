@@ -21,6 +21,9 @@ public static class IconRenderer
         Render("Balise", ItemType.BaliseAmelioree, new Vector3(10f, -150f, 0f), 0f, "BaliseRouge");
         Render("Teleporteur", ItemType.Teleporteur, new Vector3(45f, -150f, 0f), 0f);
         Render("StationCurative", ItemType.StationCurative, new Vector3(10f, -150f, 0f), 0f);
+        // V0.4.6 : l'Os (monticules) et le Canon (Terminal).
+        Render("Os", ItemType.Os, new Vector3(25f, -20f, 0f), 0f);
+        Render("CanonSolo", ItemType.Canon, new Vector3(20f, -130f, 0f), 0f);
         AssetDatabase.Refresh();
         foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { IconDir }))
             ConfigureSprite(AssetDatabase.GUIDToAssetPath(guid));

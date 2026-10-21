@@ -224,6 +224,14 @@ public class GameAudio : MonoBehaviour
         return src;
     }
 
+    // Change le volume de base d'une boucle (fondu de sortie, par exemple) ; le volume des effets s'y applique.
+    public static void SetLoopVolume(AudioSource src, float volume)
+    {
+        if (instance == null || src == null) return;
+        int i = instance.loops.FindIndex(l => l.Key == src);
+        if (i >= 0) instance.loops[i] = new KeyValuePair<AudioSource, float>(src, volume);
+    }
+
     // Mort du joueur local : le râle, puis un silence total d'une seconde, puis un cœur qui ralentit et s'arrête,
     // les ambiances revenant doucement ensuite.
     public static void PlayDeathSequence()

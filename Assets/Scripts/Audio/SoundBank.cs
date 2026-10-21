@@ -20,6 +20,7 @@ public static class SoundBank
         "tour_step", "tour_breath", "tour_charge", "tour_channel", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
         "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat",
         "fou_bells", "fou_alert", "fou_attack", "fou_dance", "roi_laugh", "roi_chain", "roi_break", "roi_slash",
+        "dig", "dame_step", "cannon_fire", "cannon_impact",
         // Sons enregistrés seulement (GDD 12), sans équivalent synthétisé.
         "dame_kill", "tour_kill", "fou_kill", "roi_flash", "roi_kill",
         "doom",
@@ -78,6 +79,10 @@ public static class SoundBank
             case "blink": return Blink(rnd);
             case "step_tile": return StepTile(rnd);
             case "step_dirt": return StepDirt(rnd);
+            case "dig": return Dig(rnd);
+            case "dame_step": return DameStep(rnd);
+            case "cannon_fire": return CannonFire(rnd);
+            case "cannon_impact": return CannonImpact(rnd);
             case "bell": return Bell(rnd);
             case "abjuration_music": return AbjurationMusic(rnd);
             case "postit": return PostIt(rnd);
@@ -719,6 +724,24 @@ public static class SoundBank
         return d;
     }
 
+    // Creuser un monticule (V0.4.6) : griffes qui raclent la terre, par à-coups rapides, pendant 2 secondes.
+    static float[] Dig(System.Random rnd)
+    {
+        var d = Buffer(2f);
+        var bp = new BandPass();
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float u = Mathf.Repeat(t, 0.17f);
+            float grain = rnd.NextDouble() < 0.08 ? Noise(rnd) * 2.2f : Noise(rnd) * 0.5f;
+            float scrape = bp.Process(grain, 1500f + 700f * Mathf.Sin(t * 23f), 0.6f) * AD(u, 0.01f, 0.07f);
+            float clod = lp.Process(Noise(rnd), 300f) * AD(Mathf.Repeat(t + 0.08f, 0.34f), 0.004f, 0.05f) * 1.5f;
+            d[i] = (scrape + clod) * Mathf.Clamp01((2f - t) / 0.2f);
+        }
+        return d;
+    }
+
     // ---------- Abjuration ----------
 
     // Glas d'une cloche funèbre (moins de 2 secondes) : partiels inharmoniques d'une grosse cloche.
@@ -977,6 +1000,55 @@ public static class SoundBank
     }
 
     // ---------- Entités de la V0.4 ----------
+
+    // Pas de La Dame (V0.4.6) : talon sourd sur la pierre, qui résonne en écho dans les couloirs.
+    static float[] DameStep(System.Random rnd)
+    {
+        var d = Buffer(0.9f);
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float knock = Sine((180f - 60f * t) * t) * Decay(t, 0.03f) + Noise(rnd) * Decay(t, 0.012f) * 0.6f;
+            d[i] = lp.Process(knock, 1800f);
+        }
+        var dry = (float[])d.Clone();
+        (float delay, float gain)[] taps = { (0.13f, 0.45f), (0.27f, 0.3f), (0.42f, 0.18f), (0.6f, 0.1f) };
+        foreach (var (delay, gain) in taps)
+        {
+            int offset = Mathf.RoundToInt(delay * Rate);
+            for (int i = offset; i < d.Length; i++) d[i] += dry[i - offset] * gain;
+        }
+        return d;
+    }
+
+    // Canon de cirque (V0.4.6) : détonation sourde et "boing" de ressort cartoon.
+    static float[] CannonFire(System.Random rnd)
+    {
+        var d = Buffer(1.1f);
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float boom = lp.Process(Noise(rnd), 500f) * Decay(t, 0.12f) * 2.2f + Sine((70f - 30f * t) * t) * Decay(t, 0.25f);
+            float boing = Sine((220f + 260f * Mathf.Sin(t * 30f) * Decay(t, 0.3f)) * t) * Decay(t, 0.35f) * 0.35f;
+            d[i] = boom + boing;
+        }
+        return d;
+    }
+
+    // Atterrissage du boulet : choc mat et éclats.
+    static float[] CannonImpact(System.Random rnd)
+    {
+        var d = Buffer(0.6f);
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            d[i] = lp.Process(Noise(rnd), 900f) * Decay(t, 0.08f) * 1.8f + Sine((90f - 40f * t) * t) * Decay(t, 0.15f);
+        }
+        return d;
+    }
 
     // Pas lourd de La Tour : bloc de pierre posé, grave et granuleux.
     static float[] TourStep(System.Random rnd)

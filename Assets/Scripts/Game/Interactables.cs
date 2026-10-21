@@ -80,8 +80,7 @@ public class ItemPickup : Interactable
         var visual = new GameObject("Visuel").transform;
         visual.SetParent(go.transform, false);
 
-        string model = type == ItemType.Canard ? "DuckSolo" : "Croquette";
-        if (GameArt.SpawnModel(model, visual, 0.45f) == null)
+        if (GameArt.SpawnModel(Items.ModelName(type), visual, 0.45f) == null)
             BuildFallback(visual, type);
         visual.gameObject.AddComponent<Bobbing>();
 
@@ -142,6 +141,34 @@ public class RedButton : Interactable
 
     public override string Prompt => "Appuyer sur le Bouton Rouge";
     public override void Interact() => GameSession.Instance.PressButton();
+}
+
+// Bouton Skip (V0.4.6), sous le Rendu de Quota : apparaît quand le quota est atteint et passe à la manche suivante,
+// comme la commande /skip round.
+public class SkipButton : Interactable
+{
+    public static SkipButton Create(Transform anchor)
+    {
+        var go = new GameObject("Bouton Skip");
+        go.transform.SetParent(anchor, false);
+        // Plaque murale et gros bouton vert lumineux, tournés vers le centre du Hub (+Z).
+        GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, 0f, 0.05f), new Vector3(1.3f, 0.6f, 0.08f), GameArt.Lit("ScreenFrame", new Color(0.1f, 0.1f, 0.1f), null, 0.6f));
+        var cap = GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, 0f, 0.1f), new Vector3(1.05f, 0.08f, 0.38f),
+            GameArt.Emissive("SkipGreen", new Color(0.1f, 0.7f, 0.25f), new Color(0.05f, 0.5f, 0.15f)));
+        cap.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        GameArt.CreateText(go.transform, "Texte", new Vector3(0f, 0f, 0.2f), 0.05f, Color.white, TextAnchor.MiddleCenter, TextAlignment.Center).text = "SKIP";
+        foreach (var t in go.GetComponentsInChildren<TextMesh>()) t.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+        var button = go.AddComponent<SkipButton>();
+        button.FitTrigger(new Vector3(1.3f, 0.6f, 0.4f));
+        return button;
+    }
+
+    public override string Prompt => "Passer à la manche suivante";
+    public override void Interact()
+    {
+        string refusal = GameSession.Instance.RequestSkipRound();
+        if (refusal != null) GameSession.Instance.Toast(refusal);
+    }
 }
 
 // Terminal du Hub.

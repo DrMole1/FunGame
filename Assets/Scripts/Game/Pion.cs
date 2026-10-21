@@ -6,6 +6,7 @@ using UnityEngine;
 // Un joueur qui entre dans cette zone est observé à 5 m (état "curieux") et suivi à distance ; au bout de 4 à 8 secondes,
 // le Pion crie et court vers lui. Au contact : dégâts, recul, et vol d'un objet ramassable (le Canard), qu'il emporte
 // sur sa tête pour le déposer plus loin dans sa zone. Ramasser un objet volé déclenche son attaque sur-le-champ.
+// En état curieux, il lui arrive de sauter sur place (V0.4.6 ; animation locale, sans effet sur le jeu).
 public class Pion : Entity
 {
     public enum State : byte { Idle = 0, Approach = 1, Curious = 2, Rush = 3, Flee = 4, Rest = 5 }
@@ -27,9 +28,10 @@ public class Pion : Entity
     bool stealPending;
 
     // Affichage : jambes animées en code, objet volé sur la tête.
-    Transform head, legL, legR, carriedVisual;
+    Transform body, head, legL, legR, carriedVisual;
     ItemType shownCarried;
-    float walkPhase;
+    float walkPhase, hopTimer = -1f, hopNext;
+    const float HopDuration = 0.45f, HopHeight = 0.35f;
 
     protected override void Init() => Home = transform.position;
 
@@ -37,13 +39,16 @@ public class Pion : Entity
     {
         Material cloak = GameArt.Lit("PionCloak", new Color(0.55f, 0.08f, 0.06f), null, 0.1f);
         Material black = GameArt.Lit("PionLeg", new Color(0.04f, 0.04f, 0.04f), null, 0.1f);
+        // Tout le corps sous un nœud qui peut sauter sans toucher à la position de l'entité.
+        body = new GameObject("Corps").transform;
+        body.SetParent(transform, false);
         // Cape rouge et deux jambes fines, noires.
-        GameArt.Prim(PrimitiveType.Cylinder, transform, new Vector3(0f, 0.38f, 0f), new Vector3(0.36f, 0.14f, 0.3f), cloak);
-        GameArt.Prim(PrimitiveType.Sphere, transform, new Vector3(0f, 0.3f, -0.03f), new Vector3(0.42f, 0.2f, 0.36f), cloak);
+        GameArt.Prim(PrimitiveType.Cylinder, body, new Vector3(0f, 0.38f, 0f), new Vector3(0.36f, 0.14f, 0.3f), cloak);
+        GameArt.Prim(PrimitiveType.Sphere, body, new Vector3(0f, 0.3f, -0.03f), new Vector3(0.42f, 0.2f, 0.36f), cloak);
         legL = Leg(-0.07f, black);
         legR = Leg(0.07f, black);
         head = new GameObject("Tete").transform;
-        head.SetParent(transform, false);
+        head.SetParent(body, false);
         head.localPosition = new Vector3(0f, 0.46f, 0f);
         // Tête Meshy (visage de vieillard surmonté de deux grandes cornes), face vers +Z.
         if (GameArt.SpawnModel("PionHead", head, Height - 0.46f) == null)
@@ -59,7 +64,7 @@ public class Pion : Entity
     Transform Leg(float x, Material mat)
     {
         var pivot = new GameObject("Jambe").transform;
-        pivot.SetParent(transform, false);
+        pivot.SetParent(body, false);
         pivot.localPosition = new Vector3(x, 0.3f, 0f);
         GameArt.Prim(PrimitiveType.Cylinder, pivot, new Vector3(0f, -0.15f, 0f), new Vector3(0.035f, 0.15f, 0.035f), mat);
         return pivot;
@@ -226,6 +231,25 @@ public class Pion : Entity
     {
         walkPhase += dt * visualSpeed * 9f;
         float swing = Mathf.Sin(walkPhase) * Mathf.Clamp01(visualSpeed / 1.5f) * 35f;
+
+        // Curieux et presque immobile : de temps en temps, un petit saut sur place, jambes repliées.
+        if (hopTimer >= 0f)
+        {
+            hopTimer += dt;
+            float k = hopTimer / HopDuration;
+            body.localPosition = Vector3.up * (4f * k * (1f - k) * HopHeight);
+            swing = Mathf.Sin(k * Mathf.PI) * 40f;
+            if (k >= 1f) { hopTimer = -1f; body.localPosition = Vector3.zero; }
+        }
+        else if (Current == State.Curious && visualSpeed < 1f)
+        {
+            hopNext -= dt;
+            if (hopNext <= 0f)
+            {
+                hopNext = Random.Range(1.5f, 4f);
+                if (Random.value < 0.5f) hopTimer = 0f;
+            }
+        }
         legL.localRotation = Quaternion.Euler(swing, 0f, 0f);
         legR.localRotation = Quaternion.Euler(-swing, 0f, 0f);
         // La grosse tête dodeline en marchant.
@@ -242,7 +266,7 @@ public class Pion : Entity
                 carriedVisual = new GameObject("ObjetVole").transform;
                 carriedVisual.SetParent(head, false);
                 carriedVisual.localPosition = new Vector3(0f, Height - 0.4f, 0f);
-                if (GameArt.SpawnModel(Carried == ItemType.Canard ? "DuckSolo" : "Croquette", carriedVisual, 0.3f) == null)
+                if (GameArt.SpawnModel(Items.ModelName(Carried), carriedVisual, 0.3f) == null)
                     GameArt.Prim(PrimitiveType.Sphere, carriedVisual, new Vector3(0f, 0.12f, 0f), Vector3.one * 0.22f,
                         GameArt.Lit("Item" + Carried, Items.Get(Carried).color, null, 0.8f));
             }

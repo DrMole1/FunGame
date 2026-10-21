@@ -22,7 +22,7 @@ public class NetworkGame : MonoBehaviour
     // Image plus longue que ceci chez l'hôte : son onglet était probablement en arrière-plan.
     const float HostStallWarning = 3f;
     const float ConnectTimeout = 15f;
-    public const int FlagDead = 1, FlagSneak = 2, FlagTeleport = 4;
+    public const int FlagDead = 1, FlagSneak = 2, FlagTeleport = 4, FlagHidden = 8, FlagCannonball = 16;
 
     enum State { Lobby, Hosting, Joining, InGame }
 
@@ -118,7 +118,8 @@ public class NetworkGame : MonoBehaviour
             // Rythme régulier : le temps en trop est reporté sur l'envoi suivant.
             sendTimer = Mathf.Min(sendTimer - SendInterval, SendInterval);
             Vector3 p = t.position;
-            int flags = (session.LocalDead ? FlagDead : 0) | (localPlayer.Sneaking ? FlagSneak : 0) | (GameSession.Teleporting ? FlagTeleport : 0);
+            int flags = (session.LocalDead ? FlagDead : 0) | (localPlayer.Sneaking ? FlagSneak : 0) | (GameSession.Teleporting ? FlagTeleport : 0)
+                | (GameSession.InCannon ? FlagHidden : 0) | (GameSession.CannonFlying ? FlagCannonball : 0);
             string msg = "S|" + myId + "|" + F(p.x) + "|" + F(p.y) + "|" + F(p.z) + "|" + F(t.eulerAngles.y)
                 + "|" + (int)localPlayer.CurrentAnimState + "|" + session.LocalHp + "|" + flags + "|" + Clock();
             if (isHost) PeerNet.BroadcastFast(msg);
@@ -323,7 +324,7 @@ public class NetworkGame : MonoBehaviour
                 // L'hôte n'accepte d'un client que son propre état.
                 if (isHost && f[1] != from) break;
                 if (remotes.TryGetValue(f[1], out var rp))
-                    rp.SetTarget(D(f[9]), new Vector3(P(f[2]), P(f[3]), P(f[4])), P(f[5]), (AnimState)Mathf.Clamp(I(f[6]), 0, (int)AnimState.Dance), I(f[7]), I(f[8]));
+                    rp.SetTarget(D(f[9]), new Vector3(P(f[2]), P(f[3]), P(f[4])), P(f[5]), (AnimState)Mathf.Clamp(I(f[6]), 0, (int)AnimState.Dance3), I(f[7]), I(f[8]));
                 break;
             case "L" when !isHost && f.Length >= 2:
                 if (roster.TryGetValue(f[1], out var left))
