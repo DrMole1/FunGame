@@ -14,9 +14,9 @@ public static class IconRenderer
     public static void Generate()
     {
         if (!AssetDatabase.IsValidFolder(IconDir)) AssetDatabase.CreateFolder("Assets/Resources", "Icons");
-        // Les modèles Meshy ont un socle : on cadre la partie haute (l'objet lui-même).
+        // Certains modèles Meshy ont un socle : on cadre la partie haute (l'objet lui-même).
         Render("Croquette", ItemType.Croquette, new Vector3(20f, -35f, 0f), 0.22f);
-        Render("Duck", ItemType.Canard, new Vector3(8f, -140f, 0f), 0.5f);
+        Render("DuckSolo", ItemType.Canard, new Vector3(8f, -140f, 0f), 0f);
         Render("Balise", ItemType.Balise, new Vector3(10f, -150f, 0f), 0f);
         Render("Balise", ItemType.BaliseAmelioree, new Vector3(10f, -150f, 0f), 0f, "BaliseRouge");
         Render("Teleporteur", ItemType.Teleporteur, new Vector3(45f, -150f, 0f), 0f);

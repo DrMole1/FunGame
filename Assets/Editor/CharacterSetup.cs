@@ -17,6 +17,8 @@ public static class CharacterSetup
     const string SneakPath = "Assets/Models/Animations/SneakyWalk.fbx";
     // Le clip (2 pas en 2,83 s) est accéléré pour suivre la vitesse de la marche discrète.
     const float SneakStateSpeed = 1.5f;
+    // Danse sur un Téléporteur ou une Station Curative : celle du Fou (Humanoid, partagée sans la réimporter).
+    const string DancePath = "Assets/Models/Fou/Fou_Dance.fbx";
     // Morts (Meshy "Electrocuted Fall", "Strangled and Fall Forward", "Dying Backwards") : états Death0, Death1, Death2,
     // l'un d'eux tiré au hasard par CharacterAvatar. La chute est intégrée à la pose (sans mouvement de racine).
     static readonly string[] DeathPaths =
@@ -56,6 +58,31 @@ public static class CharacterSetup
         }
         AssetDatabase.SaveAssets();
         Debug.Log("Animations de mort ajoutées aux personnages.");
+    }
+
+    static void AddDanceState(AnimatorStateMachine sm)
+    {
+        AnimationClip dance = AssetDatabase.LoadAllAssetsAtPath(DancePath).OfType<AnimationClip>()
+            .FirstOrDefault(c => !c.name.StartsWith("__preview__"));
+        if (dance == null) { Debug.LogError("Danse introuvable : " + DancePath); return; }
+        AddState(sm, "Dance", dance, 1f);
+    }
+
+    // Ajoute la danse aux Animators existants, sans réinstaller les personnages ni toucher à la scène.
+    [MenuItem("FunGame/Ajouter la danse aux personnages")]
+    public static void AddDance()
+    {
+        foreach (string name in AssetDatabase.GetSubFolders(Root).Select(Path.GetFileName))
+        {
+            var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(Root + "/" + name + "/" + name + ".controller");
+            if (controller == null) continue;
+            AnimatorStateMachine sm = controller.layers[0].stateMachine;
+            foreach (var child in sm.states.Where(c => c.state.name == "Dance").ToArray()) sm.RemoveState(child.state);
+            AddDanceState(sm);
+            EditorUtility.SetDirty(controller);
+        }
+        AssetDatabase.SaveAssets();
+        Debug.Log("Danse ajoutée aux personnages.");
     }
 
     static void AddDeathStates(AnimatorStateMachine sm, AnimationClip[] deaths)
@@ -101,6 +128,7 @@ public static class CharacterSetup
         // Arrêt en marche discrète : même clip, figé (CharacterAvatar choisit l'image).
         AddState(sm, "SneakIdle", sneak, 0f);
         AddDeathStates(sm, deaths);
+        AddDanceState(sm);
         sm.defaultState = idle;
 
         var model = AssetDatabase.LoadAssetAtPath<GameObject>(riggedPath);

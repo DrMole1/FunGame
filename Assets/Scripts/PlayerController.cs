@@ -35,6 +35,10 @@ public class PlayerController : MonoBehaviour
     public void ReleaseImmobilize() => lockedUntil = 0f;
     bool Immobilized => Time.time < lockedUntil;
 
+    public bool Grounded => grounded;
+    // Sur un Téléporteur ou une Station Curative en marche : le personnage danse tant qu'il ne bouge pas.
+    public bool Dancing { get; set; }
+
     // Multiplicateur de vitesse imposé par le jeu (brume de l'Abjuration).
     public float SpeedFactor { get; set; } = 1f;
     // Aura blanche du Roi : impossible de courir.
@@ -180,7 +184,7 @@ public class PlayerController : MonoBehaviour
     AnimState ComputeAnimState(bool onGround)
     {
         if (!onGround) return AnimState.Jump;
-        if (inputDir.sqrMagnitude < 0.01f) return gait == Gait.Sneak ? AnimState.SneakIdle : AnimState.Idle;
+        if (inputDir.sqrMagnitude < 0.01f) return Dancing ? AnimState.Dance : gait == Gait.Sneak ? AnimState.SneakIdle : AnimState.Idle;
         switch (gait)
         {
             case Gait.Run: return AnimState.Run;

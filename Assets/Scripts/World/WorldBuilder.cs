@@ -29,7 +29,7 @@ public static class WorldBuilder
         public Transform buttonAnchor, terminalAnchor, pogoAnchor;
         public Vector3 beaconPosition;   // Balise du Hub, près de la porte
         public float beaconYaw;
-        public TextMesh timerText, quotaText, cashText, logText, terminalText, roundBoardText;
+        public TextMesh timerText, quotaText, cashText, logText, roundBoardText;
         public ReflectionProbe hubProbe;
         public Vector3[] kennelPositions;
         public Quaternion[] kennelRotations;
@@ -173,8 +173,6 @@ public static class WorldBuilder
         refs.terminalAnchor.SetParent(root, false);
         refs.terminalAnchor.localPosition = Polar(TerminalAngle, HubRadius - 1.8f, 0f);
         refs.terminalAnchor.localRotation = FacingCenter(TerminalAngle);
-        refs.terminalText = Screen(root, "Ecran du Terminal", TerminalAngle, HubRadius - 0.45f, 2.6f, new Vector2(3.4f, 2f), 0.02f, TextAnchor.MiddleLeft);
-        refs.terminalText.color = new Color(0.45f, 1f, 0.5f);
 
         // Balise du Hub, à côté du passage vers le labyrinthe (vision directe par la porte).
         refs.beaconPosition = Polar(BeaconAngle, 8.6f, 0f);

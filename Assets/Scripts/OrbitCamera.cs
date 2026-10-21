@@ -199,7 +199,8 @@ public class OrbitCamera : MonoBehaviour
         if (fp)
         {
             float eye = eyeHeight - GameRules.SneakEyeDrop * Mathf.SmoothStep(0f, 1f, crouchBlend);
-            transform.SetPositionAndRotation(target.position + Vector3.up * eye, rot);
+            Vector3 bob = HeadBob(controller, rot, out float roll);
+            transform.SetPositionAndRotation(target.position + Vector3.up * eye + bob, rot * Quaternion.Euler(0f, 0f, roll));
             return;
         }
         Vector3 focus = target.position + Vector3.up * height;
@@ -217,6 +218,26 @@ public class OrbitCamera : MonoBehaviour
         pos.y = Mathf.Max(pos.y, target.position.y);
         transform.position = pos;
         transform.rotation = Quaternion.LookRotation(focus - pos);
+    }
+
+    // Première personne : la tête oscille légèrement au rythme des pas (vertical, latéral et un soupçon de roulis),
+    // d'autant plus que le personnage va vite ; l'effet s'estompe à l'arrêt et en l'air.
+    float bobPhase, bobWeight;
+
+    Vector3 HeadBob(PlayerController controller, Quaternion rot, out float roll)
+    {
+        var body = controller.GetComponent<Rigidbody>();
+        Vector3 v = body != null ? body.velocity : Vector3.zero;
+        float speed = new Vector2(v.x, v.z).magnitude;
+        bool walking = controller.Grounded && speed > 0.5f;
+        bobWeight = Mathf.MoveTowards(bobWeight, walking ? Mathf.Clamp01(speed / 6f) + 0.35f : 0f, Time.deltaTime * 3f);
+        // Un pas toutes les ~0,45 s en marche, plus rapide en course.
+        if (walking) bobPhase += Time.deltaTime * (5f + speed * 0.9f);
+        float step = Mathf.Sin(bobPhase), sway = Mathf.Sin(bobPhase * 0.5f);
+        roll = sway * 0.35f * bobWeight;
+        Vector3 right = rot * Vector3.right;
+        right.y = 0f;
+        return (Vector3.up * (Mathf.Abs(step) - 0.5f) * 0.045f + right.normalized * sway * 0.02f) * bobWeight;
     }
 
     public float CurrentDistance => FirstPerson ? 0f : currentDistance;

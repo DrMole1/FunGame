@@ -82,8 +82,37 @@ public abstract class Entity : MonoBehaviour
         e.BuildVisual();
         var model = go.transform.Find("Modele");
         if (model != null) model.localScale *= e.ModelScale;
+        AddGlow(go);
         e.Init();
         return e;
+    }
+
+    // Légère lueur propre (de la couleur de la texture) : les entités se devinent dans l'obscurité du labyrinthe.
+    // Les matériaux déjà lumineux (yeux, auras) ou transparents gardent leur rendu.
+    const float GlowLevel = 0.07f;
+
+    static void AddGlow(GameObject go)
+    {
+        foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+        {
+            if (!(r is MeshRenderer || r is SkinnedMeshRenderer)) continue;
+            var mats = r.sharedMaterials;
+            bool changed = false;
+            for (int i = 0; i < mats.Length; i++)
+            {
+                var m = mats[i];
+                if (m == null || !m.HasProperty("_EmissionColor") || m.IsKeywordEnabled("_EMISSION") || m.renderQueue > 2500) continue;
+                m = new Material(m) { name = m.name + " (lueur)" };
+                m.EnableKeyword("_EMISSION");
+                m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+                if (m.HasProperty("_EmissionMap") && m.mainTexture != null) m.SetTexture("_EmissionMap", m.mainTexture);
+                Color c = m.HasProperty("_Color") ? m.color : Color.white;
+                m.SetColor("_EmissionColor", new Color(c.r, c.g, c.b) * GlowLevel);
+                mats[i] = m;
+                changed = true;
+            }
+            if (changed) r.sharedMaterials = mats;
+        }
     }
 
     protected abstract void BuildVisual();

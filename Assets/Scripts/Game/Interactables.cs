@@ -80,7 +80,7 @@ public class ItemPickup : Interactable
         var visual = new GameObject("Visuel").transform;
         visual.SetParent(go.transform, false);
 
-        string model = type == ItemType.Canard ? "Duck" : "Croquette";
+        string model = type == ItemType.Canard ? "DuckSolo" : "Croquette";
         if (GameArt.SpawnModel(model, visual, 0.45f) == null)
             BuildFallback(visual, type);
         visual.gameObject.AddComponent<Bobbing>();

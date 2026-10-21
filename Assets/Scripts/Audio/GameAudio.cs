@@ -308,7 +308,7 @@ public class GameAudio : MonoBehaviour
         float ka = 1f - Mathf.Exp(-0.6f * Time.unscaledDeltaTime);
         abjurationMusic.volume = Mathf.Lerp(abjurationMusic.volume, abj * 0.5f * music, ka);
         float ki = 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime);
-        insects.volume = Mathf.Lerp(insects.volume, inHub ? 0f : InsectLevel * 0.9f * on * sfx, ki);
+        insects.volume = Mathf.Lerp(insects.volume, inHub ? 0f : InsectLevel * 0.68f * on * sfx, ki);
         // Dans le Hub, les sons des entités se taisent (y compris ceux déjà commencés).
         bool hubListener = cam != null && inHub;
         for (int i = loops.Count - 1; i >= 0; i--)

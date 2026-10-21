@@ -1,7 +1,11 @@
 using System.Collections;
 using UnityEngine;
 
-public enum AnimState : byte { Idle, Walk, Run, Jump, Sneak, SneakIdle }
+// Dance : immobile sur un Téléporteur (canalisation) ou une Station Curative (soin).
+public enum AnimState : byte { Idle, Walk, Run, Jump, Sneak, SneakIdle, Dance }
+
+// Gestes ponctuels du haut du corps, vus par tous les joueurs.
+public enum PlayerGesture : byte { Bark, PickUp, Place, Use, Eat }
 
 // Modèle 3D animé d'un joueur (local ou distant), enfant du GameObject physique.
 public class CharacterAvatar : MonoBehaviour
@@ -51,6 +55,7 @@ public class CharacterAvatar : MonoBehaviour
         animator.applyRootMotion = false;
         animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
 
+        spine = chest = neck = head = upperArm = lowerArm = null;
         CharacterIndex = index;
         State = AnimState.Idle;
         animator.Play("Idle", 0, 0f);
@@ -70,7 +75,100 @@ public class CharacterAvatar : MonoBehaviour
         else if (state == AnimState.SneakIdle)
             animator.CrossFadeInFixedTime("SneakIdle", 0.25f, 0, SneakIdlePose);
         else
-            animator.CrossFadeInFixedTime(state.ToString(), state == AnimState.Sneak ? 0.25f : 0.15f);
+            animator.CrossFadeInFixedTime(state.ToString(), state == AnimState.Sneak || state == AnimState.Dance ? 0.25f : 0.15f);
+    }
+
+    // Gestes joués par-dessus l'animation en cours (le personnage peut marcher en même temps), sur le haut du corps :
+    // - Aboiement : le buste se cambre et la tête se relève (inspiration), puis tout se projette d'un coup sec vers
+    //   l'avant (le « Wouf »), avant de revenir en douceur.
+    // - Ramasser / Poser : le buste se penche, le bras droit va chercher (ou dépose) l'objet au sol.
+    // - Utiliser : le bras droit se tend devant soi ; Manger : la main monte à la bouche.
+    float gestureStart = -10f;
+    PlayerGesture gesture;
+    Transform spine, chest, neck, head, upperArm, lowerArm;
+
+    static float GestureDuration(PlayerGesture g) =>
+        g == PlayerGesture.Bark ? 0.55f : g == PlayerGesture.Place ? 0.8f : g == PlayerGesture.Eat ? 0.75f : 0.6f;
+
+    public void PlayGesture(PlayerGesture g)
+    {
+        if (animator == null || dead) return;
+        gesture = g;
+        gestureStart = Time.time;
+        if (head == null && animator.isHuman)
+        {
+            spine = animator.GetBoneTransform(HumanBodyBones.Spine);
+            chest = animator.GetBoneTransform(HumanBodyBones.Chest);
+            neck = animator.GetBoneTransform(HumanBodyBones.Neck);
+            head = animator.GetBoneTransform(HumanBodyBones.Head);
+            upperArm = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+            lowerArm = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
+        }
+    }
+
+    void LateUpdate()
+    {
+        float t = Time.time - gestureStart, duration = GestureDuration(gesture);
+        if (t < 0f || t > duration || dead || hidden || head == null || !model.activeInHierarchy) return;
+        // Angles positifs : vers l'avant (buste, tête) ; négatifs sur le bras : il se lève devant soi.
+        Vector3 axis = model.transform.right;
+        switch (gesture)
+        {
+            case PlayerGesture.Bark:
+            {
+                // Recul (0 → 0,12 s), coup vers l'avant (→ 0,2 s), puis retour.
+                float lean = t < 0.12f ? -Mathf.SmoothStep(0f, 1f, t / 0.12f)
+                    : t < 0.2f ? Mathf.Lerp(-1f, 1f, Mathf.SmoothStep(0f, 1f, (t - 0.12f) / 0.08f))
+                    : 1f - Mathf.SmoothStep(0f, 1f, (t - 0.2f) / (duration - 0.2f));
+                Tilt(chest, axis, lean * (lean > 0f ? 9f : 6f));
+                Tilt(neck, axis, lean * (lean > 0f ? 8f : 10f));
+                Tilt(head, axis, lean * (lean > 0f ? 6f : 14f));
+                break;
+            }
+            case PlayerGesture.PickUp:
+            case PlayerGesture.Place:
+            {
+                bool place = gesture == PlayerGesture.Place;
+                float w = Envelope(t, place ? 0.3f : 0.22f, place ? 0.18f : 0.1f, duration);
+                Tilt(spine, axis, w * 20f);
+                Tilt(chest, axis, w * 16f);
+                Tilt(neck, axis, w * 8f);
+                Tilt(head, axis, w * 10f);
+                Tilt(upperArm, axis, -w * (place ? 50f : 42f));
+                Tilt(lowerArm, axis, -w * 12f);
+                break;
+            }
+            case PlayerGesture.Use:
+            {
+                float w = Envelope(t, 0.15f, 0.15f, duration);
+                Tilt(chest, axis, w * 4f);
+                Tilt(head, axis, w * 6f);
+                Tilt(upperArm, axis, -w * 70f);
+                Tilt(lowerArm, axis, -w * 15f);
+                break;
+            }
+            case PlayerGesture.Eat:
+            {
+                float w = Envelope(t, 0.2f, 0.3f, duration);
+                // Petites bouchées pendant le maintien.
+                float chew = t > 0.2f && t < 0.5f ? Mathf.Abs(Mathf.Sin((t - 0.2f) * 21f)) : 0f;
+                Tilt(head, axis, -w * 6f + chew * 4f);
+                Tilt(upperArm, axis, -w * 55f);
+                Tilt(lowerArm, axis, -w * 95f);
+                break;
+            }
+        }
+    }
+
+    // Montée (attack), maintien (hold) puis retour jusqu'à la fin du geste.
+    static float Envelope(float t, float attack, float hold, float duration) =>
+        t < attack ? Mathf.SmoothStep(0f, 1f, t / attack)
+        : t < attack + hold ? 1f
+        : 1f - Mathf.SmoothStep(0f, 1f, (t - attack - hold) / (duration - attack - hold));
+
+    static void Tilt(Transform bone, Vector3 axis, float angle)
+    {
+        if (bone != null) bone.rotation = Quaternion.AngleAxis(angle, axis) * bone.rotation;
     }
 
     // En téléportation, le corps disparaît (remplacé par une boule d'énergie).

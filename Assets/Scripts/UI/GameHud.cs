@@ -250,7 +250,7 @@ public class GameHud : MonoBehaviour
         outline.effectDistance = new Vector2(3f, -3f);
         wipeSubtitle = Floating(w, new Vector2(0.5f, 0.5f), new Vector2(0, -60), new Vector2(900, 34), 22);
         wipeSubtitle.fontStyle = FontStyle.Italic;
-        wipeSubtitle.text = "Personne n'est revenu du labyrinthe.";
+        wipeSubtitle.text = "Aucun sujet de test en vie. L'expérience peut continuer.";
         var button = UiKit.Button(w, "Revenir au Lobby", BloodRed, 58, () => onLobby());
         ((RectTransform)button.transform).sizeDelta = new Vector2(340, 58);
         UiKit.Place(button, new Vector2(0.5f, 0.5f), new Vector2(0, -150));

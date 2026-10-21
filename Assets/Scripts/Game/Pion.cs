@@ -242,7 +242,7 @@ public class Pion : Entity
                 carriedVisual = new GameObject("ObjetVole").transform;
                 carriedVisual.SetParent(head, false);
                 carriedVisual.localPosition = new Vector3(0f, Height - 0.4f, 0f);
-                if (GameArt.SpawnModel(Carried == ItemType.Canard ? "Duck" : "Croquette", carriedVisual, 0.3f) == null)
+                if (GameArt.SpawnModel(Carried == ItemType.Canard ? "DuckSolo" : "Croquette", carriedVisual, 0.3f) == null)
                     GameArt.Prim(PrimitiveType.Sphere, carriedVisual, new Vector3(0f, 0.12f, 0f), Vector3.one * 0.22f,
                         GameArt.Lit("Item" + Carried, Items.Get(Carried).color, null, 0.8f));
             }

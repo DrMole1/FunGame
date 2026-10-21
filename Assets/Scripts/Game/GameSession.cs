@@ -35,6 +35,7 @@ using UnityEngine;
 //   DF|durée                                                    hôte -> joueur : La Dame vous attaque, immobilisé
 //   SK -> SR|bonus (-1 = refusé)                                /skip round : passer à la manche suivante
 //   BK|pitch -> BA|id|pitch                                     aboiement d'un joueur
+//   GE|geste -> GS|id|geste                                     geste d'un joueur (ramasser, poser, utiliser, manger)
 public class GameSession : MonoBehaviour, IEntityHost
 {
     enum Phase { Waiting = 0, Running = 1, GameOver = 2 }
@@ -43,6 +44,8 @@ public class GameSession : MonoBehaviour, IEntityHost
     // Hors du Hub : presque le noir complet (plus terrifiant).
     static readonly Color MazeAmbient = new Color(0.016f, 0.016f, 0.02f);
     static readonly Color MistFog = new Color(0.02f, 0.05f, 0.12f);
+    // Voile lointain hors du Hub (rendu local) : les couloirs éloignés se fondent dans un gris à peine visible.
+    static readonly Color FarFog = new Color(0.03f, 0.032f, 0.038f);
     const float HubFog = 0.01f, MazeFog = 0.11f;
     // Lampe du personnage, hors du Hub : un halo court autour de lui.
     const float PlayerLightIntensity = 0.75f;
@@ -453,6 +456,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         if (!PlayerController.InputLocked && !status.Dead && Input.GetKeyDown(KeyLayout.Bark)) TryBark();
         UpdateTeleport();
         UpdateStations();
+        player.Dancing = channelPad != null || healing;
         UpdateCloches();
         UpdateRoi();
         UpdateMistContact();
@@ -473,6 +477,8 @@ public class GameSession : MonoBehaviour, IEntityHost
         // Cap de la caméra (là où le joueur regarde), pas celui du personnage.
         hud.SetCompass(compass && !status.Dead, (orbit != null ? orbit.transform : player.transform).eulerAngles.y);
     }
+
+    float farFogAmount;
 
     void UpdateAtmosphere()
     {
@@ -497,7 +503,8 @@ public class GameSession : MonoBehaviour, IEntityHost
         bool mistShown = mistAmount > 0.001f || roiMistCount > 0;
         if (maze != null && maze.mist.activeSelf != mistShown) maze.mist.SetActive(mistShown);
         float low = cam != null && !inHub ? Mathf.Clamp01((2.2f - cam.transform.position.y) / 1.5f) : 0f;
-        RenderSettings.fogColor = Color.Lerp(Color.black, MistFog, mistAmount * low);
+        farFogAmount = Mathf.Lerp(farFogAmount, inHub ? 0f : 1f, k);
+        RenderSettings.fogColor = Color.Lerp(FarFog * farFogAmount, MistFog, mistAmount * low);
         GameAudio.AbjurationLevel = abjuration ? 1f : 0f;
         UpdateInsectFlee();
     }
@@ -709,8 +716,6 @@ public class GameSession : MonoBehaviour, IEntityHost
         hub.quotaText.text = "Quota : " + progress + " / " + quota;
         hub.cashText.text = "Cagnotte : " + cash + " golds";
         hub.logText.text = string.Join("\n", logs);
-        string user = terminalUser.Length > 0 && net.Roster.TryGetValue(terminalUser, out var u) ? u.name : null;
-        hub.terminalText.text = TerminalUI.Menu(CanSkipRound) +(user != null ? "\n\n> Utilisé par " + user : "");
         hub.roundBoardText.text = RoundBoardText();
     }
 
@@ -952,6 +957,7 @@ public class GameSession : MonoBehaviour, IEntityHost
                 status.SetHp(status.Hp + Items.CroquetteHeal);
                 status.SetSerenity(status.Serenity + Items.CroquetteSerenity);
                 GameAudio.Play2D("eat", 0.8f, 0.1f);
+                Gesture(PlayerGesture.Eat);
                 hud.Toast("Miam ! +" + Items.CroquetteHeal + " PV, +" + Items.CroquetteSerenity + " de sérénité");
                 break;
             case ItemType.Balise:
@@ -1010,6 +1016,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         if (postItSlot < 0 || status.Dead || status[postItSlot] != ItemType.PostIt || text.Length == 0) return;
         status.RemoveAt(postItSlot);
         postItSlot = -1;
+        Gesture(PlayerGesture.Use);
         net.ToHost("PP|" + NetworkGame.F(postItPos.x) + "|" + NetworkGame.F(postItPos.y) + "|" + NetworkGame.F(postItPos.z)
             + "|" + NetworkGame.F(postItNormal.x) + "|" + NetworkGame.F(postItNormal.y) + "|" + NetworkGame.F(postItNormal.z) + "|" + text);
     }
@@ -1046,6 +1053,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             return;
         }
         status.RemoveAt(slot);
+        Gesture(PlayerGesture.Place);
         net.ToHost("BN|" + NetworkGame.F(hit.point.x) + "|" + NetworkGame.F(hit.point.y) + "|" + NetworkGame.F(hit.point.z) + "|" + (int)kind);
     }
 
@@ -1061,6 +1069,7 @@ public class GameSession : MonoBehaviour, IEntityHost
                 return;
             }
             status.RemoveAt(slot);
+            Gesture(PlayerGesture.Use);
             net.ToHost("BC");
             return;
         }
@@ -1070,6 +1079,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             return;
         }
         pendingPickups++;
+        Gesture(PlayerGesture.PickUp);
         net.ToHost("BG|" + beacon.Id);
     }
 
@@ -1106,6 +1116,7 @@ public class GameSession : MonoBehaviour, IEntityHost
         }
         // Comme /sell : l'objet quitte l'inventaire, l'hôte crédite quota et cagnotte.
         status.RemoveAt(slot);
+        Gesture(PlayerGesture.Use);
         net.ToHost("JS|" + (int)type);
         GameAudio.Play2D("register", 0.8f);
     }
@@ -1116,7 +1127,15 @@ public class GameSession : MonoBehaviour, IEntityHost
     {
         int slot = status.IndexOf(ItemType.Cle);
         if (slot < 0) return;
+        Gesture(PlayerGesture.Use);
         net.ToHost("OB|" + orb + "|" + slot);
+    }
+
+    // Geste du personnage local, joué tout de suite et relayé aux autres joueurs par l'hôte.
+    void Gesture(PlayerGesture g)
+    {
+        if (avatar != null) avatar.PlayGesture(g);
+        net.ToHost("GE|" + (int)g);
     }
 
     // ================= Entités =================
@@ -1629,6 +1648,7 @@ public class GameSession : MonoBehaviour, IEntityHost
             return;
         }
         pendingPickups++;
+        Gesture(PlayerGesture.PickUp);
         net.ToHost("PK|" + item.Id);
     }
 
@@ -1696,8 +1716,11 @@ public class GameSession : MonoBehaviour, IEntityHost
         net.ToHost("BK|" + NetworkGame.F(pitch));
     }
 
-    static void PlayBark(Transform who, float pitch) =>
+    static void PlayBark(Transform who, float pitch)
+    {
         GameAudio.Play3DSmooth("bark", who.position + Vector3.up * 0.8f, 1f, GameRules.BarkRange, pitch);
+        if (who.TryGetComponent(out CharacterAvatar avatar)) avatar.PlayGesture(PlayerGesture.Bark);
+    }
 
     // /skip round : si le quota est atteint, l'hôte passe à la manche suivante. Retourne un refus, ou null si envoyé.
     public bool CanSkipRound => phase == Phase.Running && progress >= quota;
@@ -2309,6 +2332,23 @@ public class GameSession : MonoBehaviour, IEntityHost
             case "BA" when f.Length >= 3:
                 if (f[1] != net.MyId && net.Remotes.TryGetValue(f[1], out var barker) && barker != null)
                     PlayBark(barker.transform, NetworkGame.P(f[2]));
+                break;
+
+            // ---------- Gestes (ramasser, poser, utiliser, manger) ----------
+            case "GE" when host && f.Length >= 2:
+            {
+                int g = NetworkGame.I(f[1]);
+                if (g <= (int)PlayerGesture.Bark || g > (int)PlayerGesture.Eat) break;
+                PeerNet.Broadcast("GS|" + from + "|" + g);
+                if (from != net.MyId && net.Remotes.TryGetValue(from, out var gesturer) && gesturer != null
+                    && gesturer.TryGetComponent(out CharacterAvatar ga))
+                    ga.PlayGesture((PlayerGesture)g);
+                break;
+            }
+            case "GS" when f.Length >= 3:
+                if (f[1] != net.MyId && net.Remotes.TryGetValue(f[1], out var other) && other != null
+                    && other.TryGetComponent(out CharacterAvatar oa))
+                    oa.PlayGesture((PlayerGesture)NetworkGame.I(f[2]));
                 break;
 
             // ---------- Passer la manche ----------

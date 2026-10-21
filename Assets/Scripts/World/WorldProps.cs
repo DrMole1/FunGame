@@ -186,7 +186,7 @@ public class Eye : MonoBehaviour
         if (blinkTimer <= 0f)
         {
             blinkTimer = Random.Range(3f, 10f);
-            GameAudio.Play3D("blink", transform.position, 0.35f, 8f, 0.15f);
+            GameAudio.Play3D("blink", transform.position, 0.26f, 8f, 0.15f);
         }
     }
 }
