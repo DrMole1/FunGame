@@ -1163,7 +1163,7 @@ public static class WorldBuilder
     }
 
     // Escalier d'une profondeur : marches du haut de la bande (niveau 'top') vers le fond. Comme pour AddStairs,
-    // la collision est une rampe.
+    // la collision est une rampe pleine.
     static void AddDepthStairs(MeshBuilder mb, Transform colliders, Vector3 o, Stair s)
     {
         Vector3 fwd = new Vector3(DI[s.dir], 0f, DJ[s.dir]);
@@ -1181,14 +1181,7 @@ public static class WorldBuilder
             mb.Box(c, size, 0.5f, 0b0011_0111);
         }
 
-        Vector3 bottom = topEdge + fwd * length + Vector3.up * (s.bottom + 0.05f), top = topEdge + Vector3.up * s.top;
-        Vector3 slope = top - bottom;
-        var ramp = new GameObject("Rampe").transform;
-        ramp.SetParent(colliders, false);
-        ramp.localRotation = Quaternion.LookRotation(slope.normalized, Vector3.up);
-        ramp.localPosition = (bottom + top) * 0.5f - ramp.localRotation * Vector3.up * 0.1f;
-        var box = ramp.gameObject.AddComponent<BoxCollider>();
-        box.size = new Vector3(width, 0.2f, slope.magnitude);
+        AddRamp(colliders, topEdge + fwd * length + Vector3.up * s.bottom, topEdge + Vector3.up * s.top, width);
     }
 
     // Porte massive vers la Zone 2 (fermée au départ) et ses trois orbes, côté Zone 1.
@@ -1250,7 +1243,7 @@ public static class WorldBuilder
     }
 
     // Escalier montant depuis le côté 'dir' de la cellule (sol du voisin, à la hauteur 'from') vers le plancher de la salle.
-    // Les marches sont visuelles ; la collision est une rampe (le personnage monte sans buter sur les marches).
+    // Les marches sont visuelles ; la collision est une rampe pleine (le personnage monte sans buter sur les marches).
     static void AddStairs(MeshBuilder mb, Transform colliders, Vector3 cellCenter, int dir, int steps, float from, float floor)
     {
         Vector3 outward = new Vector3(DI[dir], 0f, DJ[dir]);
@@ -1266,15 +1259,38 @@ public static class WorldBuilder
             mb.Box(center, size, 0.5f, 0b0011_0111);
         }
 
-        float depth = steps * StepDepth;
-        Vector3 bottom = edge + Vector3.up * (from + 0.05f), top = edge + inward * depth + Vector3.up * floor;
-        Vector3 slope = top - bottom;
-        var ramp = new GameObject("Rampe").transform;
-        ramp.SetParent(colliders, false);
-        ramp.localRotation = Quaternion.LookRotation(slope.normalized, Vector3.up);
-        ramp.localPosition = (bottom + top) * 0.5f - ramp.localRotation * Vector3.up * 0.1f;
-        var box = ramp.gameObject.AddComponent<BoxCollider>();
-        box.size = new Vector3(width, 0.2f, slope.magnitude);
+        AddRamp(colliders, edge + Vector3.up * from, edge + inward * (steps * StepDepth) + Vector3.up * floor, width);
+    }
+
+    // Collision d'un escalier : coin plein (prisme convexe) du pied 'foot' (au sol du bas) au haut 'head' (au niveau du
+    // haut), large de 'width'. Plein jusqu'au sol du bas : on ne peut ni passer sous les marches ni y entrer par le côté.
+    static void AddRamp(Transform colliders, Vector3 foot, Vector3 head, float width)
+    {
+        Vector3 along = head - foot;
+        along.y = 0f;
+        Vector3 side = Vector3.Cross(Vector3.up, along.normalized) * (width * 0.5f);
+        Vector3 footTop = foot + Vector3.up * 0.05f, headBase = new Vector3(head.x, foot.y, head.z);
+        var vertices = new[]
+        {
+            foot - side, foot + side, footTop - side, footTop + side,
+            headBase - side, headBase + side, head - side, head + side,
+        };
+        var mesh = new Mesh { name = "Rampe", vertices = vertices };
+        mesh.triangles = new[]
+        {
+            0, 1, 3, 0, 3, 2,   // pied
+            4, 6, 7, 4, 7, 5,   // dos, sous le haut
+            0, 4, 5, 0, 5, 1,   // dessous
+            2, 3, 7, 2, 7, 6,   // pente
+            0, 2, 6, 0, 6, 4,   // côtés
+            1, 5, 7, 1, 7, 3,
+        };
+        mesh.RecalculateBounds();
+        var ramp = new GameObject("Rampe");
+        ramp.transform.SetParent(colliders, false);
+        var collider = ramp.AddComponent<MeshCollider>();
+        collider.sharedMesh = mesh;
+        collider.convex = true;
     }
 
     // Sondes de réflexion (une par bloc), rendues une seule fois une fois le décor posé :

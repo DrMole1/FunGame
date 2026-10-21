@@ -49,7 +49,7 @@ public static class ChainLink
         float burst = Mathf.Lerp(3f, 0.6f, Mathf.Clamp01(away.magnitude / 4f));
         rb.velocity = away.normalized * burst + Random.insideUnitSphere * 1.2f + Vector3.up * Random.Range(0.5f, 2f);
         rb.angularVelocity = Random.insideUnitSphere * 12f;
-        piece.AddComponent<LinkDebris>();
+        piece.AddComponent<LinkDebris>().Heavy = mass >= 1f;
     }
 
     static void Prepare()
@@ -104,12 +104,29 @@ public static class ChainLink
     }
 }
 
-// Maillon tombé au sol : rétrécit puis disparaît au bout de quelques secondes.
+// Maillon tombé au sol : tinte en heurtant le sol, rétrécit puis disparaît au bout de quelques secondes.
 public class LinkDebris : MonoBehaviour
 {
     const float Life = 3.5f, Fade = 0.6f;
+    // Jusqu'à 220 maillons tombent ensemble : quelques tintements par maillon, espacés d'au moins 25 ms au total.
+    const int MaxClinks = 2;
+    const float ClinkGap = 0.025f, MinImpact = 0.8f;
+    static float lastClink;
+
+    public bool Heavy;   // le crochet : tintement plus grave et plus fort
     float age;
+    int clinks;
     Vector3 scale;
+
+    void OnCollisionEnter(Collision collision)
+    {
+        float impact = collision.relativeVelocity.magnitude;
+        if (clinks >= MaxClinks || impact < MinImpact || Time.time - lastClink < ClinkGap) return;
+        clinks++;
+        lastClink = Time.time;
+        float volume = Mathf.Clamp01(impact / 4f) * (Heavy ? 0.9f : 0.35f);
+        GameAudio.Play3D("roi_clink", transform.position, volume, 15f, 0.15f, Heavy ? 0.55f : 1f);
+    }
 
     void Start() => scale = transform.localScale;
 

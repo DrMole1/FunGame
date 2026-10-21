@@ -13,6 +13,7 @@ public class GameAudio : MonoBehaviour
     readonly List<AudioSource> pool = new List<AudioSource>();
     // Boucles attachées aux objets, avec leur volume de base (suivent le volume des effets sonores).
     readonly List<KeyValuePair<AudioSource, float>> loops = new List<KeyValuePair<AudioSource, float>>();
+    readonly HashSet<AudioSource> nightmareLoops = new HashSet<AudioSource>();
     // Sources (du groupe ou en boucle) qui jouent un son d'entité : muettes dans le Hub.
     readonly HashSet<AudioSource> entitySources = new HashSet<AudioSource>();
     int next;
@@ -132,6 +133,16 @@ public class GameAudio : MonoBehaviour
         return false;
     }
 
+    // Sons des Cauchemars (La Dame, La Tour, Le Fou, Le Roi) : un peu plus forts que les autres effets.
+    const float NightmareGain = 1.3f;
+    static readonly string[] NightmarePrefixes = { "dame_", "tour_", "fou_", "roi_" };
+
+    static float Gain(string clip)
+    {
+        foreach (string prefix in NightmarePrefixes) if (clip.StartsWith(prefix)) return NightmareGain;
+        return 1f;
+    }
+
     static bool ListenerInHub
     {
         get
@@ -192,7 +203,7 @@ public class GameAudio : MonoBehaviour
         else instance.entitySources.Remove(src);
         src.clip = SoundBank.Get(clip);
         src.loop = false;
-        src.volume = volume * sfx;
+        src.volume = volume * Gain(clip) * sfx;
         src.pitch = pitch * (1f + Random.Range(-pitchVariation, pitchVariation));
         src.Play();
     }
@@ -217,10 +228,11 @@ public class GameAudio : MonoBehaviour
         Configure3D(src, maxDistance);
         src.clip = SoundBank.Get(clip);
         src.loop = true;
-        src.volume = volume * sfx;
+        src.volume = volume * Gain(clip) * sfx;
         src.playOnAwake = false;
         if (IsEntitySound(clip)) instance.entitySources.Add(src);
-        instance.loops.Add(new KeyValuePair<AudioSource, float>(src, volume));
+        if (Gain(clip) != 1f) instance.nightmareLoops.Add(src);
+        instance.loops.Add(new KeyValuePair<AudioSource, float>(src, volume * Gain(clip)));
         return src;
     }
 
@@ -229,7 +241,7 @@ public class GameAudio : MonoBehaviour
     {
         if (instance == null || src == null) return;
         int i = instance.loops.FindIndex(l => l.Key == src);
-        if (i >= 0) instance.loops[i] = new KeyValuePair<AudioSource, float>(src, volume);
+        if (i >= 0) instance.loops[i] = new KeyValuePair<AudioSource, float>(src, volume * (instance.nightmareLoops.Contains(src) ? NightmareGain : 1f));
     }
 
     // Mort du joueur local : le râle, puis un silence total d'une seconde, puis un cœur qui ralentit et s'arrête,
@@ -325,6 +337,7 @@ public class GameAudio : MonoBehaviour
             {
                 loops.RemoveAt(i);
                 entitySources.RemoveWhere(src => src == null);
+                nightmareLoops.RemoveWhere(src => src == null);
             }
             else loops[i].Key.volume = silenced || hubListener && entitySources.Contains(loops[i].Key) ? 0f : loops[i].Value * sfx;
         }

@@ -84,6 +84,7 @@ public class LobbyUI : MonoBehaviour
     {
         net.SelectSkin(net.MySkin + delta);
         RefreshSkin();
+        GameAudio.Play2D("skin", 0.6f, 0.05f);
     }
 
     void RefreshSkin()

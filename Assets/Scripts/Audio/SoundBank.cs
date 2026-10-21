@@ -13,13 +13,13 @@ public static class SoundBank
     public static readonly string[] All =
     {
         "button", "door", "tick", "tock", "fanfare", "gameover", "laser_on", "laser_hum", "laser_hit",
-        "hurt", "death", "revive", "duck", "pop", "eat", "key", "beep", "error", "register",
+        "hurt", "death", "revive", "duck", "pop", "skin", "eat", "key", "beep", "error", "register",
         "hub_music", "maze_drone", "insects", "neon", "blink", "step_tile", "step_dirt",
         "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
         "tour_step", "tour_breath", "tour_charge", "tour_channel", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
         "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat",
-        "fou_bells", "fou_alert", "fou_attack", "fou_dance", "roi_laugh", "roi_chain", "roi_break", "roi_slash",
+        "fou_bells", "fou_alert", "fou_attack", "fou_dance", "roi_laugh", "roi_chain", "roi_break", "roi_slash", "roi_clink",
         "dig", "dame_step", "cannon_fire", "cannon_impact",
         // Sons enregistrés seulement (GDD 12), sans équivalent synthétisé.
         "dame_kill", "tour_kill", "fou_kill", "roi_flash", "roi_kill",
@@ -67,6 +67,8 @@ public static class SoundBank
             case "revive": return Revive();
             case "duck": return Duck(rnd);
             case "pop": return Pop();
+            case "skin": return Skin(rnd);
+            case "roi_clink": return RoiClink(rnd);
             case "eat": return Eat(rnd);
             case "key": return Click(rnd, 2600f, 1200f, 0.045f);
             case "beep": return Beep(880f, 0.12f);
@@ -492,6 +494,40 @@ public static class SoundBank
         return d;
     }
 
+    // Changement de skin dans les menus : froissement de tissu montant puis petit tintement à deux notes.
+    static float[] Skin(System.Random rnd)
+    {
+        var d = Buffer(0.4f);
+        var bp = new BandPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float swish = bp.Process(Noise(rnd), Mathf.Lerp(900f, 3200f, Mathf.Min(1f, t / 0.12f)), 0.6f) * ASR(t, 0.04f, 0.06f, 0.14f) * 0.6f;
+            float chime = 0f;
+            if (t >= 0.08f) chime += Sine(Midi(79) * (t - 0.08f)) * AD(t - 0.08f, 0.002f, 0.08f);
+            if (t >= 0.15f) chime += Sine(Midi(84) * (t - 0.15f)) * AD(t - 0.15f, 0.002f, 0.12f);
+            d[i] = swish + chime * 0.45f;
+        }
+        return d;
+    }
+
+    // Maillon de la chaîne brisée qui heurte le sol : petit choc sec puis tintement métallique inharmonique, très court.
+    static float[] RoiClink(System.Random rnd)
+    {
+        var d = Buffer(0.25f);
+        var bp = new BandPass();
+        float f = 2300f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float hit = bp.Process(Noise(rnd), 4200f, 0.4f) * Decay(t, 0.004f);
+            float ring = Sine(f * t) * Decay(t, 0.05f) + Sine(f * 2.32f * t) * Decay(t, 0.03f) * 0.6f
+                + Sine(f * 3.86f * t) * Decay(t, 0.02f) * 0.35f;
+            d[i] = hit + ring * 0.5f;
+        }
+        return d;
+    }
+
     // Croquette croquée : trois craquements.
     static float[] Eat(System.Random rnd)
     {
@@ -724,10 +760,10 @@ public static class SoundBank
         return d;
     }
 
-    // Creuser un monticule (V0.4.6) : griffes qui raclent la terre, par à-coups rapides, pendant 2 secondes.
+    // Creuser un monticule (V0.4.6) : griffes qui raclent la terre, par à-coups rapides, pendant 1,2 seconde.
     static float[] Dig(System.Random rnd)
     {
-        var d = Buffer(2f);
+        var d = Buffer(GameRules.DigDuration);
         var bp = new BandPass();
         var lp = new LowPass();
         for (int i = 0; i < d.Length; i++)
@@ -737,7 +773,7 @@ public static class SoundBank
             float grain = rnd.NextDouble() < 0.08 ? Noise(rnd) * 2.2f : Noise(rnd) * 0.5f;
             float scrape = bp.Process(grain, 1500f + 700f * Mathf.Sin(t * 23f), 0.6f) * AD(u, 0.01f, 0.07f);
             float clod = lp.Process(Noise(rnd), 300f) * AD(Mathf.Repeat(t + 0.08f, 0.34f), 0.004f, 0.05f) * 1.5f;
-            d[i] = (scrape + clod) * Mathf.Clamp01((2f - t) / 0.2f);
+            d[i] = (scrape + clod) * Mathf.Clamp01((GameRules.DigDuration - t) / 0.2f);
         }
         return d;
     }

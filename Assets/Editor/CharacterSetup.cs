@@ -24,8 +24,8 @@ public static class CharacterSetup
     const string ExtrasPath = "Assets/Models/Animations/PlayerExtras.fbx";
     static readonly (string take, string state, bool loop)[] Extras =
         { ("FunnyDancing_02", "Dance2", true), ("Hip_Hop_Dance", "Dance3", true), ("Pull_Radish", "Dig", true) };
-    // Le clip "Pull Radish" dure 4,7 s : accéléré pour tenir dans les 2 secondes du creusage.
-    const float DigStateSpeed = 2.35f;
+    // Le clip "Pull Radish" dure 4,7 s : accéléré pour tenir dans les 1,2 seconde du creusage.
+    const float DigStateSpeed = 3.92f;
     // Morts (Meshy "Electrocuted Fall", "Strangled and Fall Forward", "Dying Backwards") : états Death0, Death1, Death2,
     // l'un d'eux tiré au hasard par CharacterAvatar. La chute est intégrée à la pose (sans mouvement de racine).
     static readonly string[] DeathPaths =

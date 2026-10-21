@@ -41,6 +41,8 @@ public class PlayerController : MonoBehaviour
     public bool Dancing { get; set; }
     // En train de creuser un monticule (animation "Creuser", commandes bloquées par le jeu).
     public bool Digging { get; set; }
+    // Marche automatique vers ce point (en courant, commandes bloquées) ; null : aucune.
+    public Vector3? WalkTarget { get; set; }
     // Danse choisie au clavier (0 : aucune, 1 à 3).
     int chosenDance;
     static readonly AnimState[] Dances = { AnimState.Dance, AnimState.Dance2, AnimState.Dance3 };
@@ -95,6 +97,8 @@ public class PlayerController : MonoBehaviour
             // V0.4.1 : la marche discrète passe sur la touche C (Ctrl + touche est réservé par les navigateurs).
             sneakHeld = Input.GetKey(KeyCode.C);
         }
+        // Marche automatique (approche d'un monticule) : en courant.
+        if (WalkTarget.HasValue) runHeld = !RunBlocked;
 
         // Course et marche discrète sont exclusives : la première touche enfoncée fait foi.
         // On ne se relève que s'il y a la place au-dessus de la tête.
@@ -118,6 +122,13 @@ public class PlayerController : MonoBehaviour
             right = Vector3.ProjectOnPlane(cameraTransform.right, Vector3.up).normalized;
         }
         inputDir = Vector3.ClampMagnitude(forward * v + right * h, 1f);
+        if (WalkTarget.HasValue)
+        {
+            Vector3 to = WalkTarget.Value - transform.position;
+            to.y = 0f;
+            // Ralenti au dernier pas pour s'arrêter pile sur le point.
+            inputDir = Vector3.ClampMagnitude(to / Mathf.Max(0.01f, CurrentSpeed() * Time.fixedDeltaTime), 1f);
+        }
 
         // Danses : I, O, P (l'IA a choisi les danses 2 et 3) ; un déplacement ou un saut y met fin.
         if (CanControl && !Immobilized)

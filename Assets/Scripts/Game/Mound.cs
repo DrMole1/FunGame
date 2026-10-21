@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // Monticule de terre (V0.4.6, note 02 du chapitre 7) : les objets de valeur n'apparaissent plus à l'air libre. Un joueur
-// qui le vise de près et clique (ou E) le creuse pendant 2 secondes, en projetant de la terre autour de lui ; le monticule
+// qui le vise de près et clique (ou E) le creuse pendant 1,2 seconde, en projetant de la terre autour de lui ; le monticule
 // libère alors l'objet tiré au sort à la génération (Os 90 %, Canard en Plastique 10 %), à ramasser.
 public class Mound : Interactable
 {
@@ -32,7 +32,7 @@ public class Mound : Interactable
     public override bool CanInteract => !Digging;
     public override void Interact() => GameSession.Instance.RequestDig(this);
 
-    // Quelqu'un creuse : de la terre gicle autour pendant 2 secondes.
+    // Quelqu'un creuse : de la terre gicle autour pendant 1,2 seconde.
     public void StartDigging()
     {
         if (Digging) return;

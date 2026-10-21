@@ -11,7 +11,9 @@ public enum DeviceKind : byte { Beacon = 0, Enhanced = 1, Teleporter = 2, Statio
 // chargée. Le Canon de cirque tourne avec la visée du joueur qui est dedans, et recule en crachant des confettis au tir.
 public class Beacon : Interactable
 {
-    public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f, StationHeight = 1.15f, CanonHeight = 0.8f;
+    public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f, StationHeight = 1.15f;
+    // Canon posé au sol : 0,8 fois la taille d'un personnage (1,8 m), soit environ 3 m de long ; fût à 80 % de sa hauteur.
+    public const float CanonHeight = 0.8f * 1.8f, CanonBarrel = CanonHeight * 0.8f, CanonHalfLength = 1.5f;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
     public int Id { get; private set; }   // -1 : Balise du Hub
@@ -25,9 +27,9 @@ public class Beacon : Interactable
     float VisualHeight => IsHub ? HubHeight : Kind == DeviceKind.Teleporter ? PadHeight : Kind == DeviceKind.Station ? StationHeight
         : Kind == DeviceKind.Canon ? CanonHeight : Height;
     // Point d'attache des rayons d'énergie : le cristal (le centre du disque, le haut du tube, le fût du Canon).
-    public Vector3 Top => transform.position + Vector3.up * (Kind == DeviceKind.Teleporter ? 0.12f : Kind == DeviceKind.Canon ? 0.5f : VisualHeight * 0.86f);
+    public Vector3 Top => transform.position + Vector3.up * (Kind == DeviceKind.Teleporter ? 0.12f : Kind == DeviceKind.Canon ? CanonBarrel : VisualHeight * 0.86f);
     // Bouche du Canon, d'où part le boulet.
-    public Vector3 Muzzle => transform.position + Vector3.up * 0.75f;
+    public Vector3 Muzzle => transform.position + Vector3.up * CanonBarrel;
 
     Renderer[] bodies;
     GameObject halo;
@@ -128,7 +130,7 @@ public class Beacon : Interactable
             // Distance jusqu'au Hub, dans l'air au-dessus d'elle (renseignée par BeaconNetwork.Add).
             beacon.coordinates = GameArt.CreateText(go.transform, "DistanceHub", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(1f, 0.45f, 0.4f));
         }
-        beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.2f, 0.9f, 1.2f)
+        beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(2.2f, CanonHeight, 2.2f)
             : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;
@@ -214,7 +216,7 @@ public class Beacon : Interactable
         AimCanon(yaw);
         recoil = 0f;
         Vector3 dir = Quaternion.Euler(0f, yaw, 0f) * Vector3.forward;
-        Vector3 mouth = Muzzle + dir * 0.7f;
+        Vector3 mouth = Muzzle + dir * (CanonHalfLength + 0.1f);
         GameAudio.Play3D("cannon_fire", mouth, 1f, 35f, 0.05f);
         foreach (var c in new[] { new Color(1f, 0.2f, 0.2f), new Color(1f, 0.85f, 0.2f), new Color(0.95f, 0.95f, 0.95f), new Color(0.3f, 0.55f, 1f) })
             Fx.Burst(mouth, GameArt.Emissive("Confetti" + c, c, c * 0.6f), 14, 6f, 0.07f, 1.6f);
@@ -228,7 +230,7 @@ public class Beacon : Interactable
         recoil += Time.deltaTime;
         float k = recoil < 0.06f ? recoil / 0.06f : 1f - Mathf.SmoothStep(0f, 1f, (recoil - 0.06f) / 0.5f);
         Vector3 back = -visualRoot.parent.InverseTransformDirection(visualRoot.rotation * Vector3.right);
-        visualRoot.localPosition = back * (0.25f * k);
+        visualRoot.localPosition = back * (0.45f * k);
         visualRoot.localScale = Vector3.one * (1f + 0.08f * k);
         if (recoil > 0.6f) { recoil = -1f; visualRoot.localPosition = Vector3.zero; visualRoot.localScale = Vector3.one; }
     }

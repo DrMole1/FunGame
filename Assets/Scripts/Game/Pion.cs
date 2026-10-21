@@ -3,7 +3,7 @@ using UnityEngine;
 
 // Le Pion (entité ID 4, type Normal) : petite entité à grosse tête, plus petite qu'un joueur, qui marche à la vitesse
 // d'un joueur. Les Pions apparaissent par groupes de 1 à 3 et vivent à 30 m au plus de leur point d'apparition.
-// Un joueur qui entre dans cette zone est observé à 5 m (état "curieux") et suivi à distance ; au bout de 4 à 8 secondes,
+// Un joueur qui entre dans cette zone est observé à 5 m (état "curieux") et suivi à distance ; au bout de 12 à 15 secondes,
 // le Pion crie et court vers lui. Au contact : dégâts, recul, et vol d'un objet ramassable (le Canard), qu'il emporte
 // sur sa tête pour le déposer plus loin dans sa zone. Ramasser un objet volé déclenche son attaque sur-le-champ.
 // En état curieux, il lui arrive de sauter sur place (V0.4.6 ; animation locale, sans effet sur le jeu).

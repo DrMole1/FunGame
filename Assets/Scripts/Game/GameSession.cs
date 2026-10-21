@@ -419,11 +419,42 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // ================= Monticules =================
 
-    // Le joueur local creuse : 2 secondes sans bouger, sauter ni interagir ; il aboie en commençant.
+    // Le joueur local creuse : il court d'abord jusqu'à 0,4 m du monticule (s'il en est plus loin), puis creuse
+    // 1,2 seconde sans bouger, sauter ni interagir ; il aboie en commençant.
     public void RequestDig(Mound mound)
     {
         if (localDig >= 0 || status.Dead || mound.Digging) return;
         localDig = mound.Id;
+        Vector3 away = player.transform.position - mound.transform.position;
+        away.y = 0f;
+        if (away.magnitude > GameRules.DigApproach + 0.05f)
+        {
+            Vector3 spot = mound.transform.position + away.normalized * GameRules.DigApproach;
+            spot.y = player.transform.position.y;
+            player.WalkTarget = spot;
+            // Bloqué en chemin (mur, autre joueur) : il creuse quand même, là où il est.
+            localDigEnd = Time.time + 0.5f + away.magnitude / GameRules.BaseSpeed;
+            digApproaching = true;
+            return;
+        }
+        StartLocalDig(mound);
+    }
+
+    bool digApproaching;
+
+    void UpdateDigApproach()
+    {
+        if (!mounds.TryGetValue(localDig, out var mound) || mound == null || mound.Digging) { EndLocalDig(); return; }
+        Vector3 to = player.WalkTarget.HasValue ? player.WalkTarget.Value - player.transform.position : Vector3.zero;
+        to.y = 0f;
+        if (to.magnitude > 0.05f && Time.time < localDigEnd) return;
+        player.WalkTarget = null;
+        digApproaching = false;
+        StartLocalDig(mound);
+    }
+
+    void StartLocalDig(Mound mound)
+    {
         localDigEnd = Time.time + GameRules.DigDuration;
         player.Digging = true;
         Bark();
@@ -434,12 +465,17 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     void EndLocalDig()
     {
         localDig = -1;
-        if (player != null) player.Digging = false;
+        digApproaching = false;
+        if (player == null) return;
+        player.Digging = false;
+        player.WalkTarget = null;
     }
 
     void UpdateDigs()
     {
-        if (localDig >= 0 && (Time.time >= localDigEnd || status.Dead)) EndLocalDig();
+        if (localDig >= 0 && status.Dead) EndLocalDig();
+        else if (digApproaching) UpdateDigApproach();
+        else if (localDig >= 0 && Time.time >= localDigEnd) EndLocalDig();
         if (!net.IsHost || digEnds.Count == 0) return;
         var done = new List<int>();
         foreach (var kv in digEnds) if (Time.time >= kv.Value) done.Add(kv.Key);
@@ -1151,9 +1187,32 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             hud.Toast(what + " : à poser hors du Hub.");
             return;
         }
+        if (kind == DeviceKind.Canon && NearWall(hit.point, hit.collider, 1f))
+        {
+            hud.Toast(what + " : à poser à plus d'1 mètre d'un mur.");
+            return;
+        }
         status.RemoveAt(slot);
         Gesture(PlayerGesture.Place);
         net.ToHost("BN|" + NetworkGame.F(hit.point.x) + "|" + NetworkGame.F(hit.point.y) + "|" + NetworkGame.F(hit.point.z) + "|" + (int)kind);
+    }
+
+    // Un mur (ni le sol visé, ni un joueur, une entité ou un objet) à moins de 'distance' du point, à l'horizontale.
+    static bool NearWall(Vector3 point, Collider ground, float distance)
+    {
+        foreach (float height in new[] { 0.3f, 1.2f })
+            for (int i = 0; i < 16; i++)
+            {
+                Vector3 dir = Quaternion.Euler(0f, i * 22.5f, 0f) * Vector3.forward;
+                foreach (var h in Physics.RaycastAll(point + Vector3.up * height, dir, distance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                {
+                    var c = h.collider;
+                    if (c == ground || c.GetComponentInParent<Interactable>() != null || c.GetComponentInParent<PlayerController>() != null
+                        || c.GetComponentInParent<RemotePlayer>() != null || c.GetComponentInParent<Entity>() != null) continue;
+                    return true;
+                }
+            }
+        return false;
     }
 
     public void InteractBeacon(Beacon beacon)

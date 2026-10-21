@@ -80,17 +80,16 @@ public partial class GameSession
         }
     }
 
-    // Saut sur un Canon chargé : on demande à l'hôte d'y entrer.
+    // Saut ou chute sur un Canon chargé (le joueur arrive dessus par les airs) : on demande à l'hôte d'y entrer.
     void TryEnterCannon()
     {
         if (status.Dead || PlayerController.InputLocked || localDig >= 0 || player.Grounded) return;
-        if (Time.time - player.LastJumpTime > 1.5f) return;
         Vector3 me = player.transform.position;
         foreach (var b in beacons.Placed)
         {
             if (b == null || b.Kind != DeviceKind.Canon || !b.Charged) continue;
             Vector3 d = me - b.transform.position;
-            if (new Vector2(d.x, d.z).magnitude > 1f || d.y < 0.3f || d.y > 2.2f) continue;
+            if (new Vector2(d.x, d.z).magnitude > 1.5f || d.y < 0.3f || d.y > 2.8f) continue;
             cannon = b;
             cannonState = CannonState.Entering;
             cannonEnterAt = Time.time;
@@ -104,7 +103,7 @@ public partial class GameSession
         if (cannon == null || status.Dead) { cannonState = CannonState.None; return; }
         cannonState = CannonState.Inside;
         player.SetFrozen(true);
-        player.Teleport(cannon.transform.position + Vector3.up * 0.95f, OrbitCamera.Yaw);
+        player.Teleport(cannon.transform.position + Vector3.up * Beacon.CanonBarrel, OrbitCamera.Yaw);
         avatar.SetHidden(true);
         hud.SetCannonMode(true);
         OrbitCamera.CannonEye = cannon.Muzzle + Vector3.up * 0.35f;
@@ -141,7 +140,7 @@ public partial class GameSession
         if (cannon != null)
         {
             Vector3 back = Quaternion.Euler(0f, OrbitCamera.Yaw, 0f) * Vector3.back;
-            player.Teleport(cannon.transform.position + back * 1.3f + Vector3.up * 1f, OrbitCamera.Yaw);
+            player.Teleport(cannon.transform.position + back * (Beacon.CanonHalfLength + 0.6f) + Vector3.up * 1f, OrbitCamera.Yaw);
         }
         cannon = null;
     }
@@ -151,7 +150,7 @@ public partial class GameSession
     {
         Camera cam = Camera.main;
         Vector3 dir = cam != null ? cam.transform.forward : Quaternion.Euler(0f, OrbitCamera.Yaw, 0f) * Vector3.forward;
-        Vector3 start = cannon.Muzzle + dir * 0.8f;
+        Vector3 start = cannon.Muzzle + dir * (Beacon.CanonHalfLength + 0.1f);
         ComputeFlight(start, dir * CannonSpeed);
         net.ToAll("CF|" + cannon.Id + "|" + NetworkGame.F(OrbitCamera.Yaw));
         net.ToHost("CX|" + cannon.Id);

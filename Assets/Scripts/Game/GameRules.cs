@@ -78,8 +78,10 @@ public static class GameRules
         return Mathf.CeilToInt(QuotaForRound(round) * percent / Items.MoundValue());
     }
 
-    // Monticules (note 02 du chapitre 7) : creuser prend 2 secondes.
-    public const float DigDuration = 2f;
+    // Monticules (note 02 du chapitre 7) : creuser prend 1,2 seconde.
+    public const float DigDuration = 1.2f;
+    // Avant de creuser, le personnage s'avance de lui-même jusqu'à 0,4 m du monticule (centre à centre, à l'horizontale).
+    public const float DigApproach = 0.4f;
 
     public static int NightmaresForRound(int round, int zone) => (zone == 0 ? Zone1Nightmares : Zone2Nightmares)[RoundIndex(round)];
 
@@ -169,7 +171,7 @@ public static class GameRules
     public const float RoiChainSpeed = 26f;                 // 20 m/s x 1,3
     public const float RoiChainRadius = 0.7f;               // la pointe touche le joueur à moins de 70 cm
     public const int RoiBreakPresses = 3;                   // appuis sur Espace pour rompre la chaîne (V0.4.6, avant : 5)
-    public const float RoiPullMultiplier = 2f;              // le joueur enchaîné est traîné deux fois plus vite qu'il ne marche
+    public const float RoiPullMultiplier = 4f;              // le joueur enchaîné est traîné quatre fois plus vite qu'il ne marche (avant : 2)
     public const float RoiChaseMultiplier = 0.5f;           // en chasse, il avance lentement vers sa proie
     public const float RoiRecover = 1f;
     public const float RoiKillDistance = 0.8f;
@@ -179,7 +181,7 @@ public static class GameRules
     public const int PionDamage = 30;
     public const float PionHabitat = 30f;
     public const float PionWatchDistance = 5f;
-    public const float PionCuriousMin = 4f, PionCuriousMax = 8f;
+    public const float PionCuriousMin = 12f, PionCuriousMax = 15f;
     public const float PionRushMultiplier = 1.4f;        // il "se met à courir" : vitesse de course d'un joueur
     public const float PionKnockback = 6f;
 
