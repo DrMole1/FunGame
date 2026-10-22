@@ -370,10 +370,12 @@ public static class Items
         return null;
     }
 
-    // ID du Terminal ("1" à "10") ou des autres objets ("O1" à "O5"), sans tenir compte de la casse.
+    // ID du Terminal ("1" à "10") ou des autres objets ("O1" à "O5"), sans tenir compte de la casse. Un zéro tapé à la place
+    // de la lettre O ("04") désigne aussi un autre objet : les ID du Terminal ne commencent jamais par 0.
     public static ItemDef ByAnyId(string id)
     {
         id = id.Trim();
+        if (id.Length > 1 && id[0] == '0') id = "O" + id.Substring(1);
         if (int.TryParse(id, out int n)) return ByTerminalId(n);
         foreach (var d in All)
             if (d.otherId != null && string.Equals(d.otherId, id, System.StringComparison.OrdinalIgnoreCase)) return d;
