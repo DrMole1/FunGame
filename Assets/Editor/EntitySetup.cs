@@ -19,6 +19,7 @@ public static class EntitySetup
         SetupFou();
         SetupRoi();
         SetupCavalier();
+        SetupReveil();
         SpiderSetup.Setup();
         IconRenderer.Generate();
         AssetDatabase.SaveAssets();
@@ -48,6 +49,14 @@ public static class EntitySetup
         GameSetup.ImportArt();
         SetupCreature("Cavalier", 3.33f, new[] { ("Walk", true), ("Run", true), ("Attack", false) });
         IconRenderer.Generate();
+        AssetDatabase.SaveAssets();
+    }
+
+    // Le Réveil (V0.4.7) : marche et course sur ses petites pattes ; de la taille du Pion.
+    [MenuItem("FunGame/Installer Le Réveil")]
+    public static void SetupReveil()
+    {
+        SetupCreature("Reveil", 1.15f, new[] { ("Walk", true), ("Run", true) });
         AssetDatabase.SaveAssets();
     }
 

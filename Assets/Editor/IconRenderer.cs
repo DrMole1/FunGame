@@ -47,7 +47,7 @@ public static class IconRenderer
         root.transform.position = new Vector3(0f, -500f, 0f);
         var go = Object.Instantiate(prefab, root.transform);
         go.transform.localPosition = Vector3.zero;
-        go.transform.localRotation = Quaternion.identity;
+        go.transform.localRotation = prefab.transform.localRotation; // rotation d'import conservée (FBX Meshy remaillés)
         // Variante d'un modèle (Balise Améliorée) : même maillage, autre matériau.
         var swap = material != null ? Resources.Load<Material>("Art/" + material) : null;
         if (swap != null)

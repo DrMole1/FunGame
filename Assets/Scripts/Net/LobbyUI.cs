@@ -7,6 +7,8 @@ using UnityEngine.UI;
 public class LobbyUI : MonoBehaviour
 {
     static readonly Color PanelBlack = new Color(0.09f, 0.09f, 0.1f, 1f);
+    // Hauteur du fond du menu (le panneau fait 700 pour un écran de référence de 720).
+    const float LobbyBackdropHeight = 820f;
     static readonly Color HostRed = new Color(0.93f, 0.27f, 0.33f);
     static readonly Color JoinBlue = new Color(0.12f, 0.2f, 0.45f);
     static readonly Color FieldGrey = new Color(0.27f, 0.27f, 0.29f);
@@ -136,7 +138,13 @@ public class LobbyUI : MonoBehaviour
         var layout = UiKit.Column(lobbyPanel, 36, 10);
         Transform p = lobbyPanel.transform;
 
-        UiKit.Paint(lobbyPanel, PanelBlack, 1);
+        // Fond peint plus haut que le panneau : les extrémités du coup de pinceau sortent de l'écran.
+        lobbyPanel.GetComponent<Image>().color = Color.clear;
+        var backdrop = UiKit.Panel(p, "Fond", new Vector2(460, LobbyBackdropHeight));
+        backdrop.AddComponent<LayoutElement>().ignoreLayout = true;
+        backdrop.transform.SetAsFirstSibling();
+        UiKit.Paint(backdrop, PanelBlack, 1);
+        backdrop.GetComponent<Image>().raycastTarget = false;
         UiKit.Label(p, "Pavlov's Theory", 44, FontStyle.Bold, Color.white, 56);
         UiKit.Spacer(p, 4);
 

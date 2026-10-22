@@ -103,17 +103,10 @@ public class Reveil : Entity
 
     protected override void BuildVisual()
     {
-        // Modèle Meshy (Resources/Art/Reveil, statique : le code le fait bondir et trembler), sinon des primitives.
-        var model = new GameObject("Modele").transform;
-        model.SetParent(transform, false);
-        if (GameArt.SpawnModel("Reveil", model, Height) == null)
-        {
-            Destroy(model.gameObject);
-            model.name = "Ancien";
-            BuildFallback();
-            model = transform.Find("Modele");
-        }
-        body = model;
+        // Modèle Meshy riggé (Resources/ReveilArt : il court sur ses petites pattes), sinon des primitives.
+        // Dans les deux cas, le code le fait bondir et trembler.
+        if (!LoadCreature("ReveilArt")) BuildFallback();
+        body = transform.Find("Modele");
     }
 
     void BuildFallback()
@@ -203,8 +196,9 @@ public class Reveil : Entity
         if (armR != null) armR.localRotation = Quaternion.Euler(-wave, 0f, 40f - wave * 0.3f);
         if (animator != null)
         {
+            // Debout en attendant de sortir de terre, puis il court sur ses pattes, au rythme de sa vitesse.
             PlayAnim(visualSpeed < 0.3f ? "Idle" : "Run");
-            animator.speed = 1.6f;
+            animator.speed = CurrentAnim == "Run" ? Mathf.Clamp(visualSpeed / 2.5f, 1f, 2.2f) : 1f;
         }
     }
 

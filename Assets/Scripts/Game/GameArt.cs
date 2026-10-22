@@ -404,7 +404,8 @@ public static class GameArt
         holder.transform.SetParent(parent, false);
         var go = Object.Instantiate(prefab, holder.transform);
         go.transform.localPosition = Vector3.zero;
-        go.transform.localRotation = Quaternion.identity;
+        // Rotation d'import conservée : certains FBX Meshy (remaillés) sont tournés de -90° en X pour être debout.
+        go.transform.localRotation = prefab.transform.localRotation;
         foreach (var c in go.GetComponentsInChildren<Collider>()) Object.Destroy(c);
 
         Bounds b = LocalBounds(holder.transform);

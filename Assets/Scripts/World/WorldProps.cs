@@ -222,6 +222,33 @@ public class FlickerLight : MonoBehaviour
     }
 
     bool frantic;
+    int burstLeft;
+
+    // Près du Roi : des rafales imprévisibles de 1 à 5 coupures (extinctions franches ou simples baisses, de durées
+    // variables), séparées par des moments allumés, plus ou moins longs, où la lumière tremble légèrement.
+    void FranticFlicker()
+    {
+        timer -= Time.deltaTime;
+        if (!off && burstLeft == 0) level = Mathf.Clamp(level + Random.Range(-0.04f, 0.04f), 0.75f, 1.15f);
+        if (timer > 0f) return;
+        if (off)
+        {
+            // Rallumage, puis la coupure suivante de la rafale, ou une accalmie.
+            off = false;
+            level = Random.Range(0.7f, 1.2f);
+            timer = burstLeft > 0 ? Random.Range(0.04f, 0.25f) : Random.Range(0.25f, 1.6f);
+        }
+        else
+        {
+            if (burstLeft == 0) burstLeft = Random.Range(1, 6);
+            burstLeft--;
+            off = true;
+            level = Random.value < 0.35f ? Random.Range(0.15f, 0.45f) : Random.Range(0.01f, 0.06f);
+            timer = Random.Range(0.03f, 0.15f);
+            if (Random.value < 0.1f) GameAudio.Play3D("neon", transform.position, 0.25f, 14f, 0.2f);
+        }
+        if (bulb != null) bulb.enabled = level > 0.2f;
+    }
 
     void Update()
     {
@@ -230,19 +257,13 @@ public class FlickerLight : MonoBehaviour
         frantic = Frenzy.Count > 0 && Frantic;
         if (frantic)
         {
-            // Saccades rapides et irrégulières, grésillement de temps en temps.
-            timer -= Time.deltaTime;
-            if (timer > 0f) return;
-            off = !off;
-            timer = off ? Random.Range(0.02f, 0.07f) : Random.Range(0.03f, 0.12f);
-            level = off ? 0.03f : Random.Range(0.8f, 1.3f);
-            if (bulb != null) bulb.enabled = !off;
-            if (off && Random.value < 0.12f) GameAudio.Play3D("neon", transform.position, 0.25f, 14f, 0.2f);
+            FranticFlicker();
             return;
         }
         if (wasFrantic)
         {
             off = false;
+            burstLeft = 0;
             level = 1f;
             timer = 0f;
             if (bulb != null) bulb.enabled = true;
