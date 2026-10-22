@@ -21,6 +21,9 @@ public static class SoundBank
         "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat",
         "fou_bells", "fou_alert", "fou_attack", "fou_dance", "roi_laugh", "roi_chain", "roi_break", "roi_slash", "roi_clink",
         "dig", "dame_step", "cannon_fire", "cannon_impact",
+        // V0.4.7 : objets uniques, cri de souffrance de La Dame, Le Cavalier, Le Réveil.
+        "tv_static", "spring", "bell_deco", "dame_wail", "cavalier_gallop", "cavalier_alert", "cavalier_terror",
+        "cavalier_strike", "cavalier_stomp", "reveil_alarm", "reveil_boom",
         // Sons enregistrés seulement (GDD 12), sans équivalent synthétisé.
         "dame_kill", "tour_kill", "fou_kill", "roi_flash", "roi_kill",
         "doom",
@@ -120,6 +123,17 @@ public static class SoundBank
             case "roi_chain": return RoiChain(rnd);
             case "roi_break": return RoiBreak(rnd);
             case "roi_slash": return RoiSlash(rnd);
+            case "tv_static": return TvStatic(rnd);
+            case "spring": return Spring(rnd);
+            case "bell_deco": return BellDeco(rnd);
+            case "dame_wail": return DameWail(rnd);
+            case "cavalier_gallop": return CavalierGallop(rnd);
+            case "cavalier_alert": return CavalierCry(rnd, false);
+            case "cavalier_terror": return CavalierCry(rnd, true);
+            case "cavalier_strike": return CavalierStrike(rnd);
+            case "cavalier_stomp": return CavalierStomp(rnd);
+            case "reveil_alarm": return ReveilAlarm(rnd);
+            case "reveil_boom": return ReveilBoom(rnd);
         }
         return null;
     }
@@ -1472,6 +1486,187 @@ public static class SoundBank
                 if (u >= 0f) v += (Sine(2900f * u) + 0.5f * Sine(4700f * u)) * AD(u, 0.0005f, 0.03f) * 0.5f;
             }
             d[i] = v;
+        }
+        return d;
+    }
+
+    // ---------- V0.4.7 ----------
+
+    // Grésillement de télévision sans signal (boucle) : souffle large bande, bourdonnement de ligne et petits craquements.
+    static float[] TvStatic(System.Random rnd)
+    {
+        var longer = Buffer(2.4f);
+        var bp = new BandPass();
+        var lp = new LowPass();
+        for (int i = 0; i < longer.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float hiss = bp.Process(Noise(rnd), 3800f, 0.9f) * 0.6f + lp.Process(Noise(rnd), 7000f) * 0.4f;
+            float hum = (Sine(50f * t) * 0.5f + Saw(15734f / 128f * t) * 0.1f) * 0.25f;
+            float crackle = rnd.NextDouble() < 0.0008 ? Noise(rnd) * 3f : 0f;
+            longer[i] = hiss * (0.8f + 0.2f * Sine(0.7f * t)) + hum + crackle;
+        }
+        return MakeLoop(longer, 2f, 0.3f);
+    }
+
+    // Ressort cartoon : "boïng" qui monte puis vibre.
+    static float[] Spring(System.Random rnd)
+    {
+        var d = Buffer(0.7f);
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float f = Mathf.Lerp(140f, 520f, Mathf.Min(1f, t / 0.12f)) * (1f + 0.18f * Mathf.Sin(TwoPi * 22f * t) * Decay(t, 0.3f));
+            phase += f / Rate;
+            d[i] = (Sine(phase) + 0.35f * Sine(phase * 2.01f)) * AD(t, 0.005f, 0.28f) + Noise(rnd) * AD(t, 0.001f, 0.01f) * 0.3f;
+        }
+        return d;
+    }
+
+    // Cloche Décorative : tintement clair et cristallin, distinct de La Cloche (plus aigu, deux coups rapprochés).
+    static float[] BellDeco(System.Random rnd)
+    {
+        var d = Buffer(2.6f);
+        (float ratio, float amp, float decay)[] partials = { (1f, 0.8f, 1.4f), (2.76f, 0.45f, 0.7f), (5.4f, 0.25f, 0.35f), (8.93f, 0.12f, 0.2f) };
+        foreach (float start in new[] { 0f, 0.22f })
+        {
+            float f = start == 0f ? 1320f : 1480f;
+            int from = Mathf.RoundToInt(start * Rate);
+            for (int i = from; i < d.Length; i++)
+            {
+                float t = (float)(i - from) / Rate, s = 0f;
+                foreach (var (ratio, amp, decay) in partials) s += Sine(f * ratio * t) * amp * Decay(t, decay);
+                s += Noise(rnd) * Decay(t, 0.003f) * 0.3f;
+                d[i] += s * (start == 0f ? 1f : 0.7f);
+            }
+        }
+        return d;
+    }
+
+    // Cri de souffrance de La Dame : long gémissement qui monte puis se brise, voix éraillée.
+    static float[] DameWail(System.Random rnd)
+    {
+        var d = Buffer(1.6f);
+        var f1 = new BandPass();
+        var f2 = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float pitch = Mathf.Lerp(260f, 520f, Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, t / 0.7f))) - Mathf.Max(0f, t - 1f) * 300f;
+            pitch *= 1f + 0.07f * Mathf.Sin(TwoPi * 6.5f * t) + 0.02f * Noise(rnd);
+            phase += pitch / Rate;
+            float src = Saw(phase) + Noise(rnd) * 0.5f;
+            float s = f1.Process(src, 800f, 0.15f) + f2.Process(src, 2300f, 0.2f) * 0.6f;
+            d[i] = s * ASR(t, 0.08f, 0.5f, 1.6f);
+        }
+        return d;
+    }
+
+    // Galop : trois sabots qui frappent le sol, sourds et claquants.
+    static float[] CavalierGallop(System.Random rnd)
+    {
+        var d = Buffer(0.45f);
+        var lp = new LowPass();
+        foreach (float start in new[] { 0f, 0.09f, 0.2f })
+        {
+            int from = Mathf.RoundToInt(start * Rate);
+            for (int i = from; i < d.Length; i++)
+            {
+                float t = (float)(i - from) / Rate;
+                d[i] += Sine((95f - 40f * t) * t) * AD(t, 0.001f, 0.05f) + lp.Process(Noise(rnd), 1800f) * AD(t, 0.0005f, 0.02f) * 1.4f
+                    + Sine(820f * t) * AD(t, 0.0005f, 0.012f) * 0.4f;
+            }
+        }
+        return d;
+    }
+
+    // Cris du Cavalier : hennissement rauque (alerte), ou hurlement strident qui monte (terreur).
+    static float[] CavalierCry(System.Random rnd, bool terror)
+    {
+        float length = terror ? 1.3f : 1.1f;
+        var d = Buffer(length);
+        var f1 = new BandPass();
+        var f2 = new BandPass();
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float pitch = terror
+                ? Mathf.Lerp(380f, 1100f, Mathf.SmoothStep(0f, 1f, t / length)) * (1f + 0.03f * Mathf.Sin(TwoPi * 11f * t))
+                : (480f + 220f * Mathf.Abs(Mathf.Sin(TwoPi * 7f * t)) * Mathf.Clamp01(1f - t / length)) * (1f - 0.3f * t / length);
+            phase += pitch / Rate;
+            float src = Saw(phase) + Square(phase * 0.5f) * 0.3f + Noise(rnd) * (terror ? 0.3f : 0.6f);
+            float s = f1.Process(src, terror ? 1800f : 900f, 0.15f) + f2.Process(src, terror ? 3600f : 2200f, 0.2f) * 0.6f;
+            d[i] = s * ASR(t, 0.03f, 0.35f, length);
+        }
+        return d;
+    }
+
+    // Masse d'armes qui s'abat : souffle, puis choc lourd et sourd.
+    static float[] CavalierStrike(System.Random rnd)
+    {
+        var d = Buffer(0.7f);
+        var bp = new BandPass();
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float whoosh = bp.Process(Noise(rnd), Mathf.Lerp(500f, 1600f, Mathf.Clamp01(t / 0.15f)), 0.4f) * ASR(t, 0.06f, 0.05f, 0.15f);
+            float u = t - 0.15f;
+            float hit = u < 0f ? 0f : Sine((60f - 25f * u) * u) * AD(u, 0.002f, 0.18f) * 1.4f + lp.Process(Noise(rnd), 1200f) * AD(u, 0.001f, 0.08f);
+            d[i] = whoosh + hit;
+        }
+        return d;
+    }
+
+    // Masse qui frappe le sol : impact grave et terre qui retombe.
+    static float[] CavalierStomp(System.Random rnd)
+    {
+        var d = Buffer(0.8f);
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            d[i] = Sine((55f - 20f * t) * t) * AD(t, 0.002f, 0.2f) * 1.3f + lp.Process(Noise(rnd), 900f) * AD(t, 0.001f, 0.12f)
+                + lp.Process(Noise(rnd), 2500f) * ASR(t - 0.1f, 0.05f, 0.3f, 0.6f) * 0.25f;
+        }
+        return d;
+    }
+
+    // Sonnerie du Réveil (boucle) : marteau qui frappe deux cymbales par saccades, très vite.
+    static float[] ReveilAlarm(System.Random rnd)
+    {
+        var d = Buffer(1f);
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            // Rafales de frappes (18 par seconde), coupées brièvement : le mécanisme accroche.
+            float u = Mathf.Repeat(t * 18f, 1f) / 18f;
+            int strike = Mathf.FloorToInt(t * 18f);
+            bool gap = Mathf.Repeat(t, 0.5f) > 0.42f;
+            float f = strike % 2 == 0 ? 2350f : 2620f;
+            float ring = Sine(f * u) * Decay(u, 0.03f) + Sine(f * 2.7f * u) * Decay(u, 0.015f) * 0.5f + Noise(rnd) * Decay(u, 0.002f) * 0.4f;
+            d[i] = gap ? 0f : ring;
+        }
+        return d;
+    }
+
+    // Explosion du Réveil : déflagration grave, éclats métalliques et ressorts qui sautent.
+    static float[] ReveilBoom(System.Random rnd)
+    {
+        var d = Buffer(1.6f);
+        var lp = new LowPass();
+        var lp2 = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float blast = lp.Process(Noise(rnd), Mathf.Lerp(3000f, 300f, Mathf.Min(1f, t / 0.6f))) * AD(t, 0.002f, 0.35f) * 1.8f;
+            float thump = Sine((70f - 35f * t) * t) * AD(t, 0.002f, 0.3f) * 1.2f;
+            float shards = rnd.NextDouble() < 0.004 * Decay(t, 0.4f) ? Noise(rnd) * 2f : 0f;
+            float boing = t > 0.25f ? Sine((300f + 120f * Mathf.Sin(TwoPi * 18f * t)) * t) * AD(t - 0.25f, 0.005f, 0.25f) * 0.25f : 0f;
+            d[i] = blast + thump + lp2.Process(shards, 6000f) + boing;
         }
         return d;
     }

@@ -286,6 +286,7 @@ public partial class GameSession
             case EntityKind.Spider: SpawnAt<Spider>(zone, rnd, clearance); break;
             case EntityKind.Fou: SpawnAt<Fou>(zone, rnd, clearance); break;
             case EntityKind.Roi: SpawnAt<Roi>(zone, rnd, clearance); break;
+            case EntityKind.Cavalier: SpawnAt<Cavalier>(zone, rnd, clearance); break;
         }
     }
 
@@ -296,7 +297,8 @@ public partial class GameSession
         Vector3 pos = e.transform.position;
         int node = maze != null ? maze.nav.NodeAt(pos) : -1;
         int zone = node >= 0 ? Mathf.Max(0, maze.nav.ZoneOfNode(node)) : 0;
-        respawns.Add((e.Kind, zone, Time.time + CannonRespawnDelay, round));
+        // Le Réveil ne sort que des monticules : il ne réapparaît pas.
+        if (e.Kind != EntityKind.Reveil) respawns.Add((e.Kind, zone, Time.time + CannonRespawnDelay, round));
         Destroy(e.gameObject);
         entities.Remove(id);
         watching.Remove(id);

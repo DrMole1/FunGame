@@ -125,7 +125,8 @@ public class GameAudio : MonoBehaviour
     }
 
     // Sons émis par les entités (pièges, Abjuration, Normal, Cauchemar) : on ne les entend pas depuis le Hub.
-    static readonly string[] EntityPrefixes = { "laser_", "dame_", "tour_", "pion_", "cloche_", "spider_", "fou_", "roi_" };
+    // (Le Réveil, qui peut poursuivre un joueur jusque dans le Hub, s'y entend.)
+    static readonly string[] EntityPrefixes = { "laser_", "dame_", "tour_", "pion_", "cloche_", "spider_", "fou_", "roi_", "cavalier_" };
 
     static bool IsEntitySound(string clip)
     {
@@ -133,9 +134,9 @@ public class GameAudio : MonoBehaviour
         return false;
     }
 
-    // Sons des Cauchemars (La Dame, La Tour, Le Fou, Le Roi) : un peu plus forts que les autres effets.
+    // Sons des Cauchemars (La Dame, La Tour, Le Fou, Le Roi, Le Cavalier) : un peu plus forts que les autres effets.
     const float NightmareGain = 1.3f;
-    static readonly string[] NightmarePrefixes = { "dame_", "tour_", "fou_", "roi_" };
+    static readonly string[] NightmarePrefixes = { "dame_", "tour_", "fou_", "roi_", "cavalier_" };
 
     static float Gain(string clip)
     {

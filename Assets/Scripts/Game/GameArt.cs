@@ -180,6 +180,17 @@ public static class GameArt
     // Aura bleue des orbes activés.
     public static Material GhostAura => FromTemplate("GhostAura", () => Unlit("AuraFallback", new Color(0.2f, 0.5f, 1f)));
 
+    // Matière légèrement transparente, noire ou blanche (Resources/Materials/Translucent ; sinon opaque).
+    public static Material Translucent(bool dark)
+    {
+        string key = dark ? "TranslucentBlack" : "TranslucentWhite";
+        if (cache.TryGetValue(key, out var m) && m != null) return m;
+        var template = Resources.Load<Material>("Materials/Translucent");
+        Color c = dark ? new Color(0.03f, 0.03f, 0.03f, 0.55f) : new Color(0.9f, 0.9f, 0.9f, 0.45f);
+        m = template != null ? new Material(template) { name = key, color = c } : Lit(key, c, null, 0.9f);
+        return cache[key] = m;
+    }
+
     // Variante colorée de l'aura (Balise Améliorée, Téléporteur, Station Curative, boule d'énergie).
     public static Material GhostAuraTinted(string key, Color color)
     {
@@ -437,7 +448,13 @@ public static class GameArt
         go.transform.localPosition = localPos;
         go.transform.localScale = scale;
         go.GetComponent<Renderer>().sharedMaterial = mat;
-        if (!keepCollider) Object.Destroy(go.GetComponent<Collider>());
+        if (!keepCollider)
+        {
+            // Désactivé tout de suite (la destruction n'a lieu qu'en fin d'image).
+            var col = go.GetComponent<Collider>();
+            col.enabled = false;
+            Object.Destroy(col);
+        }
         return go;
     }
 

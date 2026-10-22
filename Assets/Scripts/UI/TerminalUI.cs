@@ -4,8 +4,9 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 // Zone de saisie du Terminal, affichée uniquement chez le joueur qui l'utilise.
-// Commandes insensibles à la casse : /buy (ou /buy <ID>), /info, /skip round, /sell (cachée depuis l'arrivée de Pogo)
-// et les commandes secrètes /kick, /spawn et /tp (hôte).
+// Commandes insensibles à la casse : /buy (ou /buy <ID>), /info (sous-menu : /hello, puis /step1 une fois débloquée),
+// /skip round, /sell (cachée depuis l'arrivée de Pogo) et les commandes secrètes /kick, /spawn, /tp, /godmod et /give
+// (hôte). Les textes des commandes d'info s'affichent caractère par caractère, rapidement.
 public class TerminalUI : MonoBehaviour
 {
     // /skip round n'apparaît qu'une fois le quota de la manche atteint.
@@ -13,6 +14,7 @@ public class TerminalUI : MonoBehaviour
         "Bienvenue sur le Terminal !\nTaper une commande pour continuer :\n/buy\n/info" + (canSkip ? "\n/skip round" : "");
     const string Quit = "\nFaire ECHAP pour quitter.";
     const int MaxLines = 18;
+    const float TypeSpeed = 90f; // caractères par seconde
 
     enum Mode { Command, Sell, Buy }
 
@@ -25,6 +27,9 @@ public class TerminalUI : MonoBehaviour
     Mode mode;
     readonly List<string> lines = new List<string>();
     bool waitingBuy, waitingSkip;
+    // Texte en cours d'écriture (commandes d'info) et nombre de caractères déjà affichés.
+    string typing = "";
+    float typed;
 
     public void Init(GameSession owner)
     {
@@ -64,6 +69,7 @@ public class TerminalUI : MonoBehaviour
         IsOpen = true;
         mode = Mode.Command;
         waitingBuy = waitingSkip = false;
+        typing = "";
         lines.Clear();
         Print(Menu(session.CanSkipRound));
         panel.SetActive(true);
@@ -87,7 +93,32 @@ public class TerminalUI : MonoBehaviour
         {
             Close();
             OrbitCamera.ResumeGame();
+            return;
         }
+        if (!IsOpen || typing.Length == 0) return;
+        int before = Mathf.FloorToInt(typed);
+        typed += TypeSpeed * Time.unscaledDeltaTime;
+        int shown = Mathf.Min(typing.Length, Mathf.FloorToInt(typed));
+        // Un petit clic de temps en temps pendant que le texte s'écrit.
+        if (shown / 6 != before / 6) GameAudio.Play2D("key", 0.15f, 0.2f, 1.4f);
+        if (shown >= typing.Length) FlushTyping();
+        else Show(typing.Substring(0, shown));
+    }
+
+    // Écrit 'text' caractère par caractère, à la suite.
+    void Type(string text)
+    {
+        FlushTyping();
+        typing = text;
+        typed = 0f;
+    }
+
+    void FlushTyping()
+    {
+        if (typing.Length == 0) return;
+        string done = typing;
+        typing = "";
+        Print(done);
     }
 
     void Focus()
@@ -147,7 +178,20 @@ public class TerminalUI : MonoBehaviour
         }
         else if (lower == "/info")
         {
-            Print("Aucune information disponible pour le moment." + Quit);
+            Print(session.InfoMenu() + Quit);
+        }
+        else if (lower == "/hello")
+        {
+            Type(session.HelloText() + Quit);
+        }
+        else if (lower == "/step1" && session.Step1Unlocked)
+        {
+            Type(session.Step1Text() + Quit);
+        }
+        else if (lower.StartsWith("/give ") && session.IsHost)
+        {
+            string result = session.Give(text.Substring(6).Trim());
+            Print((result ?? "Commande invalide.") + Quit);
         }
         else if (System.Text.RegularExpressions.Regex.IsMatch(lower, @"^/skip\s+round$"))
         {
@@ -265,6 +309,8 @@ public class TerminalUI : MonoBehaviour
     // (retours à la ligne automatiques compris), pour que le message le plus récent reste toujours visible.
     void Print(string text)
     {
+        // Un texte encore en cours d'écriture s'affiche d'abord en entier.
+        FlushTyping();
         lines.AddRange(text.Split('\n'));
         if (lines.Count > MaxLines) lines.RemoveRange(0, lines.Count - MaxLines);
         output.text = string.Join("\n", lines);
@@ -272,6 +318,20 @@ public class TerminalUI : MonoBehaviour
         {
             lines.RemoveAt(0);
             output.text = string.Join("\n", lines);
+        }
+    }
+
+    // Lignes déjà écrites suivies du début du texte en cours d'écriture (sans le retenir).
+    void Show(string partial)
+    {
+        var shown = new List<string>(lines);
+        shown.AddRange(partial.Split('\n'));
+        if (shown.Count > MaxLines) shown.RemoveRange(0, shown.Count - MaxLines);
+        output.text = string.Join("\n", shown);
+        while (shown.Count > 1 && TextHeight(output.text) > output.rectTransform.rect.height)
+        {
+            shown.RemoveAt(0);
+            output.text = string.Join("\n", shown);
         }
     }
 

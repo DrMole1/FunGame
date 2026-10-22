@@ -18,6 +18,7 @@ public static class EntitySetup
         SetupCreature("Cloche", 1f, new[] { ("Walk", true), ("Run", true) });
         SetupFou();
         SetupRoi();
+        SetupCavalier();
         SpiderSetup.Setup();
         IconRenderer.Generate();
         AssetDatabase.SaveAssets();
@@ -37,6 +38,16 @@ public static class EntitySetup
     public static void SetupRoi()
     {
         SetupCreature("Roi", 2.66f, new[] { ("Walk", true), ("Run", true) });
+        AssetDatabase.SaveAssets();
+    }
+
+    // Le Cavalier (V0.4.7) : marche, course et frappe à la masse ; de la taille de La Dame (agrandi de 25 % en jeu).
+    [MenuItem("FunGame/Installer Le Cavalier")]
+    public static void SetupCavalier()
+    {
+        GameSetup.ImportArt();
+        SetupCreature("Cavalier", 3.33f, new[] { ("Walk", true), ("Run", true), ("Attack", false) });
+        IconRenderer.Generate();
         AssetDatabase.SaveAssets();
     }
 

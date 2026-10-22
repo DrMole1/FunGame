@@ -1,10 +1,10 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.4.5).
+// Variables numériques du document de Game Design (V0.4.7).
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.4.6";
+    public const string Version = "V0.4.7";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -123,6 +123,8 @@ public static class GameRules
     // V0.4.6 : cri (Dame_Cri) quand elle repère un joueur, audible à 40 m ; ses pas résonnent en écho jusqu'à 30 m.
     public const float DameScreamRange = 40f;
     public const float DameStepRange = 30f;
+    // V0.4.7 : "en recherche", elle pousse parfois un cri de souffrance (geste de 1,5 s, sans s'arrêter), 12 s d'écart au moins.
+    public const float DameWailMin = 12f, DameWailMax = 25f, DameWailDuration = 1.5f;
 
     // ---------- La Tour (entité ID 3, Cauchemar) ----------
 
@@ -160,21 +162,45 @@ public static class GameRules
     public const float RoiWalkMultiplier = 0.7f;            // "légèrement lente"
     public const float RoiWalkMin = 7f, RoiWalkMax = 15f;   // marche avant un arrêt
     public const float RoiPauseMin = 2f, RoiPauseMax = 5f;  // arrêt, totalement immobile
-    public const float RoiTurnBackChance = 0.1f;
+    public const float RoiTurnBackChance = 0.2f;            // V0.4.7 (avant : 10 %)
     public const float RoiBeaconCooldown = 40f;             // après avoir atteint une Balise
-    public const float RoiAuraRadius = 10f;                 // Abjuration autour de lui, hors Abjuration
+    // V0.4.7 : plus d'Abjuration ni d'aura blanche autour de lui ; les lumières à moins de 30 m clignotent frénétiquement.
+    public const float RoiLightRange = 30f;
     public const float RoiSightRange = 20f;
     public const float RoiSenseRadius = 6f;                 // tout près, il sent le joueur même dans son dos
-    public const float RoiSlowMultiplier = 0.8f;            // aura blanche : -20 %, sans course
-    public const float RoiAimFirst = 2.5f, RoiAimAgain = 1.5f;
+    public const float RoiAimFirst = 1.5f, RoiAimAgain = 1.5f; // V0.4.7 : il lève le bras 1,5 s (avant : 2,5 s la première fois)
     // "À grande vitesse" ; V0.4.6 : lancée seulement si le joueur est en ligne de vue, elle le suit jusqu'à lui.
     public const float RoiChainSpeed = 26f;                 // 20 m/s x 1,3
     public const float RoiChainRadius = 0.7f;               // la pointe touche le joueur à moins de 70 cm
     public const int RoiBreakPresses = 3;                   // appuis sur Espace pour rompre la chaîne (V0.4.6, avant : 5)
-    public const float RoiPullMultiplier = 4f;              // le joueur enchaîné est traîné quatre fois plus vite qu'il ne marche (avant : 2)
+    // V0.4.7 : "vitesse normale x 2", soit le doublement déjà appliqué (avant : 2) : quatre fois sa vitesse de marche.
+    public const float RoiPullMultiplier = 4f;
     public const float RoiChaseMultiplier = 0.5f;           // en chasse, il avance lentement vers sa proie
     public const float RoiRecover = 1f;
     public const float RoiKillDistance = 0.8f;
+
+    // ---------- Le Cavalier (entité ID 9, Cauchemar, V0.4.7) ----------
+
+    public const int CavalierDamage = 100;
+    public const float CavalierWalkMultiplier = 1.2f;       // "modérément rapide" : moins vite que la course (x1,4)
+    public const float CavalierRunMultiplier = 2.2f;        // quand le joueur traqué ne le regarde pas
+    public const float CavalierSightRange = 20f;
+    public const float CavalierSenseRadius = 6f;            // même dans son dos
+    public const float CavalierGallopRange = 30f;
+    public const float CavalierHitDistance = 0.8f;
+    public const float CavalierChaseDistance = 40f;         // compteur de distance : au-delà, il abandonne
+    public const float CavalierIgnore = 2f;                 // puis ne traque plus ce joueur pendant 2 s
+    public const float CavalierStompMin = 6f, CavalierStompMax = 14f, CavalierStompDuration = 1.5f;
+    public const float CavalierTurnBackChance = 0.2f;
+
+    // ---------- Le Réveil (entité ID 10, Monticule de terre, V0.4.7) ----------
+
+    public const int ReveilDamage = 50;
+    public const float ReveilSpeedMultiplier = 1.05f;
+    public const float ReveilWake = 0.8f;                   // bond sur place et mise en marche du mécanisme
+    public const float ReveilChase = 5f;
+    public const float ReveilBlastRadius = 2f;
+    public const float ReveilKnockback = 9f;
 
     // ---------- Le Pion (entité ID 4, Normal) ----------
 
@@ -230,6 +256,16 @@ public static class GameRules
     public const float TeleportSpeed = 70f;   // boule d'énergie le long des liens
     public const float StationHealPerSecond = 10f;
 
+    // ---------- Objets uniques (7.6 à 7.8, V0.4.7) ----------
+
+    public const float TvHeight = 0.8f * 1.8f, TrampolineHeight = 0.3f * 1.8f, BellHeight = 0.8f * 1.8f;
+    public const float TvSoundRange = 10f;
+    public const float TvCountdown = 4f;              // décompte de 3 à 0, une seconde par chiffre
+    // Trampoline : un peu moins que la hauteur entre le sol du Hub et le haut du Chapiteau.
+    public const float TrampolineJumpFraction = 0.9f;
+    // Cloche Décorative : son tintement s'entend (et obnubile) en ligne de vue, jusqu'à cette distance.
+    public const float BellSightRange = 80f;
+
     // ---------- Pogo (chapitre 4) ----------
 
     public const float PogoIdleClose = 10f;    // sans achat pendant 10 s, il rentre dans sa boîte
@@ -237,12 +273,19 @@ public static class GameRules
     public const float PogoCooldown = 5f;      // après avoir frappé, impossible de l'appeler pendant 5 s
 }
 
-public enum ItemType { None = 0, Croquette = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8, BaliseAmelioree = 9, StationCurative = 10, Os = 11, Canon = 12 }
+public enum ItemType
+{
+    None = 0, Croquette = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8, BaliseAmelioree = 9,
+    StationCurative = 10, Os = 11, Canon = 12, Television = 13, Trampoline = 14, ClocheDecorative = 15,
+    // Tirage d'un monticule seulement (pas un objet) : Le Réveil en sort.
+    Reveil = 99,
+}
 
 public class ItemDef
 {
     public ItemType type;
     public int terminalId; // ID affiché et tapé au Terminal (0 = pas en vente)
+    public string otherId; // ID des "Autres objets" (O1 à O5), pour /give
     public string name;
     public string shortName;
     public int buyPrice;   // 0 = non achetable au Terminal
@@ -271,17 +314,21 @@ public static class Items
         new ItemDef { type = ItemType.BaliseAmelioree, terminalId = 8, name = "Balise Améliorée", shortName = "Balise +", buyPrice = 50, sellPrice = 1, color = new Color(1f, 0.3f, 0.3f) },
         new ItemDef { type = ItemType.StationCurative, terminalId = 9, name = "Station Curative", shortName = "Station", buyPrice = 150, sellPrice = 1, color = new Color(0.4f, 1f, 0.45f) },
         new ItemDef { type = ItemType.Canon, terminalId = 10, name = "Canon", shortName = "Canon", buyPrice = 200, sellPrice = 1, color = new Color(0.9f, 0.2f, 0.2f) },
-        // Autres objets (V0.4.6 : trouvés dans les monticules).
-        new ItemDef { type = ItemType.Canard, name = "Canard en Plastique", shortName = "Canard", buyPrice = 0, sellPrice = 30, color = new Color(1f, 0.84f, 0.15f) },
-        new ItemDef { type = ItemType.Os, name = "Os", shortName = "Os", buyPrice = 0, sellPrice = 20, color = new Color(0.93f, 0.9f, 0.8f) },
+        // Autres objets (V0.4.6 : trouvés dans les monticules ; V0.4.7 : objets uniques posés dans la Zone 1 à la génération).
+        new ItemDef { type = ItemType.Canard, otherId = "O1", name = "Canard en Plastique", shortName = "Canard", buyPrice = 0, sellPrice = 30, color = new Color(1f, 0.84f, 0.15f) },
+        new ItemDef { type = ItemType.Os, otherId = "O2", name = "Os", shortName = "Os", buyPrice = 0, sellPrice = 20, color = new Color(0.93f, 0.9f, 0.8f) },
+        new ItemDef { type = ItemType.Television, otherId = "O3", name = "Télévision", shortName = "Télé", buyPrice = 0, sellPrice = 50, color = new Color(0.55f, 0.5f, 0.45f) },
+        new ItemDef { type = ItemType.Trampoline, otherId = "O4", name = "Trampoline", shortName = "Trampo.", buyPrice = 0, sellPrice = 50, color = new Color(0.3f, 0.5f, 1f) },
+        new ItemDef { type = ItemType.ClocheDecorative, otherId = "O5", name = "Cloche Décorative", shortName = "Cloche", buyPrice = 0, sellPrice = 50, color = new Color(0.85f, 0.7f, 0.3f) },
     };
 
     // Modèle 3D (Resources/Art) d'un objet posé au sol ou porté par un Pion.
     public static string ModelName(ItemType type) =>
         type == ItemType.Canard ? "DuckSolo" : type == ItemType.Os ? "Os" : "Croquette";
 
-    // Tableaux des monticules (chapitre 9) : objet trouvé et chance d'obtention, identiques dans les deux zones.
-    public static readonly (ItemType type, float chance)[] MoundLoot = { (ItemType.Os, 0.9f), (ItemType.Canard, 0.1f) };
+    // Tableaux des monticules (chapitre 9, V0.4.7) : objet trouvé et chance d'obtention, identiques dans les deux zones.
+    // ItemType.Reveil n'est pas un objet : l'entité Le Réveil sort du monticule.
+    public static readonly (ItemType type, float chance)[] MoundLoot = { (ItemType.Os, 0.85f), (ItemType.Canard, 0.1f), (ItemType.Reveil, 0.05f) };
 
     public static ItemType RollMound(System.Random rnd)
     {
@@ -298,7 +345,7 @@ public static class Items
     public static float MoundValue()
     {
         float v = 0f;
-        foreach (var (type, chance) in MoundLoot) v += Get(type).sellPrice * chance;
+        foreach (var (type, chance) in MoundLoot) v += (Get(type)?.sellPrice ?? 0) * chance;
         return v;
     }
 
@@ -322,6 +369,19 @@ public static class Items
         foreach (var d in All) if (d.terminalId > 0 && d.terminalId == id) return d;
         return null;
     }
+
+    // ID du Terminal ("1" à "10") ou des autres objets ("O1" à "O5"), sans tenir compte de la casse.
+    public static ItemDef ByAnyId(string id)
+    {
+        id = id.Trim();
+        if (int.TryParse(id, out int n)) return ByTerminalId(n);
+        foreach (var d in All)
+            if (d.otherId != null && string.Equals(d.otherId, id, System.StringComparison.OrdinalIgnoreCase)) return d;
+        return null;
+    }
+
+    // Objets uniques (V0.4.7) : posés au sol à la manière d'une Balise, Hub compris.
+    public static bool IsUnique(ItemType type) => type == ItemType.Television || type == ItemType.Trampoline || type == ItemType.ClocheDecorative;
 
     public static System.Collections.Generic.IEnumerable<ItemDef> Buyable()
     {

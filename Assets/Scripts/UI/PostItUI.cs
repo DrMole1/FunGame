@@ -4,38 +4,50 @@ using UnityEngine.UI;
 
 // Saisie du message d'un Post-It (20 caractères maximum), sur le client du joueur qui l'accroche.
 // Entrée : valider ; Échap : annuler (le Post-It reste dans l'inventaire).
+// La même fenêtre sert à saisir le lien YouTube d'une Télévision (V0.4.7, "semblable à l'interface du Post-It").
 public class PostItUI : MonoBehaviour
 {
     public static bool IsOpen { get; private set; }
 
-    System.Action<string> onWritten;
+    const string PostItHint = "Écrivez votre message ({0} caractères max).\nIl ne pourra plus être modifié.";
+
+    System.Action<string> onPostIt, onWritten;
     GameObject panel;
+    Text title, hint, footer;
     InputField input;
 
     public void Init(System.Action<string> written)
     {
-        onWritten = written;
+        onPostIt = written;
         var canvas = UiKit.CreateCanvas(transform, "PostItCanvas", 85);
         panel = UiKit.Panel(canvas.transform, "PostIt", new Vector2(420, 250), new Color(1f, 0.9f, 0.3f, 0.97f));
         UiKit.Place(panel, new Vector2(0.5f, 0.5f), Vector2.zero);
         UiKit.Column(panel, 22, 12);
-        UiKit.Label(panel.transform, "Post-It", 26, FontStyle.Bold, new Color(0.15f, 0.12f, 0.05f), 34);
-        UiKit.Label(panel.transform, "Écrivez votre message (" + Items.PostItMaxChars + " caractères max).\nIl ne pourra plus être modifié.",
-            15, FontStyle.Normal, new Color(0.2f, 0.17f, 0.08f), 44);
+        title = UiKit.Label(panel.transform, "Post-It", 26, FontStyle.Bold, new Color(0.15f, 0.12f, 0.05f), 34);
+        hint = UiKit.Label(panel.transform, string.Format(PostItHint, Items.PostItMaxChars), 15, FontStyle.Normal, new Color(0.2f, 0.17f, 0.08f), 44);
         input = UiKit.Field(panel.transform, "Votre message…", "", Items.PostItMaxChars);
         input.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.55f);
         input.textComponent.color = new Color(0.12f, 0.1f, 0.25f);
         input.placeholder.color = new Color(0.12f, 0.1f, 0.25f, 0.45f);
         input.caretColor = Color.black;
         input.onEndEdit.AddListener(OnEndEdit);
-        UiKit.Label(panel.transform, "Entrée : accrocher · Échap : annuler", 14, FontStyle.Italic, new Color(0.25f, 0.2f, 0.1f), 22);
+        footer = UiKit.Label(panel.transform, "Entrée : accrocher · Échap : annuler", 14, FontStyle.Italic, new Color(0.25f, 0.2f, 0.1f), 22);
         panel.SetActive(false);
     }
 
-    public void Open()
+    public void Open() => Open("Post-It", string.Format(PostItHint, Items.PostItMaxChars), "Votre message…", "Entrée : accrocher · Échap : annuler",
+        Items.PostItMaxChars, onPostIt);
+
+    public void Open(string heading, string help, string placeholder, string keys, int maxChars, System.Action<string> written)
     {
         if (IsOpen) return;
         IsOpen = true;
+        onWritten = written;
+        title.text = heading;
+        hint.text = help;
+        footer.text = keys;
+        ((Text)input.placeholder).text = placeholder;
+        input.characterLimit = maxChars;
         input.text = "";
         panel.SetActive(true);
         OrbitCamera.LockCursor(false);

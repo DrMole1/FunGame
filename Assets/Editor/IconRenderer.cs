@@ -24,6 +24,10 @@ public static class IconRenderer
         // V0.4.6 : l'Os (monticules) et le Canon (Terminal).
         Render("Os", ItemType.Os, new Vector3(25f, -20f, 0f), 0f);
         Render("CanonSolo", ItemType.Canon, new Vector3(20f, -130f, 0f), 0f);
+        // V0.4.7 : objets uniques.
+        Render("Television", ItemType.Television, new Vector3(10f, -160f, 0f), 0f);
+        Render("Trampoline", ItemType.Trampoline, new Vector3(30f, -150f, 0f), 0f);
+        Render("ClocheDecorative", ItemType.ClocheDecorative, new Vector3(10f, -150f, 0f), 0f);
         AssetDatabase.Refresh();
         foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { IconDir }))
             ConfigureSprite(AssetDatabase.GUIDToAssetPath(guid));

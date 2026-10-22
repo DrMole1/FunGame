@@ -50,6 +50,15 @@ public class OrbitCamera : MonoBehaviour
     static float shake;
     // Secousse de la caméra (tir du Canon, impact), qui s'amortit d'elle-même.
     public static void Shake(float amount) => shake = Mathf.Max(shake, amount);
+    // Vive perturbation en zoom (échange de position avec Le Fou, V0.4.7) : le champ de vision se contracte et se dilate
+    // par à-coups pendant un peu moins d'une seconde.
+    static float zoomPunch = -1f;
+    const float ZoomPunchDuration = 0.8f;
+    public static void ZoomPunch()
+    {
+        zoomPunch = 0f;
+        Shake(0.5f);
+    }
     const float CannonZoom = 0.8f;
     float baseFov = -1f;
     Camera cam;
@@ -159,6 +168,14 @@ public class OrbitCamera : MonoBehaviour
         if (baseFov < 0f) baseFov = cam.fieldOfView;
         float wanted = CannonEye.HasValue ? baseFov * CannonZoom : baseFov;
         cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, wanted + shake * 12f, 1f - Mathf.Exp(-10f * Time.deltaTime));
+        if (zoomPunch >= 0f)
+        {
+            zoomPunch += Time.deltaTime;
+            float k = Mathf.Clamp01(zoomPunch / ZoomPunchDuration);
+            // Immédiat (pas de lissage) : zoom avant brutal, puis oscillations qui s'amortissent.
+            cam.fieldOfView = wanted * (1f - 0.45f * Mathf.Cos(k * Mathf.PI * 5f) * (1f - k));
+            if (k >= 1f) zoomPunch = -1f;
+        }
         if (shake <= 0f) return;
         float t = Time.time * 40f;
         Vector3 j = new Vector3(Mathf.PerlinNoise(t, 0f) - 0.5f, Mathf.PerlinNoise(0f, t) - 0.5f, Mathf.PerlinNoise(t, t) - 0.5f);

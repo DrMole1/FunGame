@@ -2,7 +2,8 @@ using UnityEngine;
 
 // Monticule de terre (V0.4.6, note 02 du chapitre 7) : les objets de valeur n'apparaissent plus à l'air libre. Un joueur
 // qui le vise de près et clique (ou E) le creuse pendant 1,2 seconde, en projetant de la terre autour de lui ; le monticule
-// libère alors l'objet tiré au sort à la génération (Os 90 %, Canard en Plastique 10 %), à ramasser.
+// libère alors l'objet tiré au sort à la génération (V0.4.7 : Os 85 %, Canard en Plastique 10 %), à ramasser, ou
+// Le Réveil (5 %).
 public class Mound : Interactable
 {
     public int Id { get; private set; }

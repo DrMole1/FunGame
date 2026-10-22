@@ -213,22 +213,6 @@ public class Tour : Entity
         Speed = 0f;
     }
 
-    // Un point de la grille de sa zone, à 10-40 m, dans la direction voulue (demi-tour ou tout droit).
-    int NodeAround(Vector3 direction)
-    {
-        int here = nav.NodeAt(transform.position);
-        int zone = here >= 0 ? nav.ZoneOfNode(here) : 0;
-        int best = -1;
-        for (int k = 0; k < 12; k++)
-        {
-            int node = nav.RandomNode(zone, rnd, transform.position, 10f, 40f);
-            if (node < 0) continue;
-            best = node;
-            if (Vector3.Dot(Horizontal(nav.Position(node) - transform.position), direction) > 0f) break;
-        }
-        return best;
-    }
-
     // ================= Affichage =================
 
     protected override void OnStateChanged(byte previous, byte next)

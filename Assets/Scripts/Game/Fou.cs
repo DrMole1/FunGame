@@ -7,7 +7,8 @@ using UnityEngine;
 // comme en chasse), ses grelots s'entendent à 30 m, et s'éteignent sur un écho planant. Un joueur dont la caméra le
 // voit, sans mur entre eux et à moins de 20 m, est fixé : le Fou se tourne vers lui, crie et tremble. Regardé
 // 1,5 seconde d'affilée, il attaque : cri, échange de position avec le personnage et 20 de dégâts (puis 5 s sans
-// pouvoir lancer son attaque). Si le joueur détourne le regard avant, le Fou danse 3 secondes : si la caméra du joueur
+// pouvoir lancer son attaque ; V0.4.7 : la caméra du joueur subit une vive secousse en zoom, et de brèves fumées
+// apparaissent sous lui). Si le joueur détourne le regard avant, le Fou danse 3 secondes : si la caméra du joueur
 // le regarde à la fin de sa danse, il attaque ; sinon il rôde à nouveau. Après un échange, il passe "en chasse"
 // 5 secondes, en courant vers le joueur, les yeux rouges, puis danse 3 secondes (même issue). À moins de 0,8 m, il
 // immobilise le joueur et le tue.
@@ -65,7 +66,7 @@ public class Fou : Entity
                         stateTimer = 0f;
                         runDuration = Range(GameRules.FouRunMin, GameRules.FouRunMax);
                         // 30 % : il fait demi-tour et court dans la direction inverse.
-                        if (rnd.NextDouble() < GameRules.FouTurnBackChance) PlanPath(NodeAround(-transform.forward), 0f);
+                        if (rnd.NextDouble() < GameRules.FouTurnBackChance) PlanPath(NodeAround(-transform.forward, 15f, 45f), 0f);
                     }
                 }
                 else
@@ -176,22 +177,6 @@ public class Fou : Entity
         TargetId = "";
         runTimer = Range(GameRules.FouWalkMin, GameRules.FouWalkMax);
         ClearPath();
-    }
-
-    // Un point de la grille de sa zone, à 15-45 m, dans la direction voulue.
-    int NodeAround(Vector3 direction)
-    {
-        int here = nav.NodeAt(transform.position);
-        int zone = here >= 0 ? nav.ZoneOfNode(here) : 0;
-        int best = -1;
-        for (int k = 0; k < 12; k++)
-        {
-            int node = nav.RandomNode(zone, rnd, transform.position, 15f, 45f);
-            if (node < 0) continue;
-            best = node;
-            if (Vector3.Dot(Horizontal(nav.Position(node) - transform.position), direction) > 0f) break;
-        }
-        return best;
     }
 
     // ================= Modèle =================
@@ -340,8 +325,15 @@ public class Fou : Entity
         }
     }
 
-    // Attaque : cri (différent du cri d'alerte) au moment de l'échange de position.
-    protected override void OnPulse() => GameAudio.Play3D("fou_attack", transform.position + Vector3.up * EyeHeight, 1f, 35f, 0f);
+    // Attaque : cri (différent du cri d'alerte) au moment de l'échange de position ; fumée là où il apparaît et, un instant
+    // plus tard, sous le joueur transporté (le joueur local fait la sienne en recevant l'échange).
+    protected override void OnPulse()
+    {
+        GameAudio.Play3D("fou_attack", transform.position + Vector3.up * EyeHeight, 1f, 35f, 0f);
+        Fx.Smoke(transform.position);
+        PlayerPresence target = FindPresence(TargetId);
+        if (target != null && !(GameSession.Instance != null && target == GameSession.Instance.LocalPresence)) Fx.SmokeUnder(target, 0.25f);
+    }
 
     // Tué au contact (immobilisé puis tué) ; l'échange de position ne compte pas.
     public override string KillSound => Current == State.Grab ? "fou_kill" : null;

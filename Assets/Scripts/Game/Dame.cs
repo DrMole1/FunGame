@@ -6,6 +6,8 @@ using UnityEngine;
 // elle crie et le prend en chasse (x1,05 ; x2,2 tant qu'il la regarde) pendant 12 à 15 secondes, et attaque au contact
 // (100 de dégâts, le survivant est repoussé). Elle ne saute pas, ne tombe pas et ne flotte pas : elle suit la grille de
 // navigation (MazeNav), qui passe par les escaliers et les dalles surélevées mais pas au-dessus du vide.
+// V0.4.7 : "en recherche", il lui arrive de pousser un cri de souffrance (tête renversée, 1,5 s, sans cesser d'avancer),
+// à 12 secondes d'intervalle au moins.
 public class Dame : Entity
 {
     public enum State : byte { Wander = 0, Chase = 1, Attack = 2 }
@@ -32,10 +34,12 @@ public class Dame : Entity
     public State Current { get => (State)state; private set => state = (byte)value; }
     public bool Watched;
 
-    float chaseTimer, attackTimer, stepTimer;
+    float chaseTimer, attackTimer, stepTimer, wailTimer;
     bool hitDone;
     readonly Dictionary<string, float> ignoreUntil = new Dictionary<string, float>();
     float attackClipLength = AttackDuration;
+
+    protected override void Init() => wailTimer = Range(GameRules.DameWailMin, GameRules.DameWailMax);
 
     protected override void BuildVisual()
     {
@@ -55,6 +59,12 @@ public class Dame : Entity
                 if (clip.name == "Attack") attackClipLength = clip.length;
             animator.applyRootMotion = false;
             animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+            if (animator.isHuman)
+            {
+                headBone = animator.GetBoneTransform(HumanBodyBones.Head);
+                neckBone = animator.GetBoneTransform(HumanBodyBones.Neck);
+                chestBone = animator.GetBoneTransform(HumanBodyBones.Chest) ?? animator.GetBoneTransform(HumanBodyBones.Spine);
+            }
         }
         else
         {
@@ -116,6 +126,13 @@ public class Dame : Entity
                     if (ignoreUntil.TryGetValue(p.PlayerId, out float until) && Time.time < until) continue;
                     if (Sees(p, EyeHeight, GameRules.DameSightRange, FieldOfView)) { BeginChase(p); return; }
                 }
+                // Cri de souffrance, de temps en temps (au moins 12 s d'écart).
+                wailTimer -= dt;
+                if (wailTimer <= 0f)
+                {
+                    wailTimer = Range(GameRules.DameWailMin, GameRules.DameWailMax);
+                    Pulse++;
+                }
                 Wander(dt);
                 break;
             }
@@ -171,6 +188,29 @@ public class Dame : Entity
     }
 
     public override string KillSound => "dame_kill";
+
+    // Cri de souffrance (en recherche) : son et geste, la tête renversée.
+    Transform headBone, neckBone, chestBone;
+    float wailShownAt = -10f;
+
+    protected override void OnPulse()
+    {
+        wailShownAt = Time.time;
+        GameAudio.Play3DSmooth("dame_wail", transform.position + Vector3.up * 1.7f, 1f, GameRules.DameScreamRange, RandomPitch());
+    }
+
+    void LateUpdate()
+    {
+        // Après l'Animator : le buste se cambre, la tête bascule en arrière et tremble, le temps du cri.
+        float t = Time.time - wailShownAt;
+        if (t >= GameRules.DameWailDuration || Current != State.Wander) return;
+        float w = Mathf.Sin(Mathf.PI * Mathf.Clamp01(t / GameRules.DameWailDuration));
+        float shake = Mathf.Sin(t * 47f) * 4f + Mathf.Sin(t * 31f) * 3f;
+        Vector3 side = transform.right;
+        if (chestBone != null) chestBone.rotation = Quaternion.AngleAxis(-14f * w, side) * chestBone.rotation;
+        if (neckBone != null) neckBone.rotation = Quaternion.AngleAxis((-18f + shake * 0.4f) * w, side) * neckBone.rotation;
+        if (headBone != null) headBone.rotation = Quaternion.AngleAxis((-24f + shake) * w, side) * Quaternion.AngleAxis(shake * w, transform.up) * headBone.rotation;
+    }
 
     protected override void Animate(float dt)
     {

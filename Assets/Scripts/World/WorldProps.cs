@@ -191,9 +191,13 @@ public class Eye : MonoBehaviour
     }
 }
 
-// Néon du labyrinthe : suit le réglage de luminosité ; certains grésillent.
+// Néon du labyrinthe : suit le réglage de luminosité ; certains grésillent. V0.4.7 : à moins de 30 m d'un Roi, tous
+// clignotent frénétiquement.
 public class FlickerLight : MonoBehaviour
 {
+    // Positions des Rois (mises à jour par GameSession chez chaque joueur).
+    public static readonly System.Collections.Generic.List<Vector3> Frenzy = new System.Collections.Generic.List<Vector3>();
+
     Light lightSource;
     Renderer bulb;
     float baseIntensity, timer, level = 1f;
@@ -207,9 +211,42 @@ public class FlickerLight : MonoBehaviour
         flickers = flicker;
     }
 
+    bool Frantic
+    {
+        get
+        {
+            foreach (Vector3 p in Frenzy)
+                if ((p - transform.position).sqrMagnitude < GameRules.RoiLightRange * GameRules.RoiLightRange) return true;
+            return false;
+        }
+    }
+
+    bool frantic;
+
     void Update()
     {
         lightSource.intensity = baseIntensity * level * Brightness.Factor;
+        bool wasFrantic = frantic;
+        frantic = Frenzy.Count > 0 && Frantic;
+        if (frantic)
+        {
+            // Saccades rapides et irrégulières, grésillement de temps en temps.
+            timer -= Time.deltaTime;
+            if (timer > 0f) return;
+            off = !off;
+            timer = off ? Random.Range(0.02f, 0.07f) : Random.Range(0.03f, 0.12f);
+            level = off ? 0.03f : Random.Range(0.8f, 1.3f);
+            if (bulb != null) bulb.enabled = !off;
+            if (off && Random.value < 0.12f) GameAudio.Play3D("neon", transform.position, 0.25f, 14f, 0.2f);
+            return;
+        }
+        if (wasFrantic)
+        {
+            off = false;
+            level = 1f;
+            timer = 0f;
+            if (bulb != null) bulb.enabled = true;
+        }
         if (!flickers) return;
         timer -= Time.deltaTime;
         if (timer > 0f) return;

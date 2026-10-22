@@ -13,6 +13,8 @@ public static class WorldBuilder
     public const float Wall = 0.3f;
     public const float HubRadius = 12f;
     const float HubWallHeight = 5f;
+    // Sommet du toit du chapiteau (cône de 6 m posé sur les murs), au-dessus du sol du Hub.
+    public const float ChapiteauTop = HubWallHeight + 6f;
     const float DoorWidth = 2.4f, DoorHeight = 2.8f;
     const int DoorI = Grid / 2, DoorJ = HubMax + 1; // première cellule du labyrinthe derrière la porte
     const int ChunkSize = 4;
@@ -850,6 +852,7 @@ public static class WorldBuilder
         // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, fosses, plateformes).
         Physics.SyncTransforms();
         foreach (Maze m in zones) Decorate(m, root, colliders.transform, rnd, refs);
+        MarkIntangibleSpheres(root);
         refs.mist = BuildMist(zones, root);
         refs.nav = BuildNav(z1, z2);
         refs.nav.Prepare(colliders.transform, refs.zoneDoor.Blocker);
@@ -1841,6 +1844,24 @@ public static class WorldBuilder
         GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, height * 0.5f, 0f), new Vector3(radius * 2f, height * 0.5f, radius * 2f), shaft, true);
         GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, 0.15f, 0f), new Vector3(radius * 2.6f, 0.15f, radius * 2.6f), ring);
         GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, height - 0.15f, 0f), new Vector3(radius * 2.6f, 0.15f, radius * 2.6f), ring);
+    }
+
+    // Note 05 de la Direction Artistique (V0.4.7) : une sphère du terrain sans collision reçoit une matière légèrement
+    // transparente (noire ou blanche selon sa teinte), pour qu'on devine qu'on peut la traverser. Les petites sphères
+    // (embouts des Lasers) et les objets interactifs gardent la leur.
+    static void MarkIntangibleSpheres(Transform root)
+    {
+        Mesh sphere = Resources.GetBuiltinResource<Mesh>("Sphere.fbx");
+        foreach (var mf in root.GetComponentsInChildren<MeshFilter>())
+        {
+            if (mf.sharedMesh != sphere || mf.transform.lossyScale.x < 0.3f || mf.GetComponentInParent<Interactable>() != null) continue;
+            var col = mf.GetComponent<Collider>();
+            if (col != null && col.enabled && !col.isTrigger) continue;
+            var r = mf.GetComponent<Renderer>();
+            if (r == null) continue;
+            bool dark = r.sharedMaterial == null || r.sharedMaterial.color.grayscale < 0.5f;
+            r.sharedMaterial = GameArt.Translucent(dark);
+        }
     }
 
     // Grande sphère posée (à moitié enfoncée dans le sol) ou suspendue au plafond.

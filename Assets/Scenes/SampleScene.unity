@@ -377,6 +377,8 @@ MonoBehaviour:
   mouseSensitivity: 3
   minPitch: -20
   maxPitch: 70
+  eyeHeight: 0.62
+  firstPersonPitch: 80
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

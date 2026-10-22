@@ -1,17 +1,17 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Le Roi (entité ID 8, type Cauchemar, V0.4.6) : grande entité bipède et mince, long cou dressé, dents pointues, drap sur
+// Le Roi (entité ID 8, type Cauchemar, V0.4.7) : grande entité bipède et mince, long cou dressé, dents pointues, drap sur
 // les yeux et couronne, une longue épée bâtarde dans la main gauche ; de la taille de La Dame.
 // "En recherche", il arpente le terrain sans un bruit (x0,7), s'arrête parfois 2 à 5 s, immobile (toutes les 7 à 15 s),
-// puis repart (10 % : demi-tour). S'il voit une Balise, il s'y rend (puis 40 s sans s'en soucier). Hors Abjuration, une
-// Abjuration de 10 m l'entoure (arrêtée par les murs, gérée chez chaque joueur). Un joueur repéré à 20 m devant lui est
-// "chassé" (de même, sans mur, à moins de 6 m, quel que soit l'angle) : aura blanche à ses pieds (-20 %, pas de course),
-// rire ; le Roi avance lentement vers lui en levant le bras droit 2,5 s, puis, si le joueur est toujours en ligne de vue,
-// lance une chaîne qui file droit sur lui. Touché, le joueur est immobilisé et traîné vers le Roi (qui ne bouge plus),
-// sauf s'il appuie 3 fois sur Espace (la chaîne se rompt). Pas de ligne de vue, ou chaîne rompue : le Roi repart vers lui,
-// 1 s sans aura, puis s'il le voit encore, nouvelle visée (1,5 s), sinon il reprend sa recherche. À moins de 0,8 m, il
-// immobilise le joueur et le tue.
+// puis repart (20 % : demi-tour). S'il voit une Balise, il s'y rend (puis 40 s sans s'en soucier). Toutes les lumières à
+// moins de 30 m de lui clignotent frénétiquement (géré chez chaque joueur). Un joueur repéré à 20 m devant lui est
+// "chassé" (de même, sans mur, à moins de 6 m, quel que soit l'angle) : rire, et flash lumineux sur l'écran du joueur ;
+// le Roi avance lentement vers lui en levant le bras droit 1,5 s, puis, si le joueur est toujours en ligne de vue, lance
+// une chaîne qui file droit sur lui. Touché, le joueur est immobilisé et traîné vers le Roi (qui ne bouge plus) au son de
+// son rire, sauf s'il appuie 3 fois sur Espace (la chaîne se rompt). Pas de ligne de vue, ou chaîne rompue : le Roi repart
+// vers lui, puis après 1 s, s'il le voit encore, nouvelle visée (1,5 s), sinon il reprend sa recherche. À moins de 0,8 m,
+// il immobilise le joueur et le tue.
 public class Roi : Entity
 {
     public enum State : byte { Walk = 0, Pause = 1, Beacon = 2, Aim = 3, Throw = 4, Pull = 5, Recover = 6, Grab = 7 }
@@ -32,8 +32,6 @@ public class Roi : Entity
         : new Vector3(0f, EyeHeight, 0.15f);
     public State Current { get => (State)state; private set => state = (byte)value; }
 
-    // Aura blanche aux pieds du joueur visé (ralenti, sans course).
-    public bool Slows => Current == State.Aim || Current == State.Throw;
     // La chaîne est visible (en vol ou accrochée au joueur).
     public bool ChainOut => Current == State.Throw || Current == State.Pull;
     public Vector3 ChainTip { get; private set; }
@@ -72,7 +70,7 @@ public class Roi : Entity
                     Current = State.Walk;
                     stateTimer = 0f;
                     walkTimer = Range(GameRules.RoiWalkMin, GameRules.RoiWalkMax);
-                    // 10 % : il repart dans l'autre sens.
+                    // 20 % : il repart dans l'autre sens.
                     if (rnd.NextDouble() < GameRules.RoiTurnBackChance) PlanPath(NodeAround(-transform.forward), 0f);
                     break;
                 }
@@ -252,21 +250,6 @@ public class Roi : Entity
         return Vector3.Distance(p, a + ab * t);
     }
 
-    int NodeAround(Vector3 direction)
-    {
-        int here = nav.NodeAt(transform.position);
-        int zone = here >= 0 ? nav.ZoneOfNode(here) : 0;
-        int best = -1;
-        for (int k = 0; k < 12; k++)
-        {
-            int node = nav.RandomNode(zone, rnd, transform.position, 10f, 40f);
-            if (node < 0) continue;
-            best = node;
-            if (Vector3.Dot(Horizontal(nav.Position(node) - transform.position), direction) > 0f) break;
-        }
-        return best;
-    }
-
     // ================= Réseau =================
 
     public override string Extra => ChainOut
@@ -284,7 +267,7 @@ public class Roi : Entity
     Transform swordHand, swordUpper, swordLower;
     float grabShownAt = -1f;
     Transform fallbackArm;
-    Transform chainRoot, whiteAura;
+    Transform chainRoot;
     readonly List<Transform> links = new List<Transform>();
     Vector3 netTip, shownTip;
     float armRaise;
@@ -327,17 +310,6 @@ public class Roi : Entity
         }
         chainRoot = new GameObject("Chaine").transform;
         chainRoot.SetParent(transform, false);
-        // Aura blanche aux pieds du joueur visé.
-        whiteAura = GameArt.Prim(PrimitiveType.Sphere, transform, Vector3.zero, new Vector3(1.3f, 0.22f, 1.3f),
-            GameArt.GhostAuraTinted("White", new Color(0.95f, 0.95f, 1f))).transform;
-        whiteAura.gameObject.SetActive(false);
-    }
-
-    void UpdateAura(PlayerPresence target)
-    {
-        bool shown = target != null && target.Alive;
-        whiteAura.gameObject.SetActive(shown);
-        if (shown) whiteAura.position = target.Position + Vector3.down * 0.85f;
     }
 
     // La lame prolonge l'avant-bras (bras tombant : pointe vers le sol), un peu inclinée vers l'avant.
@@ -351,6 +323,14 @@ public class Roi : Entity
         Vector3 tilt = Vector3.Cross(along, transform.forward).normalized;
         sword.rotation = Quaternion.AngleAxis(25f, tilt) * Quaternion.FromToRotation(Vector3.up, along);
         sword.position = hand.position + along * 0.06f;
+        // V0.4.7 : l'épée générée par Meshy (debout, poignée en bas), le pommeau sous la main ; sinon, en primitives.
+        var model = GameArt.SpawnModel("EpeeRoi", sword, 1.45f);
+        if (model != null)
+        {
+            model.transform.localPosition = Vector3.down * 0.2f;
+            foreach (var r in model.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            return;
+        }
         Material steel = GameArt.Lit("RoiSteel", new Color(0.33f, 0.31f, 0.29f), GameArt.Noise("rust", 64, 0.55f, 0.35f, 23), 0.55f);
         Material grip = GameArt.Lit("RoiGrip", new Color(0.1f, 0.08f, 0.07f), null, 0.2f);
         GameArt.Prim(PrimitiveType.Cube, sword, new Vector3(0f, 0.68f, 0f), new Vector3(0.06f, 1.05f, 0.018f), steel);
@@ -377,10 +357,12 @@ public class Roi : Entity
         {
             aimShownAt = Time.time;
             aimShownLen = (State)previous == State.Recover ? GameRules.RoiAimAgain : GameRules.RoiAimFirst;
-            // L'aura blanche apparaît chez le joueur visé.
+            // Flash lumineux sur l'écran du joueur visé (GameSession), avec son bruitage.
             PlayerPresence target = FindPresence(TargetId);
-            if (target != null) GameAudio.Play3D("roi_flash", target.Position, 1f, 30f, 0f);
+            if (target != null && (State)previous < State.Aim) GameAudio.Play3D("roi_flash", target.Position, 1f, 30f, 0f);
         }
+        // V0.4.7 : la chaîne accroche le joueur, et le rire retentit à nouveau.
+        if ((State)next == State.Pull) GameAudio.Play3D("roi_laugh", head, 1f, 35f, 0f);
         if ((State)next == State.Throw) throwShownAt = Time.time;
         // La chaîne a touché son objectif ou fini sa course : le son du lancer se coupe.
         if ((State)previous == State.Throw && chainSound != null)
@@ -442,7 +424,6 @@ public class Roi : Entity
         else if (fallbackArm != null) fallbackArm.localRotation = Quaternion.identity;
         AnimateSword();
         UpdateChain();
-        UpdateAura(Slows ? FindPresence(TargetId) : null);
     }
 
     // Mise à mort : le bras gauche monte l'épée au-dessus de la tête, puis l'abat d'un coup sec sur le joueur.

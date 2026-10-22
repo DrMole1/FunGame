@@ -50,6 +50,7 @@ public class PlayerController : MonoBehaviour
     public bool WantsToMove { get; private set; }
     // Dernier saut (pour entrer dans le Canon en sautant dessus).
     public float LastJumpTime { get; private set; } = -10f;
+    public float VerticalSpeed => rb.velocity.y;
 
     // Multiplicateur de vitesse imposé par le jeu (brume de l'Abjuration).
     public float SpeedFactor { get; set; } = 1f;
@@ -262,6 +263,18 @@ public class PlayerController : MonoBehaviour
         rb.position = position;
         rb.rotation = transform.rotation;
         if (!rb.isKinematic) rb.velocity = Vector3.zero;
+    }
+
+    // Trampoline (V0.4.7) : projeté vers le haut à cette vitesse ; un plafond l'arrête comme un saut normal.
+    public void Launch(float upSpeed)
+    {
+        if (rb.isKinematic) return;
+        jumpRequested = false;
+        Vector3 v = rb.velocity;
+        v.y = upSpeed;
+        rb.velocity = v;
+        airborneLock = 0.3f;
+        chosenDance = 0;
     }
 
     // Repousse le personnage dans la direction 'away' (horizontale), avec un petit bond.

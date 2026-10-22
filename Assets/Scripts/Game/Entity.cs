@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // Identifiants du GDD (chapitre 8) ; le Laser (ID 1) est un piège du décor, pas une entité mobile.
-public enum EntityKind : byte { Dame = 2, Tour = 3, Pion = 4, Cloche = 5, Spider = 6, Fou = 7, Roi = 8 }
+public enum EntityKind : byte { Dame = 2, Tour = 3, Pion = 4, Cloche = 5, Spider = 6, Fou = 7, Roi = 8, Cavalier = 9, Reveil = 10 }
 
 // Ce que les entités demandent au jeu (implémenté par GameSession, chez l'hôte).
 public interface IEntityHost
@@ -25,6 +25,8 @@ public interface IEntityHost
     IEnumerable<Vector3> BeaconPositions();
     // Secondes depuis la dernière action bruyante du joueur (aboiement, saut, objet ramassé ou posé).
     float NoiseAge(string playerId);
+    // Le Réveil explose : dégâts et recul aux joueurs dans le rayon (Hub compris), objets détruits (hors Hub).
+    void Explode(Entity entity, Vector3 center, float radius, int damage, float knockback);
 }
 
 // Entité mobile : l'hôte simule (Simulate) et envoie position, état, cible, compteur d'événements et données propres
@@ -48,8 +50,10 @@ public abstract class Entity : MonoBehaviour
     // Type Cauchemar : le personnage tué voit la caméra plonger dans ses yeux (EyesLocal, dans le repère de l'entité).
     public virtual bool Nightmare => false;
     public virtual Vector3 EyesLocal => new Vector3(0f, ChestHeight + 0.6f, 0.2f);
-    // Agrandissement du modèle (La Dame, La Tour, Le Roi : +25 %).
+    // Agrandissement du modèle (La Dame, La Tour, Le Roi, Le Cavalier : +25 %).
     protected virtual float ModelScale => 1f;
+    // L'entité a fini son rôle (Le Réveil a explosé) : l'hôte la retire de la partie.
+    public bool Expired { get; protected set; }
 
     protected byte state;
     protected MazeNav nav;
@@ -327,6 +331,22 @@ public abstract class Entity : MonoBehaviour
     }
 
     protected float Range(float min, float max) => Mathf.Lerp(min, max, (float)rnd.NextDouble());
+
+    // Point de la grille de sa zone, à 10-40 m par défaut, de préférence dans la direction donnée (demi-tour ou tout droit).
+    protected int NodeAround(Vector3 direction, float minDistance = 10f, float maxDistance = 40f)
+    {
+        int here = nav.NodeAt(transform.position);
+        int zone = here >= 0 ? nav.ZoneOfNode(here) : 0;
+        int best = -1;
+        for (int k = 0; k < 12; k++)
+        {
+            int node = nav.RandomNode(zone, rnd, transform.position, minDistance, maxDistance);
+            if (node < 0) continue;
+            best = node;
+            if (Vector3.Dot(Horizontal(nav.Position(node) - transform.position), direction) > 0f) break;
+        }
+        return best;
+    }
 
     // Pitch au hasard entre -1 et +1 demi-ton.
     protected static float RandomPitch() => Mathf.Pow(2f, Random.Range(-1f, 1f) / 12f);

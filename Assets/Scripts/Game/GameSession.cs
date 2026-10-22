@@ -7,7 +7,7 @@ using UnityEngine;
 // Post-It, Boussole, Balises, Téléporteurs et Stations Curatives.
 // L'hôte fait autorité sur l'état de la partie ; chaque client gère les PV, la sérénité et l'inventaire de son personnage.
 // Messages (en plus de ceux de NetworkGame) :
-//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|orbes|balise|bonus   hôte -> tous : état de la partie
+//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|orbes|balise|bonus|tests   hôte -> tous : état de la partie
 //   IL|manche|id,id...   IR|manche|id                          objets déjà ramassés / ramassé
 //   PK|id -> GV|type (0 = refusé)                              ramassage
 //   SL|type                                                     vente au Terminal
@@ -28,8 +28,8 @@ using UnityEngine;
 //   NZ                                                          joueur -> hôte : saut (action bruyante, pour L'Araignée)
 //   DR|objet|x|y|z -> IA|id|objet|x|y|z                         objet laissé à terre (mort, Pion), ramassable comme les autres
 //   BN|x|y|z|appareil / BG|id / BC                              joueur -> hôte : poser / ramasser un appareil, utiliser un Chargeur
-//   BW|id|x|y|z|appareil / BZ|id                                hôte -> tous : appareil posé / retiré (Balise, Balise Améliorée,
-//                                                               Téléporteur, Station Curative)
+//   BW|id|x|y|z|appareil|cap|joueur / BZ|id                     hôte -> tous : appareil posé / retiré (Balise, Balise Améliorée,
+//                                                               Téléporteur, Station Curative, Canon, objets uniques)
 //   JO / JS|objet / JE                                          joueur -> hôte : ouvrir Pogo / lui vendre un objet / cliquer les mains vides
 //   JX|état|sourire|frappé / JK / JN|raison                     hôte -> tous : état de Pogo ; -> joueur : coup mortel / refus
 //   DF|durée                                                    hôte -> joueur : La Dame vous attaque, immobilisé
@@ -38,6 +38,7 @@ using UnityEngine;
 //   GE|geste -> GS|id|geste                                     geste d'un joueur (ramasser, poser, utiliser, manger)
 //   MD|monticule -> MS|manche|monticule / MN|monticule          creuser un monticule : début (tous) ou refus (joueur)
 //   MO|manche|monticule   ML|manche|id,id...                   hôte -> tous : monticule creusé (objet libéré) / déjà creusés
+//   (Télévision, sujets de test, appareils déjà posés : voir GameSession.Objects.cs)
 public partial class GameSession : MonoBehaviour, IEntityHost
 {
     enum Phase { Waiting = 0, Running = 1, GameOver = 2 }
@@ -202,6 +203,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         postItUI = gameObject.AddComponent<PostItUI>();
         postItUI.Init(OnPostItWritten);
         Shader.SetGlobalFloat("_Abjuration", 0f);
+        // V0.4.7 : plus d'Abjuration autour du Roi.
+        Shader.SetGlobalVectorArray("_RoiMist", new Vector4[4]);
+        PasteReceiver.Ensure();
         UpdateScreens();
     }
 
@@ -247,9 +251,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         nextNoteId = nextEntityId = nextBeaconId = nextDropId = 0;
         dropped.Clear();
         hostAbjuration = false;
+        testFlags = 0;
         ResetHubFixtures();
         valueBoost = GameRules.ValueBoost(net.Roster.Count);
         ApplyWorld();
+        PlaceUniqueObjects();
     }
 
     // Balises et Pogo au début d'une partie.
@@ -258,6 +264,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         beaconMessages.Clear();
         beacons.Clear();
         beacons.Charge = GameRules.BeaconCharge;
+        tvVideos.Clear();
+        myTvs.Clear();
+        tvAsked.Clear();
+        bellObsession = -1;
         pogoMood = Pogo.Mood.Closed;
         pogoSmileUntil = pogoCooldownUntil = 0f;
         pogo.SetState(Pogo.Mood.Closed, false, "");
@@ -313,6 +323,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         notePlacedAt.Clear();
         hostAbjuration = false;
         dropped.Clear();
+        testFlags = sentFlags = 0;
         Godmode = false;
         EndTeleport(false);
         ResetHubFixtures();
@@ -362,7 +373,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     }
 
     // Objets de valeur de la manche dans chaque zone (chapitre 10 : pourcentage du quota). V0.4.6 : ils sont enfouis dans
-    // des monticules de terre ; le contenu de chacun (Os 90 %, Canard 10 %) est tiré d'après la graine, chez tous les joueurs.
+    // des monticules de terre ; le contenu de chacun (V0.4.7 : Os 85 %, Canard 10 %, Le Réveil 5 %) est tiré d'après la
+    // graine, chez tous les joueurs.
     void SpawnItems()
     {
         bool newRound = itemsRound != round;
@@ -395,7 +407,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 float yaw = (float)rnd.NextDouble() * 360f;
                 moundLoot[id] = (loot, spots[k]);
                 if (!dugMounds.Contains(id)) mounds[id] = Mound.Create(itemsRoot, id, loot, spots[k], yaw);
-                else if (!picked.Contains(id)) items[id] = ItemPickup.Create(itemsRoot, id, loot, spots[k]);
+                else if (!picked.Contains(id) && loot != ItemType.Reveil) items[id] = ItemPickup.Create(itemsRoot, id, loot, spots[k]);
             }
         }
         // Les objets laissés à terre restent d'une manche à l'autre.
@@ -486,7 +498,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
     }
 
-    // Monticule creusé : il disparaît (dernière gerbe de terre si 'animate') et libère son objet, à ramasser.
+    // Monticule creusé : il disparaît (dernière gerbe de terre si 'animate') et libère son objet, à ramasser ; ou bien
+    // Le Réveil en sort (créé par l'hôte).
     void OpenMound(int id, bool animate)
     {
         if (!dugMounds.Add(id)) return;
@@ -496,8 +509,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             else Destroy(m.gameObject);
         }
         mounds.Remove(id);
-        if (moundLoot.TryGetValue(id, out var loot) && !picked.Contains(id) && !items.ContainsKey(id))
-            items[id] = ItemPickup.Create(itemsRoot, id, loot.type, loot.pos);
+        if (!moundLoot.TryGetValue(id, out var loot)) return;
+        if (loot.type == ItemType.Reveil)
+        {
+            if (net.IsHost && animate) SpawnReveil(loot.pos);
+            return;
+        }
+        if (!picked.Contains(id) && !items.ContainsKey(id)) items[id] = ItemPickup.Create(itemsRoot, id, loot.type, loot.pos);
     }
 
     void RemoveItem(int id)
@@ -586,6 +604,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateTeleport();
         UpdateStations();
         player.Dancing = channelPad != null || healing;
+        UpdateObjects();
         UpdateCloches();
         UpdateRoi();
         UpdateMistContact();
@@ -629,7 +648,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         mistAmount = Mathf.MoveTowards(mistAmount, abjuration ? 1f : 0f, Time.deltaTime / 4f);
         Shader.SetGlobalFloat("_Abjuration", mistAmount);
         UpdateMistHoles();
-        bool mistShown = mistAmount > 0.001f || roiMistCount > 0;
+        bool mistShown = mistAmount > 0.001f;
         if (maze != null && maze.mist.activeSelf != mistShown) maze.mist.SetActive(mistShown);
         float low = cam != null && !inHub ? Mathf.Clamp01((2.2f - cam.transform.position.y) / 1.5f) : 0f;
         farFogAmount = Mathf.Lerp(farFogAmount, inHub ? 0f : 1f, k);
@@ -711,38 +730,15 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Shader.SetGlobalVectorArray("_InsectFlee", insectFlee);
     }
 
-    // ---------- Le Roi : aura blanche, chaîne, Abjuration qui l'entoure ----------
+    // ---------- Le Roi : flash, lumières affolées (GameSession.Objects.cs), chaîne ----------
 
     int chainedBy = -1, chainPresses;
     float chainedAt;
-    bool roiSlowed, inRoiMist;
-    int roiMistCount;
-    readonly Vector4[] roiMist = new Vector4[4];
 
     void UpdateRoi()
     {
-        roiSlowed = inRoiMist = false;
-        roiMistCount = 0;
+        UpdateRoiEffects();
         Vector3 me = player.transform.position;
-        foreach (var e in entities.Values)
-        {
-            if (!(e is Roi roi)) continue;
-            // Visé par le Roi : aura blanche aux pieds, -20 % et pas de course.
-            if (roi.Slows && roi.TargetId == net.MyId && !status.Dead) roiSlowed = true;
-            // Hors Abjuration, une Abjuration de 10 m l'entoure ; les murs l'arrêtent.
-            if (AbjurationActive || phase != Phase.Running) continue;
-            Vector3 c = roi.transform.position;
-            if (roiMistCount < roiMist.Length) roiMist[roiMistCount++] = new Vector4(c.x, c.y, c.z, GameRules.RoiAuraRadius);
-            Vector3 d = me - c;
-            if (new Vector2(d.x, d.z).magnitude < GameRules.RoiAuraRadius && Mathf.Abs(d.y) < 4f
-                && !Physics.Linecast(c + Vector3.up * 1.2f, me, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
-                inRoiMist = true;
-        }
-        for (int i = roiMistCount; i < roiMist.Length; i++) roiMist[i] = Vector4.zero;
-        Shader.SetGlobalVectorArray("_RoiMist", roiMist);
-        // L'aura saisit le joueur : flash blanc, chez lui seulement.
-        if (roiSlowed && !player.RunBlocked) hud.FlashWhite();
-        player.RunBlocked = roiSlowed;
 
         // Enchaîné : immobilisé (la caméra reste libre) et traîné vers le Roi ; 3 appuis sur Espace rompent la chaîne,
         // et une barre d'espace s'agite à l'écran.
@@ -784,10 +780,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Vector3 p = player.transform.position;
         var capsule = player.GetComponent<CapsuleCollider>();
         float feet = p.y + capsule.center.y - capsule.height * 0.5f;
-        inMist = !status.Dead && !Teleporting && !CannonFlying && (AbjurationActive && mistAmount > 0.5f || inRoiMist) && maze != null
+        inMist = !status.Dead && !Teleporting && !CannonFlying && AbjurationActive && mistAmount > 0.5f && maze != null
             && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
-        // Dans la brume, le personnage avance 20 % moins vite ; l'aura blanche du Roi le ralentit encore de 20 %.
-        player.SpeedFactor = (inMist ? GameRules.MistSpeedMultiplier : 1f) * (roiSlowed ? GameRules.RoiSlowMultiplier : 1f);
+        // Dans la brume, le personnage avance 20 % moins vite.
+        player.SpeedFactor = inMist ? GameRules.MistSpeedMultiplier : 1f;
         if (!inMist || Godmode)
         {
             mistTimer = 0f;
@@ -1004,12 +1000,14 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     bool Invincible => Time.time < invincibleUntil || Godmode || CannonFlying;
 
-    // Dégâts reçus par le personnage local. Le Hub est un endroit sûr ; juste après un /tp, aucun dégât.
-    public void DamageLocal(int amount, string cause, Entity by = null)
+    // Dégâts reçus par le personnage local. Le Hub est un endroit sûr (sauf face au Réveil, 'inHub') ; juste après un /tp,
+    // aucun dégât.
+    public void DamageLocal(int amount, string cause, Entity by = null, bool inHub = false)
     {
         if (status.Dead || phase == Phase.GameOver || !net.InGame) return;
-        if (WorldBuilder.IsInHub(player.transform.position) || Invincible || Teleporting) return;
+        if (WorldBuilder.IsInHub(player.transform.position) && !inHub || Invincible || Teleporting) return;
         status.SetHp(status.Hp - amount);
+        RaiseTestFlag(TestHurt);
         hud.FlashDamage();
         GameAudio.Play2D("hurt", 0.9f, 0.08f);
         if (status.Hp > 0) return;
@@ -1035,15 +1033,20 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         StopChannelSound();
         // Les objets du Terminal sont détruits ; les autres (avec un modèle 3D) restent à terre près du corps.
         var left = new List<ItemType>();
+        var unique = new List<ItemType>();
         if (cause != null)
             for (int i = 0; i < GameRules.InventorySize; i++)
                 if (Items.DropsOnDeath(status[i])) left.Add(status[i]);
+                else if (Items.IsUnique(status[i])) unique.Add(status[i]);
         status.ClearInventory();
         pendingPickups = 0;
         presence.Alive = false;
         player.SetFrozen(true);
         // Capsule désactivée : les objets tombent jusqu'au sol.
         foreach (var type in left) DropNear(type, player.transform.position);
+        // Les objets uniques (Télévision, Trampoline, Cloche Décorative) se retrouvent posés près du corps.
+        foreach (var type in unique) PlaceNear(type, player.transform.position);
+        nearNightmareSince = -1f;
         terminal.Close();
         postItUI.Close();
         if (fxDelay > 0f)
@@ -1107,6 +1110,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case ItemType.Canon:
                 TryPlaceBeacon(slot, DeviceKind.Canon);
                 break;
+            case ItemType.Television:
+            case ItemType.Trampoline:
+            case ItemType.ClocheDecorative:
+                TryPlaceBeacon(slot, Beacon.KindOf(status[slot]));
+                break;
             case ItemType.Chargeur:
                 hud.Toast("Visez la Balise du Hub, près de la porte, pour la recharger.");
                 break;
@@ -1166,7 +1174,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // ================= Balises =================
 
-    // Viser le sol (hors du Hub, assez près) pose la Balise (ou la Balise Améliorée, le Téléporteur, la Station Curative).
+    // Viser le sol (hors du Hub, assez près) pose la Balise (ou la Balise Améliorée, le Téléporteur, la Station Curative,
+    // le Canon) ; les objets uniques se posent aussi dans le Hub.
     void TryPlaceBeacon(int slot, DeviceKind kind)
     {
         string what = Items.Get(status[slot]).name;
@@ -1182,7 +1191,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             hud.Toast("Visez le sol, tout près de vous, pour y poser : " + what + ".");
             return;
         }
-        if (WorldBuilder.IsInHub(hit.point))
+        if (WorldBuilder.IsInHub(hit.point) && !Items.IsUnique(status[slot]))
         {
             hud.Toast(what + " : à poser hors du Hub.");
             return;
@@ -1194,7 +1203,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         status.RemoveAt(slot);
         Gesture(PlayerGesture.Place);
-        net.ToHost("BN|" + NetworkGame.F(hit.point.x) + "|" + NetworkGame.F(hit.point.y) + "|" + NetworkGame.F(hit.point.z) + "|" + (int)kind);
+        // Tourné vers le joueur qui le pose (la Télévision lui présente son écran).
+        Vector3 back = player.transform.position - hit.point;
+        float yaw = back.sqrMagnitude > 0.01f ? Mathf.Atan2(back.x, back.z) * Mathf.Rad2Deg : 0f;
+        net.ToHost("BN|" + NetworkGame.F(hit.point.x) + "|" + NetworkGame.F(hit.point.y) + "|" + NetworkGame.F(hit.point.z) + "|" + (int)kind
+            + "|" + NetworkGame.F(yaw));
     }
 
     // Un mur (ni le sol visé, ni un joueur, une entité ou un objet) à moins de 'distance' du point, à l'horizontale.
@@ -1314,6 +1327,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case 6: return SpawnAt<Spider>(0, rnd, GameRules.SpiderSpawnClearance) != null ? "Une Araignée rôde dans la Zone 1..." : "Impossible pour le moment.";
             case 7: return SpawnAt<Fou>(0, rnd, GameRules.EntitySpawnClearance) != null ? "Le Fou sourit désormais dans la Zone 1..." : "Impossible pour le moment.";
             case 8: return SpawnAt<Roi>(0, rnd, GameRules.EntitySpawnClearance) != null ? "Le Roi arpente désormais la Zone 1..." : "Impossible pour le moment.";
+            case 9: return SpawnAt<Cavalier>(0, rnd, GameRules.EntitySpawnClearance) != null ? "Le Cavalier galope désormais dans la Zone 1..." : "Impossible pour le moment.";
+            case 10: return phase == Phase.Running ? SpawnReveilNearHost(rnd) : "Impossible pour le moment.";
             default: return "Aucune entité n'a l'ID " + id + ".";
         }
     }
@@ -1353,14 +1368,15 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
     }
 
-    // Entités de type Cauchemar (La Dame, La Tour, Le Fou, Le Roi) : l'une d'elles, au hasard.
+    // Entités de type Cauchemar (La Dame, La Tour, Le Fou, Le Roi, Le Cavalier) : l'une d'elles, au hasard.
     void SpawnNightmare(int zone, System.Random rnd)
     {
-        switch (rnd.Next(4))
+        switch (rnd.Next(5))
         {
             case 0: SpawnAt<Dame>(zone, rnd, GameRules.EntitySpawnClearance); break;
             case 1: SpawnAt<Tour>(zone, rnd, GameRules.EntitySpawnClearance); break;
             case 2: SpawnAt<Fou>(zone, rnd, GameRules.EntitySpawnClearance); break;
+            case 3: SpawnAt<Cavalier>(zone, rnd, GameRules.EntitySpawnClearance); break;
             default: SpawnAt<Roi>(zone, rnd, GameRules.EntitySpawnClearance); break;
         }
     }
@@ -1433,6 +1449,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case EntityKind.Spider: return Entity.Create<Spider>(entitiesRoot, id, pos, yaw, maze.nav);
             case EntityKind.Fou: return Entity.Create<Fou>(entitiesRoot, id, pos, yaw, maze.nav);
             case EntityKind.Roi: return Entity.Create<Roi>(entitiesRoot, id, pos, yaw, maze.nav);
+            case EntityKind.Cavalier: return Entity.Create<Cavalier>(entitiesRoot, id, pos, yaw, maze.nav);
+            case EntityKind.Reveil: return Entity.Create<Reveil>(entitiesRoot, id, pos, yaw, maze.nav);
             default: return Entity.Create<Dame>(entitiesRoot, id, pos, yaw, maze.nav);
         }
     }
@@ -1447,6 +1465,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case EntityKind.Spider: return "L'Araignée";
             case EntityKind.Fou: return "Le Fou";
             case EntityKind.Roi: return "Le Roi";
+            case EntityKind.Cavalier: return "Le Cavalier";
+            case EntityKind.Reveil: return "Le Réveil";
             default: return "La Dame";
         }
     }
@@ -1472,6 +1492,14 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         if (phase == Phase.Running)
             foreach (var d in new List<Entity>(entities.Values)) if (d != null) d.Simulate(Time.deltaTime, PlayerPresence.All);
+        // Le Réveil a explosé : il quitte la partie (et disparaît chez les autres avec l'envoi suivant).
+        foreach (var d in new List<Entity>(entities.Values))
+            if (d != null && d.Expired)
+            {
+                entities.Remove(d.Id);
+                watching.Remove(d.Id);
+                Destroy(d.gameObject);
+            }
         entityTimer += Time.unscaledDeltaTime;
         if (entityTimer < EntitySyncInterval) return;
         // Rythme régulier : le temps en trop est reporté sur l'envoi suivant.
@@ -1558,8 +1586,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // ---------- La Dame regardée, La Cloche qui obnubile ----------
 
-    // Le joueur chassé signale à l'hôte s'il regarde La Dame (elle accélère alors) ; chacun signale si sa caméra
-    // voit Le Fou.
+    // Le joueur chassé signale à l'hôte s'il regarde La Dame (elle accélère alors) ou Le Cavalier (il se fige alors) ;
+    // chacun signale si sa caméra voit Le Fou.
     void UpdateWatching()
     {
         Camera cam = Camera.main;
@@ -1578,7 +1606,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 }
             }
             else if (e is Fou fou)
-                looking = !status.Dead && !Teleporting && cam != null && CameraSees(cam, fou);
+                looking = !status.Dead && !Teleporting && cam != null && CameraSees(cam, fou, GameRules.FouSightRange);
+            else if (e is Cavalier cav)
+                looking = cav.Current == Cavalier.State.Chase && cav.TargetId == net.MyId && !status.Dead && cam != null
+                    && CameraSees(cam, cav, GameRules.CavalierChaseDistance);
             else continue;
             watching.TryGetValue(e.Id, out bool before);
             if (looking == before) continue;
@@ -1587,21 +1618,23 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
     }
 
-    // Le Fou est à l'écran, à portée, et un point de son corps (tête, buste ou jambes) n'est caché par aucun mur.
-    static bool CameraSees(Camera cam, Fou fou)
+    // L'entité (Le Fou, Le Cavalier) est à l'écran, à portée, et un point de son corps (tête, buste ou jambes) n'est caché
+    // par aucun mur.
+    static bool CameraSees(Camera cam, Entity e, float range)
     {
         Vector3 from = cam.transform.position;
-        foreach (float h in new[] { fou.EyesLocal.y, fou.ChestHeight, 0.6f })
+        foreach (float h in new[] { e.EyesLocal.y, e.ChestHeight, 0.6f })
         {
-            Vector3 point = fou.transform.position + Vector3.up * h;
+            Vector3 point = e.transform.position + Vector3.up * h;
             Vector3 v = cam.WorldToViewportPoint(point);
-            if (v.z <= 0f || v.z > GameRules.FouSightRange || v.x < 0f || v.x > 1f || v.y < 0f || v.y > 1f) continue;
+            if (v.z <= 0f || v.z > range || v.x < 0f || v.x > 1f || v.y < 0f || v.y > 1f) continue;
             if (!Physics.Linecast(from, point, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return true;
         }
         return false;
     }
 
-    // Obnubilé par une Cloche : la caméra est forcée de la regarder, et toutes les 2 secondes, des dégâts.
+    // Obnubilé par une Cloche : la caméra est forcée de la regarder, et toutes les 2 secondes, des dégâts. Une Cloche
+    // Décorative qui vient de tinter fixe aussi le regard (sans dégâts).
     void UpdateCloches()
     {
         Cloche nearest = null;
@@ -1613,7 +1646,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                     float d = (c.transform.position - player.transform.position).sqrMagnitude;
                     if (d < best) { best = d; nearest = c; }
                 }
-        OrbitCamera.ForcedLook = nearest != null ? nearest.transform.position + Vector3.up * nearest.ChestHeight : (Vector3?)null;
+        Vector3? bell = BellLook();
+        OrbitCamera.ForcedLook = nearest != null ? nearest.transform.position + Vector3.up * nearest.ChestHeight : bell;
         if (nearest == null)
         {
             clocheTimer = 0f;
@@ -1967,7 +2001,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // ================= Hôte =================
 
     string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft)
-        + "|" + (compass ? 1 : 0) + "|" + orbsBroken + "|" + NetworkGame.F(beacons.Charge) + "|" + valueBoost;
+        + "|" + (compass ? 1 : 0) + "|" + orbsBroken + "|" + NetworkGame.F(beacons.Charge) + "|" + valueBoost + "|" + testFlags;
 
     void BroadcastState()
     {
@@ -1990,7 +2024,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         net.ToPeer(to, "TS|" + terminalUser);
         net.ToPeer(to, StatsMsg());
         foreach (string note in noteMessages.Values) net.ToPeer(to, note);
-        foreach (string beacon in beaconMessages.Values) net.ToPeer(to, beacon);
+        // Appareils déjà posés : sans animation de pose ni tintement.
+        foreach (string beacon in beaconMessages.Values) net.ToPeer(to, "BV" + beacon.Substring(2));
+        SendObjectSnapshot(to);
         foreach (var kv in dropped) net.ToPeer(to, DropMsg(kv.Key, kv.Value));
         net.ToPeer(to, PogoMsg(""));
     }
@@ -2075,6 +2111,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         noteMessages.Clear();
         notePlacedAt.Clear();
         dropped.Clear();
+        testFlags = 0;
         valueBoost = GameRules.ValueBoost(net.Roster.Count);
         ResetRoundStats(1);
         ResetHubFixtures();
@@ -2082,6 +2119,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         ApplyWorld();
         BroadcastState();
         OnRestart();
+        // Après OnRestart (qui retire les appareils posés) : les objets uniques de la nouvelle partie.
+        PlaceUniqueObjects();
     }
 
     // Tous les joueurs connectés sont morts : fondu au noir, puis GAME OVER et retour au lobby (décidé par l'hôte, message WO).
@@ -2140,6 +2179,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         // Nouvelle partie : les Balises posées disparaissent, celle du Hub est rechargée.
         beacons.Clear();
         beacons.Charge = GameRules.BeaconCharge;
+        myTvs.Clear();
+        tvAsked.Clear();
+        bellObsession = -1;
         ReviveLocal(SpawnPoint(), GameRules.MaxHp);
     }
 
@@ -2149,6 +2191,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         bool host = net.IsHost;
         if (HandleCannonMessage(from, f, host)) return;
+        if (HandleObjectMessage(from, f, host)) return;
         switch (f[0])
         {
             case "G" when !host && f.Length >= 10:
@@ -2165,6 +2208,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 orbsBroken = NetworkGame.I(f[9]);
                 if (f.Length >= 11) beacons.Charge = NetworkGame.P(f[10]);
                 if (f.Length >= 12) valueBoost = Mathf.Clamp(NetworkGame.I(f[11]), 1, 3);
+                if (f.Length >= 13) testFlags = NetworkGame.I(f[12]);
+                // Nouvelle partie : les critères remplis de notre côté repartent de zéro.
+                if (testFlags == 0) sentFlags = 0;
                 ApplyWorld();
                 if (net.InGame)
                 {
@@ -2393,19 +2439,23 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case "BN" when host && f.Length >= 4:
             {
                 noiseAt[from] = Time.time;
-                int id = nextBeaconId++;
-                int kind = f.Length >= 5 ? Mathf.Clamp(NetworkGame.I(f[4]), 0, (int)DeviceKind.Canon) : 0;
-                string msg = "BW|" + id + "|" + f[1] + "|" + f[2] + "|" + f[3] + "|" + kind;
-                beaconMessages[id] = msg;
-                net.ToAll(msg);
+                var kind = f.Length >= 5 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[4]), 0, (int)Beacon.LastKind) : DeviceKind.Beacon;
+                var pos = new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3]));
+                PlaceDevice(kind, pos, f.Length >= 6 ? NetworkGame.P(f[5]) : Random.Range(0f, 360f), from);
                 break;
             }
+            // BV : appareil déjà posé (joueur qui arrive), sans animation.
             case "BW" when f.Length >= 5:
+            case "BV" when f.Length >= 5:
             {
+                bool live = f[0] == "BW";
                 var pos = new Vector3(NetworkGame.P(f[2]), NetworkGame.P(f[3]), NetworkGame.P(f[4]));
-                var kind = f.Length >= 6 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[5]), 0, (int)DeviceKind.Canon) : DeviceKind.Beacon;
-                beacons.Add(NetworkGame.I(f[1]), pos, kind);
-                GameAudio.Play3D("pop", pos, 0.8f, 15f, 0.1f, 0.8f);
+                var kind = f.Length >= 6 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[5]), 0, (int)Beacon.LastKind) : DeviceKind.Beacon;
+                float yaw = f.Length >= 7 ? NetworkGame.P(f[6]) : float.NaN;
+                string placer = f.Length >= 8 ? f[7] : "";
+                Beacon placedDevice = beacons.Add(NetworkGame.I(f[1]), pos, kind, yaw);
+                if (live && placer.Length > 0) GameAudio.Play3D("pop", pos, 0.8f, 15f, 0.1f, 0.8f);
+                OnDevicePlaced(placedDevice, placer, live);
                 break;
             }
             case "BG" when host && f.Length >= 2:
@@ -2416,6 +2466,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (device != null && !CannonOccupied(id) && beaconMessages.Remove(id))
                 {
                     noiseAt[from] = Time.time;
+                    tvVideos.Remove(id);
                     net.ToAll("BZ|" + id);
                     net.ToPeer(from, "GV|" + (int)device.Item);
                 }
@@ -2427,6 +2478,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 Beacon b = beacons.Get(NetworkGame.I(f[1]));
                 if (b != null) GameAudio.Play3D("pop", b.transform.position, 0.8f, 15f, 0.1f);
                 beacons.Remove(NetworkGame.I(f[1]));
+                myTvs.Remove(NetworkGame.I(f[1]));
                 break;
             }
             case "BC" when host:
@@ -2458,6 +2510,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 StatsOf(from).golds += def.sellPrice;
                 net.ToAll(StatsMsg());
                 Log("Le joueur " + NameOf(from) + " a vendu " + def.name + " pour " + def.sellPrice + " golds.");
+                // Sujet de test : un objet vendu à Pogo.
+                testFlags |= TestPogoSale;
                 BroadcastState();
                 // Un achat le rend heureux (3 s de sourire) et le calme.
                 pogoActiveAt = Time.time;
@@ -2576,6 +2630,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (entities.TryGetValue(NetworkGame.I(f[1]), out var watched) && watched is Dame watchedDame && watched.TargetId == from)
                     watchedDame.Watched = f[2] == "1";
                 else if (watched is Fou watchedFou) watchedFou.SetLooking(from, f[2] == "1");
+                else if (watched is Cavalier watchedCav && watched.TargetId == from) watchedCav.Watched = f[2] == "1";
                 break;
             case "RC" when f.Length >= 3:
             {
@@ -2592,9 +2647,14 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (entities.TryGetValue(NetworkGame.I(f[1]), out var chainer) && chainer is Roi chainRoi) chainRoi.BreakFree(from);
                 break;
             case "FS" when f.Length >= 4:
-                // Le Fou prend votre place : vous voilà à la sienne.
+                // Le Fou prend votre place : vous voilà à la sienne, la vue secouée en zoom, dans un nuage de fumée.
                 if (!status.Dead && !Invincible && !Teleporting)
-                    player.Teleport(new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]) + 0.95f, NetworkGame.P(f[3])), player.transform.eulerAngles.y);
+                {
+                    var feet = new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3]));
+                    player.Teleport(feet + Vector3.up * 0.95f, player.transform.eulerAngles.y);
+                    OrbitCamera.ZoomPunch();
+                    Fx.Smoke(feet);
+                }
                 break;
             case "DF" when f.Length >= 2:
                 if (!status.Dead && !Invincible && !Teleporting) player.Immobilize(NetworkGame.P(f[1]));
@@ -2604,7 +2664,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (status.Dead || Invincible || Teleporting) break;
                 var from2 = new Vector3(NetworkGame.P(f[2]), player.transform.position.y, NetworkGame.P(f[3]));
                 entities.TryGetValue(f.Length >= 7 ? NetworkGame.I(f[6]) : -1, out var hitter);
-                DamageLocal(NetworkGame.I(f[1]), EntityName((EntityKind)NetworkGame.I(f[5])), hitter);
+                var hitKind = (EntityKind)NetworkGame.I(f[5]);
+                // Le Réveil blesse aussi dans le Hub.
+                DamageLocal(NetworkGame.I(f[1]), EntityName(hitKind), hitter, hitKind == EntityKind.Reveil);
                 if (!status.Dead && NetworkGame.P(f[4]) > 0f) player.Knockback(player.transform.position - from2, NetworkGame.P(f[4]));
                 break;
             }
@@ -2676,7 +2738,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             string[] p = entry.Split(',');
             if (p.Length < 10) continue;
             int id = NetworkGame.I(p[0]);
-            var kind = (EntityKind)Mathf.Clamp(NetworkGame.I(p[1]), (int)EntityKind.Dame, (int)EntityKind.Roi);
+            var kind = (EntityKind)Mathf.Clamp(NetworkGame.I(p[1]), (int)EntityKind.Dame, (int)EntityKind.Reveil);
             var pos = new Vector3(NetworkGame.P(p[2]), NetworkGame.P(p[3]), NetworkGame.P(p[4]));
             float yaw = NetworkGame.P(p[5]);
             seenEntities.Add(id);

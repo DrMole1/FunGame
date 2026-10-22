@@ -1,19 +1,22 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Appareils posés au sol, ramassables, reliés au réseau d'énergie des Balises (GDD 7.1 à 7.5).
-public enum DeviceKind : byte { Beacon = 0, Enhanced = 1, Teleporter = 2, Station = 3, Canon = 4 }
+// Appareils posés au sol, ramassables, reliés au réseau d'énergie des Balises (GDD 7.1 à 7.5), et objets uniques posés
+// de la même manière (7.6 à 7.8, V0.4.7) : la Télévision se relie aux Balises, le Trampoline et la Cloche Décorative non.
+public enum DeviceKind : byte { Beacon = 0, Enhanced = 1, Teleporter = 2, Station = 3, Canon = 4, Television = 5, Trampoline = 6, Bell = 7 }
 
 // Balise (GDD 7.1) : petite borne posée au sol, ramassable. La Balise du Hub, plus grande, ne se ramasse pas :
 // elle est chargée 10 minutes au début du jeu (jauge circulaire autour d'elle) et se recharge avec un Chargeur.
 // Balise Améliorée (7.3) : cristal et aura rouges, coordonnées affichées au-dessus d'elle ; ni Abjuration ni apparition
 // d'entité à moins de 5 m. Téléporteur (7.2), Station Curative (7.4) et Canon (7.5) : chargés s'ils voient une Balise
 // chargée. Le Canon de cirque tourne avec la visée du joueur qui est dedans, et recule en crachant des confettis au tir.
+// Note 03 du chapitre 7 (V0.4.7) : un objet posé au sol joue une légère animation rapide (il s'écrase puis rebondit).
 public class Beacon : Interactable
 {
     public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f, StationHeight = 1.15f;
     // Canon posé au sol : 0,8 fois la taille d'un personnage (1,8 m), soit environ 3 m de long ; fût à 80 % de sa hauteur.
     public const float CanonHeight = 0.8f * 1.8f, CanonBarrel = CanonHeight * 0.8f, CanonHalfLength = 1.5f;
+    public const DeviceKind LastKind = DeviceKind.Bell;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
     public int Id { get; private set; }   // -1 : Balise du Hub
@@ -21,13 +24,51 @@ public class Beacon : Interactable
     public bool IsHub => Id < 0;
     // Balises (simples ou améliorées) : elles relaient l'énergie ; Téléporteur et Station ne font que la recevoir.
     public bool Relays => Kind == DeviceKind.Beacon || Kind == DeviceKind.Enhanced;
+    // Relié au réseau d'énergie (chargé s'il voit une Balise chargée) : tout sauf le Trampoline et la Cloche Décorative.
+    public bool Networked => Kind != DeviceKind.Trampoline && Kind != DeviceKind.Bell;
+    // Télévision : son écran (sans signal, décompte ou vidéo).
+    public TvScreen Screen { get; private set; }
     public bool Charged { get; private set; }
-    public ItemType Item => Kind == DeviceKind.Enhanced ? ItemType.BaliseAmelioree : Kind == DeviceKind.Teleporter ? ItemType.Teleporteur
-        : Kind == DeviceKind.Station ? ItemType.StationCurative : Kind == DeviceKind.Canon ? ItemType.Canon : ItemType.Balise;
-    float VisualHeight => IsHub ? HubHeight : Kind == DeviceKind.Teleporter ? PadHeight : Kind == DeviceKind.Station ? StationHeight
-        : Kind == DeviceKind.Canon ? CanonHeight : Height;
-    // Point d'attache des rayons d'énergie : le cristal (le centre du disque, le haut du tube, le fût du Canon).
+    public ItemType Item => ItemOf(Kind);
+    float VisualHeight => IsHub ? HubHeight : HeightOf(Kind);
+    // Point d'attache des rayons d'énergie : le cristal (le centre du disque, le haut du tube, le fût du Canon, l'antenne).
     public Vector3 Top => transform.position + Vector3.up * (Kind == DeviceKind.Teleporter ? 0.12f : Kind == DeviceKind.Canon ? CanonBarrel : VisualHeight * 0.86f);
+
+    public static ItemType ItemOf(DeviceKind kind)
+    {
+        switch (kind)
+        {
+            case DeviceKind.Enhanced: return ItemType.BaliseAmelioree;
+            case DeviceKind.Teleporter: return ItemType.Teleporteur;
+            case DeviceKind.Station: return ItemType.StationCurative;
+            case DeviceKind.Canon: return ItemType.Canon;
+            case DeviceKind.Television: return ItemType.Television;
+            case DeviceKind.Trampoline: return ItemType.Trampoline;
+            case DeviceKind.Bell: return ItemType.ClocheDecorative;
+            default: return ItemType.Balise;
+        }
+    }
+
+    // Appareil posé par cet objet de l'inventaire (Balise si l'objet ne se pose pas).
+    public static DeviceKind KindOf(ItemType item)
+    {
+        for (var k = DeviceKind.Beacon; k <= LastKind; k++) if (ItemOf(k) == item) return k;
+        return DeviceKind.Beacon;
+    }
+
+    public static float HeightOf(DeviceKind kind)
+    {
+        switch (kind)
+        {
+            case DeviceKind.Teleporter: return PadHeight;
+            case DeviceKind.Station: return StationHeight;
+            case DeviceKind.Canon: return CanonHeight;
+            case DeviceKind.Television: return GameRules.TvHeight;
+            case DeviceKind.Trampoline: return GameRules.TrampolineHeight;
+            case DeviceKind.Bell: return GameRules.BellHeight;
+            default: return Height;
+        }
+    }
     // Bouche du Canon, d'où part le boulet.
     public Vector3 Muzzle => transform.position + Vector3.up * CanonBarrel;
 
@@ -38,10 +79,11 @@ public class Beacon : Interactable
     TextMesh coordinates;
     ParticleSystem gas;
     Transform visualRoot;
-    float recoil = -1f;
+    float recoil = -1f, placedPop = -1f;
 
     public static Beacon Create(Transform parent, int id, Vector3 pos, float yaw, DeviceKind kind = DeviceKind.Beacon)
     {
+        // (Modèles Meshy des objets uniques, sans socle : Resources/Art/Television, Trampoline et ClocheDecorative.)
         bool hub = id < 0;
         var go = new GameObject(hub ? "Balise du Hub" : kind + " " + id);
         go.transform.SetParent(parent, false);
@@ -72,6 +114,17 @@ public class Beacon : Interactable
                     GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.09f, 0f), new Vector3(0.6f, 0.03f, 0.6f), GameArt.Emissive("PadCore", new Color(1f, 0.65f, 0.1f), new Color(0.8f, 0.45f, 0.05f)));
                 }
                 break;
+            case DeviceKind.Television:
+                bool meshyTv = GameArt.SpawnModel("Television", visual, height) != null;
+                if (!meshyTv) BuildTelevision(visual, height);
+                beacon.Screen = TvScreen.Create(go.transform, visual, height, meshyTv);
+                break;
+            case DeviceKind.Trampoline:
+                if (GameArt.SpawnModel("Trampoline", visual, height) == null) BuildTrampoline(visual, height);
+                break;
+            case DeviceKind.Bell:
+                if (GameArt.SpawnModel("ClocheDecorative", visual, height) == null) BuildBell(visual, height);
+                break;
             case DeviceKind.Station:
                 if (GameArt.SpawnModel("StationCurative", visual, height) == null)
                 {
@@ -101,7 +154,7 @@ public class Beacon : Interactable
         beacon.bodies = visual.GetComponentsInChildren<Renderer>();
         beacon.block = new MaterialPropertyBlock();
         // Halo autour du cristal quand l'appareil est chargé (rouge pour la Balise Améliorée). Aucun sur le Téléporteur.
-        if (kind != DeviceKind.Teleporter && kind != DeviceKind.Canon)
+        if (kind == DeviceKind.Beacon || kind == DeviceKind.Enhanced || kind == DeviceKind.Station)
         {
             Material aura = kind == DeviceKind.Enhanced ? GameArt.GhostAuraTinted("Red", new Color(1f, 0.2f, 0.15f))
                 : kind == DeviceKind.Station ? GameArt.GhostAuraTinted("Green", new Color(0.3f, 1f, 0.4f)) : GameArt.GhostAura;
@@ -131,9 +184,54 @@ public class Beacon : Interactable
             beacon.coordinates = GameArt.CreateText(go.transform, "DistanceHub", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(1f, 0.45f, 0.4f));
         }
         beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(2.2f, CanonHeight, 2.2f)
-            : new Vector3(0.6f, height, 0.6f));
+            : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;
+    }
+
+    // ---------- Objets uniques (repli en primitives si le modèle Meshy manque) ----------
+
+    // Poste de télévision cathodique : caisse en bois, écran bombé vers l'avant (+Z), antennes en V.
+    static void BuildTelevision(Transform parent, float height)
+    {
+        float s = height / 1.44f;
+        Material wood = GameArt.Lit("TvWood", new Color(0.36f, 0.22f, 0.12f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.35f);
+        Material plastic = GameArt.Lit("TvPlastic", new Color(0.16f, 0.15f, 0.14f), null, 0.5f);
+        GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0f, 0.12f, 0f) * s, new Vector3(0.7f, 0.24f, 0.55f) * s, plastic);
+        GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0f, 0.68f, 0f) * s, new Vector3(1.05f, 0.85f, 0.8f) * s, wood);
+        GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0f, 0.68f, 0.401f) * s, new Vector3(0.95f, 0.75f, 0.02f) * s, plastic);
+        GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0.38f, 0.68f, 0.42f) * s, new Vector3(0.12f, 0.6f, 0.03f) * s, wood);
+        foreach (float side in new[] { -1f, 1f })
+        {
+            var rod = GameArt.Prim(PrimitiveType.Cylinder, parent, new Vector3(side * 0.16f, 1.3f, -0.05f) * s, new Vector3(0.025f, 0.24f, 0.025f) * s, GameArt.Metal);
+            rod.transform.localRotation = Quaternion.Euler(0f, 0f, -side * 28f);
+        }
+    }
+
+    // Trampoline rond : cadre bleu, toile noire tendue, quatre pieds.
+    static void BuildTrampoline(Transform parent, float height)
+    {
+        Material frame = GameArt.Lit("TrampoFrame", new Color(0.15f, 0.35f, 0.95f), null, 0.5f);
+        Material mat = GameArt.Lit("TrampoMat", new Color(0.05f, 0.05f, 0.06f), null, 0.3f);
+        GameArt.Prim(PrimitiveType.Cylinder, parent, new Vector3(0f, height - 0.05f, 0f), new Vector3(1.15f, 0.05f, 1.15f), frame);
+        GameArt.Prim(PrimitiveType.Cylinder, parent, new Vector3(0f, height - 0.02f, 0f), new Vector3(0.95f, 0.03f, 0.95f), mat);
+        for (int k = 0; k < 4; k++)
+        {
+            Vector3 leg = Quaternion.Euler(0f, 45f + k * 90f, 0f) * Vector3.forward * 0.5f;
+            GameArt.Prim(PrimitiveType.Cylinder, parent, leg + Vector3.up * (height - 0.1f) * 0.5f, new Vector3(0.05f, (height - 0.1f) * 0.5f, 0.05f), GameArt.Metal);
+        }
+    }
+
+    // Cloche de bronze décorative, sans socle : robe évasée, anse sur le dessus.
+    static void BuildBell(Transform parent, float height)
+    {
+        float s = height / 1.44f;
+        Material bronze = GameArt.Lit("BellBronze", new Color(0.78f, 0.6f, 0.28f), null, 0.8f);
+        GameArt.Prim(PrimitiveType.Cylinder, parent, new Vector3(0f, 0.08f, 0f) * s, new Vector3(1f, 0.08f, 1f) * s, bronze);
+        GameArt.Prim(PrimitiveType.Cylinder, parent, new Vector3(0f, 0.5f, 0f) * s, new Vector3(0.82f, 0.4f, 0.82f) * s, bronze);
+        GameArt.Prim(PrimitiveType.Sphere, parent, new Vector3(0f, 0.95f, 0f) * s, new Vector3(0.82f, 0.6f, 0.82f) * s, bronze);
+        var handle = GameArt.Prim(PrimitiveType.Cylinder, parent, new Vector3(0f, 1.3f, 0f) * s, new Vector3(0.28f, 0.04f, 0.28f) * s, bronze);
+        handle.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
     }
 
     // Gaz vert pétillant dans le tube de la Station Curative.
@@ -170,12 +268,15 @@ public class Beacon : Interactable
 
     public void SetCharged(bool on)
     {
+        // Le Trampoline et la Cloche Décorative ne sont pas reliés au réseau : jamais grisés.
+        if (!Networked) on = false;
         Charged = on;
+        if (Screen != null) Screen.SetSignal(on);
         if (halo != null) halo.SetActive(on);
         if (glow != null) glow.enabled = on;
         if (gas != null) { if (on && !gas.isPlaying) gas.Play(); else if (!on && gas.isPlaying) gas.Stop(); }
         if (block == null) block = new MaterialPropertyBlock();
-        block.SetColor("_Color", on ? ChargedTint : DischargedTint);
+        block.SetColor("_Color", on || !Networked || Kind == DeviceKind.Television ? ChargedTint : DischargedTint);
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
     }
 
@@ -193,9 +294,24 @@ public class Beacon : Interactable
         coordinates.text = text;
     }
 
+    // Posé au sol (Note 03 du chapitre 7) : il s'écrase légèrement puis rebondit, en un tiers de seconde.
+    public void PlayPlaced() => placedPop = 0f;
+
+    void UpdatePlacedPop()
+    {
+        if (placedPop < 0f || visualRoot == null) return;
+        placedPop += Time.deltaTime;
+        const float duration = 0.32f;
+        float k = Mathf.Clamp01(placedPop / duration);
+        float wobble = Mathf.Sin(k * Mathf.PI * 2.5f) * (1f - k);
+        visualRoot.localScale = new Vector3(1f + 0.18f * wobble, 1f - 0.22f * wobble, 1f + 0.18f * wobble);
+        if (k >= 1f) { placedPop = -1f; visualRoot.localScale = Vector3.one; }
+    }
+
     void Update()
     {
         UpdateRecoil();
+        UpdatePlacedPop();
         if (coordinates != null && Camera.main != null)
             coordinates.transform.rotation = Quaternion.LookRotation(coordinates.transform.position - Camera.main.transform.position);
         if (!Charged || halo == null) return;
@@ -289,10 +405,11 @@ public class BeaconNetwork : MonoBehaviour
         return net;
     }
 
-    public Beacon Add(int id, Vector3 pos, DeviceKind kind = DeviceKind.Beacon)
+    public Beacon Add(int id, Vector3 pos, DeviceKind kind = DeviceKind.Beacon, float yaw = float.NaN)
     {
         if (placed.TryGetValue(id, out var existing) && existing != null) return existing;
-        var b = Beacon.Create(transform, id, pos, Random.Range(0f, 360f), kind);
+        // Orientation : celle choisie à la pose (la Télévision fait face au joueur), sinon au hasard.
+        var b = Beacon.Create(transform, id, pos, float.IsNaN(yaw) ? Random.Range(0f, 360f) : yaw, kind);
         b.ShowHubDistance(hub.transform.position);
         placed[id] = b;
         dirty = true;
@@ -352,7 +469,7 @@ public class BeaconNetwork : MonoBehaviour
         if (HubCharged) charged.Add(hub);
         var pending = new List<Beacon>();
         var leaves = new List<Beacon>();
-        foreach (var b in placed.Values) if (b != null) (b.Relays ? pending : leaves).Add(b);
+        foreach (var b in placed.Values) if (b != null && b.Networked) (b.Relays ? pending : leaves).Add(b);
         for (int head = 0; head < charged.Count; head++)
         {
             Beacon from = charged[head];
@@ -380,6 +497,9 @@ public class BeaconNetwork : MonoBehaviour
         foreach (var b in placed.Values)
             if (b != null && b.Charged != parentOf.ContainsKey(b)) b.SetCharged(parentOf.ContainsKey(b));
     }
+
+    // La Balise du Hub (chargée ou non) voit cet appareil, sans élément du décor entre eux.
+    public bool SeesHub(Beacon b) => b != null && InSight(hub, b);
 
     // Aucun élément du décor entre les deux cristaux (les objets interactifs, joueurs et entités ne bloquent pas).
     bool InSight(Beacon a, Beacon b)
