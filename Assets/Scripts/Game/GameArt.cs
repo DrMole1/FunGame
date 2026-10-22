@@ -450,10 +450,14 @@ public static class GameArt
         go.GetComponent<Renderer>().sharedMaterial = mat;
         if (!keepCollider)
         {
-            // Désactivé tout de suite (la destruction n'a lieu qu'en fin d'image).
+            // Désactivé tout de suite (la destruction n'a lieu qu'en fin d'image). En WebGL, le SphereCollider est retiré du
+            // build : une sphère n'en a pas.
             var col = go.GetComponent<Collider>();
-            col.enabled = false;
-            Object.Destroy(col);
+            if (col != null)
+            {
+                col.enabled = false;
+                Object.Destroy(col);
+            }
         }
         return go;
     }
