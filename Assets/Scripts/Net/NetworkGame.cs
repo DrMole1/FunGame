@@ -41,6 +41,8 @@ public class NetworkGame : MonoBehaviour
     State state = State.Lobby;
     bool isHost;
     string myId, hostId, roomCode, myName;
+    // Pseudo laissé vide au lobby : le joueur porte le nom de son skin, et en change avec lui en cours de partie.
+    bool nameFromSkin;
     float myHue, sendTimer, connectTimer;
     int mySkin;
 
@@ -189,7 +191,8 @@ public class NetworkGame : MonoBehaviour
         PlayerPrefs.SetInt("skin", mySkin);
         PlayerPrefs.Save();
         localPlayer.GetComponent<CharacterAvatar>().SetCharacter(library, mySkin);
-        if (state == State.InGame) ToHost("K|" + mySkin);
+        // "1" : le pseudo suit le skin (l'hôte le renomme).
+        if (state == State.InGame) ToHost("K|" + mySkin + "|" + (nameFromSkin ? "1" : "0"));
     }
 
     // Commande /kick de l'hôte. Retourne le nom exact du joueur expulsé, ou null.
@@ -213,6 +216,7 @@ public class NetworkGame : MonoBehaviour
         // Pseudo laissé vide : le joueur prend le nom de son personnage (skin). Ce nom n'est pas retenu comme pseudo,
         // pour suivre le skin choisi la fois suivante.
         bool blank = string.IsNullOrWhiteSpace(playerName);
+        nameFromSkin = blank;
         myName = blank ? SanitizeName(SkinName(mySkin)) : SanitizeName(playerName);
         myHue = Random.value;
         connectTimer = 0f;
@@ -307,11 +311,17 @@ public class NetworkGame : MonoBehaviour
                 roster[f[1]] = info;
                 if (f[1] != myId)
                 {
-                    if (remotes.TryGetValue(f[1], out var existing)) existing.SetCharacter(library, info.character);
+                    if (remotes.TryGetValue(f[1], out var existing))
+                    {
+                        existing.SetCharacter(library, info.character);
+                        existing.SetName(info.name);
+                    }
                     else SpawnRemote(f[1], info);
                 }
                 else if (state == State.Joining)
                     EnterGame(info);
+                else
+                    myName = info.name;
                 session.OnRosterChanged();
                 break;
             }
@@ -319,8 +329,16 @@ public class NetworkGame : MonoBehaviour
                 if (roster.TryGetValue(from, out var pi))
                 {
                     pi.character = Mathf.Clamp(I(f[1]), 0, library.Count - 1);
-                    if (remotes.TryGetValue(from, out var rp0)) rp0.SetCharacter(library, pi.character);
+                    // Pseudo tiré du skin : il prend le nom du nouveau skin (numéroté s'il est déjà porté).
+                    if (f.Length >= 3 && f[2] == "1") pi.name = UniqueName(SanitizeName(SkinName(pi.character)), from);
+                    if (remotes.TryGetValue(from, out var rp0))
+                    {
+                        rp0.SetCharacter(library, pi.character);
+                        rp0.SetName(pi.name);
+                    }
+                    if (from == myId) myName = pi.name;
                     PeerNet.Broadcast(PlayerMsg(from, pi));
+                    session.OnRosterChanged();
                 }
                 break;
             case "S" when f.Length >= 10:
@@ -453,15 +471,15 @@ public class NetworkGame : MonoBehaviour
         return 0;
     }
 
-    // Deux joueurs ne peuvent pas porter le même pseudo (utile pour /kick).
-    string UniqueName(string n)
+    // Deux joueurs ne peuvent pas porter le même pseudo (utile pour /kick). 'self' : joueur renommé, ignoré.
+    string UniqueName(string n, string self = null)
     {
         string candidate = n;
         for (int k = 2; ; k++)
         {
             bool taken = false;
-            foreach (var p in roster.Values)
-                if (string.Equals(p.name, candidate, System.StringComparison.OrdinalIgnoreCase)) taken = true;
+            foreach (var kv in roster)
+                if (kv.Key != self && string.Equals(kv.Value.name, candidate, System.StringComparison.OrdinalIgnoreCase)) taken = true;
             if (!taken) return candidate;
             candidate = n + k;
         }

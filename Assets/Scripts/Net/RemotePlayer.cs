@@ -44,7 +44,18 @@ public class RemotePlayer : MonoBehaviour
         rp.nameTag = go.AddComponent<NameTag>();
         rp.nameTag.height = library.height * 0.5f + 0.35f;
         rp.nameTag.Set(playerName, color);
+        rp.tagColor = color;
         return rp;
+    }
+
+    Color tagColor;
+
+    // Pseudo changé en cours de partie (pseudo tiré du skin, qui suit le skin).
+    public void SetName(string playerName)
+    {
+        if (playerName == PlayerName) return;
+        PlayerName = playerName;
+        nameTag.Set(playerName, tagColor);
     }
 
     public void SetCharacter(CharacterLibrary library, int character) => avatar.SetCharacter(library, character);
