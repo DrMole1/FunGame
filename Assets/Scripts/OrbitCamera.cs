@@ -70,6 +70,9 @@ public class OrbitCamera : MonoBehaviour
     // Personnage mort : la tension retombe plus vite, le battement s'estompe en 1,4 s environ (avant le silence de la mort).
     public static bool Dying;
     static float dread, heartPhase, heartFov, beatAt = -10f;
+    // Tension lissée (0 à 1) et battement en cours (0 à 1,6), pour l'assombrissement de l'écran (GameHud).
+    public static float HeartTension => dread;
+    public static float HeartBeat => dread > 0.001f ? HeartEnvelope(Time.time - beatAt) : 0f;
     const float DreadRise = 3f, DreadFall = 0.35f, DreadFallDying = 0.7f;
     const float HeartRateCalm = 60f, HeartRatePanic = 120f;   // battements par minute
     const float HeartFovPulse = 2.6f;                          // degrés de champ de vision au battement

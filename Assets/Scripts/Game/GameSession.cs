@@ -1221,8 +1221,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // ================= Balises =================
 
-    // Viser le sol (hors du Hub, assez près) pose la Balise (ou la Balise Améliorée, le Téléporteur, la Station Curative,
-    // le Canon) ; les objets uniques se posent aussi dans le Hub.
+    // Viser le sol (assez près) pose la Balise (ou la Balise Améliorée, le Téléporteur, la Station Curative, le Canon).
+    // Le Téléporteur, la Station Curative et le Canon se posent hors du Hub ; les Balises, les Balises Améliorées et les
+    // objets uniques, partout (et se ramassent de la même façon). La Balise du Hub initiale ne change pas.
     void TryPlaceBeacon(int slot, DeviceKind kind)
     {
         string what = Items.Get(status[slot]).name;
@@ -1238,7 +1239,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             hud.Toast("Visez le sol, tout près de vous, pour y poser : " + what + ".");
             return;
         }
-        if (WorldBuilder.IsInHub(hit.point) && !Items.IsUnique(status[slot]))
+        if (WorldBuilder.IsInHub(hit.point) && !Items.IsUnique(status[slot]) && kind != DeviceKind.Beacon && kind != DeviceKind.Enhanced)
         {
             hud.Toast(what + " : à poser hors du Hub.");
             return;

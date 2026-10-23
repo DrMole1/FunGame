@@ -210,10 +210,13 @@ public class NetworkGame : MonoBehaviour
 
     void BeginSession(string playerName)
     {
-        myName = SanitizeName(playerName);
+        // Pseudo laissé vide : le joueur prend le nom de son personnage (skin). Ce nom n'est pas retenu comme pseudo,
+        // pour suivre le skin choisi la fois suivante.
+        bool blank = string.IsNullOrWhiteSpace(playerName);
+        myName = blank ? SanitizeName(SkinName(mySkin)) : SanitizeName(playerName);
         myHue = Random.value;
         connectTimer = 0f;
-        PlayerPrefs.SetString("playerName", myName);
+        PlayerPrefs.SetString("playerName", blank ? "" : myName);
         PlayerPrefs.Save();
     }
 

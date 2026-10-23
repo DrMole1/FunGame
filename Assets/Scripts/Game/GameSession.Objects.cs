@@ -68,8 +68,9 @@ public partial class GameSession
         }
         if (b.Kind == DeviceKind.Television && placer == net.MyId) myTvs.Add(b.Id);
         if (!net.IsHost || !live || (b.Kind != DeviceKind.Beacon && b.Kind != DeviceKind.Enhanced)) return;
-        // Sujets de test : une Balise posée en vision directe de la Balise du Hub ; 20 Balises posées.
-        if (beacons.SeesHub(b)) SetTestFlag(TestBeaconInSight);
+        // Sujets de test : une Balise posée en vision directe de la Balise du Hub (hors du Hub : y poser une Balise juste à
+        // côté ne compte pas) ; 20 Balises posées.
+        if (!WorldBuilder.IsInHub(b.transform.position) && beacons.SeesHub(b)) SetTestFlag(TestBeaconInSight);
         int count = 0;
         foreach (var other in beacons.Placed)
             if (other != null && (other.Kind == DeviceKind.Beacon || other.Kind == DeviceKind.Enhanced)) count++;
