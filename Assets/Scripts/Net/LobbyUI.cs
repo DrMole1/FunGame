@@ -150,7 +150,7 @@ public class LobbyUI : MonoBehaviour
 
         UiKit.Label(p, "Pseudo", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         // Laissé vide, le pseudo devient le nom du skin choisi.
-        nameField = UiKit.Field(p, "Votre pseudo (sinon : nom du skin)", savedName, 16);
+        nameField = UiKit.Field(p, "Votre pseudo", savedName, 16);
         UiKit.Paint(nameField.gameObject, FieldGrey, 2);
 
         UiKit.Label(p, "Skin", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);

@@ -39,10 +39,11 @@ public class GameHud : MonoBehaviour
     // Icônes d'inventaire (Resources/Icons/<ItemType>, créées par "FunGame/Générer les icônes d'inventaire").
     readonly System.Collections.Generic.Dictionary<ItemType, Sprite> icons = new System.Collections.Generic.Dictionary<ItemType, Sprite>();
     float toastTimer;
-    RawImage damageFlash, whiteFlash, dreadVeil;
-    // Pulsations cardiaques : l'écran s'assombrit (surtout sur les bords) d'autant plus que le Cauchemar est proche, et
-    // fonce un peu à chaque battement.
-    const float DreadDarkness = 0.45f, DreadBeatBoost = 0.15f;
+    RawImage damageFlash, whiteFlash, dreadVeil, dreadDim;
+    // Pulsations cardiaques : l'écran s'assombrit nettement (bords presque noirs, centre voilé) d'autant plus que le
+    // Cauchemar est proche, et fonce à chaque battement. La racine carrée de la tension rend l'effet bien visible dès que
+    // les pulsations commencent.
+    const float DreadDarkness = 0.92f, DreadDim = 0.3f, DreadBeatBoost = 0.25f;
     float flashTimer, whiteTimer;
     // Aura blanche du Roi : éclair blanc (luminosité +400 %) qui retombe en 0,5 s.
     const float WhiteFlashDuration = 0.5f, WhiteFlashBoost = 4f;
@@ -161,6 +162,7 @@ public class GameHud : MonoBehaviour
         var canvas = UiKit.CreateCanvas(transform, "HudCanvas", 50);
         Texture2D vignette = Vignette(128);
 
+        dreadDim = FullScreen(canvas.transform, "VoilePulsations", null);
         dreadVeil = FullScreen(canvas.transform, "AssombrissementPulsations", vignette);
         // Flash rouge des dégâts (sous le reste de l'interface).
         damageFlash = FullScreen(canvas.transform, "FlashDegats", vignette);
@@ -417,7 +419,7 @@ public class GameHud : MonoBehaviour
             wipeTime = -1f;
             wipeRoot.SetActive(false);
             flashTimer = whiteTimer = 0f;
-            damageFlash.color = whiteFlash.color = dreadVeil.color = Color.clear;
+            damageFlash.color = whiteFlash.color = dreadVeil.color = dreadDim.color = Color.clear;
             ClearDeath();
         }
     }
@@ -616,8 +618,10 @@ public class GameHud : MonoBehaviour
 
     void Update()
     {
-        float dread = root.activeSelf ? OrbitCamera.HeartTension : 0f;
-        dreadVeil.color = new Color(0f, 0f, 0f, DreadDarkness * dread * (1f + DreadBeatBoost * OrbitCamera.HeartBeat));
+        float dread = root.activeSelf ? Mathf.Sqrt(OrbitCamera.HeartTension) : 0f;
+        float beat = 1f + DreadBeatBoost * OrbitCamera.HeartBeat;
+        dreadVeil.color = new Color(0f, 0f, 0f, Mathf.Min(1f, DreadDarkness * dread * beat));
+        dreadDim.color = new Color(0f, 0f, 0f, Mathf.Min(1f, DreadDim * dread * beat));
         if (whiteTimer > 0f)
         {
             // L'image devient 5 fois plus claire : un voile blanc qui couvre 4/5 de l'écran, puis s'efface.
