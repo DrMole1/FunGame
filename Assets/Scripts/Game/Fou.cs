@@ -325,14 +325,16 @@ public class Fou : Entity
         }
     }
 
-    // Attaque : cri (différent du cri d'alerte) au moment de l'échange de position ; fumée là où il apparaît et, un instant
-    // plus tard, sous le joueur transporté (le joueur local fait la sienne en recevant l'échange).
+    // Attaque : cri (différent du cri d'alerte) au moment de l'échange de position ; pouf de cirque là où il apparaît et,
+    // un instant plus tard, sous le joueur transporté (le joueur local fait le sien en recevant l'échange).
     protected override void OnPulse()
     {
         GameAudio.Play3D("fou_attack", transform.position + Vector3.up * EyeHeight, 1f, 35f, 0f);
-        Fx.Smoke(transform.position);
+        // Une fois sur dix, une surprise (colombe ou chapeau de magicien), la même chez tous : tirée de l'échange.
+        int roll = (int)((uint)(Id * 7919 + Pulse * 104729) % 20u);
+        Fx.CircusPoof(transform.position, roll == 0 ? Fx.Surprise.Dove : roll == 1 ? Fx.Surprise.Hat : Fx.Surprise.None);
         PlayerPresence target = FindPresence(TargetId);
-        if (target != null && !(GameSession.Instance != null && target == GameSession.Instance.LocalPresence)) Fx.SmokeUnder(target, 0.25f);
+        if (target != null && !(GameSession.Instance != null && target == GameSession.Instance.LocalPresence)) Fx.CircusPoofUnder(target, 0.25f);
     }
 
     // Tué au contact (immobilisé puis tué) ; l'échange de position ne compte pas.

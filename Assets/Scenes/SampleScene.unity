@@ -266,6 +266,22 @@ MonoBehaviour:
     model: {fileID: 919132149155446097, guid: 58c4ca9e4d791154f95018f937f9a4f6, type: 3}
     controller: {fileID: 9100000, guid: 4943415b86ca2c342bad50bf781b0564, type: 2}
     scale: 1.0000001
+  - name: Perso5
+    model: {fileID: 919132149155446097, guid: 74031179764a0824f82cd3a8c1528c0d, type: 3}
+    controller: {fileID: 9100000, guid: 1696702ec188982459911809ffc314c1, type: 2}
+    scale: 1.0000001
+  - name: Perso6
+    model: {fileID: 919132149155446097, guid: 8c404c5f2aa676d478ba18f1c3f16264, type: 3}
+    controller: {fileID: 9100000, guid: ce0d8f39c7a4c4a48a4f410a6d8c320c, type: 2}
+    scale: 0.99999994
+  - name: Perso7
+    model: {fileID: 919132149155446097, guid: ec9091eac8111a34a94ede68f7ba9d8a, type: 3}
+    controller: {fileID: 9100000, guid: 8d9437c03162e5e4dbefdd551ce04b92, type: 2}
+    scale: 1.0000001
+  - name: Perso8
+    model: {fileID: 919132149155446097, guid: df7cacb20c48a8945a389f7b513363e8, type: 3}
+    controller: {fileID: 9100000, guid: 789884e59689ee648a6c708e5291d913, type: 2}
+    scale: 1.0000001
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0

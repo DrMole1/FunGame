@@ -7,10 +7,10 @@ using UnityEngine;
 // dès qu'il se déplace. Il s'arrête parfois pour frapper le sol de sa masse (1,5 s), puis repart (20 % : en arrière).
 // Il repère un joueur à 20 m devant lui, ou à 6 m même dans son dos : cri d'alerte, et il passe "en chasse" (un seul joueur
 // à la fois), les yeux rouges luisant dans l'obscurité. Tant que le joueur traqué le regarde (caméra, sans mur entre eux),
-// il ne bouge plus (il se tourne seulement vers lui) ; dès qu'il ne le regarde plus ou se cache derrière un mur, cri de
-// terreur, et il court vers lui (2,2 fois la marche d'un joueur). À moins de 0,8 m (même immobile), il immobilise le
+// il ne bouge plus (il ne se tourne même pas vers lui) ; dès qu'il ne le regarde plus ou se cache derrière un mur, cri de
+// terreur, et il court vers lui (3,5 fois la marche d'un joueur). À moins de 0,8 m (même immobile), il immobilise le
 // joueur et le frappe de sa masse, puis repart en recherche. Un compteur de distance (remis à 0 au début de la chasse)
-// compte les mètres parcourus : à 40 m, ou si le joueur rentre dans le Hub, il abandonne et ne peut plus traquer ce
+// compte les mètres parcourus : à 50 m, ou si le joueur rentre dans le Hub, il abandonne et ne peut plus traquer ce
 // joueur pendant 2 secondes.
 public class Cavalier : Entity
 {
@@ -90,10 +90,9 @@ public class Cavalier : Entity
                 bool watched = Watched && ClearLine(transform.position + Vector3.up * EyeHeight, target.Position + Vector3.up * 0.4f);
                 if (watched)
                 {
-                    // Regardé : immobile, il se tourne seulement vers lui.
+                    // Regardé : figé sur place, sans même se tourner vers lui.
                     Speed = 0f;
                     running = false;
-                    Face(target.Position, dt);
                     break;
                 }
                 if (!running)

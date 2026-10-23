@@ -61,6 +61,42 @@ public class OrbitCamera : MonoBehaviour
     }
     const float CannonZoom = 0.8f;
     float baseFov = -1f;
+
+    // Pulsations cardiaques (GDD 8, Note 02, V0.4.8) : 0 = calme, 1 = Cauchemar tout proche. Fixé à chaque image par la
+    // session ; la caméra bat au rythme du cœur (d'autant plus vite que l'entité est proche), avec un léger battement
+    // sonore, et le balancement de tête à la première personne se fait plus insistant. L'effet monte vite et retombe
+    // lentement.
+    public static float Dread;
+    static float dread, heartPhase, heartFov;
+    const float DreadRise = 3f, DreadFall = 0.35f;
+    const float HeartRateCalm = 75f, HeartRatePanic = 165f;   // battements par minute
+    const float HeartFovPulse = 3.2f;                          // degrés de champ de vision au battement
+
+    // Enveloppe d'un battement « poum-poum » (0 à 1) selon la position dans le cycle.
+    static float HeartEnvelope(float phase)
+    {
+        float lub = Mathf.Exp(-Mathf.Pow((phase - 0.04f) / 0.035f, 2f));
+        float dub = 0.65f * Mathf.Exp(-Mathf.Pow((phase - 0.2f) / 0.035f, 2f));
+        return lub + dub;
+    }
+
+    void UpdateHeart()
+    {
+        float goal = Mathf.Clamp01(Dread);
+        dread = Mathf.MoveTowards(dread, goal, Time.deltaTime * (goal > dread ? DreadRise : DreadFall));
+        if (dread <= 0.001f)
+        {
+            // Au calme : le premier battement partira dès que la tension revient.
+            heartPhase = 1f;
+            return;
+        }
+        if (heartPhase >= 1f)
+        {
+            heartPhase -= 1f;
+            GameAudio.Play2D("heart_thump", 0.18f + 0.3f * dread);
+        }
+        heartPhase += Time.deltaTime * Mathf.Lerp(HeartRateCalm, HeartRatePanic, dread) / 60f;
+    }
     Camera cam;
 
     float yaw;
@@ -165,6 +201,8 @@ public class OrbitCamera : MonoBehaviour
     {
         if (cam == null) cam = GetComponent<Camera>();
         if (cam == null) return;
+        // Le battement de l'image précédente est retiré avant le lissage, puis celui de cette image ajouté (non lissé).
+        cam.fieldOfView += heartFov;
         if (baseFov < 0f) baseFov = cam.fieldOfView;
         float wanted = CannonEye.HasValue ? baseFov * CannonZoom : baseFov;
         cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, wanted + shake * 12f, 1f - Mathf.Exp(-10f * Time.deltaTime));
@@ -176,6 +214,9 @@ public class OrbitCamera : MonoBehaviour
             cam.fieldOfView = wanted * (1f - 0.45f * Mathf.Cos(k * Mathf.PI * 5f) * (1f - k));
             if (k >= 1f) zoomPunch = -1f;
         }
+        UpdateHeart();
+        heartFov = dread > 0.001f && ControlsEnabled && DeathView < 0f ? HeartEnvelope(Mathf.Repeat(heartPhase, 1f)) * HeartFovPulse * dread : 0f;
+        cam.fieldOfView -= heartFov;
         if (shake <= 0f) return;
         float t = Time.time * 40f;
         Vector3 j = new Vector3(Mathf.PerlinNoise(t, 0f) - 0.5f, Mathf.PerlinNoise(0f, t) - 0.5f, Mathf.PerlinNoise(t, t) - 0.5f);
@@ -295,10 +336,12 @@ public class OrbitCamera : MonoBehaviour
         // Un pas toutes les ~0,45 s en marche, plus rapide en course.
         if (walking) bobPhase += Time.deltaTime * (5f + speed * 0.9f);
         float step = Mathf.Sin(bobPhase), sway = Mathf.Sin(bobPhase * 0.5f);
-        roll = sway * 0.35f * bobWeight;
+        // Pulsations cardiaques : les saccades des pas se font plus insistantes (jusqu'à 2,3 fois plus amples).
+        float tension = 1f + 1.3f * dread;
+        roll = sway * 0.35f * bobWeight * tension;
         Vector3 right = rot * Vector3.right;
         right.y = 0f;
-        return (Vector3.up * (Mathf.Abs(step) - 0.5f) * 0.045f + right.normalized * sway * 0.02f) * bobWeight;
+        return (Vector3.up * (Mathf.Abs(step) - 0.5f) * 0.045f + right.normalized * sway * 0.02f) * bobWeight * tension;
     }
 
     public float CurrentDistance => FirstPerson ? 0f : currentDistance;

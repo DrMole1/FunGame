@@ -1,10 +1,10 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.4.7).
+// Variables numériques du document de Game Design (V0.4.8).
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.4.7";
+    public const string Version = "V0.4.8";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -183,12 +183,12 @@ public static class GameRules
 
     public const int CavalierDamage = 100;
     public const float CavalierWalkMultiplier = 1.2f;       // "modérément rapide" : moins vite que la course (x1,4)
-    public const float CavalierRunMultiplier = 2.2f;        // quand le joueur traqué ne le regarde pas
+    public const float CavalierRunMultiplier = 3.5f;        // quand le joueur traqué ne le regarde pas (V0.4.8, avant : 2,2)
     public const float CavalierSightRange = 20f;
     public const float CavalierSenseRadius = 6f;            // même dans son dos
     public const float CavalierGallopRange = 30f;
     public const float CavalierHitDistance = 0.8f;
-    public const float CavalierChaseDistance = 40f;         // compteur de distance : au-delà, il abandonne
+    public const float CavalierChaseDistance = 50f;         // compteur de distance : au-delà, il abandonne (V0.4.8, avant : 40)
     public const float CavalierIgnore = 2f;                 // puis ne traque plus ce joueur pendant 2 s
     public const float CavalierStompMin = 6f, CavalierStompMax = 14f, CavalierStompDuration = 1.5f;
     public const float CavalierTurnBackChance = 0.2f;

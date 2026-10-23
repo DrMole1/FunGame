@@ -310,6 +310,33 @@ public class GameAudio : MonoBehaviour
         deathDuck = 1f;
     }
 
+    // Explosion toute proche (0 à 1) : les oreilles sifflent. Tout le reste s'assourdit d'un coup puis revient en
+    // quelques secondes (pas de filtre audio en WebGL : on baisse le volume général) ; le sifflement s'estompe avec.
+    public static void Deafen(float strength)
+    {
+        if (instance == null || silenced || instance.deathDuck < 1f || strength <= 0f) return;
+        if (instance.deafen != null) instance.StopCoroutine(instance.deafen);
+        instance.deafen = instance.StartCoroutine(instance.DeafenSequence(Mathf.Clamp01(strength)));
+    }
+
+    Coroutine deafen;
+
+    System.Collections.IEnumerator DeafenSequence(float strength)
+    {
+        const float Recovery = 4f;
+        Play2D("tinnitus", 0.5f + 0.5f * strength);
+        float low = Mathf.Lerp(0.6f, 0.15f, strength);
+        for (float t = 0f; t < Recovery; t += Time.unscaledDeltaTime)
+        {
+            // Une mort ou la fin de partie reprennent la main sur le volume.
+            if (silenced || deathDuck < 1f) { deafen = null; yield break; }
+            AudioListener.volume = MasterGain * Mathf.Lerp(low, 1f, Mathf.SmoothStep(0f, 1f, t / Recovery));
+            yield return null;
+        }
+        AudioListener.volume = MasterGain;
+        deafen = null;
+    }
+
     public static bool InRange(Vector3 position, float distance)
     {
         Camera cam = Camera.main;

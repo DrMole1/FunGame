@@ -46,6 +46,28 @@ public static class CharacterSetup
         Debug.Log("Personnages installés : " + string.Join(", ", names));
     }
 
+    // Installe seulement les personnages absents de la liste du joueur (V0.4.8 : Perso 5 à 8) et les ajoute à la fin,
+    // sans réimporter les autres (Perso3 a ses propres correctifs).
+    [MenuItem("FunGame/Ajouter les nouveaux personnages")]
+    public static void SetupNew()
+    {
+        var player = Object.FindObjectOfType<PlayerController>(true);
+        var library = player != null ? player.GetComponent<CharacterLibrary>() : null;
+        if (library == null) { Debug.LogError("Aucun joueur avec CharacterLibrary dans la scène ouverte."); return; }
+        var known = new HashSet<string>(library.characters.Select(c => c.name));
+        string[] names = AssetDatabase.GetSubFolders(Root).Select(Path.GetFileName)
+            .Where(n => !known.Contains(n)).OrderBy(n => n).ToArray();
+        if (names.Length == 0) { Debug.Log("Aucun nouveau personnage."); return; }
+        AnimationClip sneak = AssetDatabase.LoadAllAssetsAtPath(SneakPath).OfType<AnimationClip>().First(c => c.name == "Sneak");
+        AnimationClip[] deaths = DeathPaths.Select((path, i) =>
+            AssetDatabase.LoadAllAssetsAtPath(path).OfType<AnimationClip>().First(c => c.name == "Death" + i)).ToArray();
+        library.characters = library.characters.Concat(names.Select(n => SetupCharacter(n, sneak, deaths))).ToArray();
+        EditorUtility.SetDirty(library);
+        EditorSceneManager.MarkSceneDirty(library.gameObject.scene);
+        EditorSceneManager.SaveScene(library.gameObject.scene);
+        Debug.Log("Personnages ajoutés : " + string.Join(", ", names));
+    }
+
     static AnimationClip[] ImportDeaths() =>
         DeathPaths.Select((path, i) => ImportClip(path, "Death" + i, null, false, true)).ToArray();
 

@@ -172,6 +172,7 @@ public partial class GameSession
             {
                 remoteBounceAt[rp.PlayerId] = Time.time;
                 Bounce(under);
+                rp.PlayBounce();
             }
             if (on) remoteOnTrampoline.Add(rp.PlayerId);
             else remoteOnTrampoline.Remove(rp.PlayerId);

@@ -275,6 +275,7 @@ public class PlayerController : MonoBehaviour
         rb.velocity = v;
         airborneLock = 0.3f;
         chosenDance = 0;
+        if (avatar != null && (Status == null || !Status.Dead)) avatar.SetState(AnimState.Jump, true);
     }
 
     // Repousse le personnage dans la direction 'away' (horizontale), avec un petit bond.

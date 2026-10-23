@@ -18,11 +18,11 @@ public static class SoundBank
         "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
         "tour_step", "tour_breath", "tour_charge", "tour_channel", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
-        "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat",
-        "fou_bells", "fou_alert", "fou_attack", "fou_dance", "roi_laugh", "roi_chain", "roi_break", "roi_slash", "roi_clink",
+        "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat", "heart_thump",
+        "fou_bells", "fou_alert", "fou_attack", "fou_dance", "fou_poof", "roi_laugh", "roi_chain", "roi_break", "roi_slash", "roi_clink",
         "dig", "dame_step", "cannon_fire", "cannon_impact",
         // V0.4.7 : objets uniques, cri de souffrance de La Dame, Le Cavalier, Le Réveil.
-        "tv_static", "spring", "bell_deco", "dame_wail", "cavalier_gallop", "cavalier_alert", "cavalier_terror",
+        "tv_static", "tv_countdown", "tinnitus", "spring", "bell_deco", "dame_wail", "cavalier_gallop", "cavalier_alert", "cavalier_terror",
         "cavalier_strike", "cavalier_stomp", "reveil_alarm", "reveil_boom",
         // Sons enregistrés seulement (GDD 12), sans équivalent synthétisé.
         "dame_kill", "tour_kill", "fou_kill", "roi_flash", "roi_kill",
@@ -115,6 +115,7 @@ public static class SoundBank
             case "teleport_charge": return TeleportCharge(rnd);
             case "heal": return Heal(rnd);
             case "heartbeat": return Heartbeat();
+            case "heart_thump": return HeartThump();
             case "fou_bells": return FouBells(rnd);
             case "fou_alert": return FouAlert(rnd);
             case "fou_attack": return FouAttack(rnd);
@@ -124,6 +125,9 @@ public static class SoundBank
             case "roi_break": return RoiBreak(rnd);
             case "roi_slash": return RoiSlash(rnd);
             case "tv_static": return TvStatic(rnd);
+            case "tv_countdown": return TvCountdown(rnd);
+            case "fou_poof": return FouPoof(rnd);
+            case "tinnitus": return Tinnitus();
             case "spring": return Spring(rnd);
             case "bell_deco": return BellDeco(rnd);
             case "dame_wail": return DameWail(rnd);
@@ -1345,6 +1349,22 @@ public static class SoundBank
         return d;
     }
 
+    // Un battement de cœur feutré (pulsations près d'un Cauchemar) : « poum-poum » grave et court.
+    static float[] HeartThump()
+    {
+        var d = Buffer(0.45f);
+        for (int k = 0; k < 2; k++)
+        {
+            int from = Mathf.RoundToInt(k * 0.14f * Rate);
+            for (int i = from; i < d.Length; i++)
+            {
+                float t = (float)(i - from) / Rate;
+                d[i] += (Sine((55f - 25f * t) * t) + Sine(105f * t) * 0.2f) * Decay(t, 0.06f) * Mathf.Min(1f, t / 0.004f) * (k == 0 ? 1f : 0.6f);
+            }
+        }
+        return d;
+    }
+
     // ---------- Le Fou ----------
 
     // Course : grelots secoués en cadence (joués en boucle tant qu'il court).
@@ -1507,6 +1527,62 @@ public static class SoundBank
             longer[i] = hiss * (0.8f + 0.2f * Sine(0.7f * t)) + hum + crackle;
         }
         return MakeLoop(longer, 2f, 0.3f);
+    }
+
+    // Décompte de la Télévision, façon amorce de film : bip sec à 1 kHz, cliquetis du projecteur et crépitement de pellicule.
+    static float[] TvCountdown(System.Random rnd)
+    {
+        var d = Buffer(0.6f);
+        var bp = new BandPass();
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float beep = (Sine(1000f * t) + 0.15f * Sine(3000f * t)) * ASR(t, 0.003f, 0.01f, 0.16f);
+            // Griffe du projecteur : 24 claquements par seconde, de plus en plus discrets.
+            float claw = bp.Process(Noise(rnd), 1800f, 1.2f) * Decay(Mathf.Repeat(t, 1f / 24f), 0.004f) * 0.5f * Decay(t, 0.35f);
+            float crackle = rnd.NextDouble() < 0.002 ? Noise(rnd) * 1.5f : 0f;
+            d[i] = beep * 0.8f + claw + lp.Process(crackle, 4000f) + lp.Process(Noise(rnd), 2500f) * 0.04f * Decay(t, 0.3f);
+        }
+        return d;
+    }
+
+    // Oreilles qui sifflent après une explosion toute proche : sifflement aigu, légèrement battant, qui s'éteint lentement.
+    static float[] Tinnitus()
+    {
+        var d = Buffer(4f);
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float env = Mathf.Min(1f, t / 0.05f) * Mathf.Pow(Mathf.Clamp01(1f - t / 4f), 1.6f);
+            d[i] = (Sine(3900f * t) + 0.35f * Sine(3912f * t)) * env;
+        }
+        return d;
+    }
+
+    // Pouf de cirque du Fou : bouffée d'air feutrée, sifflet à coulisse qui monte et petit coup de klaxon de clown.
+    static float[] FouPoof(System.Random rnd)
+    {
+        var d = Buffer(0.75f);
+        var lp = new LowPass();
+        var hornLp = new LowPass();
+        var bp = new BandPass();
+        float whistle = 0f, horn = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float puff = lp.Process(Noise(rnd), Mathf.Lerp(2500f, 400f, Mathf.Min(1f, t / 0.25f))) * AD(t, 0.004f, 0.18f) * 1.6f;
+            // Sifflet : glissando de 600 à 1900 Hz, avec un léger vibrato.
+            float wf = Mathf.Lerp(600f, 1900f, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((t - 0.03f) / 0.3f))) * (1f + 0.012f * Mathf.Sin(TwoPi * 7f * t));
+            whistle += wf / Rate;
+            float whistleEnv = ASR(t - 0.03f, 0.02f, 0.08f, 0.36f);
+            float flute = (Sine(whistle) + 0.08f * Sine(whistle * 2f) + bp.Process(Noise(rnd), wf, 0.15f) * 0.15f) * whistleEnv * 0.45f;
+            // Klaxon « pouet » nasillard en fin de son.
+            horn += 330f / Rate;
+            float honk = hornLp.Process(Saw(horn) + Square(horn * 1.005f) * 0.5f, 1800f) * ASR(t - 0.42f, 0.01f, 0.06f, 0.22f) * 0.35f;
+            d[i] = puff + flute + honk;
+        }
+        return d;
     }
 
     // Ressort cartoon : "boïng" qui monte puis vibre.

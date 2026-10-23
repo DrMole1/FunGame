@@ -9,6 +9,7 @@ var YouTubeTvLib = {
     tvs: {},
     apiState: 0, // 0 : non chargée, 1 : en chargement, 2 : prête
     waiting: [],
+    gesture: null,
 
     loadApi: function (done) {
       if (YT_TV.apiState === 2) { done(); return; }
@@ -26,6 +27,19 @@ var YouTubeTvLib = {
       var tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
       document.head.appendChild(tag);
+    },
+
+    // Lecture bloquée par le navigateur (aucun clic encore sur la page) : relancée au premier clic ou touche du joueur.
+    listenGesture: function () {
+      if (YT_TV.gesture) return;
+      YT_TV.gesture = function () {
+        for (var k in YT_TV.tvs) {
+          var tv = YT_TV.tvs[k];
+          if (tv.ready && tv.player && !tv.playing) { try { tv.player.unMute(); tv.player.setVolume(tv.volume); tv.player.playVideo(); } catch (e) {} }
+        }
+      };
+      document.addEventListener('pointerdown', YT_TV.gesture, true);
+      document.addEventListener('keydown', YT_TV.gesture, true);
     },
 
     // Matrice CSS qui envoie le rectangle (0,0)-(w,h) sur le quadrilatère p (8 valeurs, en pixels CSS).
@@ -71,23 +85,33 @@ var YouTubeTvLib = {
     inner.id = 'funGameTv' + id;
     box.appendChild(inner);
     document.body.appendChild(box);
-    var tv = { box: box, player: null, volume: 0, w: W, h: H, ready: false };
+    var tv = { box: box, player: null, volume: 0, w: W, h: H, ready: false, playing: false };
     YT_TV.tvs[id] = tv;
+    YT_TV.listenGesture();
     YT_TV.loadApi(function () {
       if (!YT_TV.tvs[id]) return;
-      tv.player = new YT.Player(inner.id, {
-        width: W, height: H, videoId: videoId,
-        playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, rel: 0, playsinline: 1, iv_load_policy: 3,
-                      modestbranding: 1, start: Math.max(0, Math.floor(start)) },
+      // L'iframe est créée ici avec allow="autoplay" : sans cette délégation, le navigateur coupe le son (ou bloque la
+      // lecture) chez les joueurs qui n'ont pas eux-mêmes collé le lien.
+      var frame = document.createElement('iframe');
+      frame.id = inner.id;
+      frame.width = W;
+      frame.height = H;
+      frame.setAttribute('frameborder', '0');
+      frame.setAttribute('allow', 'autoplay; encrypted-media');
+      frame.style.pointerEvents = 'none';
+      frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(videoId) + '?enablejsapi=1&autoplay=1&controls=0' +
+        '&disablekb=1&fs=0&rel=0&playsinline=1&iv_load_policy=3&modestbranding=1&start=' + Math.max(0, Math.floor(start)) +
+        '&origin=' + encodeURIComponent(window.location.origin);
+      box.replaceChild(frame, inner);
+      tv.player = new YT.Player(frame, {
         events: {
           onReady: function (e) {
             tv.ready = true;
-            try { e.target.setVolume(tv.volume); e.target.playVideo(); } catch (err) {}
-          }
+            try { e.target.setVolume(tv.volume); e.target.unMute(); e.target.playVideo(); } catch (err) {}
+          },
+          onStateChange: function (e) { tv.playing = e.data === 1 || e.data === 0; }
         }
       });
-      var frame = box.querySelector('iframe');
-      if (frame) frame.style.pointerEvents = 'none';
     });
     return id;
   },

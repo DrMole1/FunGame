@@ -305,11 +305,19 @@ public partial class GameSession
         net.ToAll("EX|" + NetworkGame.F(pos.x) + "|" + NetworkGame.F(pos.y + 1f) + "|" + NetworkGame.F(pos.z));
     }
 
+    // Même explosion que Le Réveil (Fx.Explosion), avec des éclats sombres.
     static void Explode(Vector3 at)
     {
         GameAudio.Play3D("cannon_impact", at, 1f, 35f, 0.05f, 0.7f);
-        Fx.Burst(at, GameArt.Lit("Eclats", new Color(0.12f, 0.12f, 0.12f), null, 0.2f), 30, 7f, 0.14f, 1.4f);
-        Fx.Burst(at, GameArt.Emissive("Flammeche", new Color(1f, 0.5f, 0.1f), new Color(1.5f, 0.6f, 0.1f)), 16, 5f, 0.08f, 0.8f);
+        Vector3 ground = Physics.Raycast(at, Vector3.down, out RaycastHit hit, 4f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+            ? hit.point : at + Vector3.down;
+        Fx.Explosion(at, ground, GameArt.Lit("Eclats", new Color(0.12f, 0.12f, 0.12f), null, 0.2f));
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            float d = Vector3.Distance(cam.transform.position, at);
+            if (d < 10f) OrbitCamera.Shake(Mathf.Lerp(0.7f, 0.1f, d / 10f));
+        }
     }
 
     // Messages du Canon (renvoie false si le message n'en est pas un).

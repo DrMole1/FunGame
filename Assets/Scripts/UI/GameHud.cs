@@ -507,7 +507,7 @@ public class GameHud : MonoBehaviour
         inventoryBar.SetActive(!on);
     }
 
-    // Touche Espace dessinée en bas de l'écran, avec son libellé.
+    // Touche Espace dessinée en bas de l'écran (sans consigne écrite : l'animation suffit).
     void BuildSpaceKey(Transform parent, Sprite rounded)
     {
         spaceKey = new GameObject("ToucheEspace", typeof(RectTransform));
@@ -525,8 +525,6 @@ public class GameHud : MonoBehaviour
         spaceKeyImage.type = Image.Type.Sliced;
         var label = UiKit.Label(face.transform, "ESPACE", 24, FontStyle.Bold, new Color(0.12f, 0.12f, 0.14f), 58);
         UiKit.Stretch(label.rectTransform);
-        var hint = UiKit.Label(spaceKey.transform, "Rompre la chaîne !", 18, FontStyle.Bold, new Color(1f, 0.85f, 0.45f), 26);
-        UiKit.Place(hint.gameObject, new Vector2(0.5f, 0.5f), new Vector2(0, 46));
         foreach (var img in spaceKey.GetComponentsInChildren<Graphic>()) img.raycastTarget = false;
         spaceKey.SetActive(false);
     }

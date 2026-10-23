@@ -565,7 +565,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateEntities();
         UpdateAtmosphere();
         UpdateGameSounds(inGame);
-        if (!inGame) return;
+        if (!inGame)
+        {
+            OrbitCamera.Dread = 0f;
+            return;
+        }
 
         presence.Alive = !status.Dead;
         presence.Sneaking = player.Sneaking;
@@ -609,6 +613,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateRoi();
         UpdateMistContact();
         UpdateWatching();
+        UpdateDread();
         UpdateSpectate();
 
         screenTimer -= Time.unscaledDeltaTime;
@@ -1616,6 +1621,28 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             watching[e.Id] = looking;
             net.ToHost("LK|" + e.Id + "|" + (looking ? 1 : 0));
         }
+    }
+
+    // Pulsations cardiaques (GDD 8, Note 02, V0.4.8) : un Cauchemar à moins de 10 m que la caméra voit (marche discrète
+    // sans effet sur la distance), ou un Cauchemar qui traque le personnage ; plus il est proche, plus le cœur bat vite.
+    const float DreadSightRange = 10f, DreadChaseRange = 30f;
+
+    void UpdateDread()
+    {
+        Camera cam = Camera.main;
+        float dread = 0f;
+        if (!status.Dead && !Teleporting && cam != null && !WorldBuilder.IsInHub(player.transform.position))
+            foreach (var e in entities.Values)
+            {
+                if (e == null || !e.Nightmare) continue;
+                float d = Vector3.Distance(player.transform.position, e.transform.position);
+                // Traqué : la tension ne descend pas sous un plancher, même de loin.
+                if (e.TargetId == net.MyId)
+                    dread = Mathf.Max(dread, Mathf.Lerp(0.35f, 1f, 1f - Mathf.Clamp01(d / DreadChaseRange)));
+                if (d < DreadSightRange && CameraSees(cam, e, DreadSightRange + 6f))
+                    dread = Mathf.Max(dread, Mathf.Lerp(0.25f, 1f, 1f - d / DreadSightRange));
+            }
+        OrbitCamera.Dread = dread;
     }
 
     // L'entité (Le Fou, Le Cavalier) est à l'écran, à portée, et un point de son corps (tête, buste ou jambes) n'est caché
@@ -2647,13 +2674,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (entities.TryGetValue(NetworkGame.I(f[1]), out var chainer) && chainer is Roi chainRoi) chainRoi.BreakFree(from);
                 break;
             case "FS" when f.Length >= 4:
-                // Le Fou prend votre place : vous voilà à la sienne, la vue secouée en zoom, dans un nuage de fumée.
+                // Le Fou prend votre place : vous voilà à la sienne, la vue secouée en zoom, dans un pouf de cirque.
                 if (!status.Dead && !Invincible && !Teleporting)
                 {
                     var feet = new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3]));
                     player.Teleport(feet + Vector3.up * 0.95f, player.transform.eulerAngles.y);
                     OrbitCamera.ZoomPunch();
-                    Fx.Smoke(feet);
+                    Fx.CircusPoof(feet);
                 }
                 break;
             case "DF" when f.Length >= 2:

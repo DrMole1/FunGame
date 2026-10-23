@@ -202,15 +202,15 @@ public class Reveil : Entity
         }
     }
 
-    // Explosion, vue et entendue par tous : boule de feu, éclats de laiton, fumée ; secousse de la caméra à proximité.
+    // Explosion, vue et entendue par tous (voir Fx.Explosion) ; secousse de la caméra à proximité.
     void Blast()
     {
         if (alarm != null) { alarm.Stop(); Destroy(alarm.gameObject); }
         Vector3 at = transform.position + Vector3.up * 0.5f;
         GameAudio.Play3D("reveil_boom", at, 1f, 40f, 0.05f);
-        Fx.Burst(at, GameArt.Emissive("Flammeche", new Color(1f, 0.5f, 0.1f), new Color(1.5f, 0.6f, 0.1f)), 26, 6f, 0.12f, 0.7f);
-        Fx.Burst(at, GameArt.Lit("EclatsLaiton", new Color(0.62f, 0.45f, 0.18f), null, 0.6f), 18, 5f, 0.08f, 1.2f);
-        Fx.Burst(at, Fx.SmokeMaterial, 14, 2.5f, 0.35f, 1.3f, -0.1f);
+        Vector3 ground = Physics.Raycast(at, Vector3.down, out RaycastHit hit, 3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+            ? hit.point : transform.position;
+        Fx.Explosion(at, ground, GameArt.Lit("EclatsLaiton", new Color(0.62f, 0.45f, 0.18f), null, 0.6f));
         Camera cam = Camera.main;
         if (cam != null)
         {

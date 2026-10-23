@@ -49,6 +49,9 @@ public class RemotePlayer : MonoBehaviour
 
     public void SetCharacter(CharacterLibrary library, int character) => avatar.SetCharacter(library, character);
 
+    // Rebond sur le Trampoline : l'animation de saut repart du début, même s'il était déjà en l'air.
+    public void PlayBounce() { if (!Dead) avatar.SetState(AnimState.Jump, true); }
+
     // État reçu, horodaté par l'émetteur ; ignoré s'il est plus ancien que le dernier (arrivé dans le désordre).
     public void SetTarget(double time, Vector3 pos, float yaw, AnimState anim, int hp, int flags)
     {

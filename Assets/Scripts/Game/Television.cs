@@ -101,7 +101,8 @@ public class TvScreen : MonoBehaviour
             {
                 // Décompte : 3, 2, 1, 0, une seconde chacun, sur fond noir.
                 string digit = Mathf.Clamp(Mathf.FloorToInt(GameRules.TvCountdown - t), 0, 3).ToString();
-                if (label.text != digit && label.text.Length > 0) GameAudio.Play3D("beep", screen.position, 0.4f, GameRules.TvSoundRange, 0f, 0.8f);
+                // Un bip d'amorce de film à chaque chiffre (y compris le premier).
+                if (label.text != digit) GameAudio.Play3D("tv_countdown", screen.position, 0.55f, GameRules.TvSoundRange, 0f);
                 label.text = digit;
                 FillScreen(new Color32(0, 0, 0, 255));
                 return;
@@ -170,9 +171,13 @@ public class TvScreen : MonoBehaviour
                 c[i] = new Vector3(v.x, 1f - v.y, 0f);
             }
         }
-        // Le son de la vidéo s'entend à moins de 10 m.
+        // Le son de la vidéo s'entend à moins de 10 m du personnage (pas de la caméra, placée derrière lui), fort presque
+        // jusqu'à la limite.
         Vector3 ear = cam != null ? cam.transform.position : screen.position;
-        float volume = 100f * Mathf.Clamp01(1f - Vector3.Distance(ear, screen.position) / GameRules.TvSoundRange) * GameAudio.SfxVolume * 2f;
+        var orbit = cam != null ? cam.GetComponent<OrbitCamera>() : null;
+        if (orbit != null && orbit.target != null) ear = orbit.target.position;
+        float d = Mathf.Clamp01(Vector3.Distance(ear, screen.position) / GameRules.TvSoundRange);
+        float volume = 100f * (1f - d * d) * GameAudio.SfxVolume * 2f;
         YouTubeTv.Update(overlay, visible, c, volume);
     }
 

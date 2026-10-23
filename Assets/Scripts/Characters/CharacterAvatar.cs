@@ -63,9 +63,10 @@ public class CharacterAvatar : MonoBehaviour
         model.SetActive(!dead && !hidden);
     }
 
-    public void SetState(AnimState state)
+    // 'restart' : rejoue l'animation même si le personnage est déjà dans cet état (rebond sur le Trampoline en plein saut).
+    public void SetState(AnimState state, bool restart = false)
     {
-        if (state == State || animator == null) return;
+        if ((state == State && !restart) || animator == null) return;
         State = state;
         // Corps caché (téléportation) : rien à animer.
         if (!animator.gameObject.activeInHierarchy) return;
