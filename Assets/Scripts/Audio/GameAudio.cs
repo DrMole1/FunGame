@@ -219,7 +219,8 @@ public class GameAudio : MonoBehaviour
     }
 
     // Boucle spatialisée attachée à un objet (bourdonnement d'un laser...).
-    public static AudioSource Loop3D(string clip, Transform parent, Vector3 localPosition, float volume, float maxDistance)
+    // smooth : décroissance douce avec la distance (le son s'éteint progressivement quand on s'éloigne).
+    public static AudioSource Loop3D(string clip, Transform parent, Vector3 localPosition, float volume, float maxDistance, bool smooth = false)
     {
         if (instance == null) return null;
         var go = new GameObject("Boucle_" + clip);
@@ -227,6 +228,11 @@ public class GameAudio : MonoBehaviour
         go.transform.localPosition = localPosition;
         var src = go.AddComponent<AudioSource>();
         Configure3D(src, maxDistance);
+        if (smooth)
+        {
+            src.rolloffMode = AudioRolloffMode.Custom;
+            src.SetCustomCurve(AudioSourceCurveType.CustomRolloff, SmoothRolloff);
+        }
         src.clip = SoundBank.Get(clip);
         src.loop = true;
         src.volume = volume * Gain(clip) * sfx;
@@ -243,6 +249,43 @@ public class GameAudio : MonoBehaviour
         if (instance == null || src == null) return;
         int i = instance.loops.FindIndex(l => l.Key == src);
         if (i >= 0) instance.loops[i] = new KeyValuePair<AudioSource, float>(src, volume * (instance.nightmareLoops.Contains(src) ? NightmareGain : 1f));
+    }
+
+    // Boucle d'une entité (GDD 12 : pas de La Dame et du Cavalier, ambiance du Roi) : elle démarre en fondu quand 'on'
+    // passe à vrai, s'éteint en fondu sinon (puis se met en pause, pour reprendre au même endroit), et suit le tempo
+    // demandé (hauteur de lecture). Créée au premier besoin, attachée à l'entité.
+    public class FadedLoop
+    {
+        readonly string clip;
+        readonly float volume, maxDistance, fade;
+        AudioSource src;
+        float level;
+
+        public FadedLoop(string clip, float volume, float maxDistance, float fade)
+        {
+            this.clip = clip;
+            this.volume = volume;
+            this.maxDistance = maxDistance;
+            this.fade = fade;
+        }
+
+        public void Update(Transform parent, Vector3 localPosition, bool on, float pitch, float dt)
+        {
+            if (src == null)
+            {
+                if (!on) return;
+                src = Loop3D(clip, parent, localPosition, 0f, maxDistance, true);
+                if (src == null || src.clip == null) return;
+                src.Play();
+                // Départ au hasard dans la boucle : deux entités voisines ne jouent pas à l'unisson.
+                src.time = Random.Range(0f, src.clip.length * 0.95f);
+            }
+            level = Mathf.MoveTowards(level, on ? 1f : 0f, dt / fade);
+            if (level > 0f && !src.isPlaying) src.UnPause();
+            else if (level <= 0f && src.isPlaying) src.Pause();
+            src.pitch = Mathf.MoveTowards(src.pitch, pitch, dt * 1.5f);
+            SetLoopVolume(src, volume * level);
+        }
     }
 
     // Mort du joueur local : le râle, puis un silence total d'une seconde, puis un cœur qui ralentit et s'arrête,

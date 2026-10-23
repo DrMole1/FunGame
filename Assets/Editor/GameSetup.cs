@@ -89,6 +89,23 @@ public static class GameSetup
         ("roi_flash", "Assets/Sounds/Roi_Flash.wav"),
         ("roi_chain", "Assets/Sounds/Roi_Chaine.wav"),
         ("roi_kill", "Assets/Sounds/Roi_Tuer.wav"),
+        // V0.4.9
+        ("dame_step", "Assets/Sounds/Dame_Deplacement.wav"),
+        ("dame_wail", "Assets/Sounds/Dame_Cri2.wav"),
+        ("tour_alert", "Assets/Sounds/Tour_Alerte.wav"),
+        ("tour_breath", "Assets/Sounds/Tour_Respiration.wav"),
+        ("roi_slash", "Assets/Sounds/Roi_Epee.wav"),
+        ("roi_ambience", "Assets/Sounds/Roi_Autour.wav"),
+        ("skin", "Assets/Sounds/Changer_Skin.wav"),
+        ("laser_hit", "Assets/Sounds/Laser_Degat.wav"),
+        ("pion_cry", "Assets/Sounds/Pion_Alerte.wav"),
+        ("pion_attack", "Assets/Sounds/Pion_Attaque.wav"),
+        ("spider_attack", "Assets/Sounds/Araignee_Attaque.wav"),
+        ("spider_kill", "Assets/Sounds/Araignee_Tuer.wav"),
+        ("cavalier_gallop", "Assets/Sounds/Cavalier_Deplacement.wav"),
+        ("cavalier_alert", "Assets/Sounds/Cavalier_Alerte.wav"),
+        ("cavalier_terror", "Assets/Sounds/Cavalier_Immobilise.wav"),
+        ("cavalier_kill", "Assets/Sounds/Cavalier_Tuer.wav"),
     };
 
     static void CreateSounds()

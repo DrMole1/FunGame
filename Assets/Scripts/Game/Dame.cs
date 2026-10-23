@@ -34,7 +34,7 @@ public class Dame : Entity
     public State Current { get => (State)state; private set => state = (byte)value; }
     public bool Watched;
 
-    float chaseTimer, attackTimer, stepTimer, wailTimer;
+    float chaseTimer, attackTimer, wailTimer;
     bool hitDone;
     readonly Dictionary<string, float> ignoreUntil = new Dictionary<string, float>();
     float attackClipLength = AttackDuration;
@@ -189,7 +189,7 @@ public class Dame : Entity
 
     public override string KillSound => "dame_kill";
 
-    // Cri de souffrance (en recherche) : son et geste, la tête renversée.
+    // Cri de souffrance (en recherche, Dame_Cri2) : son et geste, la tête renversée.
     Transform headBone, neckBone, chestBone;
     float wailShownAt = -10f;
 
@@ -212,18 +212,12 @@ public class Dame : Entity
         if (headBone != null) headBone.rotation = Quaternion.AngleAxis((-24f + shake) * w, side) * Quaternion.AngleAxis(shake * w, transform.up) * headBone.rotation;
     }
 
+    readonly GameAudio.FadedLoop steps = new GameAudio.FadedLoop("dame_step", 0.7f, GameRules.DameStepRange, 0.35f);
+
     protected override void Animate(float dt)
     {
-        // Pas résonnant en écho, à moins de 30 m, au rythme de sa marche ou de sa course.
-        if (visualSpeed > 0.3f && Current != State.Attack)
-        {
-            stepTimer -= dt * Mathf.Clamp(visualSpeed / 2.4f, 0.6f, 2.4f);
-            if (stepTimer <= 0f)
-            {
-                stepTimer = 0.55f;
-                GameAudio.Play3D("dame_step", transform.position, 0.7f, GameRules.DameStepRange, 0.1f);
-            }
-        }
+        // Pas résonnant en écho (Dame_Deplacement, en boucle), à moins de 30 m : tempo plus rapide quand elle court.
+        steps.Update(transform, Vector3.zero, visualSpeed > 0.3f && Current != State.Attack, Current == State.Chase ? 1.3f : 1f, dt);
         if (animator == null) return;
         // En chasse, elle court (même à peine plus vite que sa marche).
         string wanted = Current == State.Attack ? "Attack" : visualSpeed < 0.3f ? "Idle" : Current == State.Chase ? "Run" : "Walk";

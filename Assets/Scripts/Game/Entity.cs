@@ -172,10 +172,16 @@ public abstract class Entity : MonoBehaviour
 
     // Son joué chez tous quand l'entité tue un joueur (GDD 12), ou null.
     public virtual string KillSound => null;
+    // Son joué chez tous quand l'entité blesse un joueur sans le tuer (GDD 12, V0.4.9), ou null ; il sert aussi quand elle
+    // tue, si elle n'a pas de son de mise à mort.
+    public virtual string HurtSound => null;
 
-    public void PlayKillSound()
+    public void PlayKillSound() => PlayAt(KillSound ?? HurtSound);
+
+    public void PlayHurtSound() => PlayAt(HurtSound);
+
+    void PlayAt(string clip)
     {
-        string clip = KillSound;
         if (clip != null) GameAudio.Play3D(clip, transform.position + Vector3.up * ChestHeight, 1f, 35f, 0f);
     }
 

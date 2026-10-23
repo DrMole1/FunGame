@@ -1015,7 +1015,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         RaiseTestFlag(TestHurt);
         hud.FlashDamage();
         GameAudio.Play2D("hurt", 0.9f, 0.08f);
-        if (status.Hp > 0) return;
+        // Son de l'entité qui blesse sans tuer (Pion, Araignée), entendu par tous : l'hôte le relaie.
+        if (status.Hp > 0)
+        {
+            if (by != null && by.HurtSound != null) net.ToHost("HL|" + by.Id);
+            return;
+        }
         // Son de mise à mort de l'entité, entendu par tous (GDD 12) : l'hôte le relaie.
         if (by != null) net.ToHost("KL|" + by.Id);
         // Note 03 (V0.4.3) : tué par un Cauchemar, la caméra plonge environ 1,5 seconde dans ses yeux, puis le corps s'effondre.
@@ -1614,13 +1619,23 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 looking = !status.Dead && !Teleporting && cam != null && CameraSees(cam, fou, GameRules.FouSightRange);
             else if (e is Cavalier cav)
                 looking = cav.Current == Cavalier.State.Chase && cav.TargetId == net.MyId && !status.Dead && cam != null
-                    && CameraSees(cam, cav, GameRules.CavalierChaseDistance);
+                    && CameraSees(cam, cav, GameRules.CavalierChaseDistance) && FacesCavalier(cav);
             else continue;
             watching.TryGetValue(e.Id, out bool before);
             if (looking == before) continue;
             watching[e.Id] = looking;
             net.ToHost("LK|" + e.Id + "|" + (looking ? 1 : 0));
         }
+    }
+
+    // V0.4.9 : à moins de 7 m du Cavalier, le personnage doit en plus lui faire face (pas seulement la caméra).
+    bool FacesCavalier(Cavalier cav)
+    {
+        Vector3 to = cav.transform.position - player.transform.position;
+        to.y = 0f;
+        if (to.magnitude >= GameRules.CavalierFaceDistance) return true;
+        Vector3 facing = Vector3.ProjectOnPlane(player.transform.forward, Vector3.up);
+        return to.sqrMagnitude < 0.0001f || Vector3.Angle(facing, to) < GameRules.CavalierFaceAngle;
     }
 
     // Pulsations cardiaques (GDD 8, Note 02, V0.4.8) : un Cauchemar à moins de 10 m que la caméra voit (marche discrète
@@ -2705,6 +2720,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 break;
             case "EK" when f.Length >= 2:
                 if (entities.TryGetValue(NetworkGame.I(f[1]), out var killer) && killer != null) killer.PlayKillSound();
+                break;
+            case "HL" when host && f.Length >= 2:
+                net.ToAll("EW|" + f[1]);
+                break;
+            case "EW" when f.Length >= 2:
+                if (entities.TryGetValue(NetworkGame.I(f[1]), out var hurter) && hurter != null) hurter.PlayHurtSound();
                 break;
             case "NZ" when host:
                 noiseAt[from] = Time.time;

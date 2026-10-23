@@ -9,9 +9,10 @@ using UnityEngine;
 // "chassé" (de même, sans mur, à moins de 6 m, quel que soit l'angle) : rire, et flash lumineux sur l'écran du joueur ;
 // le Roi avance lentement vers lui en levant le bras droit 1,5 s, puis, si le joueur est toujours en ligne de vue, lance
 // une chaîne qui file droit sur lui. Touché, le joueur est immobilisé et traîné vers le Roi (qui ne bouge plus) au son de
-// son rire, sauf s'il appuie 3 fois sur Espace (la chaîne se rompt). Pas de ligne de vue, ou chaîne rompue : le Roi repart
-// vers lui, puis après 1 s, s'il le voit encore, nouvelle visée (1,5 s), sinon il reprend sa recherche. À moins de 0,8 m,
-// il immobilise le joueur et le tue.
+// son rire, sauf s'il appuie 3 fois sur Espace (la chaîne se rompt). Pas de ligne de vue, ou chaîne ratée ou rompue (V0.4.9 :
+// elle se brise, ses maillons tombent au sol puis disparaissent) : s'il voit encore le joueur, il repart vers lui et relance
+// sa chaîne 1 s plus tard (nouvelle visée), sinon il reprend sa recherche. À moins de 0,8 m, il immobilise le joueur et le tue (il lève
+// son épée, Roi_Epee). Une musique d'ambiance l'entoure (Roi_Autour, à moins de 30 m).
 public class Roi : Entity
 {
     public enum State : byte { Walk = 0, Pause = 1, Beacon = 2, Aim = 3, Throw = 4, Pull = 5, Recover = 6, Grab = 7 }
@@ -159,11 +160,8 @@ public class Roi : Entity
 
             case State.Recover:
                 if (!Valid(target)) { Search(); break; }
-                // Chaîne ratée ou rompue : il se remet aussitôt en marche vers le joueur.
-                Speed = GameRules.BaseSpeed * GameRules.RoiChaseMultiplier;
-                Pursue(target, dt);
-                if (stateTimer < GameRules.RoiRecover) break;
-                // Toujours en vue : nouvelle visée, plus courte ; sinon il abaisse le bras et repart.
+                // Chaîne ratée ou rompue (V0.4.9 : sans attente, la chaîne repart 1 s plus tard en tout) :
+                // toujours en vue, nouvelle visée, plus courte ; sinon il abaisse le bras et repart.
                 if (Sees(target, EyeHeight, GameRules.RoiSightRange, FieldOfView)) BeginAim(target, false);
                 else Search();
                 break;
@@ -185,7 +183,6 @@ public class Roi : Entity
     public void BreakFree(string playerId)
     {
         if (Current != State.Pull || playerId != TargetId) return;
-        Pulse++; // chaîne rompue
         BeginRecover();
     }
 
@@ -356,7 +353,8 @@ public class Roi : Entity
         if ((State)next == State.Aim)
         {
             aimShownAt = Time.time;
-            aimShownLen = (State)previous == State.Recover ? GameRules.RoiAimAgain : GameRules.RoiAimFirst;
+            // (Chez les autres joueurs, l'état Recover, qui ne dure qu'une image, peut passer inaperçu.)
+            aimShownLen = (State)previous >= State.Throw ? GameRules.RoiAimAgain : GameRules.RoiAimFirst;
             // Flash lumineux sur l'écran du joueur visé (GameSession), avec son bruitage.
             PlayerPresence target = FindPresence(TargetId);
             if (target != null && (State)previous < State.Aim) GameAudio.Play3D("roi_flash", target.Position, 1f, 30f, 0f);
@@ -371,21 +369,30 @@ public class Roi : Entity
             if (chainSound.clip == SoundBank.Get("roi_chain")) chainSound.Stop();
             chainSound = null;
         }
-        if ((State)next == State.Grab) grabShownAt = Time.time;
+        // V0.4.9 : chaîne ratée ou rompue, elle se brise (chez tous). Elle disparaît sans se briser quand elle a touché
+        // le joueur (Pull) ou quand le Roi l'attrape (Grab).
+        if (((State)previous == State.Throw || (State)previous == State.Pull) && (State)next != State.Pull && (State)next != State.Grab) BreakChain();
+        if ((State)next == State.Grab)
+        {
+            grabShownAt = Time.time;
+            // Il lève son épée pour tuer le joueur.
+            GameAudio.Play3D("roi_slash", transform.position + Vector3.up * EyeHeight, 1f, 30f, 0f);
+        }
     }
 
     public override string KillSound => "roi_kill";
 
     AudioSource chainSound;
 
-    // Lancer de la chaîne, puis chaîne rompue.
+    // Lancer de la chaîne.
     protected override void OnPulse()
     {
-        if (Current == State.Throw)
-        {
-            chainSound = GameAudio.Play3D("roi_chain", HandPosition(), 1f, 30f, 0f);
-            return;
-        }
+        if (Current == State.Throw) chainSound = GameAudio.Play3D("roi_chain", HandPosition(), 1f, 30f, 0f);
+    }
+
+    // Bruit de chaîne qui se casse ; les maillons qui tombent font le leur (ChainLink).
+    void BreakChain()
+    {
         GameAudio.Play3D("roi_break", ChainTipShown, 1f, 25f, 0.08f);
         // La chaîne vole en éclats : chaque maillon encore affiché se détache et tombe au sol, puis disparaît.
         Vector3 snap = ChainTipShown;
@@ -396,8 +403,12 @@ public class Roi : Entity
 
     Vector3 ChainTipShown => tipShown ? shownTip : transform.position + Vector3.up;
 
+    // Musique d'ambiance autour du Roi (Roi_Autour) : spatialisée, elle s'éteint en douceur en s'éloignant (30 m).
+    readonly GameAudio.FadedLoop ambience = new GameAudio.FadedLoop("roi_ambience", 0.8f, GameRules.RoiAmbienceRange, 1.5f);
+
     protected override void Animate(float dt)
     {
+        ambience.Update(transform, Vector3.up * EyeHeight, true, 1f, dt);
         if (animator != null)
         {
             PlayAnim(visualSpeed < 0.2f ? "Idle" : "Walk");
@@ -433,12 +444,6 @@ public class Roi : Entity
         float t = Time.time - grabShownAt;
         float raise = Mathf.SmoothStep(0f, 1f, t / GrabRaise);
         float strike = Mathf.SmoothStep(0f, 1f, (t - GrabRaise) / GrabStrike);
-        if (strike > 0f && !slashPlayed)
-        {
-            slashPlayed = true;
-            GameAudio.Play3D("roi_slash", swordHand.position, 1f, 25f, 0.08f);
-        }
-        if (strike <= 0f) slashPlayed = false;
         Vector3 shoulder = swordUpper.position;
         Vector3 overhead = shoulder + Vector3.up * 1.2f - transform.forward * 0.35f;
         PlayerPresence target = FindPresence(TargetId);
@@ -447,7 +452,6 @@ public class Roi : Entity
         PointArm(swordUpper, swordLower, swordHand, aim, raise);
     }
 
-    bool slashPlayed;
 
     // Oriente le bras (épaule puis coude) pour que la main pointe vers 'aim', avec un poids de 0 à 1.
     static void PointArm(Transform upper, Transform lower, Transform hand, Vector3 aim, float weight)

@@ -43,3 +43,35 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: 735ff69ae4622b74197a0bc2b6aa946f, type: 3}
   - key: roi_kill
     clip: {fileID: 8300000, guid: 549775dd26213ec4aad2b9edd7522447, type: 3}
+  - key: dame_step
+    clip: {fileID: 8300000, guid: cfdac046845246e4280bcb08ec9bc236, type: 3}
+  - key: dame_wail
+    clip: {fileID: 8300000, guid: 39eb9e62b88110440b8c423bb3a24fb6, type: 3}
+  - key: tour_alert
+    clip: {fileID: 8300000, guid: 9f577e7d46eb3c342a76b125afdfde23, type: 3}
+  - key: tour_breath
+    clip: {fileID: 8300000, guid: e5429b8043d45e74f82db26b3200834a, type: 3}
+  - key: roi_slash
+    clip: {fileID: 8300000, guid: ba1e9a2d47696e54c91383b4d5ac2140, type: 3}
+  - key: roi_ambience
+    clip: {fileID: 8300000, guid: fd0ed126b8310304188008e5dca2d360, type: 3}
+  - key: skin
+    clip: {fileID: 8300000, guid: b260918a30c627b48849297d4b8a49a2, type: 3}
+  - key: laser_hit
+    clip: {fileID: 8300000, guid: 61fc13ffc6fdd764f9e9add46da7cd6a, type: 3}
+  - key: pion_cry
+    clip: {fileID: 8300000, guid: 1aab6ed8bc8e5d84380482b38b5474e0, type: 3}
+  - key: pion_attack
+    clip: {fileID: 8300000, guid: 63feee5accf1bfa4d80428e210a57e9f, type: 3}
+  - key: spider_attack
+    clip: {fileID: 8300000, guid: 6ec18aede11f34843934f84051fdfd15, type: 3}
+  - key: spider_kill
+    clip: {fileID: 8300000, guid: 0c47433844aa80846a74332a8efebda4, type: 3}
+  - key: cavalier_gallop
+    clip: {fileID: 8300000, guid: 562c0488f1d96294395b664353ccdcc1, type: 3}
+  - key: cavalier_alert
+    clip: {fileID: 8300000, guid: a8f3f8b5fd679294da8f30be0c2f1b07, type: 3}
+  - key: cavalier_terror
+    clip: {fileID: 8300000, guid: 9012b9f35a19bb8478bf2cca277c40ec, type: 3}
+  - key: cavalier_kill
+    clip: {fileID: 8300000, guid: 1a11ab2526d29004189228906c172d8e, type: 3}

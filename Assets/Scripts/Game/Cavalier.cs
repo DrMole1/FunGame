@@ -6,9 +6,10 @@ using UnityEngine;
 // "En recherche", il rôde d'un pas modérément rapide (moins vite que la course) ; ses bruits de galop s'entendent à 30 m
 // dès qu'il se déplace. Il s'arrête parfois pour frapper le sol de sa masse (1,5 s), puis repart (20 % : en arrière).
 // Il repère un joueur à 20 m devant lui, ou à 6 m même dans son dos : cri d'alerte, et il passe "en chasse" (un seul joueur
-// à la fois), les yeux rouges luisant dans l'obscurité. Tant que le joueur traqué le regarde (caméra, sans mur entre eux),
-// il ne bouge plus (il ne se tourne même pas vers lui) ; dès qu'il ne le regarde plus ou se cache derrière un mur, cri de
-// terreur, et il court vers lui (3,5 fois la marche d'un joueur). À moins de 0,8 m (même immobile), il immobilise le
+// à la fois), les yeux rouges luisant dans l'obscurité. Tant que le joueur traqué le regarde (caméra, sans mur entre eux ;
+// à moins de 7 m, son personnage doit en plus lui faire face), il ne bouge plus (il ne se tourne même pas vers lui) ; dès
+// qu'il ne le regarde plus ou se cache derrière un mur, il court vers lui (3,5 fois la marche d'un joueur), et se fige à
+// nouveau, avec un cri de terreur, dès que le joueur le regarde (V0.4.9 : le cri n'est plus poussé quand il s'élance). À moins de 0,8 m (même immobile), il immobilise le
 // joueur et le frappe de sa masse, puis repart en recherche. Un compteur de distance (remis à 0 au début de la chasse)
 // compte les mètres parcourus : à 50 m, ou si le joueur rentre dans le Hub, il abandonne et ne peut plus traquer ce
 // joueur pendant 2 secondes.
@@ -90,7 +91,9 @@ public class Cavalier : Entity
                 bool watched = Watched && ClearLine(transform.position + Vector3.up * EyeHeight, target.Position + Vector3.up * 0.4f);
                 if (watched)
                 {
-                    // Regardé : figé sur place, sans même se tourner vers lui.
+                    // Regardé : figé sur place, sans même se tourner vers lui. Cri de terreur s'il courait (pas à la
+                    // première immobilisation, déjà marquée par le cri d'alerte ; pas plus d'un toutes les 1,5 s).
+                    if (running && Time.time - lastTerror > TerrorInterval) { lastTerror = Time.time; Pulse++; }
                     Speed = 0f;
                     running = false;
                     break;
@@ -99,8 +102,6 @@ public class Cavalier : Entity
                 {
                     running = true;
                     repathTimer = 0f;
-                    // Cri de terreur quand il s'élance (pas plus d'un toutes les 1,5 s).
-                    if (Time.time - lastTerror > TerrorInterval) { lastTerror = Time.time; Pulse++; }
                 }
                 Speed = GameRules.BaseSpeed * GameRules.CavalierRunMultiplier;
                 Pursue(target, dt);
@@ -173,7 +174,8 @@ public class Cavalier : Entity
     Transform legL, legR, armR, armL, head;
     Renderer[] eyes;
     Light eyeLight;
-    float stepTimer, walkPhase, strikeShownAt = -10f, stompShownAt = -10f;
+    readonly GameAudio.FadedLoop steps = new GameAudio.FadedLoop("cavalier_gallop", 0.8f, GameRules.CavalierGallopRange, 0.3f);
+    float walkPhase, strikeShownAt = -10f, stompShownAt = -10f;
     bool stompPlayed, strikePlayed;
 
     protected override void BuildVisual()
@@ -302,8 +304,17 @@ public class Cavalier : Entity
         if ((State)next == State.Stomp) { stompShownAt = Time.time; stompPlayed = false; }
     }
 
-    // Il s'élance vers le joueur qui ne le regarde plus : cri de terreur.
-    protected override void OnPulse() => GameAudio.Play3D("cavalier_terror", transform.position + Vector3.up * EyeHeight, 1f, 40f, 0f);
+    // Le joueur le regarde à nouveau : il se fige avec un cri de terreur (Cavalier_Immobilise).
+    // (Le cri précédent, s'il dure encore, se coupe : ils ne se superposent pas.)
+    AudioSource terror;
+
+    protected override void OnPulse()
+    {
+        if (terror != null && terror.isPlaying && terror.clip == SoundBank.Get("cavalier_terror")) terror.Stop();
+        terror = GameAudio.Play3D("cavalier_terror", transform.position + Vector3.up * EyeHeight, 1f, 40f, 0f);
+    }
+
+    public override string KillSound => "cavalier_kill";
 
     protected override void Animate(float dt)
     {
@@ -311,16 +322,8 @@ public class Cavalier : Entity
         if (eyes != null) foreach (var e in eyes) if (e != null) e.enabled = hunting;
         if (eyeLight != null) eyeLight.enabled = hunting;
 
-        // Galop : sabots qui frappent le sol, au rythme de son allure, à moins de 30 m.
-        if (visualSpeed > 0.3f)
-        {
-            stepTimer -= dt * Mathf.Clamp(visualSpeed / 3f, 0.6f, 3f);
-            if (stepTimer <= 0f)
-            {
-                stepTimer = 0.5f;
-                GameAudio.Play3D("cavalier_gallop", transform.position, 0.8f, GameRules.CavalierGallopRange, 0.08f);
-            }
-        }
+        // Galop (Cavalier_Deplacement, en boucle) dès qu'il se déplace, à moins de 30 m : tempo plus rapide à la course.
+        steps.Update(transform, Vector3.zero, visualSpeed > 0.3f, visualSpeed > 5.5f ? 1.4f : 1f, dt);
 
         if (animator != null)
         {

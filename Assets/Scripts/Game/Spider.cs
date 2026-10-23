@@ -180,10 +180,9 @@ public class Spider : Entity
 
     protected override void OnPulse() => GameAudio.Play3D("spider_hiss", transform.position + Vector3.up, 1f, 25f, 0.08f);
 
-    protected override void OnStateChanged(byte previous, byte next)
-    {
-        if ((State)next == State.Strike) GameAudio.Play3D("spider_attack", transform.position + Vector3.up, 1f, 25f, 0.06f);
-    }
+    // V0.4.9 : Araignee_Attaque quand elle blesse un joueur, Araignee_Tuer quand elle le tue (joués chez tous).
+    public override string HurtSound => "spider_attack";
+    public override string KillSound => "spider_kill";
 
     protected override void Animate(float dt)
     {

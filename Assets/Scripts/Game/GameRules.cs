@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.4.8";
+    public const string Version = "V0.4.9";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -166,9 +166,10 @@ public static class GameRules
     public const float RoiBeaconCooldown = 40f;             // après avoir atteint une Balise
     // V0.4.7 : plus d'Abjuration ni d'aura blanche autour de lui ; les lumières à moins de 30 m clignotent frénétiquement.
     public const float RoiLightRange = 30f;
+    public const float RoiAmbienceRange = 30f;              // V0.4.9 : musique d'ambiance (Roi_Autour) autour de lui
     public const float RoiSightRange = 20f;
     public const float RoiSenseRadius = 6f;                 // tout près, il sent le joueur même dans son dos
-    public const float RoiAimFirst = 1.5f, RoiAimAgain = 1.5f; // V0.4.7 : il lève le bras 1,5 s (avant : 2,5 s la première fois)
+    public const float RoiAimFirst = 1.5f, RoiAimAgain = 1f; // V0.4.7 : il lève le bras 1,5 s ; V0.4.9 : chaîne relancée 1 s après la rupture (avant : 1 + 1,5 s)
     // "À grande vitesse" ; V0.4.6 : lancée seulement si le joueur est en ligne de vue, elle le suit jusqu'à lui.
     public const float RoiChainSpeed = 26f;                 // 20 m/s x 1,3
     public const float RoiChainRadius = 0.7f;               // la pointe touche le joueur à moins de 70 cm
@@ -176,7 +177,6 @@ public static class GameRules
     // V0.4.7 : "vitesse normale x 2", soit le doublement déjà appliqué (avant : 2) : quatre fois sa vitesse de marche.
     public const float RoiPullMultiplier = 4f;
     public const float RoiChaseMultiplier = 0.5f;           // en chasse, il avance lentement vers sa proie
-    public const float RoiRecover = 1f;
     public const float RoiKillDistance = 0.8f;
 
     // ---------- Le Cavalier (entité ID 9, Cauchemar, V0.4.7) ----------
@@ -189,6 +189,8 @@ public static class GameRules
     public const float CavalierGallopRange = 30f;
     public const float CavalierHitDistance = 0.8f;
     public const float CavalierChaseDistance = 50f;         // compteur de distance : au-delà, il abandonne (V0.4.8, avant : 40)
+    public const float CavalierFaceDistance = 7f;           // V0.4.9 : plus près, le personnage doit en plus lui faire face
+    public const float CavalierFaceAngle = 60f;             // écart maximal entre l'orientation du personnage et le Cavalier
     public const float CavalierIgnore = 2f;                 // puis ne traque plus ce joueur pendant 2 s
     public const float CavalierStompMin = 6f, CavalierStompMax = 14f, CavalierStompDuration = 1.5f;
     public const float CavalierTurnBackChance = 0.2f;
@@ -214,7 +216,7 @@ public static class GameRules
     // ---------- La Cloche (entité ID 5, Normal) ----------
 
     public const int ClocheDamage = 10;
-    public const float ClocheSightRange = 50f;
+    public const float ClocheSightRange = 25f;           // V0.4.9 (avant : 50 m)
     public const float ClocheTick = 2f;                  // dégâts toutes les 2 secondes passées à la regarder
     public const float ClocheStopDistance = 2f;
     public const float ClocheSearchMin = 50f, ClocheSearchMax = 70f;

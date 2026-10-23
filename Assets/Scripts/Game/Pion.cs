@@ -224,8 +224,12 @@ public class Pion : Entity
 
     // ================= Affichage =================
 
+    // Il s'élance vers le joueur (Pion_Alerte).
     protected override void OnPulse() =>
         GameAudio.Play3D("pion_cry", transform.position + Vector3.up * 0.7f, 1f, 30f, 0.1f);
+
+    // V0.4.9 : Pion_Attaque quand il blesse un joueur (joué chez tous).
+    public override string HurtSound => "pion_attack";
 
     protected override void Animate(float dt)
     {

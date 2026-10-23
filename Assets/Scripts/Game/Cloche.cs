@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // La Cloche (entité ID 5, type Normal) : petite cloche de bronze sur pattes, de la vitesse d'un joueur qui marche.
-// Immobile au départ, elle "obnubile" tout joueur qui entre dans son champ de vision (360°, 50 m) : sa caméra est forcée
+// Immobile au départ, elle "obnubile" tout joueur qui entre dans son champ de vision (360°, 25 m) : sa caméra est forcée
 // de la regarder et il prend des dégâts toutes les 2 secondes, jusqu'à ce qu'un mur coupe la ligne de vue. Elle scintille
 // (animation et son) en obnubilant. Elle marche ensuite vers le premier joueur obnubilé, jusqu'à 2 m (puis scintille),
 // ou vers un autre joueur obnubilé s'il lui échappe. Sans plus personne d'obnubilé, elle part en courant (x1,5) vers un
@@ -71,7 +71,7 @@ public class Cloche : Entity
             return;
         }
 
-        // Qui la voit (et qu'elle voit) : 360°, 50 m ; seul un mur coupe la vision, même en marche discrète.
+        // Qui la voit (et qu'elle voit) : 360°, 25 m ; seul un mur coupe la vision, même en marche discrète.
         scratch.Clear();
         foreach (var p in players)
             if (Valid(p) && Sees(p, EyeHeight, GameRules.ClocheSightRange, 360f, false)) scratch.Add(p.PlayerId);
