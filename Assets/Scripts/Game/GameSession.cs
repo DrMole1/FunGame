@@ -336,7 +336,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         spectateId = null;
         if (orbit != null) orbit.target = player.transform;
         hub.door.SetOpen(false, true);
-        button.gameObject.SetActive(true);
+        button.SetRaised(true, false);
         mistAmount = 0f;
         UpdateScreens();
     }
@@ -356,8 +356,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         if (itemsRound != round || itemsBoost != valueBoost) SpawnItems();
         hub.door.SetOpen(phase != Phase.Waiting);
-        button.gameObject.SetActive(phase == Phase.Waiting);
-        UpdateZone2(!rebuilt && Time.unscaledTime > audioMuteUntil);
+        bool animate = !rebuilt && Time.unscaledTime > audioMuteUntil;
+        button.SetRaised(phase == Phase.Waiting, animate);
+        UpdateZone2(animate);
         UpdateScreens();
     }
 

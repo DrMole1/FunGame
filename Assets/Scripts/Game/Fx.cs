@@ -123,7 +123,7 @@ public static class Fx
     // ---------- Explosion réaliste (Le Réveil) ----------
 
     // Éclair de lumière, boule de feu en volutes (shader FunGame/Explosion) qui gonfle, monte et retombe en fumée
-    // noire, braises, éclats qui rebondissent, panache de fumée, poussière soulevée au ras du sol et trace de brûlure.
+    // noire, braises, éclats qui rebondissent, panache de fumée et poussière soulevée au ras du sol (sans trace au sol).
     public static void Explosion(Vector3 at, Vector3 ground, Material shrapnel)
     {
         Flash(at, new Color(1f, 0.62f, 0.28f), 10f, 7f, 0.45f);
@@ -173,8 +173,6 @@ public static class Fx
         SizeCurve(dust, Curve(0f, 0.3f, 0.4f, 1f, 1f, 1.5f));
         Drag(dust, 0.22f);
         dust.Play();
-
-        Scorch(ground, 1.3f);
 
         // Joueur local pris tout près : les oreilles sifflent (à moins de 4 m, d'autant plus qu'il est proche).
         PlayerPresence me = GameSession.Instance != null ? GameSession.Instance.LocalPresence : null;
@@ -241,23 +239,6 @@ public static class Fx
             lamp.intensity = intensity * Mathf.Max(0f, 1f - k) * (1f - k) * Random.Range(0.75f, 1f);
             if (k >= 1f) Destroy(gameObject);
         }
-    }
-
-    // Trace de brûlure noire au sol : reste quelques secondes, puis se résorbe.
-    static void Scorch(Vector3 ground, float diameter)
-    {
-        var go = new GameObject("Brulure");
-        go.transform.position = ground + Vector3.up * 0.012f;
-        go.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-        go.transform.localScale = new Vector3(diameter, 0.005f, diameter * Random.Range(0.8f, 1f));
-        go.AddComponent<MeshFilter>().sharedMesh = Cylinder;
-        var r = go.AddComponent<MeshRenderer>();
-        r.sharedMaterial = GameArt.Lit("Brulure", new Color(0.03f, 0.025f, 0.02f), null, 0f);
-        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        var d = go.AddComponent<Delayed>();
-        d.at = Time.time + 8f;
-        d.run = () => Vanish(go, 2f);
-        d.keep = true;
     }
 
     // ---------- Pouf de cirque (Le Fou) ----------

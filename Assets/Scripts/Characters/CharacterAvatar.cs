@@ -60,6 +60,7 @@ public class CharacterAvatar : MonoBehaviour
         CharacterIndex = index;
         State = AnimState.Idle;
         animator.Play("Idle", 0, 0f);
+        ResetIdle();
         model.SetActive(!dead && !hidden);
     }
 
@@ -67,17 +68,62 @@ public class CharacterAvatar : MonoBehaviour
     public void SetState(AnimState state, bool restart = false)
     {
         if ((state == State && !restart) || animator == null) return;
+        AnimState previous = State;
         State = state;
         // Corps caché (téléportation) : rien à animer.
         if (!animator.gameObject.activeInHierarchy) return;
         // Le clip de saut suit la durée raccourcie du saut.
         animator.speed = state == AnimState.Jump ? 1f / GameRules.JumpTimeScale : 1f;
+        float fade = BlendTime(previous, state);
         if (state == AnimState.Jump)
-            animator.CrossFadeInFixedTime("Jump", 0.1f, 0, JumpClipOffset);
+            animator.CrossFadeInFixedTime("Jump", fade, 0, JumpClipOffset);
         else if (state == AnimState.SneakIdle)
-            animator.CrossFadeInFixedTime("SneakIdle", 0.25f, 0, SneakIdlePose);
+            animator.CrossFadeInFixedTime("SneakIdle", fade, 0, SneakIdlePose);
+        else if (state == AnimState.Idle)
+        {
+            // Retour à l'attente : toujours l'idle principal, la prochaine variante viendra plus tard.
+            ResetIdle();
+            animator.CrossFadeInFixedTime(IdleStates[0], fade);
+        }
         else
-            animator.CrossFadeInFixedTime(state.ToString(), state == AnimState.Sneak || state >= AnimState.Dance ? 0.25f : 0.15f);
+            animator.CrossFadeInFixedTime(state.ToString(), fade);
+    }
+
+    // Durée des fondus entre animations : assez longue pour que les changements d'allure restent fluides, plus courte
+    // pour le saut (l'élan doit partir tout de suite) et à l'arrivée au sol.
+    static float BlendTime(AnimState from, AnimState to)
+    {
+        if (to == AnimState.Jump) return 0.12f;
+        if (from == AnimState.Jump) return 0.2f;
+        if (to >= AnimState.Dance || from >= AnimState.Dance) return 0.35f;
+        bool still = to == AnimState.Idle || to == AnimState.SneakIdle, wasStill = from == AnimState.Idle || from == AnimState.SneakIdle;
+        if (still || wasStill) return 0.3f;
+        return 0.25f;
+    }
+
+    // Attente : l'idle principal (calme), et de temps en temps l'une des deux variantes (il regarde autour de lui, ou se
+    // tient nonchalamment), en long fondu.
+    // Purement visuel : chaque client choisit ses variantes.
+    static readonly string[] IdleStates = { "Idle", "IdleB", "IdleC" };
+    const float IdleSwitchMin = 7f, IdleSwitchMax = 13f, IdleBlend = 1f;
+    int idleVariant;
+    float nextIdleAt;
+
+    void ResetIdle()
+    {
+        idleVariant = 0;
+        nextIdleAt = Time.time + Random.Range(IdleSwitchMin, IdleSwitchMax);
+    }
+
+    void Update()
+    {
+        if (State != AnimState.Idle || dead || animator == null || !animator.gameObject.activeInHierarchy || Time.time < nextIdleAt) return;
+        // Une variante, puis retour à l'idle principal ; les variantes ne s'enchaînent pas entre elles.
+        int next = idleVariant != 0 ? 0 : Random.Range(1, IdleStates.Length);
+        nextIdleAt = Time.time + (next == 0 ? Random.Range(IdleSwitchMin, IdleSwitchMax) : Random.Range(5f, 9f));
+        if (!animator.HasState(0, Animator.StringToHash(IdleStates[next]))) return;
+        idleVariant = next;
+        animator.CrossFadeInFixedTime(IdleStates[next], IdleBlend);
     }
 
     // Gestes joués par-dessus l'animation en cours (le personnage peut marcher en même temps), sur le haut du corps :
@@ -206,6 +252,7 @@ public class CharacterAvatar : MonoBehaviour
                 State = AnimState.Idle;
                 animator.speed = 1f;
                 animator.Play("Idle", 0, 0f);
+                ResetIdle();
             }
         }
     }

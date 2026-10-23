@@ -24,6 +24,12 @@ public static class CharacterSetup
     const string ExtrasPath = "Assets/Models/Animations/PlayerExtras.fbx";
     static readonly (string take, string state, bool loop)[] Extras =
         { ("FunnyDancing_02", "Dance2", true), ("Hip_Hop_Dance", "Dance3", true), ("Pull_Radish", "Dig", true) };
+    // Idles Meshy partagés par tous les personnages, entre lesquels CharacterAvatar alterne en fondu tant que le
+    // personnage ne fait rien d'autre : Idle ("Idle 3", attente calme), IdleB ("Idle" : il se tourne et regarde
+    // autour de lui) et IdleC ("Idle 1", nonchalant).
+    const string IdlesPath = "Assets/Models/Animations/PlayerIdles.fbx";
+    static readonly (string take, string state, bool loop)[] Idles =
+        { ("Idle_3", "Idle", true), ("Idle", "IdleB", true), ("Idle_02", "IdleC", true) };
     // Le clip "Pull Radish" dure 4,7 s : accéléré pour tenir dans les 1,2 seconde du creusage.
     const float DigStateSpeed = 3.92f;
     // Morts (Meshy "Electrocuted Fall", "Strangled and Fall Forward", "Dying Backwards") : états Death0, Death1, Death2,
@@ -103,10 +109,12 @@ public static class CharacterSetup
         }
     }
 
-    // Les trois clips du fichier Meshy, en Humanoid (avatar propre au fichier), le mouvement de racine intégré à la pose.
-    static void ImportExtras()
+    static void ImportExtras() => ImportShared(ExtrasPath, Extras);
+
+    // Clips d'un fichier Meshy partagé, en Humanoid (avatar propre au fichier), le mouvement de racine intégré à la pose.
+    static void ImportShared(string path, (string take, string state, bool loop)[] table)
     {
-        var importer = (ModelImporter)AssetImporter.GetAtPath(ExtrasPath);
+        var importer = (ModelImporter)AssetImporter.GetAtPath(path);
         if (importer == null) return;
         importer.animationType = ModelImporterAnimationType.Human;
         importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
@@ -115,10 +123,10 @@ public static class CharacterSetup
         var clips = new List<ModelImporterClipAnimation>();
         foreach (var c in importer.defaultClipAnimations)
         {
-            int k = System.Array.FindIndex(Extras, e => e.take == c.takeName);
+            int k = System.Array.FindIndex(table, e => e.take == c.takeName);
             if (k < 0) continue;
-            c.name = Extras[k].state;
-            c.loopTime = c.loopPose = Extras[k].loop;
+            c.name = table[k].state;
+            c.loopTime = c.loopPose = table[k].loop;
             c.lockRootRotation = c.keepOriginalOrientation = true;
             c.lockRootPositionXZ = c.keepOriginalPositionXZ = true;
             c.lockRootHeightY = c.keepOriginalPositionY = true;
@@ -144,6 +152,41 @@ public static class CharacterSetup
         }
         AssetDatabase.SaveAssets();
         Debug.Log("Danse ajoutée aux personnages.");
+    }
+
+    // États d'attente : Idle (état par défaut), IdleB et IdleC. Sans le fichier des idles : la première image du saut,
+    // figée (pose debout).
+    static AnimatorState AddIdleStates(AnimatorStateMachine sm, AnimationClip jump)
+    {
+        ImportShared(IdlesPath, Idles);
+        AnimatorState idle = null;
+        foreach (var (_, state, _) in Idles)
+        {
+            AnimationClip clip = AssetDatabase.LoadAllAssetsAtPath(IdlesPath).OfType<AnimationClip>().FirstOrDefault(c => c.name == state);
+            if (clip == null) { Debug.LogError("Animation introuvable : " + state + " (" + IdlesPath + ")"); continue; }
+            AnimatorState added = AddState(sm, state, clip, 1f);
+            if (state == "Idle") idle = added;
+        }
+        return idle ?? AddState(sm, "Idle", jump, 0f);
+    }
+
+    // Remplace l'attente figée des Animators existants par les idles animés, sans réinstaller les personnages.
+    [MenuItem("FunGame/Ajouter les idles aux personnages")]
+    public static void AddIdles()
+    {
+        foreach (string name in AssetDatabase.GetSubFolders(Root).Select(Path.GetFileName))
+        {
+            string dir = Root + "/" + name + "/";
+            var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(dir + name + ".controller");
+            if (controller == null) continue;
+            AnimationClip jump = AssetDatabase.LoadAllAssetsAtPath(dir + name + "_Jump.fbx").OfType<AnimationClip>().FirstOrDefault(c => c.name == "Jump");
+            AnimatorStateMachine sm = controller.layers[0].stateMachine;
+            foreach (var child in sm.states.Where(c => c.state.name.StartsWith("Idle")).ToArray()) sm.RemoveState(child.state);
+            sm.defaultState = AddIdleStates(sm, jump);
+            EditorUtility.SetDirty(controller);
+        }
+        AssetDatabase.SaveAssets();
+        Debug.Log("Idles ajoutés aux personnages.");
     }
 
     static void AddDeathStates(AnimatorStateMachine sm, AnimationClip[] deaths)
@@ -180,8 +223,7 @@ public static class CharacterSetup
         AssetDatabase.DeleteAsset(controllerPath);
         var controller = AnimatorController.CreateAnimatorControllerAtPath(controllerPath);
         AnimatorStateMachine sm = controller.layers[0].stateMachine;
-        // Pas de clip "idle" chez Meshy : la première image du saut est une pose debout.
-        AnimatorState idle = AddState(sm, "Idle", jump, 0f);
+        AnimatorState idle = AddIdleStates(sm, jump);
         AddState(sm, "Walk", walk, 1f);
         AddState(sm, "Run", run, 1f);
         AddState(sm, "Jump", jump, JumpStateSpeed);

@@ -1349,17 +1349,30 @@ public static class SoundBank
         return d;
     }
 
-    // Un battement de cœur feutré (pulsations près d'un Cauchemar) : « poum-poum » grave et court.
+    // Battement « poum-poum » des pulsations cardiaques. Le fondamental (58 Hz) se sent au casque, mais les haut-parleurs
+    // d'ordinateur portable ou de téléphone ne rendent presque rien sous 150-200 Hz : harmoniques (118, 180, 240 Hz),
+    // choc sourd de bruit filtré à l'attaque et légère saturation lui donnent un corps audible partout.
     static float[] HeartThump()
     {
-        var d = Buffer(0.45f);
+        var d = Buffer(0.5f);
+        var rnd = new System.Random(7);
         for (int k = 0; k < 2; k++)
         {
-            int from = Mathf.RoundToInt(k * 0.14f * Rate);
+            int from = Mathf.RoundToInt(k * 0.15f * Rate);
+            // Bruit lissé (moyenne glissante sur 8 échantillons) : un « tap » mat plutôt qu'un souffle.
+            float acc = 0f;
+            var window = new float[8];
             for (int i = from; i < d.Length; i++)
             {
                 float t = (float)(i - from) / Rate;
-                d[i] += (Sine((55f - 25f * t) * t) + Sine(105f * t) * 0.2f) * Decay(t, 0.06f) * Mathf.Min(1f, t / 0.004f) * (k == 0 ? 1f : 0.6f);
+                float n = Noise(rnd);
+                acc += n - window[i % 8];
+                window[i % 8] = n;
+                float tap = acc / 8f * Decay(t, 0.015f) * 2.2f;
+                float body = Sine((58f - 22f * t) * t) + 0.7f * Sine((118f - 30f * t) * t) + 0.55f * Sine((180f - 40f * t) * t)
+                    + 0.3f * Sine(240f * t) * Decay(t, 0.04f);
+                float env = Decay(t, 0.09f) * Mathf.Min(1f, t / 0.003f);
+                d[i] += (float)System.Math.Tanh(2.2f * (body * env + tap)) * (k == 0 ? 1f : 0.65f);
             }
         }
         return d;

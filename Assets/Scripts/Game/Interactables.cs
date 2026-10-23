@@ -116,8 +116,43 @@ public class ItemPickup : Interactable
 
 // Bouton Rouge au centre du Hub : seul l'hôte peut l'enclencher.
 // Modèle Meshy (Resources/Art/RedButton) : podium de cirque rayé rouge et crème, gros dôme rouge sur le dessus.
+// Enclenché, il s'enfonce dans le sol du chapiteau (dans un nuage de poussière) jusqu'à disparaître.
 public class RedButton : Interactable
 {
+    const float SinkDepth = 1.3f, SinkDuration = 1.6f;
+    bool raised = true;
+    float sink;   // 0 : levé, 1 : sous le sol
+
+    public override bool CanInteract => raised;
+
+    // 'animate' : il descend lentement (sinon, il est aussitôt à sa place, par exemple pour un joueur qui arrive).
+    public void SetRaised(bool on, bool animate)
+    {
+        if (on == raised) return;
+        raised = on;
+        foreach (var c in GetComponents<Collider>()) c.enabled = on;
+        if (on || !animate || !gameObject.activeSelf)
+        {
+            sink = on ? 0f : 1f;
+            Place();
+            gameObject.SetActive(on);
+            return;
+        }
+        gameObject.SetActive(true);
+        Fx.Burst(transform.position + Vector3.up * 0.05f, Fx.Dirt, 18, 1.6f, 0.07f, 1f, 1.2f);
+    }
+
+    void Update()
+    {
+        if (raised || sink >= 1f) return;
+        sink = Mathf.MoveTowards(sink, 1f, Time.deltaTime / SinkDuration);
+        Place();
+        if (sink >= 1f) gameObject.SetActive(false);
+    }
+
+    // Démarrage lent, comme une plateforme mécanique, puis accélération.
+    void Place() => transform.localPosition = Vector3.down * (SinkDepth * sink * sink);
+
     public static RedButton Create(Transform anchor)
     {
         var go = new GameObject("Bouton Rouge");
