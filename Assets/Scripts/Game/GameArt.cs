@@ -203,6 +203,23 @@ public static class GameArt
     // Rayon d'énergie entre Balises chargées (LineRenderer).
     public static Material EnergyBeam => FromTemplate("EnergyBeam", () => Unlit("BeamFallback", new Color(0.2f, 0.5f, 1f)));
 
+    // Explosion (Resources/Materials/Explosion) : boule de feu qui retombe en fumée, ou fumée seule ; repli : étincelles.
+    public static Material ExplosionFire => ExplosionMaterial("ExplosionFeu", 1f, 2.2f, new Color(0.1f, 0.09f, 0.085f));
+    public static Material ExplosionSmoke => ExplosionMaterial("ExplosionFumee", 0f, 0f, new Color(0.2f, 0.19f, 0.18f));
+    public static Material ExplosionDust => ExplosionMaterial("ExplosionPoussiere", 0f, 0f, new Color(0.36f, 0.31f, 0.26f));
+
+    static Material ExplosionMaterial(string key, float fire, float intensity, Color smoke)
+    {
+        if (cache.TryGetValue(key, out var m) && m != null) return m;
+        var template = Resources.Load<Material>("Materials/Explosion");
+        if (template == null) return cache[key] = Spark;
+        m = new Material(template) { name = key };
+        m.SetFloat("_Fire", fire);
+        m.SetFloat("_Intensity", intensity);
+        m.SetColor("_SmokeColor", smoke);
+        return cache[key] = m;
+    }
+
     // Particules d'étincelles (Resources/Materials/Spark).
     public static Material Spark
     {

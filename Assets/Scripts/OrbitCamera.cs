@@ -69,14 +69,15 @@ public class OrbitCamera : MonoBehaviour
     public static float Dread;
     static float dread, heartPhase, heartFov;
     const float DreadRise = 3f, DreadFall = 0.35f;
-    const float HeartRateCalm = 75f, HeartRatePanic = 165f;   // battements par minute
-    const float HeartFovPulse = 3.2f;                          // degrés de champ de vision au battement
+    const float HeartRateCalm = 60f, HeartRatePanic = 120f;   // battements par minute
+    const float HeartFovPulse = 2.6f;                          // degrés de champ de vision au battement
+    const float HeartSoundAt = 0.12f;                          // position du son dans le cycle
 
     // Enveloppe d'un battement « poum-poum » (0 à 1) selon la position dans le cycle.
     static float HeartEnvelope(float phase)
     {
-        float lub = Mathf.Exp(-Mathf.Pow((phase - 0.04f) / 0.035f, 2f));
-        float dub = 0.65f * Mathf.Exp(-Mathf.Pow((phase - 0.2f) / 0.035f, 2f));
+        float lub = Mathf.Exp(-Mathf.Pow((phase - 0.14f) / 0.065f, 2f));
+        float dub = 0.6f * Mathf.Exp(-Mathf.Pow((phase - 0.3f) / 0.075f, 2f));
         return lub + dub;
     }
 
@@ -90,12 +91,11 @@ public class OrbitCamera : MonoBehaviour
             heartPhase = 1f;
             return;
         }
-        if (heartPhase >= 1f)
-        {
-            heartPhase -= 1f;
-            GameAudio.Play2D("heart_thump", 0.18f + 0.3f * dread);
-        }
+        if (heartPhase >= 1f) heartPhase -= 1f;
+        float before = heartPhase;
         heartPhase += Time.deltaTime * Mathf.Lerp(HeartRateCalm, HeartRatePanic, dread) / 60f;
+        // Le « poum » sonne au sommet du premier gonflement de l'image.
+        if (before < HeartSoundAt && heartPhase >= HeartSoundAt) GameAudio.Play2D("heart_thump", 0.26f + 0.4f * dread);
     }
     Camera cam;
 

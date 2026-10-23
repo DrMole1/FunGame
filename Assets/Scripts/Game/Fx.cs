@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 // Petits effets visuels jetables : gerbes de débris (monticules, Canon), explosion du Réveil, pouf de cirque du Fou et
@@ -121,32 +122,25 @@ public static class Fx
 
     // ---------- Explosion réaliste (Le Réveil) ----------
 
-    // Éclair de lumière, boule de feu qui gonfle et s'élève en virant au rouge sombre, braises, éclats de laiton qui
-    // rebondissent, colonne de fumée noire, anneau de poussière au ras du sol et trace de brûlure.
+    // Éclair de lumière, boule de feu en volutes (shader FunGame/Explosion) qui gonfle, monte et retombe en fumée
+    // noire, braises, éclats qui rebondissent, panache de fumée, poussière soulevée au ras du sol et trace de brûlure.
     public static void Explosion(Vector3 at, Vector3 ground, Material shrapnel)
     {
         Flash(at, new Color(1f, 0.62f, 0.28f), 10f, 7f, 0.45f);
 
-        var fire = Emitter("BouleDeFeu", at, GameArt.Spark, null, 22, 0.75f, 3.2f, 1.7f, -0.25f);
+        // Boule de feu : grosses volutes serrées qui s'ouvrent vite puis ralentissent ; leurs bords se rongent et leur
+        // cœur passe du blanc-jaune au rouge, puis à la fumée.
+        // (Émises vers le haut et un peu au-dessus du sol : les sprites ne s'enfoncent pas dans le plancher.)
+        var fire = Volumes("BouleDeFeu", at + Vector3.up * 0.3f, GameArt.ExplosionFire, 16, 1.4f, 4.5f, 2f, -0.35f, 0.4f);
         var shape = fire.shape;
-        shape.radius = 0.35f;
-        SizeCurve(fire, Curve(0f, 0.35f, 0.25f, 1f, 1f, 1.3f));
-        ColorFade(fire, 0.35f, new Color(1f, 0.95f, 0.75f), new Color(1f, 0.55f, 0.12f), new Color(0.75f, 0.15f, 0.03f), new Color(0.15f, 0.03f, 0f));
-        Drag(fire, 0.25f);
+        shape.shapeType = ParticleSystemShapeType.Hemisphere;
+        SizeCurve(fire, Curve(0f, 0.3f, 0.15f, 0.9f, 1f, 1.45f));
+        Drag(fire, 0.32f);
         fire.Play();
-
-        // Cœur de la boule de feu : boules incandescentes opaques, blanc-jaune au centre, orange autour, vite résorbées.
-        foreach (var (key, color, glow, count, life, size) in new[] {
-            ("FeuCoeur", new Color(1f, 0.92f, 0.6f), new Color(2.2f, 1.7f, 0.8f), 7, 0.35f, 0.9f),
-            ("FeuOrange", new Color(1f, 0.45f, 0.08f), new Color(1.8f, 0.6f, 0.08f), 12, 0.55f, 0.75f) })
-        {
-            var flame = Emitter(key, at, GameArt.Emissive(key, color, glow), Sphere, count, life, 3.5f, size, -0.3f);
-            shape = flame.shape;
-            shape.radius = 0.3f;
-            SizeCurve(flame, Curve(0f, 0.3f, 0.2f, 1.1f, 0.6f, 0.9f, 1f, 0f));
-            Drag(flame, 0.3f);
-            flame.Play();
-        }
+        // Flash du cœur, très bref.
+        var core = Volumes("CoeurDuFeu", at, GameArt.ExplosionFire, 5, 0.35f, 1.2f, 1.8f, 0f, 0.15f);
+        SizeCurve(core, Curve(0f, 0.6f, 0.4f, 1.1f, 1f, 1.3f));
+        core.Play();
 
         var embers = Emitter("Braises", at, GameArt.Spark, null, 45, 1.3f, 12f, 0.12f, 1.2f);
         var er = embers.GetComponent<ParticleSystemRenderer>();
@@ -162,26 +156,22 @@ public static class Fx
         Bounce(shards);
         shards.Play();
 
-        // La fumée suit la boule de feu, monte lentement en s'épaississant, puis se dissipe.
-        foreach (var (key, tone, count) in new[] { ("FumeeNoire", 0.1f, 12), ("FumeeSombre", 0.26f, 10) })
-        {
-            var smoke = Emitter(key, at + Vector3.up * 0.5f, GameArt.Lit(key, new Color(tone, tone, tone), null, 0f), Sphere, count, 3.2f, 2.4f, 1f, -0.14f);
-            var main = smoke.main;
-            main.startDelay = new ParticleSystem.MinMaxCurve(0.3f, 0.6f);
-            shape = smoke.shape;
-            shape.radius = 0.4f;
-            SizeCurve(smoke, Curve(0f, 0.1f, 0.4f, 1.1f, 0.85f, 1.5f, 1f, 0f));
-            Drag(smoke, 0.12f);
-            Tumble(smoke, 0.6f);
-            smoke.Play();
-        }
+        // Panache de fumée : prend le relais du feu, monte lentement en s'élargissant, puis se dissipe en se rongeant.
+        var smoke = Volumes("Fumee", at + Vector3.up * 0.8f, GameArt.ExplosionSmoke, 16, 4.5f, 3f, 2.2f, -0.3f, 0.6f);
+        var main = smoke.main;
+        main.startDelay = new ParticleSystem.MinMaxCurve(0.25f, 0.6f);
+        shape = smoke.shape;
+        shape.shapeType = ParticleSystemShapeType.Hemisphere;
+        SizeCurve(smoke, Curve(0f, 0.4f, 0.4f, 1.3f, 1f, 2.3f));
+        Drag(smoke, 0.18f);
+        smoke.Play();
 
-        var dust = Emitter("Poussiere", ground + Vector3.up * 0.15f, GameArt.Lit("PoussiereSol", new Color(0.42f, 0.36f, 0.3f), null, 0f), Sphere, 22, 1.4f, 7f, 0.5f, -0.02f);
+        // Poussière soulevée : anneau de volutes brunes qui fuse au ras du sol.
+        var dust = Volumes("Poussiere", ground + Vector3.up * 0.35f, GameArt.ExplosionDust, 18, 1.6f, 6.5f, 1f, -0.02f, 0.3f);
         shape = dust.shape;
         shape.shapeType = ParticleSystemShapeType.Circle;
-        shape.radius = 0.3f;
-        SizeCurve(dust, Curve(0f, 0.3f, 0.4f, 1f, 1f, 0f));
-        Drag(dust, 0.2f);
+        SizeCurve(dust, Curve(0f, 0.3f, 0.4f, 1f, 1f, 1.5f));
+        Drag(dust, 0.22f);
         dust.Play();
 
         Scorch(ground, 1.3f);
@@ -196,6 +186,30 @@ public static class Fx
     }
 
     const float DeafenRange = 4f;
+
+    static readonly List<ParticleSystemVertexStream> VolumeStreams = new List<ParticleSystemVertexStream>
+    {
+        ParticleSystemVertexStream.Position, ParticleSystemVertexStream.Color, ParticleSystemVertexStream.UV,
+        ParticleSystemVertexStream.AgePercent, ParticleSystemVertexStream.StableRandomX,
+    };
+
+    // Volutes du shader d'explosion : sprites face caméra tournés au hasard, qui reçoivent leur âge et un aléa stable
+    // (TEXCOORD0.zw) ; rendus du plus loin au plus proche pour que la fumée se superpose correctement.
+    static ParticleSystem Volumes(string name, Vector3 at, Material material, int count, float lifetime, float speed, float size, float gravity, float radius)
+    {
+        var ps = Emitter(name, at, material, null, count, lifetime, speed, size, gravity);
+        var main = ps.main;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(lifetime * 0.75f, lifetime);
+        var shape = ps.shape;
+        shape.radius = radius;
+        var rot = ps.rotationOverLifetime;
+        rot.enabled = true;
+        rot.z = new ParticleSystem.MinMaxCurve(-0.8f, 0.8f);
+        var r = ps.GetComponent<ParticleSystemRenderer>();
+        r.SetActiveVertexStreams(VolumeStreams);
+        r.sortMode = ParticleSystemSortMode.Distance;
+        return ps;
+    }
 
     // Lumière ponctuelle qui s'allume d'un coup puis s'éteint en vacillant.
     public static void Flash(Vector3 at, Color color, float range, float intensity, float duration)
@@ -269,23 +283,7 @@ public static class Fx
         Drag(cloud, 0.35f);
         cloud.Play();
 
-        Color[] circus = { new Color(0.9f, 0.1f, 0.12f), new Color(1f, 0.85f, 0.1f), new Color(0.15f, 0.35f, 0.95f),
-                           new Color(0.15f, 0.75f, 0.3f), new Color(0.95f, 0.3f, 0.75f), Color.white };
-        foreach (Color c in circus)
-        {
-            var confetti = Emitter("Confettis", at, GameArt.Emissive("Confetti" + c, c, c * 0.5f), Cube, 9, 2f, 5.5f, 1f, 0.35f);
-            main = confetti.main;
-            main.startSize3D = true;
-            main.startSizeX = new ParticleSystem.MinMaxCurve(0.12f, 0.17f);
-            main.startSizeY = new ParticleSystem.MinMaxCurve(0.015f, 0.025f);
-            main.startSizeZ = new ParticleSystem.MinMaxCurve(0.08f, 0.12f);
-            shape = confetti.shape;
-            shape.shapeType = ParticleSystemShapeType.Hemisphere;
-            shape.radius = 0.3f;
-            Drag(confetti, 0.12f);
-            Tumble(confetti, 12f);
-            confetti.Play();
-        }
+        Confetti(at);
 
         var stars = Emitter("Etoiles", at, GameArt.Spark, null, 14, 1f, 4.5f, 0.6f, 0.4f);
         shape = stars.shape;
@@ -294,6 +292,35 @@ public static class Fx
         ColorFade(stars, 0.7f, new Color(1f, 0.9f, 0.3f), new Color(1f, 0.75f, 0.15f));
         Drag(stars, 0.15f);
         stars.Play();
+    }
+
+    // Joueur transporté par Le Fou : seulement les confettis (ni nuage, ni étoiles), avec le « pouf ».
+    public static void CircusConfetti(Vector3 ground)
+    {
+        Vector3 at = ground + Vector3.up * 0.8f;
+        GameAudio.Play3D("fou_poof", at, 0.8f, 25f, 0.08f);
+        Confetti(at);
+    }
+
+    static void Confetti(Vector3 at)
+    {
+        Color[] circus = { new Color(0.9f, 0.1f, 0.12f), new Color(1f, 0.85f, 0.1f), new Color(0.15f, 0.35f, 0.95f),
+                           new Color(0.15f, 0.75f, 0.3f), new Color(0.95f, 0.3f, 0.75f), Color.white };
+        foreach (Color c in circus)
+        {
+            var confetti = Emitter("Confettis", at, GameArt.Emissive("Confetti" + c, c, c * 0.5f), Cube, 9, 2f, 5.5f, 1f, 0.35f);
+            var main = confetti.main;
+            main.startSize3D = true;
+            main.startSizeX = new ParticleSystem.MinMaxCurve(0.12f, 0.17f);
+            main.startSizeY = new ParticleSystem.MinMaxCurve(0.015f, 0.025f);
+            main.startSizeZ = new ParticleSystem.MinMaxCurve(0.08f, 0.12f);
+            var shape = confetti.shape;
+            shape.shapeType = ParticleSystemShapeType.Hemisphere;
+            shape.radius = 0.3f;
+            Drag(confetti, 0.12f);
+            Tumble(confetti, 12f);
+            confetti.Play();
+        }
     }
 
     // Pièce d'un petit modèle fait de formes simples (sans collision).
@@ -414,14 +441,14 @@ public static class Fx
         }
     }
 
-    // Pouf de cirque sous un personnage, après un court délai (le temps que sa nouvelle position arrive).
-    public static void CircusPoofUnder(PlayerPresence who, float delay)
+    // Confettis sous un personnage, après un court délai (le temps que sa nouvelle position arrive).
+    public static void CircusConfettiUnder(PlayerPresence who, float delay)
     {
         if (who == null) return;
-        var go = new GameObject("PoufDiffere");
+        var go = new GameObject("ConfettisDifferes");
         var d = go.AddComponent<Delayed>();
         d.at = Time.time + delay;
-        d.run = () => { if (who != null) CircusPoof(who.Position + Vector3.down * 0.9f); };
+        d.run = () => { if (who != null) CircusConfetti(who.Position + Vector3.down * 0.9f); };
     }
 
     public static Material Dirt => GameArt.Lit("DebrisTerre", new Color(0.3f, 0.2f, 0.12f), null, 0.05f);

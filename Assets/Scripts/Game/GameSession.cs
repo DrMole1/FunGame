@@ -2674,13 +2674,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (entities.TryGetValue(NetworkGame.I(f[1]), out var chainer) && chainer is Roi chainRoi) chainRoi.BreakFree(from);
                 break;
             case "FS" when f.Length >= 4:
-                // Le Fou prend votre place : vous voilà à la sienne, la vue secouée en zoom, dans un pouf de cirque.
+                // Le Fou prend votre place : vous voilà à la sienne, la vue secouée en zoom, sous une pluie de confettis.
                 if (!status.Dead && !Invincible && !Teleporting)
                 {
                     var feet = new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3]));
                     player.Teleport(feet + Vector3.up * 0.95f, player.transform.eulerAngles.y);
                     OrbitCamera.ZoomPunch();
-                    Fx.CircusPoof(feet);
+                    Fx.CircusConfetti(feet);
                 }
                 break;
             case "DF" when f.Length >= 2:
