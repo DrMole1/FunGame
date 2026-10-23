@@ -4,14 +4,15 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.4.9";
+    public const string Version = "V0.4.10";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
     public const int MaxSerenity = 100;
     public const float HubRegenPerSecond = 5f;
-    // Non précisé dans le GDD : la sérénité remonte lentement dans le Hub (refuge des joueurs).
-    public const float HubSerenityRegenPerSecond = 1f;
+    // Non précisé dans le GDD (validé en V0.4.10) : hors Abjuration, la sérénité remonte de 2 points par seconde
+    // partout (Hub compris), pour qu'un personnage tombé à 0 ne perde pas ses PV indéfiniment.
+    public const float CalmSerenityRegenPerSecond = 2f;
     public const float RoundDuration = 15f * 60f;
     public const int InventorySize = 5;
     public const int LogLines = 8;
@@ -95,7 +96,9 @@ public static class GameRules
 
     // Elle apparaît quand le Compteur de Temps affiche 7 minutes, jusqu'à la manche suivante.
     public const float AbjurationStart = 7f * 60f;
-    public const float AbjurationLossPerSecond = 2f;   // sérénité perdue par seconde au contact de la brume (V0.4.2)
+    public const float AbjurationLossPerSecond = 6f;   // sérénité perdue par seconde au contact de la brume (V0.4.10, avant : 2)
+    // Note 02 du chapitre 3.4 (V0.4.10) : à 0 de sérénité, le personnage perd 15 PV par seconde (au lieu de mourir).
+    public const int DespairDamagePerSecond = 15;
     // Note 02 (V0.4.2) : hors de la brume, Hub compris, la sérénité remonte de 10 points par seconde.
     public const float AbjurationRegenPerSecond = 10f;
     public const float MistSpeedMultiplier = 0.8f; // déplacement ralenti de 20 % dans la brume
@@ -111,6 +114,8 @@ public static class GameRules
 
     // Note 03 du chapitre 3.4 (V0.4.3) : tué par un Cauchemar, la caméra fixe ses yeux environ 1,5 seconde.
     public const float NightmareStareDuration = 1.5f;
+    // GDD 12 (V0.4.10) : le son de mort (Perso_Mort) se joue 1 s après la chute à 0 PV.
+    public const float DeathSoundDelay = 1f;
 
     // ---------- La Dame (entité ID 2) ----------
 
@@ -189,7 +194,7 @@ public static class GameRules
     public const float CavalierGallopRange = 30f;
     public const float CavalierHitDistance = 0.8f;
     public const float CavalierChaseDistance = 50f;         // compteur de distance : au-delà, il abandonne (V0.4.8, avant : 40)
-    public const float CavalierFaceDistance = 7f;           // V0.4.9 : plus près, le personnage doit en plus lui faire face
+    public const float CavalierFaceDistance = 3f;           // plus près, le personnage doit en plus lui faire face (V0.4.10, avant : 7)
     public const float CavalierFaceAngle = 60f;             // écart maximal entre l'orientation du personnage et le Cavalier
     public const float CavalierIgnore = 2f;                 // puis ne traque plus ce joueur pendant 2 s
     public const float CavalierStompMin = 6f, CavalierStompMax = 14f, CavalierStompDuration = 1.5f;

@@ -127,6 +127,21 @@ public static class GameArt
             return cache["InfestedWall"] = m;
         }
     }
+    // Parcelle d'insectes sur un mur en damier (Note 06, V0.4.10) : le même shader, découpé en silhouette de sablier
+    // aux bords irréguliers d'après les UV de la parcelle.
+    public static Material InsectPatch
+    {
+        get
+        {
+            if (cache.TryGetValue("InsectPatch", out var m) && m != null) return m;
+            var template = Resources.Load<Material>("Materials/InfestedWall");
+            if (template == null) return Concrete;
+            m = new Material(template) { name = "InsectPatch" };
+            m.mainTexture = Noise("concrete", 128, 0.75f, 0.2f, 11);
+            m.SetFloat("_Patch", 1f);
+            return cache["InsectPatch"] = m;
+        }
+    }
     // Faisceau laser animé (Resources/Materials/LaserBeam) : cœur concentré, ou halo diffus autour.
     public static Material LaserBeam(string key, float intensity, float corePower)
     {
@@ -180,13 +195,13 @@ public static class GameArt
     // Aura bleue des orbes activés.
     public static Material GhostAura => FromTemplate("GhostAura", () => Unlit("AuraFallback", new Color(0.2f, 0.5f, 1f)));
 
-    // Matière légèrement transparente, noire ou blanche (Resources/Materials/Translucent ; sinon opaque).
+    // Matière fantomatique légèrement transparente, noire ou blanche (Resources/Materials/Translucent ; sinon opaque).
     public static Material Translucent(bool dark)
     {
         string key = dark ? "TranslucentBlack" : "TranslucentWhite";
         if (cache.TryGetValue(key, out var m) && m != null) return m;
         var template = Resources.Load<Material>("Materials/Translucent");
-        Color c = dark ? new Color(0.03f, 0.03f, 0.03f, 0.55f) : new Color(0.9f, 0.9f, 0.9f, 0.45f);
+        Color c = dark ? new Color(0.03f, 0.03f, 0.03f, 0.85f) : new Color(0.9f, 0.9f, 0.9f, 0.5f);
         m = template != null ? new Material(template) { name = key, color = c } : Lit(key, c, null, 0.9f);
         return cache[key] = m;
     }

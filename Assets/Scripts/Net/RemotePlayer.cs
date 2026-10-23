@@ -106,7 +106,7 @@ public class RemotePlayer : MonoBehaviour
         {
             var session = GameSession.Instance;
             if (dead && hasTarget && (session == null || !session.IsGameOver))
-                GameAudio.Play3D("death", transform.position, 1f, 30f, 0.06f);
+                GameAudio.Play3DDelayed("death", transform.position, 1f, 30f, 0.06f, GameRules.DeathSoundDelay);
             presence.Alive = !dead;
             avatar.SetDead(dead);
             nameTag.Show(!dead);

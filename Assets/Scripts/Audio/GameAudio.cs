@@ -181,6 +181,16 @@ public class GameAudio : MonoBehaviour
         return src;
     }
 
+    // Son spatialisé qui démarre dans 'delay' secondes.
+    public static AudioSource Play3DDelayed(string clip, Vector3 position, float volume, float maxDistance, float pitchVariation, float delay)
+    {
+        var src = Play3D(clip, position, volume, maxDistance, pitchVariation);
+        if (src == null || delay <= 0f) return src;
+        src.Stop();
+        src.PlayDelayed(delay);
+        return src;
+    }
+
     // Son spatialisé à décroissance douce : plein près de la source, puis s'éteint progressivement jusqu'à maxDistance.
     static readonly AnimationCurve SmoothRolloff = new AnimationCurve(
         new Keyframe(0f, 1f, 0f, 0f), new Keyframe(0.15f, 0.92f), new Keyframe(0.5f, 0.4f), new Keyframe(1f, 0f, 0f, 0f));
@@ -290,11 +300,12 @@ public class GameAudio : MonoBehaviour
 
     // Mort du joueur local : le râle, puis un silence total d'une seconde, puis un cœur qui ralentit et s'arrête,
     // les ambiances revenant doucement ensuite.
-    public static void PlayDeathSequence()
+    // 'delay' : attente avant le râle (GDD 12 : 1 s après la chute à 0 PV).
+    public static void PlayDeathSequence(float delay = 0f)
     {
         if (instance == null) return;
         instance.StopAllCoroutines();
-        instance.StartCoroutine(instance.DeathSequence());
+        instance.StartCoroutine(instance.DeathSequence(delay));
     }
 
     public static void CancelDeathSequence()
@@ -331,10 +342,10 @@ public class GameAudio : MonoBehaviour
         Play2D("gameover", 0.55f, 0f, 0.8f);
     }
 
-    System.Collections.IEnumerator DeathSequence()
+    System.Collections.IEnumerator DeathSequence(float delay)
     {
         deathDuck = 0f;
-        yield return new WaitForSecondsRealtime(0.8f);
+        yield return new WaitForSecondsRealtime(delay + 0.8f);
         for (float t = 0f; t < 0.15f; t += Time.unscaledDeltaTime)
         {
             AudioListener.volume = MasterGain * (1f - t / 0.15f);

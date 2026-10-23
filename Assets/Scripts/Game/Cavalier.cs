@@ -7,7 +7,8 @@ using UnityEngine;
 // dès qu'il se déplace. Il s'arrête parfois pour frapper le sol de sa masse (1,5 s), puis repart (20 % : en arrière).
 // Il repère un joueur à 20 m devant lui, ou à 6 m même dans son dos : cri d'alerte, et il passe "en chasse" (un seul joueur
 // à la fois), les yeux rouges luisant dans l'obscurité. Tant que le joueur traqué le regarde (caméra, sans mur entre eux ;
-// à moins de 7 m, son personnage doit en plus lui faire face), il ne bouge plus (il ne se tourne même pas vers lui) ; dès
+// à moins de 3 m, son personnage doit en plus lui faire face), il ne bouge plus (il ne se tourne même pas vers lui) et son
+// animation se fige net (V0.4.10 : aucune animation ne continue quand on le regarde) ; dès
 // qu'il ne le regarde plus ou se cache derrière un mur, il court vers lui (3,5 fois la marche d'un joueur), et se fige à
 // nouveau, avec un cri de terreur, dès que le joueur le regarde (V0.4.9 : le cri n'est plus poussé quand il s'élance). À moins de 0,8 m (même immobile), il immobilise le
 // joueur et le frappe de sa masse, puis repart en recherche. Un compteur de distance (remis à 0 au début de la chasse)
@@ -30,6 +31,8 @@ public class Cavalier : Entity
     public State Current { get => (State)state; private set => state = (byte)value; }
     // Le joueur traqué le regarde (signalé par son client).
     public bool Watched;
+    // Figé par le regard du joueur traqué (transmis à tous) : son animation s'arrête net.
+    public bool Frozen { get; private set; }
 
     float stateTimer, stompTimer, chased, lastTerror = -10f;
     bool running, struck;
@@ -48,6 +51,7 @@ public class Cavalier : Entity
     {
         stateTimer += dt;
         var target = Find(players, TargetId);
+        Frozen = false;
         switch (Current)
         {
             case State.Walk:
@@ -96,6 +100,7 @@ public class Cavalier : Entity
                     if (running && Time.time - lastTerror > TerrorInterval) { lastTerror = Time.time; Pulse++; }
                     Speed = 0f;
                     running = false;
+                    Frozen = true;
                     break;
                 }
                 if (!running)
@@ -166,6 +171,9 @@ public class Cavalier : Entity
         if (Horizontal(d).magnitude > radius || Mathf.Abs(d.y - 0.9f) > 2.5f) return false;
         return ClearLine(transform.position + Vector3.up * 1.5f, p.Position + Vector3.up * 0.4f);
     }
+
+    public override string Extra => Frozen ? "1" : "0";
+    protected override void ApplyExtra(string extra) => Frozen = extra == "1";
 
     // ================= Modèle =================
 
@@ -323,8 +331,14 @@ public class Cavalier : Entity
         if (eyeLight != null) eyeLight.enabled = hunting;
 
         // Galop (Cavalier_Deplacement, en boucle) dès qu'il se déplace, à moins de 30 m : tempo plus rapide à la course.
-        steps.Update(transform, Vector3.zero, visualSpeed > 0.3f, visualSpeed > 5.5f ? 1.4f : 1f, dt);
+        steps.Update(transform, Vector3.zero, visualSpeed > 0.3f && !Frozen, visualSpeed > 5.5f ? 1.4f : 1f, dt);
 
+        // Regardé : l'animation en cours (marche, course...) s'arrête brusquement sur la pose du moment.
+        if (Frozen)
+        {
+            if (animator != null) animator.speed = 0f;
+            return;
+        }
         if (animator != null)
         {
             string wanted = Current == State.Strike || Current == State.Stomp ? "Attack" : visualSpeed < 0.3f ? "Idle" : visualSpeed > 5.5f ? "Run" : "Walk";

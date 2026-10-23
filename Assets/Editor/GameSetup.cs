@@ -170,6 +170,9 @@ public static class GameSetup
     }
 
     // Modèles statiques Meshy : pas d'animation, matériaux et textures extraits à côté du modèle.
+    // Grands décors vus de près (entrée du chapiteau) : texture en 1024.
+    static readonly string[] LargeArt = { "EntreeChapiteau" };
+
     internal static void ImportArt()
     {
         if (!AssetDatabase.IsValidFolder(ArtDir)) return;
@@ -210,14 +213,16 @@ public static class GameSetup
             foreach (var source in importer.GetExternalObjectMap().Keys)
                 if (source.type == typeof(Material)) importer.RemoveRemap(source);
             importer.AddRemap(new AssetImporter.SourceAssetIdentifier(typeof(Material), "Material.001"), mat);
-            // Textures 2K de Meshy réduites : objets petits à l'écran, build WebGL léger.
+            // Textures 2K de Meshy réduites : objets petits à l'écran, build WebGL léger (1024 pour les grands décors).
+            int texSize = System.Array.IndexOf(LargeArt, name) >= 0 ? 1024 : 512;
             foreach (string texGuid in AssetDatabase.FindAssets("t:Texture2D", new[] { texDir }))
             {
                 var texImporter = (TextureImporter)AssetImporter.GetAtPath(AssetDatabase.GUIDToAssetPath(texGuid));
-                if (texImporter.maxTextureSize == 512) continue;
-                texImporter.maxTextureSize = 512;
+                if (texImporter.maxTextureSize == texSize) continue;
+                texImporter.maxTextureSize = texSize;
                 texImporter.SaveAndReimport();
             }
+            importer.meshCompression = ModelImporterMeshCompression.Medium;
             importer.SaveAndReimport();
         }
     }

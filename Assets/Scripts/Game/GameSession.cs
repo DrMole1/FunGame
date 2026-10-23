@@ -587,9 +587,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             }
         }
         else regenAcc = 0f;
-        // Pendant l'Abjuration, hors de la brume (Hub compris) : +10 par seconde ; sinon, lentement dans le Hub.
+        // Pendant l'Abjuration, hors de la brume (Hub compris) : +10 par seconde ; sinon, +2 par seconde partout.
         float serenityRate = AbjurationActive ? (inMist ? 0f : GameRules.AbjurationRegenPerSecond)
-                           : inHub ? GameRules.HubSerenityRegenPerSecond : 0f;
+                           : GameRules.CalmSerenityRegenPerSecond;
         if (!status.Dead && status.Serenity < GameRules.MaxSerenity && serenityRate > 0f)
         {
             serenityRegenAcc += serenityRate * Time.deltaTime;
@@ -612,6 +612,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateCloches();
         UpdateRoi();
         UpdateMistContact();
+        UpdateDespair();
         UpdateWatching();
         UpdateDread();
         UpdateSpectate();
@@ -694,15 +695,19 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         lastTickSecond = second;
 
-        // Grouillement des insectes : plus fort contre un mur du labyrinthe.
+        // Grouillement des insectes : plus fort contre une parcelle d'insectes des murs (Note 06, V0.4.10).
         float level = 0f;
         if (inGame && !status.Dead && !WorldBuilder.IsInHub(player.transform.position))
         {
             float nearest = 3f;
             Vector3 origin = player.transform.position;
-            foreach (var dir in new[] { Vector3.forward, Vector3.back, Vector3.left, Vector3.right })
-                if (Physics.Raycast(origin, dir, out RaycastHit hit, 3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
-                    nearest = Mathf.Min(nearest, hit.distance);
+            origin.y = 0f;
+            foreach (var (a, b) in WorldBuilder.InsectPatches)
+            {
+                Vector3 ab = b - a;
+                float k = Mathf.Clamp01(Vector3.Dot(origin - a, ab) / ab.sqrMagnitude);
+                nearest = Mathf.Min(nearest, Vector3.Distance(origin, a + ab * k));
+            }
             level = Mathf.Clamp01(1f - (nearest - 0.5f) / 2f);
         }
         GameAudio.InsectLevel = level;
@@ -776,7 +781,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         player.ReleaseImmobilize();
     }
 
-    // Au contact de la brume de l'Abjuration : -2 de sérénité par seconde (à 0, le personnage meurt),
+    // Au contact de la brume de l'Abjuration : -6 de sérénité par seconde (V0.4.10, avant : -2),
     // et le déplacement y est ralenti de 20 %.
     bool inMist;
 
@@ -800,7 +805,23 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (loss <= 0) return;
         mistTimer -= loss;
         status.SetSerenity(status.Serenity - loss);
-        if (status.Serenity <= 0) KillLocal("l'Abjuration");
+    }
+
+    // Note 02 du chapitre 3.4 (V0.4.10) : à 0 de sérénité, le personnage ne meurt plus d'un coup ; il perd 15 PV par
+    // seconde, d'un bloc (non lissé), avec l'animation de dégâts, jusqu'à ce qu'il regagne de la sérénité.
+    float despairTimer;
+
+    void UpdateDespair()
+    {
+        if (status.Dead || status.Serenity > 0 || Teleporting || CannonFlying)
+        {
+            despairTimer = 0f;
+            return;
+        }
+        despairTimer += Time.deltaTime;
+        if (despairTimer < 1f) return;
+        despairTimer -= 1f;
+        DamageLocal(GameRules.DespairDamagePerSecond, "l'Abjuration");
     }
 
     // Un joueur mort voit la caméra d'un autre joueur (clic pour changer).
@@ -1038,6 +1059,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         if (status.Dead) return;
         status.SetDead(true);
+        zeroHpAt = Time.time;
         EndTeleport(false);
         channelPad = null;
         StopChannelSound();
@@ -1070,7 +1092,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         RefreshHud();
     }
 
-    float deathFxAt = -1f;
+    float deathFxAt = -1f, zeroHpAt;
     bool deathFxSound;
 
     void PlayDeathFx(bool sound)
@@ -1079,9 +1101,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         avatar.SetDead(true);
         // Au game over, l'accord lugubre remplace les râles.
         if (!sound) return;
-        GameAudio.Play3D("death", player.transform.position, 1f, 30f, 0.06f);
+        // GDD 12 (V0.4.10) : le râle (Perso_Mort) se joue 1 s après que le personnage est tombé à 0 PV (après le
+        // face-à-face d'un Cauchemar, plus long, il suit aussitôt).
+        float delay = Mathf.Max(0f, zeroHpAt + GameRules.DeathSoundDelay - Time.time);
+        GameAudio.Play3DDelayed("death", player.transform.position, 1f, 30f, 0.06f, delay);
         // Le râle, un silence total, puis un cœur qui s'arrête ; l'écran rougit et s'assombrit, la caméra quitte le corps.
-        GameAudio.PlayDeathSequence();
+        GameAudio.PlayDeathSequence(delay);
         hud.PlayDeath();
         deathAt = Time.time;
     }
@@ -1628,7 +1653,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
     }
 
-    // V0.4.9 : à moins de 7 m du Cavalier, le personnage doit en plus lui faire face (pas seulement la caméra).
+    // V0.4.10 : à moins de 3 m du Cavalier (avant : 7 m), le personnage doit en plus lui faire face (pas seulement la caméra).
     bool FacesCavalier(Cavalier cav)
     {
         Vector3 to = cav.transform.position - player.transform.position;

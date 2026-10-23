@@ -2,6 +2,8 @@
 // Tout est procédural (coordonnées monde) : trois couches d'insectes de tailles, directions et vitesses
 // différentes, regroupés en essaims qui dérivent lentement et plus denses près du sol.
 // Ils fuient les joueurs (moins loin si le joueur marche discrètement) et se tassent autour d'eux.
+// _Patch = 1 : parcelle posée sur un mur en damier (V0.4.10), découpée en sablier aux bords irréguliers
+// (UV x : numéro de parcelle + position en largeur ; UV y : hauteur relative, du sol au plafond).
 Shader "FunGame/InfestedWall"
 {
     Properties
@@ -12,6 +14,7 @@ Shader "FunGame/InfestedWall"
         _BugColor ("Insectes", Color) = (0.018, 0.012, 0.008, 1)
         _BugSpeed ("Vitesse (m/s)", Float) = 0.28
         _Density ("Densité", Range(0, 1)) = 0.6
+        [Toggle] _Patch ("Parcelle", Float) = 0
     }
     SubShader
     {
@@ -24,12 +27,13 @@ Shader "FunGame/InfestedWall"
 
         sampler2D _MainTex;
         fixed4 _WallColor, _StainColor, _BugColor;
-        float _BugSpeed, _Density;
+        float _BugSpeed, _Density, _Patch;
         // Joueurs que les insectes fuient (xyz : position, w : rayon, 0 = inactif). Global, mis à jour par GameSession.
         float4 _InsectFlee[8];
 
         struct Input
         {
+            float2 uv_MainTex;
             float3 worldPos;
             float3 worldNormal;
         };
@@ -143,6 +147,18 @@ Shader "FunGame/InfestedWall"
             float3 wp = IN.worldPos;
             float2 uv = WallUV(wp, n);
             float t = _Time.y;
+
+            // Parcelle : large au sol et au plafond, plus étroite au milieu ; chaque bord ondule à sa façon.
+            if (_Patch > 0.5)
+            {
+                float id = floor(IN.uv_MainTex.x);
+                float across = frac(IN.uv_MainTex.x) - 0.5;
+                float v = saturate(IN.uv_MainTex.y);
+                float waist = 0.5 * (0.62 + 0.3 * cos(6.2832 * v));
+                float side = across < 0.0 ? 0.0 : 17.0;
+                float edge = waist + (ValueNoise(float2(wp.y * 1.4, id * 3.7 + side)) - 0.5) * 0.2;
+                clip(edge - abs(across));
+            }
 
             // Mur : grain, coulures d'humidité, crasse en bas.
             float grain = tex2D(_MainTex, uv * 0.35).r;

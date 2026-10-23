@@ -129,7 +129,11 @@ public static class WorldBuilder
             GameArt.Prim(PrimitiveType.Cube, root, new Vector3(sx, DoorHeight * 0.5f, (zIn + zOut) * 0.5f), new Vector3(0.2f, DoorHeight, zOut - zIn), redMat, true);
         GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, (DoorHeight + HubWallHeight) * 0.5f, HubRadius + 0.15f),
             new Vector3(DoorWidth + 0.6f, HubWallHeight - DoorHeight, 0.6f), creamMat, true);
-        GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, DoorHeight + 0.1f, HubRadius - 0.2f), new Vector3(DoorWidth + 0.6f, 0.2f, 0.12f), gold);
+        // Entrée du chapiteau (modèle Meshy) : arche de cirque à colonnes, rideaux de velours, panneau à ampoules où
+        // s'affiche le Compteur de Temps. Sans le modèle : simple liseré doré au-dessus de la porte.
+        Transform arch = BuildEntrance(root);
+        if (arch == null)
+            GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, DoorHeight + 0.1f, HubRadius - 0.2f), new Vector3(DoorWidth + 0.6f, 0.2f, 0.12f), gold);
 
         var door = GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, DoorHeight * 0.5f, HubRadius + 0.15f),
             new Vector3(DoorWidth + 0.1f, DoorHeight, 0.12f), GameArt.Lit("Door", new Color(0.25f, 0.05f, 0.06f), null, 0.5f), true);
@@ -162,6 +166,13 @@ public static class WorldBuilder
 
         // Écrans.
         refs.timerText = Screen(root, "Compteur de Temps", 0f, HubRadius - 0.75f, 4.05f, new Vector2(3.2f, 1.1f), 0.075f);
+        // Dans le panneau à ampoules de l'entrée.
+        if (arch != null)
+        {
+            Transform timer = refs.timerText.transform.parent;
+            timer.localPosition = new Vector3(0f, 3.92f, EntranceZ - 0.45f);
+            timer.localScale = Vector3.one * 0.68f;
+        }
         refs.quotaText = Screen(root, "Rendu de Quota", QuotaAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
         // V0.4.6 : Bouton Skip sous le Rendu de Quota (affiché une fois le quota atteint), face au centre.
         refs.skipAnchor = new GameObject("SkipAnchor").transform;
@@ -196,9 +207,6 @@ public static class WorldBuilder
         {
             refs.kennelPositions[i] = Polar(KennelAngles[i], HubRadius - 1.6f, 0f);
             refs.kennelRotations[i] = FacingCenter(KennelAngles[i]);
-            // Petit tapis pour marquer l'emplacement même vide.
-            var mat = GameArt.Prim(PrimitiveType.Cube, root, refs.kennelPositions[i] + Vector3.up * 0.01f, new Vector3(2f, 0.02f, 2f), gold);
-            mat.transform.localRotation = refs.kennelRotations[i];
         }
 
         // Pogo (entre le Rendu de Quota et les chenils, sans masquer d'écran) et ballons de cirque.
@@ -210,6 +218,31 @@ public static class WorldBuilder
         GameArt.Prim(PrimitiveType.Sphere, root, Polar(-33f, 10.7f, 0.35f), Vector3.one * 0.7f, redMat, true);
 
         return refs;
+    }
+
+    // Arche de l'entrée : 5,4 m de haut, élargie de 15 % pour que le passage entre les rideaux dégage toute la porte.
+    const float EntranceHeight = 5.4f, EntranceStretch = 1.15f, EntranceZ = HubRadius - 0.45f;
+
+    static Transform BuildEntrance(Transform root)
+    {
+        var arch = GameArt.SpawnModel("EntreeChapiteau", root, EntranceHeight);
+        if (arch == null) return null;
+        arch.name = "EntreeChapiteau";
+        // Le modèle regarde vers -Z : retourné face au centre du chapiteau.
+        arch.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+        arch.transform.localScale = new Vector3(EntranceStretch, 1f, 1f);
+        arch.transform.localPosition = new Vector3(0f, 0f, EntranceZ);
+        // Les colonnes arrêtent les joueurs (le modèle n'a pas de collision).
+        Bounds b = GameArt.LocalBounds(arch.transform);
+        float x = b.extents.x * EntranceStretch - 0.35f;
+        foreach (float sx in new[] { -x, x })
+        {
+            var col = new GameObject("ColonneEntree").AddComponent<BoxCollider>();
+            col.transform.SetParent(root, false);
+            col.transform.localPosition = new Vector3(sx, 1.6f, EntranceZ);
+            col.size = new Vector3(0.6f, 3.2f, 0.6f);
+        }
+        return arch.transform;
     }
 
     static TextMesh Screen(Transform root, string name, float angle, float radius, float y, Vector2 size, float charSize,
@@ -826,8 +859,17 @@ public static class WorldBuilder
     class Chunk
     {
         public MeshBuilder floor = new MeshBuilder(), ceiling = new MeshBuilder();
-        public MeshBuilder concrete = new MeshBuilder(), checker = new MeshBuilder();
+        public MeshBuilder checker = new MeshBuilder(), insects = new MeshBuilder();
     }
+
+    // Note 06 de la Direction Artistique (V0.4.10) : tous les murs sont en damier noir et blanc ; certains portent des
+    // parcelles d'insectes grouillants (shader InfestedWall), du sol au plafond. Chaque mur : 20 % de chances d'en avoir
+    // une, 5 % d'en avoir deux.
+    const float InsectPatchChance = 0.2f, InsectPatchPairChance = 0.05f;
+    const float InsectPatchMinWidth = 1.3f, InsectPatchMaxWidth = 2.1f;
+
+    // Parcelles d'insectes du labyrinthe (extrémités au sol, en coordonnées monde) : le grouillement s'entend près d'elles.
+    public static readonly List<(Vector3 a, Vector3 b)> InsectPatches = new List<(Vector3, Vector3)>();
 
     public static MazeRefs BuildMaze(Transform parent, int seed)
     {
@@ -840,13 +882,14 @@ public static class WorldBuilder
         var zones = new[] { z1, z2 };
 
         var refs = new MazeRefs { root = new GameObject("Labyrinthe") };
+        InsectPatches.Clear();
         Transform root = refs.root.transform;
         root.SetParent(parent, false);
         var colliders = new GameObject("Colliders");
         colliders.transform.SetParent(root, false);
         refs.structure = colliders.transform;
 
-        foreach (Maze m in zones) BuildZone(m, root, colliders);
+        foreach (Maze m in zones) BuildZone(m, root, colliders, new System.Random(seed * 31 + m.zone));
         BuildZoneDoor(z2, root, refs);
 
         // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, fosses, plateformes).
@@ -860,7 +903,8 @@ public static class WorldBuilder
         return refs;
     }
 
-    static void BuildZone(Maze m, Transform root, GameObject colliders)
+    // 'patchRnd' : tirage des parcelles d'insectes (à part, pour ne pas changer le reste de la génération).
+    static void BuildZone(Maze m, Transform root, GameObject colliders, System.Random patchRnd)
     {
         int n = m.N;
         int chunks = (n + ChunkSize - 1) / ChunkSize;
@@ -931,6 +975,30 @@ public static class WorldBuilder
             AddCollider(header, Size(width, h - height));
         }
 
+        // Parcelles d'insectes d'un mur plein (Note 06) : sur la face 'normal', de 0 à 'h' ; 'along' : axe du mur.
+        // L'UV x porte un numéro de parcelle (partie entière, pour varier la silhouette) et la position en largeur
+        // (partie fractionnaire) ; l'UV y, la hauteur relative.
+        void InsectPatchesOn(Chunk ch, Vector3 center, Vector3 along, Vector3 normal, float h)
+        {
+            double roll = patchRnd.NextDouble();
+            int count = roll < InsectPatchPairChance ? 2 : roll < InsectPatchPairChance + InsectPatchChance ? 1 : 0;
+            float length = Cell - Wall;
+            for (int k = 0; k < count; k++)
+            {
+                float width = Rand(patchRnd, InsectPatchMinWidth, InsectPatchMaxWidth);
+                // Deux parcelles : une dans chaque moitié du mur.
+                float from = count == 1 ? -length * 0.5f : k == 0 ? -length * 0.5f : 0f;
+                float to = count == 1 ? length * 0.5f : k == 0 ? 0f : length * 0.5f;
+                float mid = Rand(patchRnd, from + width * 0.5f, Mathf.Max(from + width * 0.5f, to - width * 0.5f));
+                Vector3 c = center + along * mid + normal * (Wall * 0.5f + 0.015f);
+                Vector3 a = c - along * (width * 0.5f), b = c + along * (width * 0.5f);
+                float id = patchRnd.Next(0, 1000);
+                ch.insects.Quad(a, b, b + Vector3.up * h, a + Vector3.up * h, normal,
+                    new Vector2(id, 0f), new Vector2(id + 0.999f, 0f), new Vector2(id + 0.999f, 1f), new Vector2(id, 1f));
+                InsectPatches.Add((a, b));
+            }
+        }
+
         // Murs : un segment par arête, entre deux poteaux, aussi haut que le plus haut des deux côtés.
         // Entre une salle haute et un couloir ouvert, un linteau ferme le haut de l'ouverture.
         var posts = new HashSet<Vector2Int>();
@@ -945,13 +1013,12 @@ public static class WorldBuilder
                 if (boundarySide >= 0) wall = true;
                 else if (m.Reserved(i, j) && m.Reserved(i + 1, j)) wall = false;
                 else wall = m.eastWall[i, j] || m.Reserved(i, j) || m.Reserved(i + 1, j);
-                bool roomWall = (leftIn && m.room[i, j] >= 0) || (rightIn && m.room[i + 1, j] >= 0);
                 float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i + 1, j));
                 float x = x0 + (i + 1) * Cell;
                 float z = z0 + j * Cell + Cell * 0.5f;
                 Chunk ch = ChunkOf(leftIn ? i : i + 1, j);
-                MeshBuilder mb = roomWall ? ch.checker : ch.concrete;
-                float tex = roomWall ? 0.5f : 0.25f;
+                MeshBuilder mb = ch.checker;
+                const float tex = 0.5f;
                 if (!wall)
                 {
                     float low = Mathf.Min(m.Ceil(i, j), m.Ceil(i + 1, j));
@@ -967,6 +1034,10 @@ public static class WorldBuilder
                 {
                     mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell - Wall), tex, 0b0000_0011);
                     AddCollider(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell + Wall));
+                    // Parcelle du côté d'une cellule du labyrinthe (au hasard si les deux le sont).
+                    bool towardRight = !(rightIn && !m.Reserved(i + 1, j)) ? false
+                        : !(leftIn && !m.Reserved(i, j)) || patchRnd.NextDouble() < 0.5;
+                    InsectPatchesOn(ch, new Vector3(x, 0f, z), Vector3.forward, towardRight ? Vector3.right : Vector3.left, h);
                 }
                 posts.Add(new Vector2Int(i + 1, j)); posts.Add(new Vector2Int(i + 1, j + 1));
             }
@@ -981,13 +1052,12 @@ public static class WorldBuilder
                 if (boundarySide >= 0) wall = true;
                 else if (m.Reserved(i, j) && m.Reserved(i, j + 1)) wall = false;
                 else wall = m.northWall[i, j] || m.Reserved(i, j) || m.Reserved(i, j + 1);
-                bool roomWall = (lowIn && m.room[i, j] >= 0) || (highIn && m.room[i, j + 1] >= 0);
                 float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i, j + 1));
                 float x = x0 + i * Cell + Cell * 0.5f;
                 float z = z0 + (j + 1) * Cell;
                 Chunk ch = ChunkOf(i, lowIn ? j : j + 1);
-                MeshBuilder mb = roomWall ? ch.checker : ch.concrete;
-                float tex = roomWall ? 0.5f : 0.25f;
+                MeshBuilder mb = ch.checker;
+                const float tex = 0.5f;
 
                 if (!wall)
                 {
@@ -1006,6 +1076,9 @@ public static class WorldBuilder
                 {
                     mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(Cell - Wall, h, Wall), tex, 0b0011_0000);
                     AddCollider(new Vector3(x, h * 0.5f, z), new Vector3(Cell + Wall, h, Wall));
+                    bool towardHigh = !(highIn && !m.Reserved(i, j + 1)) ? false
+                        : !(lowIn && !m.Reserved(i, j)) || patchRnd.NextDouble() < 0.5;
+                    InsectPatchesOn(ch, new Vector3(x, 0f, z), Vector3.right, towardHigh ? Vector3.forward : Vector3.back, h);
                 }
                 posts.Add(new Vector2Int(i, j + 1)); posts.Add(new Vector2Int(i + 1, j + 1));
             }
@@ -1019,7 +1092,7 @@ public static class WorldBuilder
             }
             float h = Mathf.Max(Mathf.Max(m.Ceil(p.x - 1, p.y - 1), m.Ceil(p.x, p.y - 1)), Mathf.Max(m.Ceil(p.x - 1, p.y), m.Ceil(p.x, p.y)));
             var c = new Vector3(x0 + p.x * Cell, h * 0.5f, z0 + p.y * Cell);
-            ChunkOf(p.x, p.y).concrete.Box(c, new Vector3(Wall, h, Wall), 0.25f, 0b0011_0011);
+            ChunkOf(p.x, p.y).checker.Box(c, new Vector3(Wall, h, Wall), 0.5f, 0b0011_0011);
         }
 
         foreach (Room room in m.rooms)
@@ -1069,13 +1142,13 @@ public static class WorldBuilder
                 string name = "Z" + (m.zone + 1) + "_Bloc_" + x + "_" + y;
                 if (!ch.floor.IsEmpty) GameArt.MeshObject(name + "_Sol", root, ch.floor.Build(name), GameArt.CheckerFloor);
                 if (!ch.ceiling.IsEmpty) GameArt.MeshObject(name + "_Plafond", root, ch.ceiling.Build(name), GameArt.DarkConcrete);
-                if (!ch.concrete.IsEmpty)
+                if (!ch.checker.IsEmpty) GameArt.MeshObject(name + "_Damier", root, ch.checker.Build(name), GameArt.CheckerWall);
+                if (!ch.insects.IsEmpty)
                 {
                     // Sans sonde de réflexion : les carapaces resteraient pâles en reflétant le damier.
-                    var walls = GameArt.MeshObject(name + "_Beton", root, ch.concrete.Build(name), GameArt.InfestedWall);
-                    walls.GetComponent<MeshRenderer>().reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+                    var patches = GameArt.MeshObject(name + "_Insectes", root, ch.insects.Build(name), GameArt.InsectPatch);
+                    patches.GetComponent<MeshRenderer>().reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
                 }
-                if (!ch.checker.IsEmpty) GameArt.MeshObject(name + "_Damier", root, ch.checker.Build(name), GameArt.CheckerWall);
             }
     }
 
@@ -1145,7 +1218,7 @@ public static class WorldBuilder
                     float s0 = (axis == 0 ? o.z : o.x) + t * Sub, s1 = (axis == 0 ? o.z : o.x) + t1 * Sub;
                     Vector3 P(float along, float y) => axis == 0 ? new Vector3(edge, y, along) : new Vector3(along, y, edge);
                     Vector3 toLow = (axis == 0 ? Vector3.right : Vector3.forward) * (aLow ? -1f : 1f);
-                    ch.concrete.WorldQuad(P(s0, low), P(s1, low), P(s1, high), P(s0, high), toLow, 0.25f);
+                    ch.checker.WorldQuad(P(s0, low), P(s1, low), P(s1, high), P(s0, high), toLow, 0.5f);
                     Vector3 center = P((s0 + s1) * 0.5f, (low + high) * 0.5f) - toLow * 0.15f;
                     addCollider(center, axis == 0 ? new Vector3(0.3f, high - low, s1 - s0) : new Vector3(s1 - s0, high - low, 0.3f));
                     t = t1;
@@ -1846,8 +1919,8 @@ public static class WorldBuilder
         GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, height - 0.15f, 0f), new Vector3(radius * 2.6f, 0.15f, radius * 2.6f), ring);
     }
 
-    // Note 05 de la Direction Artistique (V0.4.7) : une sphère du terrain sans collision reçoit une matière légèrement
-    // transparente (noire ou blanche selon sa teinte), pour qu'on devine qu'on peut la traverser. Les petites sphères
+    // Note 05 de la Direction Artistique (V0.4.7) : une sphère du terrain sans collision reçoit une matière fantomatique,
+    // légèrement transparente (noire ou blanche selon sa teinte), pour qu'on devine qu'on peut la traverser. Les petites sphères
     // (embouts des Lasers) et les objets interactifs gardent la leur.
     static void MarkIntangibleSpheres(Transform root)
     {
@@ -1864,11 +1937,10 @@ public static class WorldBuilder
         }
     }
 
-    // Grande sphère posée (à moitié enfoncée dans le sol) ou suspendue au plafond.
+    // Grande sphère posée (à moitié enfoncée dans le sol) ou suspendue au plafond : fantomatique, noire ou blanche.
     static void AddBigSphere(Transform parent, Vector3 pos, float radius, float floor, float ceil, System.Random rnd)
     {
-        Material mat = rnd.NextDouble() < 0.5 ? GameArt.Lit("SphereBlack", new Color(0.03f, 0.03f, 0.03f), null, 0.9f)
-                                              : GameArt.Lit("SphereWhite", new Color(0.9f, 0.9f, 0.9f), null, 0.9f);
+        Material mat = GameArt.Translucent(rnd.NextDouble() < 0.5);
         bool hanging = ceil - floor > 5f && rnd.NextDouble() < 0.5;
         float y = hanging ? Rand(rnd, floor + 2.6f + radius, ceil - radius - 0.3f) : floor + radius * Rand(rnd, 0.3f, 0.9f);
         var sphere = GameArt.Prim(PrimitiveType.Sphere, parent, new Vector3(pos.x, y, pos.z), Vector3.one * radius * 2f, mat, true);

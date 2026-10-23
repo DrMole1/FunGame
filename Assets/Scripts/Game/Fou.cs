@@ -18,7 +18,8 @@ public class Fou : Entity
 
     const float Height = 2.66f;
     const float EyeHeight = 2.3f;
-    const float GrabHitTime = 0.45f, GrabDuration = 1.1f;
+    // Mise à mort jouée deux fois plus vite (avant : coup à 0,45 s, 1,1 s en tout).
+    const float GrabSpeed = 2f, GrabHitTime = 0.45f / GrabSpeed, GrabDuration = 1.1f / GrabSpeed;
 
     public override EntityKind Kind => EntityKind.Fou;
     public override string DisplayName => "Le Fou";
@@ -445,7 +446,7 @@ public class Fou : Entity
             : visualSpeed < 0.3f ? "Idle" : fast ? "Run" : "Walk";
         PlayAnim(wanted);
         animator.speed = wanted == "Walk" ? Mathf.Clamp(visualSpeed / ModelWalkSpeed, 0.6f, 1.8f)
-            : wanted == "Run" ? Mathf.Clamp(visualSpeed / ModelRunSpeed, 0.7f, 1.8f) : 1f;
+            : wanted == "Run" ? Mathf.Clamp(visualSpeed / ModelRunSpeed, 0.7f, 1.8f) : Current == State.Grab ? GrabSpeed : 1f;
         if (Current == State.Alert)
         {
             alertTime += dt;
