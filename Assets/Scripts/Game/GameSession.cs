@@ -793,8 +793,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         float feet = p.y + capsule.center.y - capsule.height * 0.5f;
         inMist = !status.Dead && !Teleporting && !CannonFlying && AbjurationActive && mistAmount > 0.5f && maze != null
             && maze.nav.ZoneAt(p) >= 0 && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
-        // Dans la brume, le personnage avance 20 % moins vite.
-        player.SpeedFactor = inMist ? GameRules.MistSpeedMultiplier : 1f;
+        // Dans la brume, le personnage avance 20 % moins vite ; immergé jusqu'au cou (Note 03, V0.4.11), 32 % moins vite.
+        player.SpeedFactor = !inMist ? 1f : NeckHeight() < GameRules.MistTop ? GameRules.MistDeepSpeedMultiplier : GameRules.MistSpeedMultiplier;
         if (!inMist || Godmode)
         {
             mistTimer = 0f;
@@ -823,6 +823,17 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (despairTimer < 1f) return;
         despairTimer -= 1f;
         DamageLocal(GameRules.DespairDamagePerSecond, "l'Abjuration");
+    }
+
+    // Hauteur du cou du personnage local (os du modèle ; à défaut, 1,45 m au-dessus des pieds) : il baisse quand le
+    // personnage s'accroupit en marche discrète.
+    float NeckHeight()
+    {
+        var animator = player.GetComponentInChildren<Animator>();
+        Transform neck = animator != null && animator.isHuman ? animator.GetBoneTransform(HumanBodyBones.Neck) : null;
+        if (neck != null) return neck.position.y;
+        var capsule = player.GetComponent<CapsuleCollider>();
+        return player.transform.position.y + capsule.center.y - capsule.height * 0.5f + 1.45f;
     }
 
     // Un joueur mort voit la caméra d'un autre joueur (clic pour changer).
@@ -1684,6 +1695,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                     dread = Mathf.Max(dread, Mathf.Lerp(0.25f, 1f, 1f - d / DreadSightRange));
             }
         OrbitCamera.Dread = dread;
+        // À la mort, le battement de cœur s'estompe progressivement (GDD 12, Battement_Coeur).
+        OrbitCamera.Dying = status.Dead;
     }
 
     // L'entité (Le Fou, Le Cavalier) est à l'écran, à portée, et un point de son corps (tête, buste ou jambes) n'est caché

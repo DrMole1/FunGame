@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.4.10";
+    public const string Version = "V0.4.11";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -102,6 +102,7 @@ public static class GameRules
     // Note 02 (V0.4.2) : hors de la brume, Hub compris, la sérénité remonte de 10 points par seconde.
     public const float AbjurationRegenPerSecond = 10f;
     public const float MistSpeedMultiplier = 0.8f; // déplacement ralenti de 20 % dans la brume
+    public const float MistDeepSpeedMultiplier = 0.68f; // Note 03 (V0.4.11) : immergé jusqu'au cou, ralenti de 32 %
     // Hauteur (absolue) du dessus de la brume : le ras du sol du Hub.
     public const float MistTop = 0.5f;
 

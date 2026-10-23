@@ -67,37 +67,44 @@ public class OrbitCamera : MonoBehaviour
     // bien audible, et le balancement de tête à la première personne se fait plus insistant. L'effet monte vite et retombe
     // lentement.
     public static float Dread;
-    static float dread, heartPhase, heartFov;
-    const float DreadRise = 3f, DreadFall = 0.35f;
+    // Personnage mort : la tension retombe plus vite, le battement s'estompe en 1,4 s environ (avant le silence de la mort).
+    public static bool Dying;
+    static float dread, heartPhase, heartFov, beatAt = -10f;
+    const float DreadRise = 3f, DreadFall = 0.35f, DreadFallDying = 0.7f;
     const float HeartRateCalm = 60f, HeartRatePanic = 120f;   // battements par minute
     const float HeartFovPulse = 2.6f;                          // degrés de champ de vision au battement
-    const float HeartSoundAt = 0.12f;                          // position du son dans le cycle
-    // Volume du battement, de la tension naissante au Cauchemar tout proche (avant : 0,26 à 0,66).
-    const float HeartVolume = 0.55f, HeartVolumePanic = 0.85f;
+    // Son Battement_Coeur (GDD 12, V0.4.11) : un « poum-poum » par pulsation, dont les deux coups tombent 0,09 s et
+    // 0,34 s après le début du son ; la caméra bat sur ces deux coups. Volume : de plus en plus fort à l'approche d'un
+    // Cauchemar, et nul quand la tension retombe à zéro (le retour au calme se fait en fondu).
+    const float HeartLub = 0.09f, HeartDub = 0.34f;
+    const float HeartVolumeMax = 1f;
 
-    // Enveloppe d'un battement « poum-poum » (0 à 1) selon la position dans le cycle.
-    static float HeartEnvelope(float phase)
+    // Enveloppe d'un battement « poum-poum » (0 à 1), 't' secondes après le début du son.
+    static float HeartEnvelope(float t)
     {
-        float lub = Mathf.Exp(-Mathf.Pow((phase - 0.14f) / 0.065f, 2f));
-        float dub = 0.6f * Mathf.Exp(-Mathf.Pow((phase - 0.3f) / 0.075f, 2f));
+        float lub = Mathf.Exp(-Mathf.Pow((t - HeartLub) / 0.06f, 2f));
+        float dub = 0.6f * Mathf.Exp(-Mathf.Pow((t - HeartDub) / 0.07f, 2f));
         return lub + dub;
     }
 
     void UpdateHeart()
     {
         float goal = Mathf.Clamp01(Dread);
-        dread = Mathf.MoveTowards(dread, goal, Time.deltaTime * (goal > dread ? DreadRise : DreadFall));
+        dread = Mathf.MoveTowards(dread, goal, Time.deltaTime * (goal > dread ? DreadRise : Dying ? DreadFallDying : DreadFall));
         if (dread <= 0.001f)
         {
             // Au calme : le premier battement partira dès que la tension revient.
             heartPhase = 1f;
             return;
         }
-        if (heartPhase >= 1f) heartPhase -= 1f;
-        float before = heartPhase;
+        // Une pulsation : le son part, et la caméra battra sur ses deux coups.
+        if (heartPhase >= 1f)
+        {
+            heartPhase -= 1f;
+            beatAt = Time.time;
+            GameAudio.Play2D("heart_thump", HeartVolumeMax * Mathf.Sqrt(dread));
+        }
         heartPhase += Time.deltaTime * Mathf.Lerp(HeartRateCalm, HeartRatePanic, dread) / 60f;
-        // Le « poum » sonne au sommet du premier gonflement de l'image.
-        if (before < HeartSoundAt && heartPhase >= HeartSoundAt) GameAudio.Play2D("heart_thump", HeartVolume + HeartVolumePanic * dread);
     }
     Camera cam;
 
@@ -217,7 +224,7 @@ public class OrbitCamera : MonoBehaviour
             if (k >= 1f) zoomPunch = -1f;
         }
         UpdateHeart();
-        heartFov = dread > 0.001f && ControlsEnabled && DeathView < 0f ? HeartEnvelope(Mathf.Repeat(heartPhase, 1f)) * HeartFovPulse * dread : 0f;
+        heartFov = dread > 0.001f && ControlsEnabled && DeathView < 0f ? HeartEnvelope(Time.time - beatAt) * HeartFovPulse * dread : 0f;
         cam.fieldOfView -= heartFov;
         if (shake <= 0f) return;
         float t = Time.time * 40f;

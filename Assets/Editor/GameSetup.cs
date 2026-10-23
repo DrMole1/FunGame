@@ -107,6 +107,8 @@ public static class GameSetup
         ("cavalier_alert", "Assets/Sounds/Cavalier_Alerte.wav"),
         ("cavalier_terror", "Assets/Sounds/Cavalier_Immobilise.wav"),
         ("cavalier_kill", "Assets/Sounds/Cavalier_Tuer.wav"),
+        // V0.4.11 : battement des pulsations cardiaques (un « poum-poum » par pulsation).
+        ("heart_thump", "Assets/Sounds/Battement_Coeur.wav"),
     };
 
     static void CreateSounds()
