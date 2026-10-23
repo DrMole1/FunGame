@@ -63,8 +63,8 @@ public class OrbitCamera : MonoBehaviour
     float baseFov = -1f;
 
     // Pulsations cardiaques (GDD 8, Note 02, V0.4.8) : 0 = calme, 1 = Cauchemar tout proche. Fixé à chaque image par la
-    // session ; la caméra bat au rythme du cœur (d'autant plus vite que l'entité est proche), avec un léger battement
-    // sonore, et le balancement de tête à la première personne se fait plus insistant. L'effet monte vite et retombe
+    // session ; la caméra bat au rythme du cœur (d'autant plus vite que l'entité est proche), avec un battement sonore
+    // bien audible, et le balancement de tête à la première personne se fait plus insistant. L'effet monte vite et retombe
     // lentement.
     public static float Dread;
     static float dread, heartPhase, heartFov;
@@ -72,6 +72,8 @@ public class OrbitCamera : MonoBehaviour
     const float HeartRateCalm = 60f, HeartRatePanic = 120f;   // battements par minute
     const float HeartFovPulse = 2.6f;                          // degrés de champ de vision au battement
     const float HeartSoundAt = 0.12f;                          // position du son dans le cycle
+    // Volume du battement, de la tension naissante au Cauchemar tout proche (avant : 0,26 à 0,66).
+    const float HeartVolume = 0.55f, HeartVolumePanic = 0.85f;
 
     // Enveloppe d'un battement « poum-poum » (0 à 1) selon la position dans le cycle.
     static float HeartEnvelope(float phase)
@@ -95,7 +97,7 @@ public class OrbitCamera : MonoBehaviour
         float before = heartPhase;
         heartPhase += Time.deltaTime * Mathf.Lerp(HeartRateCalm, HeartRatePanic, dread) / 60f;
         // Le « poum » sonne au sommet du premier gonflement de l'image.
-        if (before < HeartSoundAt && heartPhase >= HeartSoundAt) GameAudio.Play2D("heart_thump", 0.26f + 0.4f * dread);
+        if (before < HeartSoundAt && heartPhase >= HeartSoundAt) GameAudio.Play2D("heart_thump", HeartVolume + HeartVolumePanic * dread);
     }
     Camera cam;
 

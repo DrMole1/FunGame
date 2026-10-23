@@ -22,6 +22,7 @@ public static class GameSetup
         DameSetup.Setup();
         IconRenderer.Generate();
         SetupScene();
+        OcclusionSetup.Generate();
         AssetDatabase.SaveAssets();
         Debug.Log("FunGame configuré.");
     }

@@ -115,13 +115,15 @@ public class ItemPickup : Interactable
 }
 
 // Bouton Rouge au centre du Hub : seul l'hôte peut l'enclencher.
+// Modèle Meshy (Resources/Art/RedButton) : podium de cirque rayé rouge et crème, gros dôme rouge sur le dessus.
 public class RedButton : Interactable
 {
     public static RedButton Create(Transform anchor)
     {
         var go = new GameObject("Bouton Rouge");
         go.transform.SetParent(anchor, false);
-        if (GameArt.SpawnModel("RedButton", go.transform, 1.1f) == null)
+        bool model = GameArt.SpawnModel("RedButton", go.transform, 1.1f) != null;
+        if (!model)
         {
             Material hazard = GameArt.Lit("Hazard", Color.white, GameArt.Stripes(new Color(0.95f, 0.75f, 0.1f), new Color(0.08f, 0.08f, 0.08f)), 0.3f);
             GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, 0.05f, 0f), new Vector3(0.9f, 0.05f, 0.9f), hazard);
@@ -135,7 +137,7 @@ public class RedButton : Interactable
         var solid = go.AddComponent<CapsuleCollider>();
         solid.center = new Vector3(0f, 0.6f, 0f);
         solid.height = 1.2f;
-        solid.radius = 0.4f;
+        solid.radius = model ? 0.5f : 0.4f;
         return button;
     }
 
@@ -151,17 +153,31 @@ public class SkipButton : Interactable
     {
         var go = new GameObject("Bouton Skip");
         go.transform.SetParent(anchor, false);
-        // Plaque murale et gros bouton vert lumineux, tournés vers le centre du Hub (+Z).
-        GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, 0f, 0.05f), new Vector3(1.3f, 0.6f, 0.08f), GameArt.Lit("ScreenFrame", new Color(0.1f, 0.1f, 0.1f), null, 0.6f));
-        var cap = GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, 0f, 0.1f), new Vector3(1.05f, 0.08f, 0.38f),
-            GameArt.Emissive("SkipGreen", new Color(0.1f, 0.7f, 0.25f), new Color(0.05f, 0.5f, 0.15f)));
-        cap.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        GameArt.CreateText(go.transform, "Texte", new Vector3(0f, 0f, 0.2f), 0.05f, Color.white, TextAnchor.MiddleCenter, TextAlignment.Center).text = "SKIP";
+        // Plaque murale tournée vers le centre du Hub (+Z). Modèle Meshy (Resources/Art/BoutonSkip) : cadre doré à ampoules
+        // de fête foraine, fond rayé rouge et crème, gros bouton vert en bas ; "SKIP" s'affiche au-dessus du bouton.
+        var plate = GameArt.SpawnModel("BoutonSkip", go.transform, SkipPlateHeight);
+        if (plate != null)
+        {
+            Bounds b = GameArt.LocalBounds(go.transform);
+            plate.transform.localPosition = new Vector3(0f, -SkipPlateHeight * 0.5f, b.extents.z + 0.01f);
+            GameArt.CreateText(go.transform, "Texte", new Vector3(0f, SkipPlateHeight * 0.2f, b.size.z + 0.03f), 0.045f,
+                Color.white, TextAnchor.MiddleCenter, TextAlignment.Center).text = "<b>SKIP</b>";
+        }
+        else
+        {
+            GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, 0f, 0.05f), new Vector3(1.3f, 0.6f, 0.08f), GameArt.Lit("ScreenFrame", new Color(0.1f, 0.1f, 0.1f), null, 0.6f));
+            var cap = GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, 0f, 0.1f), new Vector3(1.05f, 0.08f, 0.38f),
+                GameArt.Emissive("SkipGreen", new Color(0.1f, 0.7f, 0.25f), new Color(0.05f, 0.5f, 0.15f)));
+            cap.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            GameArt.CreateText(go.transform, "Texte", new Vector3(0f, 0f, 0.2f), 0.05f, Color.white, TextAnchor.MiddleCenter, TextAlignment.Center).text = "SKIP";
+        }
         foreach (var t in go.GetComponentsInChildren<TextMesh>()) t.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
         var button = go.AddComponent<SkipButton>();
         button.FitTrigger(new Vector3(1.3f, 0.6f, 0.4f));
         return button;
     }
+
+    const float SkipPlateHeight = 0.65f;
 
     public override string Prompt => "Passer à la manche suivante";
     public override void Interact()
@@ -232,16 +248,29 @@ public class Kennel : Interactable
         solid.center = b.center;
         solid.size = b.size * 0.85f;
 
-        // Panneau au-dessus de la niche (lisible depuis le centre du Hub).
+        // Panneau au-dessus de la niche (lisible depuis le centre du Hub). Modèle Meshy (Resources/Art/PanneauChenil) :
+        // enseigne de cirque à cadre doré et fond bleu nuit, tournée vers +Z, dont le petit pied rayé repose sur le toit.
         var board = new GameObject("Panneau").transform;
         board.SetParent(go.transform, false);
-        board.localPosition = new Vector3(0f, 2.15f, -0.2f);
-        board.localRotation = Quaternion.Euler(0f, 180f, 0f);
-        GameArt.Prim(PrimitiveType.Cube, board, new Vector3(0f, 0f, 0.03f), new Vector3(1.9f, 1.05f, 0.04f), GameArt.Unlit("ScreenBg", new Color(0.02f, 0.03f, 0.04f)));
-        GameArt.Prim(PrimitiveType.Cube, board, new Vector3(0f, -0.9f, 0.05f), new Vector3(0.06f, 0.8f, 0.06f), GameArt.Lit("HubGold", new Color(0.85f, 0.65f, 0.2f)));
-        kennel.sign = GameArt.CreateText(board, "Texte", new Vector3(0f, 0f, -0.01f), 0.028f, Color.white);
+        if (GameArt.SpawnModel("PanneauChenil", board, SignHeight) != null)
+        {
+            board.localPosition = new Vector3(0f, SignBase, -0.2f);
+            kennel.sign = GameArt.CreateText(board, "Texte", new Vector3(0f, SignHeight * 0.46f, SignFace), 0.028f, Color.white);
+            kennel.sign.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+        }
+        else
+        {
+            board.localPosition = new Vector3(0f, 2.15f, -0.2f);
+            board.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            GameArt.Prim(PrimitiveType.Cube, board, new Vector3(0f, 0f, 0.03f), new Vector3(1.9f, 1.05f, 0.04f), GameArt.Unlit("ScreenBg", new Color(0.02f, 0.03f, 0.04f)));
+            GameArt.Prim(PrimitiveType.Cube, board, new Vector3(0f, -0.9f, 0.05f), new Vector3(0.06f, 0.8f, 0.06f), GameArt.Lit("HubGold", new Color(0.85f, 0.65f, 0.2f)));
+            kennel.sign = GameArt.CreateText(board, "Texte", new Vector3(0f, 0f, -0.01f), 0.028f, Color.white);
+        }
         return kennel;
     }
+
+    // Enseigne : 1,6 m de haut (1,9 m de large), posée sur le toit de la niche (1,3 m) ; face avant du fond à -0,11 m.
+    const float SignHeight = 1.6f, SignBase = 1.3f, SignFace = -0.09f;
 
     public void SetInfo(string playerName, int hp, float distance, bool dead)
     {

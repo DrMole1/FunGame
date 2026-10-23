@@ -2,7 +2,8 @@
 // Une vidéo YouTube ne peut pas être copiée dans une texture WebGL (iframe d'un autre domaine) : chaque Télévision
 // reçoit un lecteur YouTube (IFrame API) posé par-dessus le canvas, déformé en perspective (matrix3d) sur les quatre
 // coins de son écran projetés par Unity. Il ne capte ni la souris ni le clavier ; Unity le masque quand l'écran est
-// caché (mur, hors champ, menus) et règle son volume selon la distance.
+// caché (mur, hors champ, menus) et règle son volume selon la distance. Les personnages et entités qui passent devant
+// l'écran y sont découpés (masque SVG : capsules le long de leurs os, ellipses), sinon la vidéo les recouvrirait.
 var YouTubeTvLib = {
   $YT_TV: {
     next: 1,
@@ -66,6 +67,22 @@ var YouTubeTvLib = {
       var v = YT_TV.mulMV(YT_TV.adj(m), [p[6], p[7], 1]);
       return YT_TV.mulMM(m, [v[0], 0, 0, 0, v[1], 0, 0, 0, v[2]]);
     },
+    // Masque SVG (alpha) : tout le lecteur, moins les formes reçues d'Unity ("l x1 y1 x2 y2 r" ou "e cx cy rx ry").
+    maskImage: function (w, h, spec) {
+      var shapes = '';
+      var items = spec.split(';');
+      for (var i = 0; i < items.length; i++) {
+        var f = items[i].split(' ');
+        if (f[0] === 'l' && f.length >= 6)
+          shapes += '<line x1="' + f[1] + '" y1="' + f[2] + '" x2="' + f[3] + '" y2="' + f[4] + '" stroke="black" stroke-linecap="round" stroke-width="' + (2 * f[5]) + '"/>';
+        else if (f[0] === 'e' && f.length >= 5)
+          shapes += '<ellipse cx="' + f[1] + '" cy="' + f[2] + '" rx="' + f[3] + '" ry="' + f[4] + '" fill="black"/>';
+      }
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '"><defs><mask id="m">' +
+        '<rect width="' + w + '" height="' + h + '" fill="white"/>' + shapes + '</mask></defs>' +
+        '<rect width="' + w + '" height="' + h + '" fill="white" mask="url(#m)"/></svg>';
+      return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
+    },
     projection: function (w, h, p) {
       var t = YT_TV.mulMM(YT_TV.basis(p), YT_TV.adj(YT_TV.basis([0, 0, w, 0, w, h, 0, h])));
       for (var i = 0; i < 9; i++) t[i] = t[i] / t[8];
@@ -85,7 +102,7 @@ var YouTubeTvLib = {
     inner.id = 'funGameTv' + id;
     box.appendChild(inner);
     document.body.appendChild(box);
-    var tv = { box: box, player: null, volume: 0, w: W, h: H, ready: false, playing: false };
+    var tv = { box: box, player: null, volume: 0, w: W, h: H, ready: false, playing: false, mask: '' };
     YT_TV.tvs[id] = tv;
     YT_TV.listenGesture();
     YT_TV.loadApi(function () {
@@ -118,9 +135,18 @@ var YouTubeTvLib = {
 
   // Coins de l'écran en coordonnées normalisées du canvas (origine en haut à gauche) : haut-gauche, haut-droit,
   // bas-droit, bas-gauche. Volume de 0 à 100.
-  YouTubeTv_Update: function (id, visible, x0, y0, x1, y1, x2, y2, x3, y3, volume) {
+  YouTubeTv_Update: function (id, visible, x0, y0, x1, y1, x2, y2, x3, y3, volume, maskPtr) {
     var tv = YT_TV.tvs[id];
     if (!tv) return;
+    var mask = UTF8ToString(maskPtr);
+    if (mask !== tv.mask) {
+      tv.mask = mask;
+      var image = mask ? YT_TV.maskImage(tv.w, tv.h, mask) : 'none';
+      var s = tv.box.style;
+      s.webkitMaskImage = s.maskImage = image;
+      s.webkitMaskSize = s.maskSize = tv.w + 'px ' + tv.h + 'px';
+      s.webkitMaskRepeat = s.maskRepeat = 'no-repeat';
+    }
     var canvas = document.querySelector('#unity-canvas') || document.querySelector('canvas');
     var r = canvas ? canvas.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
     if (visible) {

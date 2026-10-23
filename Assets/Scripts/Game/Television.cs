@@ -25,6 +25,20 @@ public class TvScreen : MonoBehaviour
     System.Random rnd;
 
     public bool HasVideo => videoId.Length > 0;
+    // Télévisions en jeu : près de l'une d'elles qui diffuse, les musiques d'ambiance s'effacent (GameAudio).
+    static readonly System.Collections.Generic.List<TvScreen> all = new System.Collections.Generic.List<TvScreen>();
+
+    void OnEnable() => all.Add(this);
+    void OnDisable() => all.Remove(this);
+
+    // Une Télévision diffuse (décompte ou vidéo) à moins de 'range' mètres de 'position'.
+    public static bool Broadcasting(Vector3 position, float range)
+    {
+        foreach (var tv in all)
+            if (tv != null && tv.screen != null && tv.signal && tv.HasVideo && (tv.screen.position - position).sqrMagnitude < range * range)
+                return true;
+        return false;
+    }
     public bool Playing => signal && HasVideo && Time.time - countdownStart >= GameRules.TvCountdown;
     public Vector3 ScreenCenter => screen.position;
 
@@ -40,10 +54,12 @@ public class TvScreen : MonoBehaviour
         Vector3 center = new Vector3(b.center.x, b.min.y + b.size.y * 0.45f, b.max.z + 0.004f);
         if (meshy)
         {
-            // Vitre mesurée sur un rendu de face du modèle : 54 % de la largeur, 53 % de la hauteur.
-            w = b.size.x * 0.54f;
-            h = b.size.y * 0.53f;
-            center = new Vector3(b.max.x - b.size.x * 0.42f, b.min.y + b.size.y * 0.64f, b.max.z + 0.004f);
+            // Vitre (sans son liseré sombre) mesurée au pixel sur un rendu de face du modèle : 53,8 % de la largeur,
+            // 48,4 % de la hauteur, centrée à 42,7 % du bord droit et 63,2 % de la hauteur. La vitre bombée affleure à
+            // 8 mm sous l'avant du poste : l'écran se pose juste devant son sommet.
+            w = b.size.x * 0.538f;
+            h = b.size.y * 0.484f;
+            center = new Vector3(b.max.x - b.size.x * 0.427f, b.min.y + b.size.y * 0.632f, b.max.z - 0.004f);
         }
         tv.screen = GameArt.Prim(PrimitiveType.Quad, root, center, new Vector3(w, h, 1f), null).transform;
         tv.screen.name = "Ecran";
@@ -178,7 +194,127 @@ public class TvScreen : MonoBehaviour
         if (orbit != null && orbit.target != null) ear = orbit.target.position;
         float d = Mathf.Clamp01(Vector3.Distance(ear, screen.position) / GameRules.TvSoundRange);
         float volume = 100f * (1f - d * d) * GameAudio.SfxVolume * 2f;
-        YouTubeTv.Update(overlay, visible, c, volume);
+        YouTubeTv.Update(overlay, visible, c, volume, visible ? OcclusionMask(cam) : "");
+    }
+
+    // ---------- Occlusion du lecteur YouTube ----------
+
+    // Le lecteur est posé par-dessus le canvas : sans masque, il recouvrirait les personnages et les entités qui passent
+    // devant l'écran. Leur silhouette y est découpée : des capsules le long des os d'un humanoïde, une ellipse sinon.
+    // Format (pixels du lecteur, 640 x 480) : "l x1 y1 x2 y2 r" (capsule) ou "e cx cy rx ry" (ellipse), séparés par ';'.
+    const float PlayerW = 640f, PlayerH = 480f, AnimatorRefresh = 0.5f;
+    static Animator[] animators = new Animator[0];
+    static float animatorsAt = -10f;
+    readonly System.Text.StringBuilder mask = new System.Text.StringBuilder();
+
+    readonly OcclusionProfiles.Segment[] segments = new OcclusionProfiles.Segment[OcclusionProfiles.SegmentCount];
+
+    string OcclusionMask(Camera cam)
+    {
+        if (Time.time - animatorsAt > AnimatorRefresh)
+        {
+            animatorsAt = Time.time;
+            animators = FindObjectsOfType<Animator>();
+        }
+        mask.Length = 0;
+        Vector3 eye = cam.transform.position;
+        Vector3 center = screen.position, front = -screen.forward;
+        float eyeSide = Vector3.Dot(eye - center, front);
+        foreach (var animator in animators)
+        {
+            if (animator == null || !animator.isActiveAndEnabled || !Shown(animator)) continue;
+            // Seulement ce qui se trouve entre l'écran et la caméra.
+            float side = Vector3.Dot(animator.transform.position - center, front);
+            if (side > eyeSide + 2f || (animator.transform.position - center).sqrMagnitude > OverlayRange * OverlayRange) continue;
+            if (animator.isHuman && animator.avatar != null) MaskHumanoid(animator, eye, center, front);
+            else MaskBounds(animator, eye, center, front);
+        }
+        return mask.ToString();
+    }
+
+    // Un modèle masqué (corps du joueur en vue à la première personne, joueur caché) ne découpe rien.
+    static bool Shown(Animator animator)
+    {
+        foreach (var r in animator.GetComponentsInChildren<Renderer>())
+            if (r.enabled && !r.forceRenderingOff && r.gameObject.activeInHierarchy) return true;
+        return false;
+    }
+
+    // Capsules le long des os ; rayons mesurés sur le modèle (OcclusionProfiles), sinon rayons par défaut.
+    void MaskHumanoid(Animator animator, Vector3 eye, Vector3 center, Vector3 front)
+    {
+        if (!OcclusionProfiles.Build(animator, segments, out float size)) return;
+        float[] radii = OcclusionProfiles.RadiiFor(animator.avatar);
+        for (int i = 0; i < segments.Length; i++)
+        {
+            if (!segments[i].valid) continue;
+            float r = radii != null && radii[i] > 0f ? radii[i] * size : segments[i].defaultRadius;
+            Capsule(segments[i].a, segments[i].b, r, eye, center, front);
+        }
+    }
+
+    // Créature non humanoïde : ellipse englobant la projection de son encombrement.
+    void MaskBounds(Animator animator, Vector3 eye, Vector3 center, Vector3 front)
+    {
+        Bounds b = new Bounds();
+        bool any = false;
+        foreach (var r in animator.GetComponentsInChildren<Renderer>())
+        {
+            if (!r.enabled || r.forceRenderingOff || r is ParticleSystemRenderer) continue;
+            if (!any) { b = r.bounds; any = true; }
+            else b.Encapsulate(r.bounds);
+        }
+        if (!any) return;
+        float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+        int n = 0;
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 corner = b.center + Vector3.Scale(b.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1));
+            if (!OnScreen(corner, eye, center, front, out Vector2 p, out _)) continue;
+            minX = Mathf.Min(minX, p.x); maxX = Mathf.Max(maxX, p.x);
+            minY = Mathf.Min(minY, p.y); maxY = Mathf.Max(maxY, p.y);
+            n++;
+        }
+        if (n == 0) return;
+        // L'ellipse inscrite dans la boîte projetée, un peu élargie (la boîte est plus large que la silhouette).
+        float rx = (maxX - minX) * 0.5f, ry = (maxY - minY) * 0.5f;
+        Append('e', (minX + maxX) * 0.5f, (minY + maxY) * 0.5f, rx * 1.05f, ry * 1.05f, -1f);
+    }
+
+    void Capsule(Vector3 a, Vector3 b, float radius, Vector3 eye, Vector3 center, Vector3 front)
+    {
+        bool okA = OnScreen(a, eye, center, front, out Vector2 pa, out float ka);
+        bool okB = OnScreen(b, eye, center, front, out Vector2 pb, out float kb);
+        if (!okA && !okB) return;
+        if (!okA) { pa = pb; ka = kb; }
+        if (!okB) { pb = pa; kb = ka; }
+        // Rayon agrandi comme l'objet projeté sur l'écran (plus il est près de la caméra, plus il cache).
+        float r = radius * Mathf.Max(ka, kb) / Mathf.Max(0.0001f, screen.lossyScale.x) * PlayerW;
+        Append('l', pa.x, pa.y, pb.x, pb.y, r);
+    }
+
+    // Point projeté depuis la caméra sur le plan de l'écran, en pixels du lecteur ; faux s'il est derrière l'écran.
+    // 'k' : agrandissement de la projection (distance caméra-écran / distance caméra-point).
+    bool OnScreen(Vector3 world, Vector3 eye, Vector3 center, Vector3 front, out Vector2 pixel, out float k)
+    {
+        pixel = Vector2.zero;
+        k = 0f;
+        float toPoint = Vector3.Dot(world - eye, -front), toScreen = Vector3.Dot(center - eye, -front);
+        if (toPoint <= 0.05f || toPoint >= toScreen) return false;
+        k = toScreen / toPoint;
+        Vector3 hit = eye + (world - eye) * k;
+        Vector3 local = screen.InverseTransformPoint(hit);
+        // Coins (haut-gauche = local (-0,5 ; 0,5)) : voir LateUpdate.
+        pixel = new Vector2((local.x + 0.5f) * PlayerW, (0.5f - local.y) * PlayerH);
+        return true;
+    }
+
+    void Append(char kind, float a, float b, float c, float d, float r)
+    {
+        if (mask.Length > 0) mask.Append(';');
+        mask.Append(kind).Append(' ').Append(Mathf.RoundToInt(a)).Append(' ').Append(Mathf.RoundToInt(b)).Append(' ')
+            .Append(Mathf.RoundToInt(c)).Append(' ').Append(Mathf.RoundToInt(d));
+        if (r >= 0f) mask.Append(' ').Append(Mathf.RoundToInt(r));
     }
 
     void CloseOverlay()
@@ -200,20 +336,20 @@ public static class YouTubeTv
 {
 #if UNITY_WEBGL && !UNITY_EDITOR
     [DllImport("__Internal")] static extern int YouTubeTv_Create(string videoId, float start);
-    [DllImport("__Internal")] static extern void YouTubeTv_Update(int id, int visible, float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, float volume);
+    [DllImport("__Internal")] static extern void YouTubeTv_Update(int id, int visible, float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, float volume, string mask);
     [DllImport("__Internal")] static extern void YouTubeTv_Destroy(int id);
     [DllImport("__Internal")] static extern void YouTubeTv_ListenPaste(string objectName);
 
     public const bool Available = true;
     public static int Create(string videoId, float start) => YouTubeTv_Create(videoId, start);
-    public static void Update(int id, bool visible, Vector3[] c, float volume) =>
-        YouTubeTv_Update(id, visible ? 1 : 0, c[0].x, c[0].y, c[1].x, c[1].y, c[2].x, c[2].y, c[3].x, c[3].y, volume);
+    public static void Update(int id, bool visible, Vector3[] c, float volume, string mask) =>
+        YouTubeTv_Update(id, visible ? 1 : 0, c[0].x, c[0].y, c[1].x, c[1].y, c[2].x, c[2].y, c[3].x, c[3].y, volume, mask);
     public static void Destroy(int id) => YouTubeTv_Destroy(id);
     public static void ListenPaste(string objectName) => YouTubeTv_ListenPaste(objectName);
 #else
     public const bool Available = false;
     public static int Create(string videoId, float start) => 0;
-    public static void Update(int id, bool visible, Vector3[] c, float volume) { }
+    public static void Update(int id, bool visible, Vector3[] c, float volume, string mask) { }
     public static void Destroy(int id) { }
     public static void ListenPaste(string objectName) { }
 #endif

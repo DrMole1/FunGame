@@ -267,6 +267,7 @@ public static class GameRules
 
     public const float TvHeight = 0.8f * 1.8f, TrampolineHeight = 0.3f * 1.8f, BellHeight = 0.8f * 1.8f;
     public const float TvSoundRange = 10f;
+    public const float TvMusicDuckRange = 7f;         // plus près d'une Télévision qui diffuse : les musiques d'ambiance s'effacent
     public const float TvCountdown = 4f;              // décompte de 3 à 0, une seconde par chiffre
     // Trampoline : un peu moins que la hauteur entre le sol du Hub et le haut du Chapiteau.
     public const float TrampolineJumpFraction = 0.9f;

@@ -6,7 +6,7 @@ using UnityEngine.UI;
 // Zone de saisie du Terminal, affichée uniquement chez le joueur qui l'utilise.
 // Commandes insensibles à la casse : /buy (ou /buy <ID>), /info (sous-menu : /hello, puis /step1 une fois débloquée),
 // /skip round, /sell (cachée depuis l'arrivée de Pogo) et les commandes secrètes /kick, /spawn, /tp, /godmod et /give
-// (hôte). Les textes des commandes d'info s'affichent caractère par caractère, rapidement.
+// (hôte). Les commandes d'info vident d'abord l'écran, puis leur texte s'affiche caractère par caractère, rapidement.
 public class TerminalUI : MonoBehaviour
 {
     // /skip round n'apparaît qu'une fois le quota de la manche atteint.
@@ -113,6 +113,14 @@ public class TerminalUI : MonoBehaviour
         typed = 0f;
     }
 
+    // Commandes d'info : l'écran est d'abord vidé (texte en cours d'écriture compris), seule la commande tapée reste.
+    void ClearScreen(string command)
+    {
+        typing = "";
+        lines.Clear();
+        Print("> " + command);
+    }
+
     void FlushTyping()
     {
         if (typing.Length == 0) return;
@@ -178,14 +186,17 @@ public class TerminalUI : MonoBehaviour
         }
         else if (lower == "/info")
         {
+            ClearScreen(text);
             Print(session.InfoMenu() + Quit);
         }
         else if (lower == "/hello")
         {
+            ClearScreen(text);
             Type(session.HelloText() + Quit);
         }
         else if (lower == "/step1" && session.Step1Unlocked)
         {
+            ClearScreen(text);
             Type(session.Step1Text() + Quit);
         }
         else if (lower.StartsWith("/give ") && session.IsHost)

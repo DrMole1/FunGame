@@ -391,6 +391,14 @@ public class GameAudio : MonoBehaviour
         deafen = null;
     }
 
+    // Position du personnage suivi par la caméra (la caméra elle-même s'il n'y en a pas).
+    static Vector3 ListenerBody(Camera cam)
+    {
+        if (cam == null) return Vector3.zero;
+        var orbit = cam.GetComponent<OrbitCamera>();
+        return orbit != null && orbit.target != null ? orbit.target.position : cam.transform.position;
+    }
+
     public static bool InRange(Vector3 position, float distance)
     {
         Camera cam = Camera.main;
@@ -405,10 +413,13 @@ public class GameAudio : MonoBehaviour
         float on = AmbienceEnabled && !silenced ? 1f : 0f;
         float abj = AbjurationLevel * on;
         on *= deathDuck;
-        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? 0.32f * on * (1f - abj * 0.8f) * music : 0f, k);
-        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * (1f - abj * 0.5f) * music, k);
+        // À moins de 7 m d'une Télévision qui diffuse (du personnage, pas de la caméra placée derrière lui), les musiques
+        // d'ambiance s'effacent progressivement, et reviennent quand on s'en éloigne.
+        float tv = TvScreen.Broadcasting(ListenerBody(cam), GameRules.TvMusicDuckRange) ? 0f : 1f;
+        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? 0.32f * on * tv * (1f - abj * 0.8f) * music : 0f, k);
+        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * tv * (1f - abj * 0.5f) * music, k);
         float ka = 1f - Mathf.Exp(-0.6f * Time.unscaledDeltaTime);
-        abjurationMusic.volume = Mathf.Lerp(abjurationMusic.volume, abj * 0.5f * music, ka);
+        abjurationMusic.volume = Mathf.Lerp(abjurationMusic.volume, abj * tv * 0.5f * music, ka);
         float ki = 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime);
         insects.volume = Mathf.Lerp(insects.volume, inHub ? 0f : InsectLevel * 0.68f * on * sfx, ki);
         // Dans le Hub, les sons des entités se taisent (y compris ceux déjà commencés).
