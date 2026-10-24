@@ -48,7 +48,7 @@ public class PlayerController : MonoBehaviour
     static readonly AnimState[] Dances = { AnimState.Dance, AnimState.Dance2, AnimState.Dance3 };
     // Un saut ou un déplacement demandé (même refusé) : sert à sortir du Canon.
     public bool WantsToMove { get; private set; }
-    // Dernier saut (pour entrer dans le Canon en sautant dessus).
+    // Dernier saut.
     public float LastJumpTime { get; private set; } = -10f;
     public float VerticalSpeed => rb.velocity.y;
 

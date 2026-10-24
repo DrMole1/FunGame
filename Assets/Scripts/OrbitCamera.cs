@@ -258,8 +258,10 @@ public class OrbitCamera : MonoBehaviour
         }
         else if (Cursor.lockState == CursorLockMode.Locked)
         {
-            yaw += Input.GetAxis("Mouse X") * mouseSensitivity;
-            pitch -= Input.GetAxis("Mouse Y") * mouseSensitivity;
+            // Réglage du menu pause (MouseSensitivity).
+            float sensitivity = mouseSensitivity * MouseSensitivity.Value;
+            yaw += Input.GetAxis("Mouse X") * sensitivity;
+            pitch -= Input.GetAxis("Mouse Y") * sensitivity;
         }
         pitch = fp ? Mathf.Clamp(pitch, -firstPersonPitch, firstPersonPitch) : Mathf.Clamp(pitch, minPitch, maxPitch);
         yaw = Mathf.Repeat(yaw, 360f);

@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Canon (GDD 7.5, V0.4.6). Un joueur qui saute sur un Canon chargé rentre dedans (s'il est libre) : caméra forcée à la
-// première personne, légèrement zoomée, viseur en rond blanc, inventaire caché ; le fût suit sa visée. Sauter ou bouger
-// le fait sortir ; il n'y est pas invincible. Un clic gauche le projette en boulet de canon, en légère cloche, vers son
+// Canon (GDD 7.5, V0.4.6). Un joueur à moins d'1 m d'un Canon chargé rentre dedans (s'il est libre, V0.5) : caméra forcée
+// à la première personne, légèrement zoomée, viseur en rond blanc, inventaire caché ; le fût suit sa visée. Sauter ou bouger
+// le fait sortir ; il y est invincible et aucune entité ne peut le prendre pour cible (V0.5). Un clic gauche le projette en boulet de canon, en légère cloche, vers son
 // curseur : il ne peut plus rien faire, la caméra fixe son point d'arrivée, il est invincible. Les joueurs percutés sont
 // repoussés sans dégâts ; les entités percutées explosent et réapparaissent ailleurs 1 min 30 plus tard (pas si la manche
 // a changé entre-temps). À l'impact, il retrouve son état normal.
@@ -23,6 +23,11 @@ public partial class GameSession
 
     Beacon cannon;
     float cannonEnterAt;
+    // Sorti d'un Canon : aucun Canon ne l'accueille de nouveau avant 1,5 seconde.
+    const float CannonReentryDelay = 1.5f;
+    float cannonLeftAt = -10f;
+    // Les touches de déplacement encore enfoncées à l'entrée ne le font pas ressortir : il faut d'abord les relâcher.
+    bool cannonMoveArmed;
     readonly List<Vector3> flightPath = new List<Vector3>();
     float flightClock;
     Vector3 flightGoal;
@@ -78,18 +83,17 @@ public partial class GameSession
                 UpdateFlight();
                 break;
         }
+        presence.InCannon = InCannon;
     }
 
-    // Saut ou chute sur un Canon chargé (le joueur arrive dessus par les airs) : on demande à l'hôte d'y entrer.
+    // Note 01 du 7.5 (V0.5) : plus besoin de sauter dessus, il suffit d'être à moins d'1 m du Canon chargé (du bord de son
+    // corps, compté depuis l'axe du fût) ; on demande alors à l'hôte d'y entrer.
     void TryEnterCannon()
     {
-        if (status.Dead || PlayerController.InputLocked || localDig >= 0 || player.Grounded) return;
-        Vector3 me = player.transform.position;
+        if (status.Dead || PlayerController.InputLocked || localDig >= 0 || Time.time - cannonLeftAt < CannonReentryDelay) return;
         foreach (var b in beacons.Placed)
         {
-            if (b == null || b.Kind != DeviceKind.Canon || !b.Charged) continue;
-            Vector3 d = me - b.transform.position;
-            if (new Vector2(d.x, d.z).magnitude > 1.5f || d.y < 0.3f || d.y > 2.8f) continue;
+            if (b == null || b.Kind != DeviceKind.Canon || !b.Charged || !NearCannon(b)) continue;
             cannon = b;
             cannonState = CannonState.Entering;
             cannonEnterAt = Time.time;
@@ -98,10 +102,21 @@ public partial class GameSession
         }
     }
 
+    bool NearCannon(Beacon b)
+    {
+        Vector3 d = player.transform.position + Vector3.down * 0.9f - b.transform.position;
+        return d.y > -1.2f && d.y < Beacon.CanonHeight + 1.2f
+            && new Vector2(d.x, d.z).magnitude < GameRules.DeviceRange + CannonBodyRadius;
+    }
+
+    // Demi-largeur approximative du corps du Canon, vu de dessus.
+    const float CannonBodyRadius = 0.6f;
+
     void EnterCannon()
     {
         if (cannon == null || status.Dead) { cannonState = CannonState.None; return; }
         cannonState = CannonState.Inside;
+        cannonMoveArmed = false;
         player.SetFrozen(true);
         player.Teleport(cannon.transform.position + Vector3.up * Beacon.CanonBarrel, OrbitCamera.Yaw);
         avatar.SetHidden(true);
@@ -116,7 +131,8 @@ public partial class GameSession
         if (cannon == null) { LeaveCannon(true); return; }
         cannon.AimCanon(OrbitCamera.Yaw);
         // Sauter ou bouger : il sort du Canon.
-        if (player.WantsToMove) { LeaveCannon(true); return; }
+        if (!player.WantsToMove) cannonMoveArmed = true;
+        else if (cannonMoveArmed) { LeaveCannon(true); return; }
         bool click = Input.GetMouseButtonDown(0) && OrbitCamera.Looking && Time.frameCount != OrbitCamera.LockFrame;
         if (!click) return;
         if (!cannon.Charged)
@@ -136,6 +152,7 @@ public partial class GameSession
         hud.SetCannonMode(false);
         avatar.SetHidden(false);
         if (!alive) { cannon = null; return; }
+        cannonLeftAt = Time.time;
         player.SetFrozen(false);
         if (cannon != null)
         {

@@ -86,8 +86,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // État de la partie (autorité : hôte).
     int seed, builtSeed = -1, itemsRound = -1;
-    // Génération d'objets de valeur multipliée selon le nombre de joueurs (x3 seul, x2 à deux), fixée par l'hôte.
-    int valueBoost = 1, itemsBoost = -1;
+    // Génération d'objets de valeur multipliée selon le nombre de joueurs (x3 seul, x2 à deux, x1,5 à trois, x1,2 à quatre),
+    // fixée par l'hôte.
+    float valueBoost = 1f, itemsBoost = -1f;
     int round = 1, quota, progress, cash;
     Phase phase = Phase.Waiting;
     float timeLeft = GameRules.RoundDuration;
@@ -280,11 +281,18 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         hud.Show(true);
         hud.HideGameOver();
         status.ClearInventory();
+        GiveStartingItems();
         pendingPickups = 0;
         ReviveLocal(SpawnPoint(), GameRules.MaxHp);
         if (phase == Phase.GameOver) OnGameOver();
         OnRosterChanged();
         RefreshHud();
+    }
+
+    // Note 04 du chapitre 7 (V0.5) : l'hôte commence la partie avec une Balise dans la case 1.
+    void GiveStartingItems()
+    {
+        if (net.IsHost) status.Add(ItemType.Balise);
     }
 
     public void ResetSession()
@@ -1036,7 +1044,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         return on ? "Godmod activé : achats gratuits, invincible, sérénité intacte, jamais immobilisé." : "Godmod désactivé.";
     }
 
-    bool Invincible => Time.time < invincibleUntil || Godmode || CannonFlying;
+    bool Invincible => Time.time < invincibleUntil || Godmode || CannonFlying || InCannon;
 
     // Dégâts reçus par le personnage local. Le Hub est un endroit sûr (sauf face au Réveil, 'inHub') ; juste après un /tp,
     // aucun dégât.
@@ -1454,14 +1462,15 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         return count;
     }
 
-    // L'Abjuration commence (hôte) : 5 Araignées par zone déverrouillée, loin des joueurs.
+    // L'Abjuration commence (hôte) : 3 à 5 Araignées par zone déverrouillée selon le nombre de joueurs, loin des joueurs.
     void SpawnSpiders()
     {
         if (maze == null || phase != Phase.Running) return;
         var rnd = new System.Random(seed * 41 + round * 977);
         int zones = maze.zoneDoor.IsOpen ? 2 : 1;
+        int perZone = GameRules.SpidersPerZone(net.Roster.Count);
         for (int zone = 0; zone < zones; zone++)
-            for (int k = 0; k < GameRules.SpidersPerZone; k++)
+            for (int k = 0; k < perZone; k++)
                 SpawnAt<Spider>(zone, rnd, GameRules.SpiderSpawnClearance);
     }
 
@@ -1847,6 +1856,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         path.Insert(0, pad.transform.position + Vector3.up * 0.9f);
         teleportPath = path;
         teleportLeg = 0;
+        // Le trajet est envoyé une fois : les autres joueurs le rejouent eux-mêmes, sans dépendre des positions reçues
+        // (à 70 m/s, le moindre paquet en retard faisait saccader la boule).
+        var sb = new System.Text.StringBuilder("TS");
+        foreach (var p in path) sb.Append('|').Append(NetworkGame.F(p.x)).Append('|').Append(NetworkGame.F(p.y)).Append('|').Append(NetworkGame.F(p.z));
+        net.ToHost(sb.ToString());
         player.SetFrozen(true);
         avatar.SetHidden(true);
         if (energyBall == null) energyBall = BuildEnergyBall(player.transform);
@@ -2083,7 +2097,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // ================= Hôte =================
 
     string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft)
-        + "|" + (compass ? 1 : 0) + "|" + orbsBroken + "|" + NetworkGame.F(beacons.Charge) + "|" + valueBoost + "|" + testFlags;
+        + "|" + (compass ? 1 : 0) + "|" + orbsBroken + "|" + NetworkGame.F(beacons.Charge) + "|" + NetworkGame.F(valueBoost) + "|" + testFlags;
 
     void BroadcastState()
     {
@@ -2256,6 +2270,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         hud.HideGameOver();
         dropped.Clear();
         status.ClearInventory();
+        GiveStartingItems();
         pendingPickups = 0;
         ClearNotes();
         // Nouvelle partie : les Balises posées disparaissent, celle du Hub est rechargée.
@@ -2289,7 +2304,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 compass = f[8] == "1";
                 orbsBroken = NetworkGame.I(f[9]);
                 if (f.Length >= 11) beacons.Charge = NetworkGame.P(f[10]);
-                if (f.Length >= 12) valueBoost = Mathf.Clamp(NetworkGame.I(f[11]), 1, 3);
+                if (f.Length >= 12) valueBoost = Mathf.Clamp(NetworkGame.P(f[11]), 1f, 3f);
                 if (f.Length >= 13) testFlags = NetworkGame.I(f[12]);
                 // Nouvelle partie : les critères remplis de notre côté repartent de zéro.
                 if (testFlags == 0) sentFlags = 0;
@@ -2760,6 +2775,19 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 break;
             case "EK" when f.Length >= 2:
                 if (entities.TryGetValue(NetworkGame.I(f[1]), out var killer) && killer != null) killer.PlayKillSound();
+                break;
+            // Trajet d'une téléportation : l'hôte le relaie à tous avec l'identifiant de son auteur.
+            case "TS" when host && f.Length >= 4:
+                net.ToAll("TP|" + from + raw.Substring(2));
+                break;
+            case "TP" when f.Length >= 5:
+                if (f[1] != net.MyId && net.Remotes.TryGetValue(f[1], out var traveller) && traveller != null)
+                {
+                    var tpPath = new List<Vector3>();
+                    for (int i = 2; i + 2 < f.Length; i += 3)
+                        tpPath.Add(new Vector3(NetworkGame.P(f[i]), NetworkGame.P(f[i + 1]), NetworkGame.P(f[i + 2])));
+                    traveller.PlayTeleport(tpPath);
+                }
                 break;
             case "HL" when host && f.Length >= 2:
                 net.ToAll("EW|" + f[1]);

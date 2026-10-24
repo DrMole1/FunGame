@@ -629,6 +629,7 @@ public class GameHud : MonoBehaviour
             float k = whiteTimer / WhiteFlashDuration;
             whiteFlash.color = new Color(1f, 1f, 1f, WhiteFlashBoost / (1f + WhiteFlashBoost) * k * k);
         }
+        else if (whiteFlash.color.a > 0f) whiteFlash.color = Color.clear;
         if (flashTimer > 0f)
         {
             // Montée rapide puis fondu, avec un léger battement, le tout en moins d'une seconde.
@@ -637,6 +638,8 @@ public class GameHud : MonoBehaviour
             float alpha = Mathf.Min(1f, (1f - k) * 8f) * k * (0.85f + 0.15f * Mathf.Sin(k * 25f));
             damageFlash.color = new Color(0.85f, 0.02f, 0.02f, 0.7f * alpha);
         }
+        // Flash fini ou interrompu (mort pendant le flash) : le voile rouge ne doit jamais rester figé.
+        else if (damageFlash.color.a > 0f) damageFlash.color = Color.clear;
         if (deathTime >= 0f)
         {
             // Éclair rouge sang au moment de la mort, puis le noir gagne depuis les bords et l'image se ternit.

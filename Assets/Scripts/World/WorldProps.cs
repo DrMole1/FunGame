@@ -10,6 +10,8 @@ public class PlayerPresence : MonoBehaviour
     public bool IsLocal;
     public bool Alive = true;
     public bool Sneaking;
+    // Dans un Canon (V0.5, note 02 du 7.5) : aucune entité ne peut le prendre pour cible.
+    public bool InCannon;
 
     // Autres joueurs : dernière position reçue du réseau, en avance sur celle affichée (lissée avec retard).
     [System.NonSerialized] public bool HasNetPosition;

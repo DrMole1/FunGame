@@ -14,8 +14,8 @@ public enum DeviceKind : byte { Beacon = 0, Enhanced = 1, Teleporter = 2, Statio
 public class Beacon : Interactable
 {
     public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f, StationHeight = 1.15f;
-    // Canon posé au sol : 0,8 fois la taille d'un personnage (1,8 m), soit environ 3 m de long ; fût à 80 % de sa hauteur.
-    public const float CanonHeight = 0.8f * 1.8f, CanonBarrel = CanonHeight * 0.8f, CanonHalfLength = 1.5f;
+    // Canon posé au sol : 0,64 fois la taille d'un personnage (1,8 m), soit environ 2,4 m de long ; fût à 80 % de sa hauteur.
+    public const float CanonHeight = 0.64f * 1.8f, CanonBarrel = CanonHeight * 0.8f, CanonHalfLength = 1.2f;
     public const DeviceKind LastKind = DeviceKind.Bell;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
@@ -183,7 +183,7 @@ public class Beacon : Interactable
             // Distance jusqu'au Hub, dans l'air au-dessus d'elle (renseignée par BeaconNetwork.Add).
             beacon.coordinates = GameArt.CreateText(go.transform, "DistanceHub", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(1f, 0.45f, 0.4f));
         }
-        beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(2.2f, CanonHeight, 2.2f)
+        beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.76f, CanonHeight, 1.76f)
             : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;

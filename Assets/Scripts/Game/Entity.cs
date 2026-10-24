@@ -230,8 +230,8 @@ public abstract class Entity : MonoBehaviour
         return null;
     }
 
-    // Cible possible : vivante, hors du Hub (endroit sûr).
-    protected static bool Valid(PlayerPresence p) => p != null && p.Alive && p.isActiveAndEnabled && !WorldBuilder.IsInHub(p.Position);
+    // Cible possible : vivante, hors du Hub (endroit sûr) et hors d'un Canon (une chasse en cours s'arrête).
+    protected static bool Valid(PlayerPresence p) => p != null && p.Alive && p.isActiveAndEnabled && !p.InCannon && !WorldBuilder.IsInHub(p.Position);
 
     // Pieds du personnage (sa position est le centre de sa capsule).
     protected static Vector3 Feet(PlayerPresence p) => p.Position + Vector3.down * 0.9f;

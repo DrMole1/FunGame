@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.4.11";
+    public const string Version = "V0.5";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -69,11 +69,11 @@ public static class GameRules
 
     static int RoundIndex(int round) => Mathf.Clamp(round - 1, 0, Zone1ValuePercent.Length - 1);
 
-    // Note 01 du chapitre 10 : à 2 joueurs connectés, la génération d'objets de valeur est doublée ; seul, triplée.
-    public static int ValueBoost(int players) => players <= 1 ? 3 : players == 2 ? 2 : 1;
+    // Notes 01 et 02 du chapitre 10 : génération d'objets de valeur x3 seul, x2 à deux, x1,5 à trois, x1,2 à quatre.
+    public static float ValueBoost(int players) => players <= 1 ? 3f : players == 2 ? 2f : players == 3 ? 1.5f : players == 4 ? 1.2f : 1f;
 
     // V0.4.6 : les objets de valeur sont dans des monticules ; leur nombre tient compte des chances d'obtention.
-    public static int MoundsForRound(int round, int zone, int boost)
+    public static int MoundsForRound(int round, int zone, float boost)
     {
         float percent = (zone == 0 ? Zone1ValuePercent : Zone2ValuePercent)[RoundIndex(round)] * boost;
         return Mathf.CeilToInt(QuotaForRound(round) * percent / Items.MoundValue());
@@ -96,7 +96,7 @@ public static class GameRules
 
     // Elle apparaît quand le Compteur de Temps affiche 7 minutes, jusqu'à la manche suivante.
     public const float AbjurationStart = 7f * 60f;
-    public const float AbjurationLossPerSecond = 6f;   // sérénité perdue par seconde au contact de la brume (V0.4.10, avant : 2)
+    public const float AbjurationLossPerSecond = 3f;   // sérénité perdue par seconde au contact de la brume (V0.5, avant : 6)
     // Note 02 du chapitre 3.4 (V0.4.10) : à 0 de sérénité, le personnage perd 15 PV par seconde (au lieu de mourir).
     public const int DespairDamagePerSecond = 15;
     // Note 02 (V0.4.2) : hors de la brume, Hub compris, la sérénité remonte de 10 points par seconde.
@@ -231,7 +231,8 @@ public static class GameRules
     // ---------- L'Araignée (entité ID 6, Abjuration) ----------
 
     public const int SpiderDamage = 50;
-    public const int SpidersPerZone = 5;
+    // V0.5 : Araignées par zone déverrouillée selon le nombre de joueurs (3 seul, 4 de 2 à 4 joueurs, 5 de 5 à 8).
+    public static int SpidersPerZone(int players) => players <= 1 ? 3 : players <= 4 ? 4 : 5;
     public const float SpiderSpawnClearance = 25f;
     public const float SpiderSightRange = 12f;
     public const float SpiderProwlMultiplier = 0.5f;

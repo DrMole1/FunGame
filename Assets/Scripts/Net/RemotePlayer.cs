@@ -96,6 +96,8 @@ public class RemotePlayer : MonoBehaviour
         if (tele != teleporting)
         {
             teleporting = tele;
+            // Fin du voyage : on garde le rejeu le temps que les positions reçues (affichées en léger retard) rattrapent.
+            if (tpPath != null) tpReleaseAt = tele ? float.MaxValue : Time.time + TeleportRelease;
             if (energyBall == null) energyBall = GameSession.BuildEnergyBall(transform);
             energyBall.SetActive(tele);
             avatar.SetHidden(tele);
@@ -107,6 +109,7 @@ public class RemotePlayer : MonoBehaviour
         if (inCannon != hiddenInCannon || ball != flyingBall)
         {
             hiddenInCannon = inCannon;
+            presence.InCannon = inCannon;
             flyingBall = ball;
             if (cannonBall == null) cannonBall = GameSession.BuildCannonBall(transform);
             cannonBall.SetActive(ball);
@@ -126,10 +129,45 @@ public class RemotePlayer : MonoBehaviour
         if (!dead) avatar.SetState(anim);
     }
 
+    // Téléportation : le trajet complet est reçu au départ et rejoué ici à vitesse constante, sans dépendre des
+    // positions reçues (à 70 m/s, un paquet en retard de 50 ms faisait sauter la boule de 3,5 m).
+    const float TeleportRelease = 0.2f;
+    System.Collections.Generic.List<Vector3> tpPath;
+    int tpLeg;
+    float tpReleaseAt;
+
+    public void PlayTeleport(System.Collections.Generic.List<Vector3> path)
+    {
+        if (path.Count == 0) return;
+        tpPath = path;
+        tpLeg = 0;
+        transform.position = path[0];
+        // Si l'état « en téléportation » n'arrive jamais, le rejeu s'arrête de lui-même.
+        tpReleaseAt = teleporting ? float.MaxValue : Time.time + 1f;
+    }
+
     void Update()
     {
+        if (tpPath != null)
+        {
+            if (Time.time < tpReleaseAt)
+            {
+                float move = GameRules.TeleportSpeed * Time.deltaTime;
+                Vector3 pos = transform.position;
+                while (move > 0f && tpLeg < tpPath.Count)
+                {
+                    Vector3 goal = tpPath[tpLeg];
+                    float d = Vector3.Distance(pos, goal);
+                    if (d <= move) { pos = goal; move -= d; tpLeg++; }
+                    else { pos += (goal - pos) / d * move; move = 0f; }
+                }
+                transform.position = pos;
+                return;
+            }
+            tpPath = null;
+        }
         if (!hasTarget) return;
-        smoother.Sample(out Vector3 pos, out float yaw);
-        transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
+        smoother.Sample(out Vector3 pos2, out float yaw);
+        transform.SetPositionAndRotation(pos2, Quaternion.Euler(0f, yaw, 0f));
     }
 }
