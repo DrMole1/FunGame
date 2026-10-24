@@ -77,3 +77,5 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: 1a11ab2526d29004189228906c172d8e, type: 3}
   - key: heart_thump
     clip: {fileID: 8300000, guid: bf985b3895aa2ea41a7dd9dad3974595, type: 3}
+  - key: hub_music
+    clip: {fileID: 8300000, guid: 91e33a21e30176444b1f3b305c696ea2, type: 3}

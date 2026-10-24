@@ -18,6 +18,7 @@ public class GameAudio : MonoBehaviour
     readonly HashSet<AudioSource> entitySources = new HashSet<AudioSource>();
     int next;
     AudioSource hubMusic, mazeDrone, insects, abjurationMusic;
+    const float HubMusicVolume = 0.2f;
 
     // Proximité des murs infestés (0 à 1), fournie par la session de jeu.
     public static float InsectLevel { get; set; }
@@ -416,7 +417,8 @@ public class GameAudio : MonoBehaviour
         // À moins de 7 m d'une Télévision qui diffuse (du personnage, pas de la caméra placée derrière lui), les musiques
         // d'ambiance s'effacent progressivement, et reviennent quand on s'en éloigne.
         float tv = TvScreen.Broadcasting(ListenerBody(cam), GameRules.TvMusicDuckRange) ? 0f : 1f;
-        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? 0.32f * on * tv * (1f - abj * 0.8f) * music : 0f, k);
+        // Musique_Hub (enregistrée, en boucle) : gardée discrète, même avec la musique réglée à 50 %.
+        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? HubMusicVolume * on * tv * (1f - abj * 0.8f) * music : 0f, k);
         mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * tv * (1f - abj * 0.5f) * music, k);
         float ka = 1f - Mathf.Exp(-0.6f * Time.unscaledDeltaTime);
         abjurationMusic.volume = Mathf.Lerp(abjurationMusic.volume, abj * tv * 0.5f * music, ka);
