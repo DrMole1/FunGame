@@ -99,6 +99,7 @@ public class RemotePlayer : MonoBehaviour
         if (tele != teleporting)
         {
             teleporting = tele;
+            presence.Teleporting = tele;
             // Fin du voyage : on garde le rejeu le temps que les positions reçues (affichées en léger retard) rattrapent.
             if (tpPath != null) tpReleaseAt = tele ? float.MaxValue : Time.time + TeleportRelease;
             if (energyBall == null) energyBall = GameSession.BuildEnergyBall(transform);

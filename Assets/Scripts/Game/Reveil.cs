@@ -44,7 +44,7 @@ public class Reveil : Entity
             case State.Chase:
             {
                 var target = Find(players, TargetId);
-                if (target == null || !target.Alive || target.InCannon) target = Nearest(players);
+                if (target == null || !target.Alive || target.InCannon || target.Teleporting) target = Nearest(players);
                 TargetId = target != null ? target.PlayerId : "";
                 Speed = GameRules.BaseSpeed * GameRules.ReveilSpeedMultiplier;
                 if (target != null) Chase(target, dt);
@@ -73,7 +73,7 @@ public class Reveil : Entity
         float bestDist = float.MaxValue;
         foreach (var p in players)
         {
-            if (p == null || !p.Alive || !p.isActiveAndEnabled || p.InCannon) continue;
+            if (p == null || !p.Alive || !p.isActiveAndEnabled || p.InCannon || p.Teleporting) continue;
             float d = (p.Position - transform.position).sqrMagnitude;
             if (d < bestDist) { bestDist = d; best = p; }
         }

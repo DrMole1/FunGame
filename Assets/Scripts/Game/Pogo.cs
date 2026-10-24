@@ -226,7 +226,7 @@ public class Pogo : Interactable
             if (State == Mood.Closed) return "Ouvrir la boîte de Pogo";
             var session = GameSession.Instance;
             ItemType held = session != null ? session.SelectedItem : ItemType.None;
-            if (held != ItemType.None) return "Vendre " + Items.Get(held).name + " à Pogo (" + Items.Get(held).sellPrice + " golds)";
+            if (held != ItemType.None) return "Vendre " + Items.Get(held).name + " à Pogo (" + Items.Price(Items.Get(held).sellPrice) + ")";
             // En colère : aucun texte affiché.
             return State == Mood.Angry ? "" : "Pogo attend un objet";
         }

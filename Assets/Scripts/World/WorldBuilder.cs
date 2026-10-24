@@ -413,11 +413,11 @@ public static class WorldBuilder
         pitCeilings = new[] { 5f, 6f, 7f },
     };
 
-    // Zone 2 (100 m x 100 m) : plancher jusqu'à 10 unités sous le Hub, plafond jusqu'à 30 unités au-dessus du plancher.
-    public const int Zone2Size = 20;
+    // Zone 2 (140 m x 140 m, V0.5.1) : plancher jusqu'à 10 unités sous le Hub, plafond jusqu'à 30 unités au-dessus du plancher.
+    public const int Zone2Size = 28;
     static readonly ZoneStyle Zone2Style = new ZoneStyle
     {
-        maxRooms = 24, minRoomSize = 2, maxRoomSize = 5,
+        maxRooms = 47, minRoomSize = 2, maxRoomSize = 5,
         pitChance = 0.3f, minPitDepth = 2f, maxPitDepth = 10f, maxLayerDepth = 4f, bridgeChance = 0.6f,
         floors = new[] { 0f, 0f, 0.8f, 1.6f, 2.4f },
         ceilings = new[] { 5f, 8f, 12f, 18f },
@@ -832,8 +832,9 @@ public static class WorldBuilder
         }
         var pick = candidates.Count > 0 ? candidates[rnd.Next(candidates.Count)] : (3, Grid / 2);
         int side = pick.Item1, door = pick.Item2;
-        // Décalage de la Zone 2 le long du côté : la porte n'est pas sur un de ses coins.
-        int kMin = Mathf.Max(0, door - (n2 - 3)), kMax = Mathf.Min(Grid - n2, door - 2);
+        // Décalage de la Zone 2 le long du côté : la porte n'est pas sur un de ses coins. Plus longue que le côté de la
+        // Zone 1 (140 m contre 135 m), elle le couvre en entier et dépasse d'un coin ou de l'autre.
+        int kMin = Mathf.Max(Mathf.Min(0, Grid - n2), door - (n2 - 3)), kMax = Mathf.Min(Mathf.Max(0, Grid - n2), door - 2);
         int k = kMin + rnd.Next(Mathf.Max(1, kMax - kMin + 1));
         int e = door - k;
         Vector3 o = z1.origin;
@@ -1418,6 +1419,8 @@ public static class WorldBuilder
         var props = new GameObject("Decor_Z" + (m.zone + 1)).transform;
         props.SetParent(root, false);
         List<Vector3> spots = refs.itemSpots[m.zone];
+        // Faisceaux des Lasers posés : aucun monticule à leur portée de déclenchement (filtré à la fin).
+        var lasers = new List<(Vector3 a, Vector3 b)>();
 
         // Hauteur du sol (dalle, marche, passerelle ou fond de fosse) sous un point, sans compter le décor.
         float FloorAt(Vector3 p, float from)
@@ -1455,7 +1458,7 @@ public static class WorldBuilder
                 {
                     bool alongZ = HasWall(m, i, j, 0) && HasWall(m, i, j, 1) && !HasWall(m, i, j, 2) && !HasWall(m, i, j, 3);
                     bool alongX = HasWall(m, i, j, 2) && HasWall(m, i, j, 3) && !HasWall(m, i, j, 0) && !HasWall(m, i, j, 1);
-                    if (alongZ || alongX) AddLaser(props, c, alongZ, rnd);
+                    if (alongZ || alongX) lasers.Add(AddLaser(props, c, alongZ, rnd));
                 }
 
                 // Caisses contre les murs des couloirs : de quoi se percher au-dessus de la brume de l'Abjuration.
@@ -1582,6 +1585,32 @@ public static class WorldBuilder
                 AddEye(props, m.Center(c.x, c.y) + new Vector3(Rand(rnd, -1f, 1f), room.ceil, Rand(rnd, -1f, 1f)), Vector3.down, Rand(rnd, 0.8f, 1.5f));
             }
         }
+
+        // Pas de monticule près d'un Laser : creuser ne doit jamais l'allumer.
+        spots.RemoveAll(s => lasers.Exists(l => Laser.DistancePointSegment(s, l.a, l.b) <= GameRules.LaserTriggerDistance));
+        // Ni sur un escalier, ni sous une plateforme (décor tout juste posé : on synchronise la physique avant de sonder).
+        Physics.SyncTransforms();
+        spots.RemoveAll(s => OnStairs(s) || UnderPlatform(s));
+    }
+
+    // Emprise d'un monticule (1,1 x 0,9 m) : un peu plus large, pour qu'il ne déborde pas sur l'obstacle.
+    const float MoundClearance = 0.6f;
+
+    // Escalier sous ou à côté du monticule : sa collision (rampe) touche l'emprise.
+    static bool OnStairs(Vector3 spot)
+    {
+        foreach (var c in Physics.OverlapSphere(spot + Vector3.up * 0.3f, MoundClearance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            if (c.name == "Rampe") return true;
+        return false;
+    }
+
+    // Plateforme au-dessus du monticule, quelle que soit sa hauteur. La sphère part juste au-dessus du sol : la plateforme
+    // qui porte un monticule (objet au sommet) n'est pas comptée.
+    static bool UnderPlatform(Vector3 spot)
+    {
+        foreach (var hit in Physics.SphereCastAll(spot + Vector3.up * (MoundClearance + 0.05f), MoundClearance, Vector3.up, 30f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            if (hit.collider.name == "Plateforme") return true;
+        return false;
     }
 
     // Caisse contre le mur 'dir' d'une cellule de couloir, assez haute pour sortir de la brume, assez basse pour y sauter.
@@ -1657,7 +1686,8 @@ public static class WorldBuilder
 
     static float Rand(System.Random rnd, float min, float max) => min + (float)rnd.NextDouble() * (max - min);
 
-    static void AddLaser(Transform parent, Vector3 cellCenter, bool corridorAlongZ, System.Random rnd)
+    // Renvoie les extrémités du faisceau.
+    static (Vector3 a, Vector3 b) AddLaser(Transform parent, Vector3 cellCenter, bool corridorAlongZ, System.Random rnd)
     {
         var go = new GameObject("Laser");
         go.transform.SetParent(parent, false);
@@ -1691,6 +1721,7 @@ public static class WorldBuilder
         var glow = GameArt.Prim(PrimitiveType.Cylinder, beam.transform, Vector3.zero, new Vector3(3.2f, 1f, 3.2f), GameArt.LaserBeam("LaserGlow", 0.7f, 1.2f));
         glow.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         go.AddComponent<Laser>().Init(a, b, beam, sparks);
+        return (a, b);
     }
 
     // Gerbe d'étincelles d'un embout ('dir' : vers le faisceau). Ne s'active que quand le laser s'allume.

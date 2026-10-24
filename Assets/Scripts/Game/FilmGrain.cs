@@ -2,6 +2,7 @@ using UnityEngine;
 
 // Grain d'écran sur la caméra du jeu (lobby compris), réglé dans le lobby et le menu pause (0 à 100 %, 100 % par défaut).
 // Dessiné juste après la scène : les interfaces (Canvas en Screen Space Overlay) passent par-dessus, sans grain.
+// La même passe assombrit progressivement la scène quand la souris survole le menu du lobby ou le menu pause.
 [RequireComponent(typeof(Camera))]
 public class FilmGrain : MonoBehaviour
 {
@@ -26,15 +27,29 @@ public class FilmGrain : MonoBehaviour
         }
     }
 
+    // Souris sur le menu du lobby ou le menu pause (mis à jour par LobbyUI).
+    public static bool MenuHover;
+    // Luminosité de la scène quand la souris est sur un menu, et durée du fondu (aller comme retour).
+    const float MenuBrightness = 0.15f;
+    const float DimFade = 0.5f;
+    float dim;
+
     static readonly int IntensityId = Shader.PropertyToID("_Intensity");
+    static readonly int BrightnessId = Shader.PropertyToID("_Brightness");
     Material material;
+
+    void Update()
+    {
+        dim = Mathf.MoveTowards(dim, MenuHover ? 1f : 0f, Time.unscaledDeltaTime / DimFade);
+    }
 
     void OnPostRender()
     {
-        if (Value <= 0f) return;
+        if (Value <= 0f && dim <= 0f) return;
         if (material == null) material = GameArt.FilmGrain;
         if (material == null) return;
         material.SetFloat(IntensityId, Value * MaxIntensity);
+        material.SetFloat(BrightnessId, Mathf.Lerp(1f, MenuBrightness, Mathf.SmoothStep(0f, 1f, dim)));
         GL.PushMatrix();
         GL.LoadOrtho();
         material.SetPass(0);

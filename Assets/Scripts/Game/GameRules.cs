@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.5";
+    public const string Version = "V0.5.1";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -285,7 +285,7 @@ public static class GameRules
 
 public enum ItemType
 {
-    None = 0, Croquette = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8, BaliseAmelioree = 9,
+    None = 0, CuisseDePoulet = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8, BaliseAmelioree = 9,
     StationCurative = 10, Os = 11, Canon = 12, Television = 13, Trampoline = 14, ClocheDecorative = 15,
     // Tirage d'un monticule seulement (pas un objet) : Le Réveil en sort.
     Reveil = 99,
@@ -306,15 +306,16 @@ public class ItemDef
 
 public static class Items
 {
-    public const int CroquetteHeal = 40;
-    public const int CroquetteSerenity = 40;
+    // Note 05 du chapitre 7 (V0.5.1) : l'objet 1 est une Cuisse de poulet (ce n'est plus une croquette).
+    public const int CuisseHeal = 40;
+    public const int CuisseSerenity = 40;
     public const int PostItMaxChars = 20;
     public const float PostItLockSeconds = 2f; // un Post-It ne peut pas être retiré juste après avoir été accroché
 
     static readonly ItemDef[] All =
     {
         // Objets obtenables au Terminal (ID 1 à 10), dans l'ordre du document.
-        new ItemDef { type = ItemType.Croquette, terminalId = 1, name = "Croquette", shortName = "Croquette", buyPrice = 20, sellPrice = 1, color = new Color(0.62f, 0.4f, 0.22f) },
+        new ItemDef { type = ItemType.CuisseDePoulet, terminalId = 1, name = "Cuisse de poulet", shortName = "Cuisse", buyPrice = 20, sellPrice = 1, color = new Color(0.62f, 0.4f, 0.22f) },
         new ItemDef { type = ItemType.Balise, terminalId = 2, name = "Balise", shortName = "Balise", buyPrice = 30, sellPrice = 1, color = new Color(0.3f, 0.6f, 1f) },
         new ItemDef { type = ItemType.PostIt, terminalId = 3, name = "Post-It", shortName = "Post-It", buyPrice = 5, sellPrice = 1, color = new Color(1f, 0.93f, 0.35f) },
         new ItemDef { type = ItemType.Cle, terminalId = 4, name = "Clé", shortName = "Clé", buyPrice = 200, sellPrice = 1, color = new Color(0.55f, 0.8f, 1f) },
@@ -334,7 +335,10 @@ public static class Items
 
     // Modèle 3D (Resources/Art) d'un objet posé au sol ou porté par un Pion.
     public static string ModelName(ItemType type) =>
-        type == ItemType.Canard ? "DuckSolo" : type == ItemType.Os ? "Os" : "Croquette";
+        type == ItemType.Canard ? "DuckSolo" : type == ItemType.Os ? "Os" : type == ItemType.CuisseDePoulet ? "CuisseDePoulet" : "Croquette";
+
+    // Note 05 du chapitre 14 (V0.5.1) : la monnaie est la croquette (ce ne sont plus des golds). "1 croquette", "30 croquettes".
+    public static string Price(int amount) => amount + (amount > 1 ? " croquettes" : " croquette");
 
     // Tableaux des monticules (chapitre 9, V0.4.7) : objet trouvé et chance d'obtention, identiques dans les deux zones.
     // ItemType.Reveil n'est pas un objet : l'entité Le Réveil sort du monticule.

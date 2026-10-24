@@ -130,13 +130,19 @@ public class CharacterAvatar : MonoBehaviour
     // - Aboiement : le buste se cambre et la tête se relève (inspiration), puis tout se projette d'un coup sec vers
     //   l'avant (le « Wouf »), avant de revenir en douceur.
     // - Ramasser / Poser : le buste se penche, le bras droit va chercher (ou dépose) l'objet au sol.
-    // - Utiliser : le bras droit se tend devant soi ; Manger : la main monte à la bouche.
+    // - Utiliser : le bras droit se tend devant soi.
+    // - Manger (V0.5.1, 1,5 s) : la main droite porte une Cuisse de poulet à la bouche, trois bouchées, puis redescend.
     float gestureStart = -10f;
     PlayerGesture gesture;
-    Transform spine, chest, neck, head, upperArm, lowerArm;
+    Transform spine, chest, neck, head, upperArm, lowerArm, hand;
+    // Cuisse de poulet tenue pendant le geste Manger.
+    GameObject eatenProp;
+
+    const float EatDuration = 1.5f;
+    static readonly float[] Bites = { 0.45f, 0.8f, 1.12f };
 
     static float GestureDuration(PlayerGesture g) =>
-        g == PlayerGesture.Bark ? 0.55f : g == PlayerGesture.Place ? 0.8f : g == PlayerGesture.Eat ? 0.75f : 0.6f;
+        g == PlayerGesture.Bark ? 0.55f : g == PlayerGesture.Place ? 0.8f : g == PlayerGesture.Eat ? EatDuration : 0.6f;
 
     public void PlayGesture(PlayerGesture g)
     {
@@ -151,13 +157,41 @@ public class CharacterAvatar : MonoBehaviour
             head = animator.GetBoneTransform(HumanBodyBones.Head);
             upperArm = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
             lowerArm = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
+            hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
         }
+        if (g == PlayerGesture.Eat && eatenProp == null) eatenProp = BuildDrumstick(transform);
+    }
+
+    // Cuisse de poulet (modèle Meshy, à défaut une version en primitives), d'environ 28 cm.
+    static GameObject BuildDrumstick(Transform parent)
+    {
+        var prop = GameArt.SpawnModel("CuisseDePoulet", parent, 0.28f);
+        if (prop == null)
+        {
+            prop = new GameObject("CuisseDePoulet");
+            prop.transform.SetParent(parent, false);
+            GameArt.Prim(PrimitiveType.Sphere, prop.transform, new Vector3(0f, 0.05f, 0f), new Vector3(0.09f, 0.11f, 0.09f), GameArt.Lit("CuisseViande", new Color(0.7f, 0.4f, 0.15f)));
+            GameArt.Prim(PrimitiveType.Cylinder, prop.transform, new Vector3(0f, 0.13f, 0f), new Vector3(0.025f, 0.04f, 0.025f), GameArt.Lit("CuisseOs", new Color(0.95f, 0.92f, 0.85f)));
+        }
+        foreach (var c in prop.GetComponentsInChildren<Collider>()) Destroy(c);
+        foreach (var r in prop.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        return prop;
+    }
+
+    void HideDrumstick()
+    {
+        if (eatenProp != null) Destroy(eatenProp);
+        eatenProp = null;
     }
 
     void LateUpdate()
     {
         float t = Time.time - gestureStart, duration = GestureDuration(gesture);
-        if (t < 0f || t > duration || dead || hidden || head == null || !model.activeInHierarchy) return;
+        if (t < 0f || t > duration || dead || hidden || head == null || !model.activeInHierarchy)
+        {
+            if (eatenProp != null) HideDrumstick();
+            return;
+        }
         // Angles positifs : vers l'avant (buste, tête) ; négatifs sur le bras : il se lève devant soi.
         Vector3 axis = model.transform.right;
         switch (gesture)
@@ -197,12 +231,23 @@ public class CharacterAvatar : MonoBehaviour
             }
             case PlayerGesture.Eat:
             {
-                float w = Envelope(t, 0.2f, 0.3f, duration);
-                // Petites bouchées pendant le maintien.
-                float chew = t > 0.2f && t < 0.5f ? Mathf.Abs(Mathf.Sin((t - 0.2f) * 21f)) : 0f;
-                Tilt(head, axis, -w * 6f + chew * 4f);
-                Tilt(upperArm, axis, -w * 55f);
-                Tilt(lowerArm, axis, -w * 95f);
+                float w = Envelope(t, 0.25f, 0.95f, duration);
+                // Trois bouchées : la tête plonge vers la cuisse, que la main ramène un peu plus près.
+                float bite = 0f;
+                foreach (float at in Bites) bite = Mathf.Max(bite, Mathf.Clamp01(1f - Mathf.Abs(t - at) / 0.12f));
+                bite = Mathf.SmoothStep(0f, 1f, bite);
+                Tilt(neck, axis, bite * 6f);
+                Tilt(head, axis, -w * 6f + bite * 12f);
+                Tilt(upperArm, axis, -w * 55f - bite * 6f);
+                Tilt(lowerArm, axis, -w * 95f - bite * 10f);
+                if (eatenProp != null && hand != null)
+                {
+                    // Tenue par l'os (en haut du modèle, qui pointe ici vers le bas et l'avant) : la partie charnue
+                    // remonte vers la bouche.
+                    Vector3 bone = (model.transform.forward * 0.5f - model.transform.up).normalized;
+                    eatenProp.transform.rotation = Quaternion.FromToRotation(Vector3.up, bone);
+                    eatenProp.transform.position = hand.position - bone * 0.2f;
+                }
                 break;
             }
         }

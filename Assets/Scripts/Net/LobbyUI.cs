@@ -17,6 +17,8 @@ public class LobbyUI : MonoBehaviour
     NetworkGame net;
 
     GameObject lobbyPanel, pausePanel, hintPanel;
+    // Fond peint du lobby (plus haut que le panneau) : la zone survolée qui assombrit la scène.
+    RectTransform lobbyBackdrop;
     Text resumeLabel;
     InputField nameField, codeField;
     Button hostButton, joinButton;
@@ -112,6 +114,8 @@ public class LobbyUI : MonoBehaviour
             && !OrbitCamera.ResumePending;
         if (pausePanel.activeSelf != paused) pausePanel.SetActive(paused);
         if (hintPanel.activeSelf != paused) hintPanel.SetActive(paused);
+        // Souris sur le menu du lobby ou le menu pause : la scène s'assombrit (fondu dans FilmGrain).
+        FilmGrain.MenuHover = Hovered(lobbyBackdrop) || Hovered(pausePanel.transform as RectTransform);
         // Clignotement lent, en fondu.
         if (paused)
         {
@@ -144,6 +148,7 @@ public class LobbyUI : MonoBehaviour
         lobbyPanel.GetComponent<Image>().color = Color.clear;
         var backdrop = UiKit.Panel(p, "Fond", new Vector2(460, LobbyBackdropHeight));
         backdrop.AddComponent<LayoutElement>().ignoreLayout = true;
+        lobbyBackdrop = backdrop.GetComponent<RectTransform>();
         backdrop.transform.SetAsFirstSibling();
         UiKit.Paint(backdrop, PanelBlack, 1);
         backdrop.GetComponent<Image>().raycastTarget = false;
@@ -202,6 +207,9 @@ public class LobbyUI : MonoBehaviour
         grainLabels.Add(VolumeRow(p, "Grain", height, seed + 8, step => FilmGrain.Value = Step(FilmGrain.Value, step)));
         RefreshVolumes();
     }
+
+    static bool Hovered(RectTransform rect) =>
+        rect != null && rect.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(rect, Input.mousePosition, null);
 
     static float Step(float value, int step) => Mathf.Round(value * 10f + step) / 10f;
 

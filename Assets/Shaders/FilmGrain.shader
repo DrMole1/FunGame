@@ -1,12 +1,14 @@
 // Grain d'écran : bruit gris dessiné après la scène, avant les interfaces (Canvas en Screen Space Overlay).
 // Fusion multiplicative x2 : 0,5 laisse l'image intacte, au-dessus éclaircit, en dessous assombrit.
 // _Intensity (0 à 1) est réglé par le jeu ; le motif change 24 fois par seconde, comme une pellicule.
+// _Brightness assombrit la scène (1 = intacte), par exemple quand la souris survole un menu.
 Shader "FunGame/FilmGrain"
 {
     Properties
     {
         _Intensity ("Intensité", Range(0, 1)) = 0.18
         _GrainSize ("Taille du grain (pixels)", Float) = 1.5
+        _Brightness ("Luminosité", Range(0, 1)) = 1
     }
     SubShader
     {
@@ -23,7 +25,7 @@ Shader "FunGame/FilmGrain"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
-            float _Intensity, _GrainSize;
+            float _Intensity, _GrainSize, _Brightness;
 
             struct v2f
             {
@@ -53,7 +55,7 @@ Shader "FunGame/FilmGrain"
                 float2 p = cell + frame * float2(37.0, 17.0);
                 // Deux tirages moyennés : un grain plus doux, concentré autour du gris neutre.
                 float n = (Hash(p) + Hash(p + 113.0)) * 0.5 - 0.5;
-                float g = 0.5 + n * _Intensity;
+                float g = (0.5 + n * _Intensity) * _Brightness;
                 return fixed4(g, g, g, 1);
             }
             ENDCG

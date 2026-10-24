@@ -235,7 +235,7 @@ public partial class GameSession
 
     // ================= /give (hôte) =================
 
-    // "/give 1" : une Croquette (ID du Terminal) ; "/give O4" : un Trampoline (autres objets). La Boussole s'active pour tous.
+    // "/give 1" : une Cuisse de poulet (ID du Terminal) ; "/give O4" : un Trampoline (autres objets). La Boussole s'active pour tous.
     public string Give(string arg)
     {
         if (!net.IsHost) return null;

@@ -13,7 +13,7 @@ public static class SoundBank
     public static readonly string[] All =
     {
         "button", "door", "tick", "tock", "fanfare", "gameover", "laser_on", "laser_hum", "laser_hit",
-        "hurt", "death", "revive", "duck", "pop", "skin", "eat", "key", "beep", "error", "register",
+        "hurt", "death", "revive", "duck", "pop", "skin", "eat", "key", "beep", "error", "register", "sell_bell",
         "hub_music", "maze_drone", "insects", "neon", "blink", "step_tile", "step_dirt",
         "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
@@ -77,6 +77,7 @@ public static class SoundBank
             case "beep": return Beep(880f, 0.12f);
             case "error": return ErrorBeep();
             case "register": return Register(rnd);
+            case "sell_bell": return SellBell(rnd);
             case "hub_music": return HubMusic(rnd);
             case "maze_drone": return MazeDrone(rnd);
             case "insects": return Insects(rnd);
@@ -612,6 +613,29 @@ public static class SoundBank
                 s += (Sine(1568f * u) + Sine(2093f * u) * 0.6f + Sine(4320f * u) * 0.2f) * AD(u, 0.002f, 0.3f) * 0.6f;
             }
             d[i] = s;
+        }
+        return d;
+    }
+
+    // Vente à Pogo : petite clochette qui tinte deux fois, en même temps que la caisse enregistreuse.
+    static float[] SellBell(System.Random rnd)
+    {
+        var d = Buffer(1.1f);
+        // Partiels inharmoniques d'une clochette en laiton.
+        (float ratio, float amp, float decay)[] partials = { (1f, 1f, 0.45f), (2.32f, 0.5f, 0.3f), (4.25f, 0.25f, 0.18f), (6.63f, 0.12f, 0.1f) };
+        (float start, float f, float amp)[] strikes = { (0f, 1975f, 1f), (0.13f, 2093f, 0.7f) };
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate, v = 0f;
+            foreach (var (start, f, amp) in strikes)
+            {
+                float u = t - start;
+                if (u < 0f) continue;
+                foreach (var (ratio, pa, decay) in partials)
+                    v += Sine(f * ratio * u) * pa * amp * AD(u, 0.001f, decay);
+                v += Noise(rnd) * 0.15f * amp * Decay(u, 0.004f);
+            }
+            d[i] = v * 0.4f;
         }
         return d;
     }

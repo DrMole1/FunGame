@@ -12,6 +12,8 @@ public class PlayerPresence : MonoBehaviour
     public bool Sneaking;
     // Dans un Canon (V0.5, note 02 du 7.5) : aucune entité ne peut le prendre pour cible.
     public bool InCannon;
+    // En téléportation : aucune entité ne peut le prendre pour cible (les poursuites s'arrêtent) et il n'allume pas les Lasers.
+    public bool Teleporting;
 
     // Autres joueurs : dernière position reçue du réseau, en avance sur celle affichée (lissée avec retard).
     [System.NonSerialized] public bool HasNetPosition;
@@ -69,7 +71,7 @@ public class Laser : MonoBehaviour
         bool active = false;
         foreach (var p in PlayerPresence.All)
         {
-            if (!p.Alive) continue;
+            if (!p.Alive || p.Teleporting) continue;
             float range = GameRules.LaserTriggerDistance * (p.Sneaking ? 0.5f : 1f);
             if (DistancePointSegment(p.Position, a, b) <= range) { active = true; break; }
         }
@@ -96,7 +98,7 @@ public class Laser : MonoBehaviour
         var session = GameSession.Instance;
         PlayerPresence local = session != null ? session.LocalPresence : null;
         bool hit = false;
-        if (Active && local != null && local.Alive && local.isActiveAndEnabled)
+        if (Active && local != null && local.Alive && local.isActiveAndEnabled && !local.Teleporting)
         {
             Vector3 c = local.Position;
             Vector3 lo = c + Vector3.down * (PlayerHalfHeight - PlayerRadius);
@@ -113,7 +115,7 @@ public class Laser : MonoBehaviour
         touching = hit;
     }
 
-    static float DistancePointSegment(Vector3 p, Vector3 s0, Vector3 s1)
+    public static float DistancePointSegment(Vector3 p, Vector3 s0, Vector3 s1)
     {
         Vector3 d = s1 - s0;
         float t = Mathf.Clamp01(Vector3.Dot(p - s0, d) / d.sqrMagnitude);

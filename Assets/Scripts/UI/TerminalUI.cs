@@ -174,7 +174,7 @@ public class TerminalUI : MonoBehaviour
             foreach (var def in Items.Buyable())
                 // Une fois achetée, la Boussole disparaît des propositions.
                 if (def.type != ItemType.Boussole || !session.CompassUnlocked)
-                    sb.Append("\n  ID ").Append(def.terminalId).Append(" - ").Append(def.name).Append(" : ").Append(def.buyPrice).Append(" golds");
+                    sb.Append("\n  ID ").Append(def.terminalId).Append(" - ").Append(def.name).Append(" : ").Append(Items.Price(def.buyPrice));
             sb.Append("\nÉcrire l'ID de l'objet à acheter.");
             Print(sb.ToString());
             mode = Mode.Buy;
@@ -255,7 +255,7 @@ public class TerminalUI : MonoBehaviour
         int slot = arg[0] - '1';
         ItemDef sold = session.SellSlot(slot);
         if (sold == null) Error("Vous n'avez pas d'objet " + (slot + 1) + " en inventaire !" + Quit);
-        else Print("Vous avez vendu " + sold.name + " pour " + sold.sellPrice + " golds !" + Quit);
+        else Print("Vous avez vendu " + sold.name + " pour " + Items.Price(sold.sellPrice) + " !" + Quit);
     }
 
     void Buy(string arg)
@@ -279,7 +279,7 @@ public class TerminalUI : MonoBehaviour
         }
         if (session.Cash < def.buyPrice && !session.Godmode)
         {
-            Error("Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
+            Error("Cagnotte insuffisante pour acheter " + def.name + " (" + Items.Price(def.buyPrice) + ")." + Quit);
             return;
         }
         waitingBuy = true;
@@ -292,13 +292,13 @@ public class TerminalUI : MonoBehaviour
         waitingBuy = false;
         if (!IsOpen || def == null) return;
         if (ok && def.type == ItemType.Boussole)
-            Print("Vous avez acheté la Boussole pour " + (session.Godmode ? 0 : def.buyPrice) + " golds !\nElle s'affiche désormais en haut de l'écran de tous les joueurs." + Quit);
+            Print("Vous avez acheté la Boussole pour " + Items.Price(session.Godmode ? 0 : def.buyPrice) + " !\nElle s'affiche désormais en haut de l'écran de tous les joueurs." + Quit);
         else if (ok)
-            Print("Vous avez acheté " + def.name + " pour " + (session.Godmode ? 0 : def.buyPrice) + " golds !" + Quit);
+            Print("Vous avez acheté " + def.name + " pour " + Items.Price(session.Godmode ? 0 : def.buyPrice) + " !" + Quit);
         else if (alreadyOwned)
             Print("La Boussole a déjà été achetée." + Quit);
         else
-            Print("Cagnotte insuffisante pour acheter " + def.name + " (" + def.buyPrice + " golds)." + Quit);
+            Print("Cagnotte insuffisante pour acheter " + def.name + " (" + Items.Price(def.buyPrice) + ")." + Quit);
     }
 
     // Réponse de l'hôte à /skip round (bonus : golds ajoutés à la cagnotte, -1 si refusé).
@@ -307,7 +307,7 @@ public class TerminalUI : MonoBehaviour
         waitingSkip = false;
         if (!IsOpen) return;
         if (bonus < 0) Error("Le quota de la manche n'est pas encore atteint." + Quit);
-        else Print("Manche passée ! " + bonus + " golds ajoutés à la cagnotte pour le temps restant." + Quit);
+        else Print("Manche passée ! " + Items.Price(bonus) + (bonus > 1 ? " ajoutées" : " ajoutée") + " à la cagnotte pour le temps restant." + Quit);
     }
 
     void Error(string text)

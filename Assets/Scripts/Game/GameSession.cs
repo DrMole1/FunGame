@@ -891,12 +891,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         hub.timerText.text = time;
         hub.quotaText.text = "Quota : " + progress + " / " + quota;
         if (skipButton.gameObject.activeSelf != CanSkipRound) skipButton.gameObject.SetActive(CanSkipRound);
-        hub.cashText.text = "Cagnotte : " + cash + " golds";
+        hub.cashText.text = "Cagnotte : " + Items.Price(cash);
         hub.logText.text = string.Join("\n", logs);
         hub.roundBoardText.text = RoundBoardText();
     }
 
-    // Classement des joueurs connectés : golds gagnés pendant la manche, puis morts.
+    // Classement des joueurs connectés : croquettes gagnées pendant la manche, puis morts.
     string RoundBoardText()
     {
         var rows = new List<(string name, int golds, int deaths)>();
@@ -909,7 +909,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         var sb = new StringBuilder("<size=110>Manche " + statsRound + "</size>\n");
         for (int i = 0; i < rows.Count; i++)
             sb.Append('\n').Append(i + 1).Append(". ").Append(rows[i].name).Append(" : ")
-              .Append(rows[i].golds).Append(" golds · ").Append(rows[i].deaths).Append(rows[i].deaths > 1 ? " morts" : " mort");
+              .Append(Items.Price(rows[i].golds)).Append(" · ").Append(rows[i].deaths).Append(rows[i].deaths > 1 ? " morts" : " mort");
         return sb.ToString();
     }
 
@@ -1140,18 +1140,18 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (slot < 0) return;
         switch (status[slot])
         {
-            case ItemType.Croquette:
+            case ItemType.CuisseDePoulet:
                 if (status.Hp >= GameRules.MaxHp && status.Serenity >= GameRules.MaxSerenity)
                 {
                     hud.Toast("Votre vie et votre sérénité sont déjà au maximum.");
                     return;
                 }
                 status.RemoveAt(slot);
-                status.SetHp(status.Hp + Items.CroquetteHeal);
-                status.SetSerenity(status.Serenity + Items.CroquetteSerenity);
+                status.SetHp(status.Hp + Items.CuisseHeal);
+                status.SetSerenity(status.Serenity + Items.CuisseSerenity);
                 GameAudio.Play2D("eat", 0.8f, 0.1f);
                 Gesture(PlayerGesture.Eat);
-                hud.Toast("Miam ! +" + Items.CroquetteHeal + " PV, +" + Items.CroquetteSerenity + " de sérénité");
+                hud.Toast("Miam ! +" + Items.CuisseHeal + " PV, +" + Items.CuisseSerenity + " de sérénité");
                 break;
             case ItemType.Balise:
                 TryPlaceBeacon(slot, DeviceKind.Beacon);
@@ -1349,6 +1349,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Gesture(PlayerGesture.Use);
         net.ToHost("JS|" + (int)type);
         GameAudio.Play2D("register", 0.8f);
+        GameAudio.Play2D("sell_bell", 0.7f);
     }
 
     // ================= Orbes et porte de la Zone 2 =================
@@ -1855,6 +1856,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     void StartTeleport(Beacon pad, List<Vector3> path)
     {
         Teleporting = true;
+        presence.Teleporting = true;
         // Avalé par le Téléporteur : la boule part du disque.
         path.Insert(0, pad.transform.position + Vector3.up * 0.9f);
         teleportPath = path;
@@ -1893,6 +1895,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         if (!Teleporting) return;
         Teleporting = false;
+        presence.Teleporting = false;
         if (energyBall != null) energyBall.SetActive(false);
         avatar.SetHidden(false);
         if (!restore) return;
@@ -2406,7 +2409,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 cash += def.sellPrice;
                 StatsOf(from).golds += def.sellPrice;
                 net.ToAll(StatsMsg());
-                Log("Le joueur " + NameOf(from) + " a vendu " + def.name + " pour " + def.sellPrice + " golds.");
+                Log("Le joueur " + NameOf(from) + " a vendu " + def.name + " pour " + Items.Price(def.sellPrice) + ".");
                 BroadcastState();
                 break;
             }
@@ -2426,7 +2429,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 {
                     cash -= price;
                     if (def.type == ItemType.Boussole) compass = true;
-                    Log("Le joueur " + NameOf(from) + " a acheté " + def.name + " pour " + price + " golds.");
+                    Log("Le joueur " + NameOf(from) + " a acheté " + def.name + " pour " + Items.Price(price) + ".");
                     BroadcastState();
                     net.ToPeer(from, "BO|1|" + (int)def.type + "|" + cash);
                 }
@@ -2623,7 +2626,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 cash += def.sellPrice;
                 StatsOf(from).golds += def.sellPrice;
                 net.ToAll(StatsMsg());
-                Log("Le joueur " + NameOf(from) + " a vendu " + def.name + " pour " + def.sellPrice + " golds.");
+                Log("Le joueur " + NameOf(from) + " a vendu " + def.name + " pour " + Items.Price(def.sellPrice) + ".");
                 // Sujet de test : un objet vendu à Pogo.
                 testFlags |= TestPogoSale;
                 BroadcastState();
@@ -2724,10 +2727,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                     net.ToPeer(from, "SR|-1");
                     break;
                 }
-                // 10 golds par tranche de 10 secondes restant au Compteur de Temps.
+                // 10 croquettes par tranche de 10 secondes restant au Compteur de Temps.
                 int bonus = Mathf.FloorToInt(timeLeft / 10f) * 10;
                 cash += bonus;
-                Log("Le joueur " + NameOf(from) + " passe la manche " + round + " : " + bonus + " golds ajoutés à la cagnotte.");
+                Log("Le joueur " + NameOf(from) + " passe la manche " + round + " : " + Items.Price(bonus) + (bonus > 1 ? " ajoutées" : " ajoutée") + " à la cagnotte.");
                 net.ToPeer(from, "SR|" + bonus);
                 EndRound();
                 break;
