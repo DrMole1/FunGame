@@ -8,6 +8,8 @@ public class RemotePlayer : MonoBehaviour
     public string PlayerName { get; private set; }
     public int Hp { get; private set; } = GameRules.MaxHp;
     public bool Dead => presence.Alive == false;
+    // Terminal ouvert chez ce joueur (dernier état reçu).
+    public bool InTerminal { get; private set; }
 
     readonly NetSmoother smoother = new NetSmoother();
     bool hasTarget;
@@ -83,6 +85,7 @@ public class RemotePlayer : MonoBehaviour
         bool dead = (flags & NetworkGame.FlagDead) != 0;
         if (hasTarget && !dead && hp < Hp) GameAudio.Play3D("hurt", transform.position, 0.5f, 15f, 0.1f);
         Hp = hp;
+        InTerminal = (flags & NetworkGame.FlagTerminal) != 0;
         bool sneaking = (flags & NetworkGame.FlagSneak) != 0;
         if (sneaking != presence.Sneaking)
         {

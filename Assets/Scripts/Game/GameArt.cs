@@ -190,6 +190,13 @@ public static class GameArt
 
     // Brume de l'Abjuration (shader Mist, intensité globale _Abjuration).
     public static Material Mist => FromTemplate("Mist", () => Unlit("MistFallback", new Color(0.2f, 0.4f, 0.8f)));
+
+    // Grain d'écran (shader FilmGrain) ; sans lui, pas de grain.
+    public static Material FilmGrain => FromTemplate("FilmGrain", () =>
+    {
+        var shader = Shader.Find("FunGame/FilmGrain");
+        return shader != null ? new Material(shader) { name = "FilmGrain" } : null;
+    });
     // Battant ectoplasmique de la porte de la Zone 2.
     public static Material Ectoplasm => FromTemplate("Ectoplasm", () => Emissive("EctoFallback", new Color(0.1f, 0.3f, 0.7f), new Color(0.1f, 0.35f, 0.9f)));
     // Aura bleue des orbes activés.

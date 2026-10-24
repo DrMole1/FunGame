@@ -124,6 +124,7 @@ public class OrbitCamera : MonoBehaviour
     {
         yaw = transform.eulerAngles.y;
         currentDistance = distance;
+        if (GetComponent<FilmGrain>() == null) gameObject.AddComponent<FilmGrain>();
     }
 
     void Update()

@@ -51,6 +51,7 @@ public static class GameSetup
         CreateMaterial("Glow", "FunGame/Glow", null);
         CreateMaterial("Translucent", "FunGame/Translucent", null);
         CreateMaterial("Explosion", "FunGame/Explosion", null);
+        CreateMaterial("FilmGrain", "FunGame/FilmGrain", null);
 
         // Sol du chapiteau : terre gravillonnée (texture 4K réduite pour le build WebGL).
         const string groundPath = "Assets/Materials/Basemap/zGround022_4K-PNG_Color.png";

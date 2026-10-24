@@ -105,6 +105,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     float localDigEnd;
     readonly List<string> logs = new List<string>();
     string terminalUser = "";
+    // Moment où l'hôte a confié le Terminal : le temps que l'état « Terminal ouvert » du joueur lui parvienne.
+    float terminalGrantedAt = -100f;
+    const float TerminalGrantGrace = 1.5f;
     // Tableau de Manche : golds gagnés et morts de chaque joueur pendant la manche en cours.
     class RoundStats { public int golds, deaths; }
     readonly Dictionary<string, RoundStats> roundStats = new Dictionary<string, RoundStats>();
@@ -1959,12 +1962,18 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     public void RequestTerminal()
     {
-        if (terminalUser.Length > 0 && terminalUser != net.MyId)
-        {
-            hud.Toast("Un autre joueur utilise déjà le Terminal");
-            return;
-        }
+        // L'hôte vérifie au moment de la demande si un autre joueur a réellement le Terminal ouvert.
         net.ToHost("TU|1");
+    }
+
+    // Côté hôte : le Terminal n'est occupé que si son utilisateur est encore là et l'a vraiment ouvert,
+    // ou vient de le recevoir (son état « Terminal ouvert » n'est peut-être pas encore arrivé).
+    bool TerminalBusyFor(string requester)
+    {
+        if (terminalUser.Length == 0 || terminalUser == requester || !net.Roster.ContainsKey(terminalUser)) return false;
+        if (Time.time - terminalGrantedAt < TerminalGrantGrace) return true;
+        if (terminalUser == net.MyId) return TerminalUI.IsOpen;
+        return net.Remotes.TryGetValue(terminalUser, out var rp) && rp.InTerminal && !rp.Dead;
     }
 
     public void ReleaseTerminal() => net.ToHost("TU|0");
@@ -2187,6 +2196,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             timeLeft = 0f;
             hostAbjuration = false;
             ClearEntities();
+            // Le Terminal, fermé sans être libéré, redevient libre pour tout le monde.
+            net.ToAll("TS|");
             BroadcastState();
             OnGameOver();
         }
@@ -2211,6 +2222,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         valueBoost = GameRules.ValueBoost(net.Roster.Count);
         ResetRoundStats(1);
         ResetHubFixtures();
+        net.ToAll("TS|");
         net.ToAll(PogoMsg(""));
         ApplyWorld();
         BroadcastState();
@@ -2237,7 +2249,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             return;
         }
         if (allDeadSince < 0f) allDeadSince = Time.time;
-        if (Time.time - allDeadSince >= WipeOutDelay) net.ToAll("WO");
+        if (Time.time - allDeadSince >= WipeOutDelay)
+        {
+            net.ToAll("TS|");
+            net.ToAll("WO");
+        }
     }
 
     void OnWipeOut()
@@ -2430,8 +2446,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case "TU" when host && f.Length >= 2:
                 if (f[1] == "1")
                 {
-                    if (terminalUser.Length == 0 || terminalUser == from || !net.Roster.ContainsKey(terminalUser))
+                    if (!TerminalBusyFor(from))
                     {
+                        terminalGrantedAt = Time.time;
                         net.ToAll("TS|" + from);
                         net.ToPeer(from, "TG|1");
                     }

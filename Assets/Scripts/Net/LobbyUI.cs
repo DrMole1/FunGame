@@ -24,6 +24,7 @@ public class LobbyUI : MonoBehaviour
     readonly System.Collections.Generic.List<Text> musicLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> sfxLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> brightLabels = new System.Collections.Generic.List<Text>();
+    readonly System.Collections.Generic.List<Text> grainLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> sensitivityLabels = new System.Collections.Generic.List<Text>();
     float copyFeedbackTimer;
     Text versionText;
@@ -136,7 +137,7 @@ public class LobbyUI : MonoBehaviour
         lobbyPanel = UiKit.Panel(root, "Lobby", new Vector2(460, 700));
         // À gauche : le personnage choisi reste visible au centre de l'écran.
         UiKit.Place(lobbyPanel, new Vector2(0f, 0.5f), new Vector2(40, 0));
-        var layout = UiKit.Column(lobbyPanel, 36, 10);
+        var layout = UiKit.Column(lobbyPanel, 36, 8);
         Transform p = lobbyPanel.transform;
 
         // Fond peint plus haut que le panneau : les extrémités du coup de pinceau sortent de l'écran.
@@ -157,7 +158,7 @@ public class LobbyUI : MonoBehaviour
         UiKit.Label(p, "Skin", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         lobbySkin = UiKit.Selector(p, 48, () => ChangeSkin(-1), () => ChangeSkin(1));
         PaintSelector(lobbySkin, 3);
-        VolumeRows(p, 36, 20, false);
+        VolumeRows(p, 30, 20, false);
 
         UiKit.Spacer(p, 4);
         var hostGo = UiKit.Button(p, "Héberger une partie", HostRed, 54, () => net.HostGame(nameField.text));
@@ -188,7 +189,7 @@ public class LobbyUI : MonoBehaviour
         layout.padding = new RectOffset(36, 36, 30, 26);
     }
 
-    // Volumes de la musique et des effets sonores (GDD 6.1 et 6.2), luminosité et sensibilité de la souris, par pas de 10 %.
+    // Volumes de la musique et des effets sonores (GDD 6.1 et 6.2), luminosité, sensibilité de la souris et grain, par pas de 10 %.
     void VolumeRows(Transform p, float height, int seed, bool brightness)
     {
         musicLabels.Add(VolumeRow(p, "Musique", height, seed, step => GameAudio.MusicVolume = Step(GameAudio.MusicVolume, step)));
@@ -197,6 +198,8 @@ public class LobbyUI : MonoBehaviour
         if (brightness) brightLabels.Add(VolumeRow(p, "Luminosité", height, seed + 4, step => Brightness.Value = Step(Brightness.Value, step)));
         // Sensibilité de la souris pour la caméra, sous la luminosité (Note 05, V0.5).
         if (brightness) sensitivityLabels.Add(VolumeRow(p, "Sensibilité", height, seed + 6, step => MouseSensitivity.Value = Step(MouseSensitivity.Value, step)));
+        // Grain d'écran, dans le lobby comme dans le menu pause.
+        grainLabels.Add(VolumeRow(p, "Grain", height, seed + 8, step => FilmGrain.Value = Step(FilmGrain.Value, step)));
         RefreshVolumes();
     }
 
@@ -226,6 +229,7 @@ public class LobbyUI : MonoBehaviour
         foreach (var t in sfxLabels) t.text = Mathf.RoundToInt(GameAudio.SfxVolume * 100f) + " %";
         foreach (var t in brightLabels) t.text = Mathf.RoundToInt(Brightness.Value * 100f) + " %";
         foreach (var t in sensitivityLabels) t.text = Mathf.RoundToInt(MouseSensitivity.Value * 100f) + " %";
+        foreach (var t in grainLabels) t.text = Mathf.RoundToInt(FilmGrain.Value * 100f) + " %";
     }
 
     // Boutons "<" et ">" d'un sélecteur, en coups de pinceau.
@@ -238,7 +242,7 @@ public class LobbyUI : MonoBehaviour
     void BuildPause(Transform root)
     {
         // À gauche : partie, skin, volumes, quitter.
-        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 558));
+        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 602));
         UiKit.Paint(pausePanel, PanelBlack, 11);
         UiKit.Place(pausePanel, new Vector2(0f, 1f), new Vector2(16, -16));
         UiKit.Column(pausePanel, 34, 8);

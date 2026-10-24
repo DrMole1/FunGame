@@ -22,7 +22,7 @@ public class NetworkGame : MonoBehaviour
     // Image plus longue que ceci chez l'hôte : son onglet était probablement en arrière-plan.
     const float HostStallWarning = 3f;
     const float ConnectTimeout = 15f;
-    public const int FlagDead = 1, FlagSneak = 2, FlagTeleport = 4, FlagHidden = 8, FlagCannonball = 16;
+    public const int FlagDead = 1, FlagSneak = 2, FlagTeleport = 4, FlagHidden = 8, FlagCannonball = 16, FlagTerminal = 32;
 
     enum State { Lobby, Hosting, Joining, InGame }
 
@@ -121,7 +121,7 @@ public class NetworkGame : MonoBehaviour
             sendTimer = Mathf.Min(sendTimer - SendInterval, SendInterval);
             Vector3 p = t.position;
             int flags = (session.LocalDead ? FlagDead : 0) | (localPlayer.Sneaking ? FlagSneak : 0) | (GameSession.Teleporting ? FlagTeleport : 0)
-                | (GameSession.InCannon ? FlagHidden : 0) | (GameSession.CannonFlying ? FlagCannonball : 0);
+                | (GameSession.InCannon ? FlagHidden : 0) | (GameSession.CannonFlying ? FlagCannonball : 0) | (TerminalUI.IsOpen ? FlagTerminal : 0);
             string msg = "S|" + myId + "|" + F(p.x) + "|" + F(p.y) + "|" + F(p.z) + "|" + F(t.eulerAngles.y)
                 + "|" + (int)localPlayer.CurrentAnimState + "|" + session.LocalHp + "|" + flags + "|" + Clock();
             if (isHost) PeerNet.BroadcastFast(msg);
