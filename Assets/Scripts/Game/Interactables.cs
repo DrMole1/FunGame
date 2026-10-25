@@ -110,7 +110,7 @@ public class ItemPickup : Interactable
         }
     }
 
-    public override string Prompt => "Ramasser " + Items.Get(Type).name;
+    public override string Prompt => Loc.F("Ramasser {0}", Items.Get(Type).name);
     public override void Interact() => GameSession.Instance.RequestPickup(this);
 }
 
@@ -176,7 +176,7 @@ public class RedButton : Interactable
         return button;
     }
 
-    public override string Prompt => "Appuyer sur le Bouton Rouge";
+    public override string Prompt => Loc.T("Appuyer sur le Bouton Rouge");
     public override void Interact() => GameSession.Instance.PressButton();
 }
 
@@ -214,7 +214,7 @@ public class SkipButton : Interactable
 
     const float SkipPlateHeight = 0.65f;
 
-    public override string Prompt => "Passer à la manche suivante";
+    public override string Prompt => Loc.T("Passer à la manche suivante");
     public override void Interact()
     {
         string refusal = GameSession.Instance.RequestSkipRound();
@@ -245,7 +245,7 @@ public class TerminalStation : Interactable
         return station;
     }
 
-    public override string Prompt => "Utiliser le Terminal";
+    public override string Prompt => Loc.T("Utiliser le Terminal");
     public override void Interact() => GameSession.Instance.RequestTerminal();
 }
 
@@ -311,12 +311,12 @@ public class Kennel : Interactable
     {
         PlayerName = playerName;
         TargetDead = dead;
-        string status = dead ? "<color=#ff3030>MORT</color>" : "<color=#30ff50>EN VIE</color>";
-        sign.text = "<b>" + playerName + "</b>\nPV : " + hp + " / " + GameRules.MaxHp + "\nDistance : " + Mathf.RoundToInt(distance) + " m\n" + status;
+        string status = dead ? "<color=#ff3030>" + Loc.T("MORT") + "</color>" : "<color=#30ff50>" + Loc.T("EN VIE") + "</color>";
+        sign.text = "<b>" + playerName + "</b>\n" + Loc.F("PV : {0} / {1}", hp, GameRules.MaxHp) + "\n" + Loc.F("Distance : {0} m", Mathf.RoundToInt(distance)) + "\n" + status;
     }
 
     public override bool CanInteract => TargetDead;
-    public override string Prompt => "Réanimer " + PlayerName;
+    public override string Prompt => Loc.F("Réanimer {0}", PlayerName);
     public override void Interact() => GameSession.Instance.RequestRevive(PlayerId);
 }
 
@@ -498,6 +498,6 @@ public class PostItNote : Interactable
 
     // Pas de retrait pendant les 2 secondes qui suivent la pose.
     public override bool CanInteract => Time.time - placedAt >= Items.PostItLockSeconds;
-    public override string Prompt => "Retirer le Post-It";
+    public override string Prompt => Loc.T("Retirer le Post-It");
     public override void Interact() => GameSession.Instance.RemovePostIt(Id);
 }

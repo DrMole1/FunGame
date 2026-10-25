@@ -206,6 +206,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         terminal.Init(this);
         postItUI = gameObject.AddComponent<PostItUI>();
         postItUI.Init(OnPostItWritten);
+        Loc.Changed += OnLanguageChanged;
         Shader.SetGlobalFloat("_Abjuration", 0f);
         // V0.4.7 : plus d'Abjuration autour du Roi.
         Shader.SetGlobalVectorArray("_RoiMist", new Vector4[4]);
@@ -878,10 +879,17 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             spectateId = current != null ? current.PlayerId : null;
         }
         orbit.target = current != null ? current.transform : player.transform;
-        string end = phase == Phase.GameOver ? "" : "\nUn autre joueur peut vous réanimer depuis votre Chenil, dans le Hub.";
+        string end = phase == Phase.GameOver ? "" : "\n" + Loc.T("Un autre joueur peut vous réanimer depuis votre Chenil, dans le Hub.");
         hud.SetSpectate(current != null
-            ? "Vous êtes mort. Vous regardez " + current.PlayerName + " (clic : changer de joueur)." + end
-            : "Vous êtes mort." + end);
+            ? Loc.F("Vous êtes mort. Vous regardez {0} (clic : changer de joueur).", current.PlayerName) + end
+            : Loc.T("Vous êtes mort.") + end);
+    }
+
+    // Nouvelle langue : HUD et écrans du chapiteau retraduits tout de suite.
+    void OnLanguageChanged()
+    {
+        if (hud != null && status != null) RefreshHud();
+        if (hub != null && skipButton != null) UpdateScreens();
     }
 
     void UpdateScreens()
@@ -889,10 +897,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         int seconds = Mathf.CeilToInt(timeLeft);
         string time = (seconds / 60).ToString("00") + ":" + (seconds % 60).ToString("00");
         hub.timerText.text = time;
-        hub.quotaText.text = "Quota : " + progress + " / " + quota;
+        hub.quotaText.text = Loc.F("Quota : {0} / {1}", progress, quota);
         if (skipButton.gameObject.activeSelf != CanSkipRound) skipButton.gameObject.SetActive(CanSkipRound);
-        hub.cashText.text = "Cagnotte : " + Items.Price(cash);
-        hub.logText.text = string.Join("\n", logs);
+        hub.cashText.text = Loc.F("Cagnotte : {0}", Items.Price(cash));
+        hub.logText.text = string.Join("\n", logs.ConvertAll(Loc.Line));
         hub.roundBoardText.text = RoundBoardText();
     }
 
@@ -906,10 +914,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             rows.Add((kv.Value.name, s?.golds ?? 0, s?.deaths ?? 0));
         }
         rows.Sort((a, b) => a.golds != b.golds ? b.golds.CompareTo(a.golds) : a.deaths.CompareTo(b.deaths));
-        var sb = new StringBuilder("<size=110>Manche " + statsRound + "</size>\n");
+        var sb = new StringBuilder("<size=110>" + Loc.F("Manche {0}", statsRound) + "</size>\n");
         for (int i = 0; i < rows.Count; i++)
             sb.Append('\n').Append(i + 1).Append(". ").Append(rows[i].name).Append(" : ")
-              .Append(Items.Price(rows[i].golds)).Append(" · ").Append(rows[i].deaths).Append(rows[i].deaths > 1 ? " morts" : " mort");
+              .Append(Items.Price(rows[i].golds)).Append(" · ").Append(Loc.N(rows[i].deaths, "{0} mort|{0} morts", rows[i].deaths));
         return sb.ToString();
     }
 
@@ -1044,7 +1052,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (!net.IsHost) return null;
         Godmode = on;
         if (on) player.ReleaseImmobilize();
-        return on ? "Godmod activé : achats gratuits, invincible, sérénité intacte, jamais immobilisé." : "Godmod désactivé.";
+        return Loc.T(on ? "Godmod activé : achats gratuits, invincible, sérénité intacte, jamais immobilisé." : "Godmod désactivé.");
     }
 
     bool Invincible => Time.time < invincibleUntil || Godmode || CannonFlying || InCannon;
@@ -1143,7 +1151,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case ItemType.CuisseDePoulet:
                 if (status.Hp >= GameRules.MaxHp && status.Serenity >= GameRules.MaxSerenity)
                 {
-                    hud.Toast("Votre vie et votre sérénité sont déjà au maximum.");
+                    hud.Toast(Loc.T("Votre vie et votre sérénité sont déjà au maximum."));
                     return;
                 }
                 status.RemoveAt(slot);
@@ -1151,7 +1159,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 status.SetSerenity(status.Serenity + Items.CuisseSerenity);
                 GameAudio.Play2D("eat", 0.8f, 0.1f);
                 Gesture(PlayerGesture.Eat);
-                hud.Toast("Miam ! +" + Items.CuisseHeal + " PV, +" + Items.CuisseSerenity + " de sérénité");
+                hud.Toast(Loc.F("Miam ! +{0} PV, +{1} de sérénité", Items.CuisseHeal, Items.CuisseSerenity));
                 break;
             case ItemType.Balise:
                 TryPlaceBeacon(slot, DeviceKind.Beacon);
@@ -1174,13 +1182,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 TryPlaceBeacon(slot, Beacon.KindOf(status[slot]));
                 break;
             case ItemType.Chargeur:
-                hud.Toast("Visez la Balise du Hub, près de la porte, pour la recharger.");
+                hud.Toast(Loc.T("Visez la Balise du Hub, près de la porte, pour la recharger."));
                 break;
             case ItemType.PostIt:
                 TryPlacePostIt(slot);
                 break;
             case ItemType.Cle:
-                hud.Toast("Visez un orbe activé, devant la porte de la Zone 2, pour le briser avec la Clé.");
+                hud.Toast(Loc.T("Visez un orbe activé, devant la porte de la Zone 2, pour le briser avec la Clé."));
                 break;
         }
     }
@@ -1202,7 +1210,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             && Vector3.Distance(hit.point, player.transform.position) <= GameRules.InteractRange + 1f;
         if (!wall)
         {
-            hud.Toast("Visez un mur tout proche pour y accrocher le Post-It.");
+            hud.Toast(Loc.T("Visez un mur tout proche pour y accrocher le Post-It."));
             return;
         }
         postItSlot = slot;
@@ -1247,17 +1255,17 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             && Vector3.Distance(hit.point, player.transform.position) <= GameRules.InteractRange + 1.5f;
         if (!ground)
         {
-            hud.Toast("Visez le sol, tout près de vous, pour y poser : " + what + ".");
+            hud.Toast(Loc.F("Visez le sol, tout près de vous, pour y poser : {0}.", what));
             return;
         }
         if (WorldBuilder.IsInHub(hit.point) && !Items.IsUnique(status[slot]) && kind != DeviceKind.Beacon && kind != DeviceKind.Enhanced)
         {
-            hud.Toast(what + " : à poser hors du Hub.");
+            hud.Toast(Loc.F("{0} : à poser hors du Hub.", what));
             return;
         }
         if (kind == DeviceKind.Canon && NearWall(hit.point, hit.collider, 1f))
         {
-            hud.Toast(what + " : à poser à plus d'1 mètre d'un mur.");
+            hud.Toast(Loc.F("{0} : à poser à plus d'1 mètre d'un mur.", what));
             return;
         }
         status.RemoveAt(slot);
@@ -1294,8 +1302,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             int slot = status.Selected;
             if (slot < 0 || status[slot] != ItemType.Chargeur)
             {
-                hud.Toast(beacons.HubCharged ? "La Balise du Hub est chargée. Un Chargeur prolonge sa charge."
-                                             : "La Balise du Hub est déchargée : sélectionnez un Chargeur pour la recharger.");
+                hud.Toast(Loc.T(beacons.HubCharged ? "La Balise du Hub est chargée. Un Chargeur prolonge sa charge."
+                                             : "La Balise du Hub est déchargée : sélectionnez un Chargeur pour la recharger."));
                 return;
             }
             status.RemoveAt(slot);
@@ -1305,7 +1313,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         if (!HasFreeSlot)
         {
-            hud.Toast("Votre inventaire est plein !");
+            hud.Toast(Loc.T("Votre inventaire est plein !"));
             return;
         }
         pendingPickups++;
@@ -1374,22 +1382,22 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // /spawn : fait apparaître l'entité 'id' dans la Zone 1. Retourne le message du Terminal.
     public string SpawnEntity(int id)
     {
-        if (!net.IsHost) return "Commande Incorrecte.";
-        if (maze == null || phase == Phase.GameOver) return "Impossible pour le moment.";
+        if (!net.IsHost) return Loc.T("Commande Incorrecte.");
+        if (maze == null || phase == Phase.GameOver) return Loc.T("Impossible pour le moment.");
         var rnd = new System.Random(seed + nextEntityId * 131 + Mathf.RoundToInt(Time.time * 10f));
         switch (id)
         {
-            case 1: return "Les Lasers ne peuvent plus apparaître une fois le terrain généré.";
-            case 2: return SpawnAt<Dame>(0, rnd, GameRules.EntitySpawnClearance) != null ? "La Dame rôde désormais dans la Zone 1..." : "Impossible pour le moment.";
-            case 3: return SpawnAt<Tour>(0, rnd, GameRules.EntitySpawnClearance) != null ? "La Tour arpente désormais la Zone 1..." : "Impossible pour le moment.";
-            case 4: return SpawnPions(0, rnd) > 0 ? "Des Pions s'installent dans la Zone 1..." : "Impossible pour le moment.";
-            case 5: return SpawnAt<Cloche>(0, rnd, GameRules.EntitySpawnClearance) != null ? "La Cloche attend dans la Zone 1..." : "Impossible pour le moment.";
-            case 6: return SpawnAt<Spider>(0, rnd, GameRules.SpiderSpawnClearance) != null ? "Une Araignée rôde dans la Zone 1..." : "Impossible pour le moment.";
-            case 7: return SpawnAt<Fou>(0, rnd, GameRules.EntitySpawnClearance) != null ? "Le Fou sourit désormais dans la Zone 1..." : "Impossible pour le moment.";
-            case 8: return SpawnAt<Roi>(0, rnd, GameRules.EntitySpawnClearance) != null ? "Le Roi arpente désormais la Zone 1..." : "Impossible pour le moment.";
-            case 9: return SpawnAt<Cavalier>(0, rnd, GameRules.EntitySpawnClearance) != null ? "Le Cavalier galope désormais dans la Zone 1..." : "Impossible pour le moment.";
-            case 10: return phase == Phase.Running ? SpawnReveilNearHost(rnd) : "Impossible pour le moment.";
-            default: return "Aucune entité n'a l'ID " + id + ".";
+            case 1: return Loc.T("Les Lasers ne peuvent plus apparaître une fois le terrain généré.");
+            case 2: return SpawnAt<Dame>(0, rnd, GameRules.EntitySpawnClearance) != null ? Loc.T("La Dame rôde désormais dans la Zone 1...") : Loc.T("Impossible pour le moment.");
+            case 3: return SpawnAt<Tour>(0, rnd, GameRules.EntitySpawnClearance) != null ? Loc.T("La Tour arpente désormais la Zone 1...") : Loc.T("Impossible pour le moment.");
+            case 4: return SpawnPions(0, rnd) > 0 ? Loc.T("Des Pions s'installent dans la Zone 1...") : Loc.T("Impossible pour le moment.");
+            case 5: return SpawnAt<Cloche>(0, rnd, GameRules.EntitySpawnClearance) != null ? Loc.T("La Cloche attend dans la Zone 1...") : Loc.T("Impossible pour le moment.");
+            case 6: return SpawnAt<Spider>(0, rnd, GameRules.SpiderSpawnClearance) != null ? Loc.T("Une Araignée rôde dans la Zone 1...") : Loc.T("Impossible pour le moment.");
+            case 7: return SpawnAt<Fou>(0, rnd, GameRules.EntitySpawnClearance) != null ? Loc.T("Le Fou sourit désormais dans la Zone 1...") : Loc.T("Impossible pour le moment.");
+            case 8: return SpawnAt<Roi>(0, rnd, GameRules.EntitySpawnClearance) != null ? Loc.T("Le Roi arpente désormais la Zone 1...") : Loc.T("Impossible pour le moment.");
+            case 9: return SpawnAt<Cavalier>(0, rnd, GameRules.EntitySpawnClearance) != null ? Loc.T("Le Cavalier galope désormais dans la Zone 1...") : Loc.T("Impossible pour le moment.");
+            case 10: return phase == Phase.Running ? SpawnReveilNearHost(rnd) : Loc.T("Impossible pour le moment.");
+            default: return Loc.F("Aucune entité n'a l'ID {0}.", id);
         }
     }
 
@@ -1938,7 +1946,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         if (!HasFreeSlot)
         {
-            hud.Toast("Votre inventaire est plein !");
+            hud.Toast(Loc.T("Votre inventaire est plein !"));
             return;
         }
         pendingPickups++;
@@ -1950,7 +1958,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         if (!net.IsHost)
         {
-            hud.Toast("Seul l'hôte de la partie peut appuyer sur le Bouton Rouge.");
+            hud.Toast(Loc.T("Seul l'hôte de la partie peut appuyer sur le Bouton Rouge."));
             return;
         }
         if (phase != Phase.Waiting) return;
@@ -2033,8 +2041,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     public string RequestSkipRound()
     {
-        if (phase != Phase.Running) return "Aucune manche n'est en cours.";
-        if (!CanSkipRound) return "Le quota de la manche n'est pas encore atteint.";
+        if (phase != Phase.Running) return Loc.T("Aucune manche n'est en cours.");
+        if (!CanSkipRound) return Loc.T("Le quota de la manche n'est pas encore atteint.");
         net.ToHost("SK");
         return null;
     }
@@ -2067,7 +2075,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                     nearest = d;
             if (nearest == null) return null;
             TeleportNear(nearest.transform.position);
-            return "Téléporté près de " + nearest.DisplayName + ".";
+            return Loc.F("Téléporté près de {0}.", nearest.DisplayName);
         }
         if (lower == "door")
         {
@@ -2076,13 +2084,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             // Côté Zone 1, face à la porte.
             Vector3 p = door.position + door.forward * 3f;
             player.Teleport(new Vector3(p.x, GroundBelow(p) + 0.95f, p.z), door.eulerAngles.y + 180f);
-            return "Téléporté devant la porte de la Zone 2.";
+            return Loc.T("Téléporté devant la porte de la Zone 2.");
         }
         foreach (var rp in net.Remotes.Values)
         {
             if (rp == null || !string.Equals(rp.PlayerName, target, System.StringComparison.OrdinalIgnoreCase)) continue;
             TeleportNear(rp.transform.position);
-            return "Téléporté près de " + rp.PlayerName + ".";
+            return Loc.F("Téléporté près de {0}.", rp.PlayerName);
         }
         return null;
     }
@@ -2139,9 +2147,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         net.ToPeer(to, PogoMsg(""));
     }
 
-    void Log(string text)
+    // Journal : modèle français et arguments, traduits à l'affichage chez chaque joueur (Loc.Line).
+    void Log(string fr, params string[] args) => LogN(-1, fr, args);
+
+    void LogN(int n, string fr, params string[] args)
     {
-        string line = PeerNet.LocalNow.ToString("HH:mm") + " : " + text;
+        string line = PeerNet.LocalNow.ToString("HH:mm") + " : " + Loc.Encode(fr, n, args);
         net.ToAll("LG|" + line);
     }
 
@@ -2159,7 +2170,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     public void OnPlayerJoined(string id)
     {
-        if (net.Roster.TryGetValue(id, out var info)) Log("Le joueur " + info.name + " est connecté.");
+        if (net.Roster.TryGetValue(id, out var info)) Log("Le joueur {0} est connecté.", info.name);
         OnRosterChanged();
     }
 
@@ -2167,7 +2178,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         if (net.IsHost)
         {
-            Log("Le joueur " + playerName + " est déconnecté.");
+            Log("Le joueur {0} est déconnecté.", playerName);
             if (terminalUser == id) net.ToAll("TS|");
         }
         OnRosterChanged();
@@ -2185,7 +2196,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             timeLeft = GameRules.RoundDuration;
             picked.Clear();
             valueBoost = GameRules.ValueBoost(net.Roster.Count);
-            Log("Le quota de la manche " + done + " est validé ! Nouveau quota : " + quota);
+            Log("Le quota de la manche {0} est validé ! Nouveau quota : {1}", done.ToString(), quota.ToString());
             if (hostAbjuration) Log("L'Abjuration se retire ... Pour le moment.");
             hostAbjuration = false;
             ResetRoundStats(round);
@@ -2280,7 +2291,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (!status.Dead) KillLocal(null);
         OrbitCamera.LockCursor(false);
         // Manche, temps, quota et cagnotte ne s'affichent que sur les écrans du chapiteau.
-        hud.ShowGameOver("Le quota n'a pas été atteint." + (net.IsHost ? "" : "\nEn attente de l'hôte pour une nouvelle partie…"),
+        hud.ShowGameOver(Loc.T("Le quota n'a pas été atteint.") + (net.IsHost ? "" : "\n" + Loc.T("En attente de l'hôte pour une nouvelle partie…")),
             net.IsHost);
     }
 
@@ -2409,7 +2420,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 cash += def.sellPrice;
                 StatsOf(from).golds += def.sellPrice;
                 net.ToAll(StatsMsg());
-                Log("Le joueur " + NameOf(from) + " a vendu " + def.name + " pour " + Items.Price(def.sellPrice) + ".");
+                Log("Le joueur {0} a vendu {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(def.sellPrice));
                 BroadcastState();
                 break;
             }
@@ -2429,7 +2440,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 {
                     cash -= price;
                     if (def.type == ItemType.Boussole) compass = true;
-                    Log("Le joueur " + NameOf(from) + " a acheté " + def.name + " pour " + Items.Price(price) + ".");
+                    Log("Le joueur {0} a acheté {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(price));
                     BroadcastState();
                     net.ToPeer(from, "BO|1|" + (int)def.type + "|" + cash);
                 }
@@ -2462,7 +2473,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case "TG" when f.Length >= 2:
                 if (f[1] == "1" && !status.Dead && phase != Phase.GameOver) terminal.Open();
                 else if (f[1] == "1") ReleaseTerminal();
-                else hud.Toast("Un autre joueur utilise déjà le Terminal");
+                else hud.Toast(Loc.T("Un autre joueur utilise déjà le Terminal"));
                 break;
             case "TS" when f.Length >= 2:
                 terminalUser = f[1];
@@ -2473,7 +2484,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 string target = f[1];
                 if (target == from || !net.Roster.ContainsKey(target) || IsDeadForHost(from) || !IsDeadForHost(target)) break;
                 net.ToAll("RA|" + target + "|" + from);
-                Log("Le joueur " + NameOf(target) + " a été réanimé par " + NameOf(from) + ".");
+                Log("Le joueur {0} a été réanimé par {1}.", NameOf(target), NameOf(from));
                 if (net.Remotes.TryGetValue(target, out var rp)) rp.SetStatus(AnimState.Idle, 1, 0);
                 break;
             }
@@ -2482,13 +2493,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (f[1] == net.MyId && status.Dead && phase != Phase.GameOver)
                 {
                     ReviveLocal(KennelSpawn(net.MyId), 1);
-                    hud.Toast(NameOf(f[2]) + " vous a réanimé !");
+                    hud.Toast(Loc.F("{0} vous a réanimé !", NameOf(f[2])));
                 }
                 break;
             case "DE" when host && f.Length >= 2:
                 StatsOf(from).deaths++;
                 net.ToAll(StatsMsg());
-                Log("Le joueur " + NameOf(from) + " est mort par " + f[1] + ".");
+                Log("Le joueur {0} est mort par {1}.", NameOf(from), Loc.Tr(f[1]));
                 break;
             case "SC" when f.Length >= 3:
                 // L'hôte tient déjà ses statistiques à jour.
@@ -2626,7 +2637,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 cash += def.sellPrice;
                 StatsOf(from).golds += def.sellPrice;
                 net.ToAll(StatsMsg());
-                Log("Le joueur " + NameOf(from) + " a vendu " + def.name + " pour " + Items.Price(def.sellPrice) + ".");
+                Log("Le joueur {0} a vendu {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(def.sellPrice));
                 // Sujet de test : un objet vendu à Pogo.
                 testFlags |= TestPogoSale;
                 BroadcastState();
@@ -2671,7 +2682,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 net.ToPeer(from, "OU|" + (ok ? f[2] : "-1"));
                 if (!ok) break;
                 orbsBroken |= 1 << orb;
-                Log("Le joueur " + NameOf(from) + " a brisé l'orbe n°" + (orb + 1) + ".");
+                Log("Le joueur {0} a brisé l'orbe n°{1}.", NameOf(from), (orb + 1).ToString());
                 if (orbsBroken == (1 << GameRules.OrbCount) - 1) Log("Les trois orbes sont brisés : la porte de la Zone 2 s'ouvre !");
                 UpdateZone2(true);
                 BroadcastState();
@@ -2682,7 +2693,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 int slot = NetworkGame.I(f[1]);
                 if (slot >= 0 && slot < GameRules.InventorySize && status[slot] == ItemType.Cle)
                     status.RemoveAt(slot);
-                else if (slot < 0) hud.Toast("Cet orbe ne peut pas être brisé.");
+                else if (slot < 0) hud.Toast(Loc.T("Cet orbe ne peut pas être brisé."));
                 break;
             }
 
@@ -2730,7 +2741,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 // 10 croquettes par tranche de 10 secondes restant au Compteur de Temps.
                 int bonus = Mathf.FloorToInt(timeLeft / 10f) * 10;
                 cash += bonus;
-                Log("Le joueur " + NameOf(from) + " passe la manche " + round + " : " + Items.Price(bonus) + (bonus > 1 ? " ajoutées" : " ajoutée") + " à la cagnotte.");
+                LogN(bonus, "Le joueur {0} passe la manche {1} : {2} ajoutée à la cagnotte.|Le joueur {0} passe la manche {1} : {2} ajoutées à la cagnotte.",
+                    NameOf(from), round.ToString(), Loc.Pr(bonus));
                 net.ToPeer(from, "SR|" + bonus);
                 EndRound();
                 break;

@@ -11,8 +11,8 @@ public class TerminalUI : MonoBehaviour
 {
     // /skip round n'apparaît qu'une fois le quota de la manche atteint.
     public static string Menu(bool canSkip) =>
-        "Bienvenue sur le Terminal !\nTaper une commande pour continuer :\n/buy\n/info" + (canSkip ? "\n/skip round" : "");
-    const string Quit = "\nFaire ECHAP pour quitter.";
+        Loc.T("Bienvenue sur le Terminal !\nTaper une commande pour continuer :") + "\n/buy\n/info" + (canSkip ? "\n/skip round" : "");
+    static string Quit => "\n" + Loc.T("Faire ECHAP pour quitter.");
     const int MaxLines = 18;
     const float TypeSpeed = 90f; // caractères par seconde
 
@@ -166,16 +166,16 @@ public class TerminalUI : MonoBehaviour
         if (lower == "/sell")
         {
             mode = Mode.Sell;
-            Print("Écrire le numéro de l'objet à vendre (1-2-3-4-5).");
+            Print(Loc.T("Écrire le numéro de l'objet à vendre (1-2-3-4-5)."));
         }
         else if (lower == "/buy")
         {
-            var sb = new System.Text.StringBuilder("Objets achetables :");
+            var sb = new System.Text.StringBuilder(Loc.T("Objets achetables :"));
             foreach (var def in Items.Buyable())
                 // Une fois achetée, la Boussole disparaît des propositions.
                 if (def.type != ItemType.Boussole || !session.CompassUnlocked)
                     sb.Append("\n  ID ").Append(def.terminalId).Append(" - ").Append(def.name).Append(" : ").Append(Items.Price(def.buyPrice));
-            sb.Append("\nÉcrire l'ID de l'objet à acheter.");
+            sb.Append("\n").Append(Loc.T("Écrire l'ID de l'objet à acheter."));
             Print(sb.ToString());
             mode = Mode.Buy;
         }
@@ -202,7 +202,7 @@ public class TerminalUI : MonoBehaviour
         else if (lower.StartsWith("/give ") && session.IsHost)
         {
             string result = session.Give(text.Substring(6).Trim());
-            Print((result ?? "Commande invalide.") + Quit);
+            Print((result ?? Loc.T("Commande invalide.")) + Quit);
         }
         else if (System.Text.RegularExpressions.Regex.IsMatch(lower, @"^/skip\s+round$"))
         {
@@ -214,7 +214,7 @@ public class TerminalUI : MonoBehaviour
         else if (lower.StartsWith("/tp ") && session.IsHost)
         {
             string result = session.Teleport(text.Substring(4).Trim());
-            if (result == null) Error("Commande invalide." + Quit);
+            if (result == null) Error(Loc.T("Commande invalide.") + Quit);
             else
             {
                 GameAudio.Play2D("beep", 0.35f, 0f, 1.3f);
@@ -226,8 +226,8 @@ public class TerminalUI : MonoBehaviour
         {
             string target = text.Substring(6).Trim();
             string kicked = session.Kick(target);
-            Print(kicked != null ? "Le joueur " + kicked + " a été expulsé de la partie." + Quit
-                                 : "Aucun autre joueur nommé " + target + "." + Quit);
+            Print(kicked != null ? Loc.F("Le joueur {0} a été expulsé de la partie.", kicked) + Quit
+                                 : Loc.F("Aucun autre joueur nommé {0}.", target) + Quit);
         }
         else if (System.Text.RegularExpressions.Regex.IsMatch(lower, @"^/godmod\s+(on|off)$") && session.IsHost)
         {
@@ -237,11 +237,11 @@ public class TerminalUI : MonoBehaviour
         {
             string arg = text.Substring(7).Trim();
             if (int.TryParse(arg, out int id)) Print(session.SpawnEntity(id) + Quit);
-            else Error("Commande invalide." + Quit);
+            else Error(Loc.T("Commande invalide.") + Quit);
         }
         else
         {
-            Error("Commande Incorrecte." + Quit);
+            Error(Loc.T("Commande Incorrecte.") + Quit);
         }
     }
 
@@ -249,13 +249,13 @@ public class TerminalUI : MonoBehaviour
     {
         if (arg.Length != 1 || arg[0] < '1' || arg[0] > '5')
         {
-            Error("Commande invalide." + Quit);
+            Error(Loc.T("Commande invalide.") + Quit);
             return;
         }
         int slot = arg[0] - '1';
         ItemDef sold = session.SellSlot(slot);
-        if (sold == null) Error("Vous n'avez pas d'objet " + (slot + 1) + " en inventaire !" + Quit);
-        else Print("Vous avez vendu " + sold.name + " pour " + Items.Price(sold.sellPrice) + " !" + Quit);
+        if (sold == null) Error(Loc.F("Vous n'avez pas d'objet {0} en inventaire !", slot + 1) + Quit);
+        else Print(Loc.F("Vous avez vendu {0} pour {1} !", sold.name, Items.Price(sold.sellPrice)) + Quit);
     }
 
     void Buy(string arg)
@@ -263,23 +263,23 @@ public class TerminalUI : MonoBehaviour
         ItemDef def = int.TryParse(arg, out int id) ? Items.ByTerminalId(id) : null;
         if (def == null || def.buyPrice <= 0)
         {
-            Error("Commande invalide." + Quit);
+            Error(Loc.T("Commande invalide.") + Quit);
             return;
         }
         if (waitingBuy) return;
         if (def.type == ItemType.Boussole && session.CompassUnlocked)
         {
-            Error("Commande invalide." + Quit);
+            Error(Loc.T("Commande invalide.") + Quit);
             return;
         }
         if (def.inventory && !session.HasFreeSlot)
         {
-            Error("Votre inventaire est plein ! Impossible d'acheter " + def.name + "." + Quit);
+            Error(Loc.F("Votre inventaire est plein ! Impossible d'acheter {0}.", def.name) + Quit);
             return;
         }
         if (session.Cash < def.buyPrice && !session.Godmode)
         {
-            Error("Cagnotte insuffisante pour acheter " + def.name + " (" + Items.Price(def.buyPrice) + ")." + Quit);
+            Error(Loc.F("Cagnotte insuffisante pour acheter {0} ({1}).", def.name, Items.Price(def.buyPrice)) + Quit);
             return;
         }
         waitingBuy = true;
@@ -292,13 +292,13 @@ public class TerminalUI : MonoBehaviour
         waitingBuy = false;
         if (!IsOpen || def == null) return;
         if (ok && def.type == ItemType.Boussole)
-            Print("Vous avez acheté la Boussole pour " + Items.Price(session.Godmode ? 0 : def.buyPrice) + " !\nElle s'affiche désormais en haut de l'écran de tous les joueurs." + Quit);
+            Print(Loc.F("Vous avez acheté la Boussole pour {0} !\nElle s'affiche désormais en haut de l'écran de tous les joueurs.", Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
         else if (ok)
-            Print("Vous avez acheté " + def.name + " pour " + Items.Price(session.Godmode ? 0 : def.buyPrice) + " !" + Quit);
+            Print(Loc.F("Vous avez acheté {0} pour {1} !", def.name, Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
         else if (alreadyOwned)
-            Print("La Boussole a déjà été achetée." + Quit);
+            Print(Loc.T("La Boussole a déjà été achetée.") + Quit);
         else
-            Print("Cagnotte insuffisante pour acheter " + def.name + " (" + Items.Price(def.buyPrice) + ")." + Quit);
+            Print(Loc.F("Cagnotte insuffisante pour acheter {0} ({1}).", def.name, Items.Price(def.buyPrice)) + Quit);
     }
 
     // Réponse de l'hôte à /skip round (bonus : golds ajoutés à la cagnotte, -1 si refusé).
@@ -306,8 +306,8 @@ public class TerminalUI : MonoBehaviour
     {
         waitingSkip = false;
         if (!IsOpen) return;
-        if (bonus < 0) Error("Le quota de la manche n'est pas encore atteint." + Quit);
-        else Print("Manche passée ! " + Items.Price(bonus) + (bonus > 1 ? " ajoutées" : " ajoutée") + " à la cagnotte pour le temps restant." + Quit);
+        if (bonus < 0) Error(Loc.T("Le quota de la manche n'est pas encore atteint.") + Quit);
+        else Print(Loc.N(bonus, "Manche passée ! {0} ajoutée à la cagnotte pour le temps restant.|Manche passée ! {0} ajoutées à la cagnotte pour le temps restant.", Items.Price(bonus)) + Quit);
     }
 
     void Error(string text)

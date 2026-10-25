@@ -102,14 +102,14 @@ public class NetworkGame : MonoBehaviour
         {
             connectTimer += Time.unscaledDeltaTime;
             if (connectTimer > ConnectTimeout)
-                ReturnToLobby("Délai de connexion dépassé. Réessayez.");
+                ReturnToLobby(Loc.T("Délai de connexion dépassé. Réessayez."));
             return;
         }
         if (state != State.InGame) return;
 
         // Le navigateur fige un onglet en arrière-plan : chez l'hôte, La Dame et le relais s'arrêtent pour tous.
         if (isHost && roster.Count > 1 && Time.unscaledDeltaTime > HostStallWarning)
-            session.Toast("Votre onglet était en arrière-plan : la partie était figée pour les autres joueurs. Gardez-le au premier plan.");
+            session.Toast(Loc.T("Votre onglet était en arrière-plan : la partie était figée pour les autres joueurs. Gardez-le au premier plan."));
 
         Transform t = localPlayer.transform;
         if (t.position.y < -20f) session.RespawnInHub();
@@ -158,8 +158,18 @@ public class NetworkGame : MonoBehaviour
         isHost = true;
         state = State.Hosting;
         roomCode = RandomCode();
-        ui.ShowConnecting("Création de la partie…");
+        ui.ShowConnecting(Loc.T("Création de la partie…"));
         PeerNet.Host(IdPrefix + roomCode);
+    }
+
+    // Partie solo : l'hôte joue seul, sans connexion au serveur ni code pour rejoindre.
+    public void SoloGame(string playerName)
+    {
+        BeginSession(playerName);
+        isHost = true;
+        state = State.Hosting;
+        roomCode = "";
+        OnNetOpen("solo");
     }
 
     public void JoinGame(string playerName, string code)
@@ -167,7 +177,7 @@ public class NetworkGame : MonoBehaviour
         code = (code ?? "").Trim().ToUpperInvariant();
         if (code.Length == 0)
         {
-            ui.ShowLobby("Entrez le code de la partie à rejoindre.");
+            ui.ShowLobby(Loc.T("Entrez le code de la partie à rejoindre."));
             return;
         }
         BeginSession(playerName);
@@ -175,7 +185,7 @@ public class NetworkGame : MonoBehaviour
         state = State.Joining;
         roomCode = code;
         hostId = IdPrefix + code;
-        ui.ShowConnecting("Connexion à la partie " + code + "…");
+        ui.ShowConnecting(Loc.F("Connexion à la partie {0}…", code));
         PeerNet.Join(hostId);
     }
 
@@ -282,7 +292,7 @@ public class NetworkGame : MonoBehaviour
         {
             // Tous morts : l'écran de GAME OVER reste affiché, chacun revient au lobby avec le bouton.
             if (session.WipedOut) return;
-            ReturnToLobby("L'hôte a quitté la partie.");
+            ReturnToLobby(Loc.T("L'hôte a quitté la partie."));
         }
     }
 
@@ -356,10 +366,10 @@ public class NetworkGame : MonoBehaviour
                 RemoveRemote(f[1]);
                 break;
             case "KK" when !isHost:
-                ReturnToLobby("Vous avez été expulsé de la partie par l'hôte.");
+                ReturnToLobby(Loc.T("Vous avez été expulsé de la partie par l'hôte."));
                 break;
             case "FULL" when !isHost:
-                ReturnToLobby("La partie est complète (" + GameRules.MaxPlayers + " joueurs maximum).");
+                ReturnToLobby(Loc.F("La partie est complète ({0} joueurs maximum).", GameRules.MaxPlayers));
                 break;
             default:
                 session.HandleMessage(from, f, msg);
@@ -526,15 +536,15 @@ public class NetworkGame : MonoBehaviour
     {
         switch (type)
         {
-            case "peer-unavailable": return "Partie introuvable. Vérifiez le code.";
-            case "editor": return "Rejoindre une partie ne fonctionne que dans la version navigateur.";
-            case "peerjs-missing": return "Bibliothèque réseau non chargée. Vérifiez votre connexion internet.";
-            case "browser-incompatible": return "Votre navigateur ne supporte pas WebRTC.";
+            case "peer-unavailable": return Loc.T("Partie introuvable. Vérifiez le code.");
+            case "editor": return Loc.T("Rejoindre une partie ne fonctionne que dans la version navigateur.");
+            case "peerjs-missing": return Loc.T("Bibliothèque réseau non chargée. Vérifiez votre connexion internet.");
+            case "browser-incompatible": return Loc.T("Votre navigateur ne supporte pas WebRTC.");
             case "network":
             case "server-error":
             case "socket-error":
-            case "socket-closed": return "Impossible de joindre le serveur de connexion.";
-            default: return "Erreur réseau (" + type + ").";
+            case "socket-closed": return Loc.T("Impossible de joindre le serveur de connexion.");
+            default: return Loc.F("Erreur réseau ({0}).", type);
         }
     }
 

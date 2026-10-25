@@ -296,8 +296,10 @@ public class ItemDef
     public ItemType type;
     public int terminalId; // ID affiché et tapé au Terminal (0 = pas en vente)
     public string otherId; // ID des "Autres objets" (O1 à O5), pour /give
-    public string name;
-    public string shortName;
+    // Noms en français (clés de traduction) ; name et shortName les donnent dans la langue choisie.
+    public string frName, frShortName;
+    public string name { get => Loc.T(frName); set => frName = value; }
+    public string shortName { get => Loc.T(frShortName); set => frShortName = value; }
     public int buyPrice;   // 0 = non achetable au Terminal
     public int sellPrice;
     public Color color;
@@ -338,7 +340,7 @@ public static class Items
         type == ItemType.Canard ? "DuckSolo" : type == ItemType.Os ? "Os" : type == ItemType.CuisseDePoulet ? "CuisseDePoulet" : "Croquette";
 
     // Note 05 du chapitre 14 (V0.5.1) : la monnaie est la croquette (ce ne sont plus des golds). "1 croquette", "30 croquettes".
-    public static string Price(int amount) => amount + (amount > 1 ? " croquettes" : " croquette");
+    public static string Price(int amount) => Loc.Price(amount);
 
     // Tableaux des monticules (chapitre 9, V0.4.7) : objet trouvé et chance d'obtention, identiques dans les deux zones.
     // ItemType.Reveil n'est pas un objet : l'entité Le Réveil sort du monticule.

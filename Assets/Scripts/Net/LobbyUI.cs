@@ -8,8 +8,9 @@ public class LobbyUI : MonoBehaviour
 {
     static readonly Color PanelBlack = new Color(0.09f, 0.09f, 0.1f, 1f);
     // Hauteur du fond du menu (le panneau fait 700 pour un écran de référence de 720).
-    const float LobbyBackdropHeight = 820f;
+    const float LobbyBackdropHeight = 900f;
     static readonly Color HostRed = new Color(0.93f, 0.27f, 0.33f);
+    static readonly Color QuitRed = new Color(0.55f, 0.1f, 0.14f);
     static readonly Color JoinBlue = new Color(0.12f, 0.2f, 0.45f);
     static readonly Color FieldGrey = new Color(0.27f, 0.27f, 0.29f);
     static readonly Color NeutralGrey = new Color(0.33f, 0.33f, 0.35f);
@@ -21,7 +22,8 @@ public class LobbyUI : MonoBehaviour
     RectTransform lobbyBackdrop;
     Text resumeLabel;
     InputField nameField, codeField;
-    Button hostButton, joinButton;
+    Button hostButton, joinButton, soloButton;
+    GameObject copyButton;
     Text statusText, roomText, countText, copyLabel, lobbySkin, pauseSkin;
     readonly System.Collections.Generic.List<Text> musicLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> sfxLabels = new System.Collections.Generic.List<Text>();
@@ -31,6 +33,13 @@ public class LobbyUI : MonoBehaviour
     float copyFeedbackTimer;
     Text versionText;
     bool inGame;
+    // Drapeaux des langues, en bas à droite (lobby et menu pause).
+    GameObject langRow;
+    readonly System.Collections.Generic.Dictionary<Lang, MenuButtonHover> flags = new System.Collections.Generic.Dictionary<Lang, MenuButtonHover>();
+    // Partie en cours, pour retraduire le menu pause quand la langue change.
+    string roomCode;
+    bool roomHost;
+    int playerCount = 1;
 
     public void Init(NetworkGame network, string savedName, string roomFromUrl)
     {
@@ -39,7 +48,20 @@ public class LobbyUI : MonoBehaviour
         BuildLobby(canvas.transform, savedName, roomFromUrl);
         BuildPause(canvas.transform);
         BuildVersion(canvas.transform);
-        ShowLobby(roomFromUrl.Length > 0 ? "Invitation reçue : choisissez un pseudo puis cliquez sur Rejoindre." : "");
+        BuildLanguages(canvas.transform);
+        MenuButtonHover.AddTo(lobbyPanel);
+        MenuButtonHover.AddTo(pausePanel);
+        Loc.Changed += OnLanguageChanged;
+        ShowLobby(roomFromUrl.Length > 0 ? Loc.T("Invitation reçue : choisissez un pseudo puis cliquez sur Rejoindre.") : "");
+    }
+
+    void OnDestroy() => Loc.Changed -= OnLanguageChanged;
+
+    void OnLanguageChanged()
+    {
+        foreach (var kv in flags) kv.Value.Selected = kv.Key == Loc.Current;
+        RefreshRoom();
+        SetPlayerCount(playerCount);
     }
 
     // ---------- États ----------
@@ -52,14 +74,21 @@ public class LobbyUI : MonoBehaviour
         pausePanel.SetActive(false);
         hintPanel.SetActive(false);
         SetInteractable(true);
-        statusText.text = message;
+        SetStatus(message);
         RefreshSkin();
+    }
+
+    // Message d'état masqué quand il est vide : le menu garde sa place en bas de l'écran.
+    void SetStatus(string message)
+    {
+        statusText.text = message;
+        statusText.gameObject.SetActive(!string.IsNullOrEmpty(message));
     }
 
     public void ShowConnecting(string message)
     {
         SetInteractable(false);
-        statusText.text = message;
+        SetStatus(message);
     }
 
     public void ShowHud(string code, bool isHost)
@@ -67,15 +96,29 @@ public class LobbyUI : MonoBehaviour
         inGame = true;
         lobbyPanel.SetActive(false);
         versionText.gameObject.SetActive(false);
-        roomText.text = (isHost ? "Vous hébergez la partie  " : "Partie  ") + "<b>" + code + "</b>";
-        copyLabel.text = "Copier le lien d'invitation";
+        // Partie solo : pas de code, ni de lien d'invitation, ni de nombre de joueurs.
+        bool solo = string.IsNullOrEmpty(code);
+        roomCode = code;
+        roomHost = isHost;
+        RefreshRoom();
+        copyButton.SetActive(!solo);
+        countText.gameObject.SetActive(!solo);
+        Loc.Bind(copyLabel, "Copier le lien d'invitation");
         if (EventSystem.current != null) EventSystem.current.SetSelectedGameObject(null);
         RefreshSkin();
     }
 
+    void RefreshRoom()
+    {
+        if (!inGame) return;
+        roomText.text = string.IsNullOrEmpty(roomCode) ? Loc.T("<b>Partie solo</b>")
+            : Loc.F(roomHost ? "Vous hébergez la partie  <b>{0}</b>" : "Partie  <b>{0}</b>", roomCode);
+    }
+
     public void SetPlayerCount(int count)
     {
-        countText.text = count + (count > 1 ? " joueurs connectés" : " joueur connecté") + " (max " + GameRules.MaxPlayers + ")";
+        playerCount = count;
+        countText.text = Loc.N(count, "{0} joueur connecté (max {1})|{0} joueurs connectés (max {1})", count, GameRules.MaxPlayers);
     }
 
     void SetInteractable(bool on)
@@ -84,6 +127,7 @@ public class LobbyUI : MonoBehaviour
         codeField.interactable = on;
         hostButton.interactable = on;
         joinButton.interactable = on;
+        soloButton.interactable = on;
     }
 
     void ChangeSkin(int delta)
@@ -105,7 +149,7 @@ public class LobbyUI : MonoBehaviour
         if (copyFeedbackTimer > 0f)
         {
             copyFeedbackTimer -= Time.unscaledDeltaTime;
-            if (copyFeedbackTimer <= 0f) copyLabel.text = "Copier le lien d'invitation";
+            if (copyFeedbackTimer <= 0f) Loc.Bind(copyLabel, "Copier le lien d'invitation");
         }
 
         // Menu de pause : visible quand la souris est libérée.
@@ -114,6 +158,8 @@ public class LobbyUI : MonoBehaviour
             && !OrbitCamera.ResumePending;
         if (pausePanel.activeSelf != paused) pausePanel.SetActive(paused);
         if (hintPanel.activeSelf != paused) hintPanel.SetActive(paused);
+        bool flagsShown = lobbyPanel.activeSelf || paused;
+        if (langRow.activeSelf != flagsShown) langRow.SetActive(flagsShown);
         // Souris sur le menu du lobby ou le menu pause : la scène s'assombrit (fondu dans FilmGrain).
         FilmGrain.MenuHover = Hovered(lobbyBackdrop) || Hovered(pausePanel.transform as RectTransform);
         // Clignotement lent, en fondu.
@@ -136,12 +182,61 @@ public class LobbyUI : MonoBehaviour
         versionText.gameObject.AddComponent<Shadow>().effectColor = new Color(0f, 0f, 0f, 0.8f);
     }
 
+    // Drapeaux des langues, juste au-dessus du numéro de version ; même place dans le menu pause.
+    // La langue choisie garde l'aura beige.
+    void BuildLanguages(Transform root)
+    {
+        Lang[] langs = { Lang.En, Lang.Fr, Lang.Es, Lang.Ru };
+        const float w = 48f, h = 32f, gap = 10f;
+        langRow = new GameObject("Langues", typeof(RectTransform));
+        langRow.transform.SetParent(root, false);
+        var rt = UiKit.Place(langRow, new Vector2(1f, 0f), new Vector2(-16f, 44f));
+        rt.sizeDelta = new Vector2(langs.Length * w + (langs.Length - 1) * gap, h);
+        for (int i = 0; i < langs.Length; i++)
+        {
+            Lang lang = langs[i];
+            var go = new GameObject("Drapeau" + lang, typeof(RectTransform), typeof(Image), typeof(Button));
+            go.transform.SetParent(langRow.transform, false);
+            var frt = (RectTransform)go.transform;
+            frt.anchorMin = frt.anchorMax = frt.pivot = new Vector2(0f, 0.5f);
+            frt.anchoredPosition = new Vector2(i * (w + gap), 0f);
+            frt.sizeDelta = new Vector2(w, h);
+            var img = go.GetComponent<Image>();
+            img.sprite = Flags.Get(lang);
+            go.GetComponent<Button>().targetGraphic = img;
+            go.GetComponent<Button>().onClick.AddListener(() =>
+            {
+                Loc.Set(lang);
+                GameAudio.Play2D("pop", 0.6f);
+            });
+            // Aura : cadre beige uni juste derrière le drapeau (4 px de chaque côté).
+            var auraGo = new GameObject("Aura" + lang, typeof(RectTransform), typeof(Image));
+            auraGo.transform.SetParent(langRow.transform, false);
+            auraGo.transform.SetSiblingIndex(go.transform.GetSiblingIndex());
+            var art = (RectTransform)auraGo.transform;
+            art.anchorMin = art.anchorMax = art.pivot = new Vector2(0f, 0.5f);
+            art.anchoredPosition = new Vector2(i * (w + gap) - 4f, 0f);
+            art.sizeDelta = new Vector2(w + 8f, h + 8f);
+            var auraImg = auraGo.GetComponent<Image>();
+            auraImg.raycastTarget = false;
+            var hover = go.AddComponent<MenuButtonHover>();
+            hover.UseFrame(auraImg);
+            hover.Selected = lang == Loc.Current;
+            flags[lang] = hover;
+        }
+    }
+
     void BuildLobby(Transform root, string savedName, string roomFromUrl)
     {
-        lobbyPanel = UiKit.Panel(root, "Lobby", new Vector2(460, 700));
+        lobbyPanel = UiKit.Panel(root, "Lobby", new Vector2(460, 780));
         // À gauche : le personnage choisi reste visible au centre de l'écran.
-        UiKit.Place(lobbyPanel, new Vector2(0f, 0.5f), new Vector2(40, 0));
+        // Calé en bas : sous "Quitter", le même écart (8) qu'entre "Quitter" et le champ du code.
+        // Toute la hauteur de l'écran : les lignes s'étirent pour la remplir, le titre reste visible en haut.
+        var lobbyRect = UiKit.Place(lobbyPanel, Vector2.zero, new Vector2(40, 0));
+        lobbyRect.anchorMax = new Vector2(0f, 1f);
+        lobbyRect.sizeDelta = new Vector2(460, 0);
         var layout = UiKit.Column(lobbyPanel, 36, 8);
+        layout.childAlignment = TextAnchor.LowerCenter;
         Transform p = lobbyPanel.transform;
 
         // Fond peint plus haut que le panneau : les extrémités du coup de pinceau sortent de l'écran.
@@ -149,6 +244,8 @@ public class LobbyUI : MonoBehaviour
         var backdrop = UiKit.Panel(p, "Fond", new Vector2(460, LobbyBackdropHeight));
         backdrop.AddComponent<LayoutElement>().ignoreLayout = true;
         lobbyBackdrop = backdrop.GetComponent<RectTransform>();
+        lobbyBackdrop.anchorMin = lobbyBackdrop.anchorMax = new Vector2(0.5f, 0f);
+        lobbyBackdrop.anchoredPosition = new Vector2(0f, LobbyBackdropHeight * 0.5f - 90f);
         backdrop.transform.SetAsFirstSibling();
         UiKit.Paint(backdrop, PanelBlack, 1);
         backdrop.GetComponent<Image>().raycastTarget = false;
@@ -159,6 +256,13 @@ public class LobbyUI : MonoBehaviour
         // Laissé vide, le pseudo devient le nom du skin choisi.
         nameField = UiKit.Field(p, "Votre pseudo", savedName, 16);
         UiKit.Paint(nameField.gameObject, FieldGrey, 2);
+        // Partie seul, sans connexion ni code pour rejoindre.
+        var soloGo = UiKit.Button(p, "Partie Solo", HostRed, 48, () => net.SoloGame(nameField.text));
+        UiKit.Paint(soloGo, HostRed, 8);
+        soloButton = soloGo.GetComponent<Button>();
+        var hostGo = UiKit.Button(p, "Héberger une partie", HostRed, 54, () => net.HostGame(nameField.text));
+        UiKit.Paint(hostGo, HostRed, 5);
+        hostButton = hostGo.GetComponent<Button>();
 
         UiKit.Label(p, "Skin", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         lobbySkin = UiKit.Selector(p, 48, () => ChangeSkin(-1), () => ChangeSkin(1));
@@ -166,11 +270,9 @@ public class LobbyUI : MonoBehaviour
         VolumeRows(p, 30, 20, false);
 
         UiKit.Spacer(p, 4);
-        var hostGo = UiKit.Button(p, "Héberger une partie", HostRed, 54, () => net.HostGame(nameField.text));
-        UiKit.Paint(hostGo, HostRed, 5);
-        hostButton = hostGo.GetComponent<Button>();
-
-        UiKit.Spacer(p, 4);
+        statusText = UiKit.Label(p, "", 16, FontStyle.Normal, new Color(1f, 0.82f, 0.45f), 48);
+        statusText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        statusText.gameObject.SetActive(false);
         UiKit.Label(p, "Rejoindre une partie", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         var row = UiKit.Row(p, 54, 10);
         codeField = UiKit.Field(row.transform, "Code (ex. K7QXP)", roomFromUrl, 8);
@@ -188,13 +290,13 @@ public class LobbyUI : MonoBehaviour
         joinGo.GetComponent<LayoutElement>().preferredWidth = 150;
         UiKit.Paint(joinGo, JoinBlue, 7);
         joinButton = joinGo.GetComponent<Button>();
-
-        statusText = UiKit.Label(p, "", 16, FontStyle.Normal, new Color(1f, 0.82f, 0.45f), 48);
-        statusText.horizontalOverflow = HorizontalWrapMode.Wrap;
-        layout.padding = new RectOffset(36, 36, 30, 26);
+        // Sous le champ du code ; sans effet pour l'instant.
+        UiKit.Paint(UiKit.Button(p, "Quitter", QuitRed, 48, () => { }), QuitRed, 9);
+        layout.padding = new RectOffset(36, 36, 30, 8);
     }
 
     // Volumes de la musique et des effets sonores (GDD 6.1 et 6.2), luminosité, sensibilité de la souris et grain, par pas de 10 %.
+    // Luminosité, sensibilité et grain : dans le menu pause seulement.
     void VolumeRows(Transform p, float height, int seed, bool brightness)
     {
         musicLabels.Add(VolumeRow(p, "Musique", height, seed, step => GameAudio.MusicVolume = Step(GameAudio.MusicVolume, step)));
@@ -203,8 +305,8 @@ public class LobbyUI : MonoBehaviour
         if (brightness) brightLabels.Add(VolumeRow(p, "Luminosité", height, seed + 4, step => Brightness.Value = Step(Brightness.Value, step)));
         // Sensibilité de la souris pour la caméra, sous la luminosité (Note 05, V0.5).
         if (brightness) sensitivityLabels.Add(VolumeRow(p, "Sensibilité", height, seed + 6, step => MouseSensitivity.Value = Step(MouseSensitivity.Value, step)));
-        // Grain d'écran, dans le lobby comme dans le menu pause.
-        grainLabels.Add(VolumeRow(p, "Grain", height, seed + 8, step => FilmGrain.Value = Step(FilmGrain.Value, step)));
+        // Grain d'écran, dans le menu pause seulement.
+        if (brightness) grainLabels.Add(VolumeRow(p, "Grain", height, seed + 8, step => FilmGrain.Value = Step(FilmGrain.Value, step)));
         RefreshVolumes();
     }
 
@@ -261,10 +363,11 @@ public class LobbyUI : MonoBehaviour
         var copy = UiKit.Button(p, "Copier le lien d'invitation", JoinBlue, 38, () =>
         {
             net.CopyInviteLink();
-            copyLabel.text = "Lien copié !";
+            Loc.Bind(copyLabel, "Lien copié !");
             copyFeedbackTimer = 2f;
         });
         copyLabel = copy.GetComponentInChildren<Text>();
+        copyButton = copy;
         UiKit.Paint(copy, JoinBlue, 12);
         UiKit.Label(p, "Changer de skin", 15, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         pauseSkin = UiKit.Selector(p, 40, () => ChangeSkin(-1), () => ChangeSkin(1));

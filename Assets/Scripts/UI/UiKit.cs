@@ -113,6 +113,8 @@ public static class UiKit
         t.raycastTarget = false;
         // Sinon le texte disparaît entièrement si la hauteur de ligne de la police dépasse la boîte.
         t.verticalOverflow = VerticalWrapMode.Overflow;
+        // Texte fixe : traduit, et retraduit quand la langue change.
+        if (!string.IsNullOrEmpty(text)) Loc.Bind(t, text);
         return t;
     }
 
@@ -125,6 +127,7 @@ public static class UiKit
 
         Text ph = FieldText(go.transform, "Placeholder", placeholder, new Color(1f, 1f, 1f, 0.35f));
         ph.fontStyle = FontStyle.Italic;
+        if (!string.IsNullOrEmpty(placeholder)) Loc.Bind(ph, placeholder);
         Text txt = FieldText(go.transform, "Text", "", Color.white);
 
         var input = go.GetComponent<InputField>();

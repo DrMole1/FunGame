@@ -137,7 +137,7 @@ public partial class GameSession
         if (!click) return;
         if (!cannon.Charged)
         {
-            hud.Toast("Le Canon n'est plus chargé : il n'est plus relié à une Balise chargée.");
+            hud.Toast(Loc.T("Le Canon n'est plus chargé : il n'est plus relié à une Balise chargée."));
             return;
         }
         Fire();
@@ -368,7 +368,7 @@ public partial class GameSession
                 {
                     cannonState = CannonState.None;
                     cannon = null;
-                    hud.Toast("Quelqu'un est déjà dans ce Canon.");
+                    hud.Toast(Loc.T("Quelqu'un est déjà dans ce Canon."));
                 }
                 return true;
             case "CF" when f.Length >= 3:

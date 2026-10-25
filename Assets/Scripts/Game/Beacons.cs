@@ -355,7 +355,7 @@ public class Beacon : Interactable
     {
         get
         {
-            return IsHub ? "Recharger la Balise du Hub" : "Ramasser " + Items.Get(Item).name;
+            return IsHub ? Loc.T("Recharger la Balise du Hub") : Loc.F("Ramasser {0}", Items.Get(Item).name);
         }
     }
 

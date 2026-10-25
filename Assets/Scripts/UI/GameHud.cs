@@ -273,7 +273,7 @@ public class GameHud : MonoBehaviour
         outline.effectDistance = new Vector2(3f, -3f);
         wipeSubtitle = Floating(w, new Vector2(0.5f, 0.5f), new Vector2(0, -60), new Vector2(900, 34), 22);
         wipeSubtitle.fontStyle = FontStyle.Italic;
-        wipeSubtitle.text = "Aucun sujet de test en vie. L'expérience peut continuer.";
+        Loc.Bind(wipeSubtitle, "Aucun sujet de test en vie. L'expérience peut continuer.");
         var button = UiKit.Button(w, "Revenir au Lobby", BloodRed, 58, () => onLobby());
         ((RectTransform)button.transform).sizeDelta = new Vector2(340, 58);
         UiKit.Place(button, new Vector2(0.5f, 0.5f), new Vector2(0, -150));
@@ -434,7 +434,7 @@ public class GameHud : MonoBehaviour
         g.fill.enabled = k > 0.001f;
         g.marker.anchoredPosition = new Vector2(4f + g.inner * k, 0f);
         g.marker.gameObject.SetActive(k > 0.001f && k < 0.999f);
-        g.text.text = dead ? "MORT" : label + " " + value + " / " + max;
+        g.text.text = dead ? Loc.T("MORT") : Loc.T(label) + " " + value + " / " + max;
     }
 
     public void SetHealth(int hp, bool dead) => SetGauge(health, hp, GameRules.MaxHp, dead, "PV");

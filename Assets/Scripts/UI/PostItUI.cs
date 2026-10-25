@@ -24,7 +24,8 @@ public class PostItUI : MonoBehaviour
         UiKit.Place(panel, new Vector2(0.5f, 0.5f), Vector2.zero);
         UiKit.Column(panel, 22, 12);
         title = UiKit.Label(panel.transform, "Post-It", 26, FontStyle.Bold, new Color(0.15f, 0.12f, 0.05f), 34);
-        hint = UiKit.Label(panel.transform, string.Format(PostItHint, Items.PostItMaxChars), 15, FontStyle.Normal, new Color(0.2f, 0.17f, 0.08f), 44);
+        // Texte d'aide rempli à l'ouverture (déjà traduit) : pas de traduction automatique sur ce libellé.
+        hint = UiKit.Label(panel.transform, "", 15, FontStyle.Normal, new Color(0.2f, 0.17f, 0.08f), 44);
         input = UiKit.Field(panel.transform, "Votre message…", "", Items.PostItMaxChars);
         input.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.55f);
         input.textComponent.color = new Color(0.12f, 0.1f, 0.25f);
@@ -35,18 +36,19 @@ public class PostItUI : MonoBehaviour
         panel.SetActive(false);
     }
 
-    public void Open() => Open("Post-It", string.Format(PostItHint, Items.PostItMaxChars), "Votre message…", "Entrée : accrocher · Échap : annuler",
+    public void Open() => Open("Post-It", Loc.F(PostItHint, Items.PostItMaxChars), "Votre message…", "Entrée : accrocher · Échap : annuler",
         Items.PostItMaxChars, onPostIt);
 
+    // heading, placeholder et keys : textes français (traduits ici) ; help : déjà traduit.
     public void Open(string heading, string help, string placeholder, string keys, int maxChars, System.Action<string> written)
     {
         if (IsOpen) return;
         IsOpen = true;
         onWritten = written;
-        title.text = heading;
+        Loc.Bind(title, heading);
         hint.text = help;
-        footer.text = keys;
-        ((Text)input.placeholder).text = placeholder;
+        Loc.Bind(footer, keys);
+        Loc.Bind((Text)input.placeholder, placeholder);
         input.characterLimit = maxChars;
         input.text = "";
         panel.SetActive(true);

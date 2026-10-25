@@ -122,7 +122,7 @@ public partial class GameSession
             if (Vector3.Distance(player.transform.position, b.transform.position) > TvAskRange) continue;
             tvAsked.Add(b.Id);
             int id = b.Id;
-            postItUI.Open("Télévision", "La Télévision capte le signal d'une Balise.\nCollez le lien d'une vidéo YouTube.",
+            postItUI.Open("Télévision", Loc.T("La Télévision capte le signal d'une Balise.\nCollez le lien d'une vidéo YouTube."),
                 "https://www.youtube.com/watch?v=…", "Entrée : diffuser · Échap : annuler", TvLinkMaxChars, text => OnTvLink(id, text));
         }
     }
@@ -132,7 +132,7 @@ public partial class GameSession
         string video = YouTubeTv.VideoId(text);
         if (video == null)
         {
-            hud.Toast("Ce lien ne mène pas à une vidéo YouTube.");
+            hud.Toast(Loc.T("Ce lien ne mène pas à une vidéo YouTube."));
             return;
         }
         net.ToHost("TQ|" + id + "|" + video);
@@ -240,16 +240,16 @@ public partial class GameSession
     {
         if (!net.IsHost) return null;
         ItemDef def = Items.ByAnyId(arg);
-        if (def == null) return "Aucun objet n'a l'ID " + arg.ToUpperInvariant() + ".";
+        if (def == null) return Loc.F("Aucun objet n'a l'ID {0}.", arg.ToUpperInvariant());
         if (!def.inventory)
         {
             compass = true;
             BroadcastState();
-            return "La Boussole s'affiche désormais chez tous les joueurs.";
+            return Loc.T("La Boussole s'affiche désormais chez tous les joueurs.");
         }
-        if (!HasFreeSlot) return "Votre inventaire est plein ! Impossible de recevoir " + def.name + ".";
+        if (!HasFreeSlot) return Loc.F("Votre inventaire est plein ! Impossible de recevoir {0}.", def.name);
         status.Add(def.type);
-        return "Vous avez reçu : " + def.name + ".";
+        return Loc.F("Vous avez reçu : {0}.", def.name);
     }
 
     // ================= Sujets de test (/info) =================
@@ -298,21 +298,21 @@ public partial class GameSession
             }
     }
 
-    static string Status(bool ok) => ok ? "OK." : "En attente.";
+    static string Status(bool ok) => Loc.T(ok ? "OK." : "En attente.");
 
-    public string InfoMenu() => "Sous-menu /info :\n/hello" + (Step1Unlocked ? "\n/step1" : "");
+    public string InfoMenu() => Loc.T("Sous-menu /info :") + "\n/hello" + (Step1Unlocked ? "\n/step1" : "");
 
     public string HelloText() =>
-        "Nouveaux sujets de test. Enregistrement des comportements étudiés.\n"
-        + "Réaction au stimuli de récompense. " + Status((testFlags & TestPogoSale) != 0) + "\n"
-        + "Réaction au stimuli de dangers létals en milieu hostile. " + Status((testFlags & TestHurt) != 0) + "\n"
-        + "Compréhension du balisage neuronal. " + Status((testFlags & TestBeaconInSight) != 0);
+        Loc.T("Nouveaux sujets de test. Enregistrement des comportements étudiés.") + "\n"
+        + Loc.T("Réaction au stimuli de récompense.") + " " + Status((testFlags & TestPogoSale) != 0) + "\n"
+        + Loc.T("Réaction au stimuli de dangers létals en milieu hostile.") + " " + Status((testFlags & TestHurt) != 0) + "\n"
+        + Loc.T("Compréhension du balisage neuronal.") + " " + Status((testFlags & TestBeaconInSight) != 0);
 
     public string Step1Text() =>
-        "Sujets de test confirmés. Démarrage de la procédure d'acquisition.\n"
-        + "Assimilation de la récompense par exploration proactive. " + Status((testFlags & TestTwentyBeacons) != 0) + "\n"
-        + "Assimilation du châtiment à l'approche du danger. " + Status((testFlags & TestNightmareSurvived) != 0) + "\n"
-        + "Survie au premier cycle ternaire. " + Status(round >= ThirdCycleRound);
+        Loc.T("Sujets de test confirmés. Démarrage de la procédure d'acquisition.") + "\n"
+        + Loc.T("Assimilation de la récompense par exploration proactive.") + " " + Status((testFlags & TestTwentyBeacons) != 0) + "\n"
+        + Loc.T("Assimilation du châtiment à l'approche du danger.") + " " + Status((testFlags & TestNightmareSurvived) != 0) + "\n"
+        + Loc.T("Survie au premier cycle ternaire.") + " " + Status(round >= ThirdCycleRound);
 
     // ================= Le Réveil =================
 
@@ -354,10 +354,10 @@ public partial class GameSession
         Vector3 me = player.transform.position;
         int node = WorldBuilder.IsInHub(me) ? -1 : maze.nav.RandomNode(Mathf.Max(0, maze.nav.ZoneAt(me)), rnd, me, 5f, 10f);
         if (node < 0) node = maze.nav.RandomNode(0, rnd, Vector3.zero, 30f);
-        if (node < 0) return "Impossible pour le moment.";
+        if (node < 0) return Loc.T("Impossible pour le moment.");
         var e = Entity.Create<Reveil>(entitiesRoot, nextEntityId++, maze.nav.Position(node), (float)rnd.NextDouble() * 360f, maze.nav);
         entities[e.Id] = e;
-        return "Un Réveil sonne quelque part dans la Zone 1...";
+        return Loc.T("Un Réveil sonne quelque part dans la Zone 1...");
     }
 
     // ================= Le Roi : lumières affolées, flash =================
