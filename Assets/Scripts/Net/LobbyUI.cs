@@ -189,9 +189,12 @@ public class LobbyUI : MonoBehaviour
         // Après avoir quitté le Terminal ou un Post-It avec Échap, pas de menu pause : on revient directement au jeu.
         bool paused = inGame && Cursor.lockState != CursorLockMode.Locked && !TerminalUI.IsOpen && !PostItUI.IsOpen && !GameHud.GameOverVisible
             && !OrbitCamera.ResumePending;
-        if (pausePanel.activeSelf != paused) pausePanel.SetActive(paused);
-        if (hintPanel.activeSelf != paused) hintPanel.SetActive(paused);
-        bool flagsShown = lobbyPanel.activeSelf || paused;
+        // Fenêtre "Modifier Contrôles" ouverte : les menus pause (gauche, droite, drapeaux) s'effacent, pour la clarté,
+        // et reviennent à sa fermeture.
+        bool pauseMenus = paused && !ControlsUI.IsOpen;
+        if (pausePanel.activeSelf != pauseMenus) pausePanel.SetActive(pauseMenus);
+        if (hintPanel.activeSelf != pauseMenus) hintPanel.SetActive(pauseMenus);
+        bool flagsShown = lobbyPanel.activeSelf || pauseMenus;
         if (langRow.activeSelf != flagsShown) langRow.SetActive(flagsShown);
         // Souris sur le menu du lobby ou le menu pause : la scène s'assombrit (fondu dans FilmGrain).
         FilmGrain.MenuHover = Hovered(lobbyBackdrop) || Hovered(pausePanel.transform as RectTransform) || Hovered(controlsPanel)
