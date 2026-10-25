@@ -552,7 +552,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     void Update()
     {
         bool inGame = net.InGame;
-        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || phase == Phase.GameOver || Teleporting || localDig >= 0 || CannonFlying;
+        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || ControlsUI.IsOpen || phase == Phase.GameOver || Teleporting || localDig >= 0 || CannonFlying;
         OrbitCamera.CursorLockBlocked = TerminalUI.IsOpen || PostItUI.IsOpen || GameHud.GameOverVisible;
 
         if (phase == Phase.Running && !WipedOut)
@@ -615,7 +615,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         else serenityRegenAcc = 0f;
 
-        if (!PlayerController.InputLocked && !status.Dead && Input.GetKeyDown(KeyLayout.Bark)) TryBark();
+        if (!PlayerController.InputLocked && !status.Dead && Controls.Down(GameAction.Bark)) TryBark();
         UpdateDigs();
         UpdateCannon();
         UpdateTeleport();
@@ -779,7 +779,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Vector3 to = holder.transform.position - me;
         to.y = 0f;
         player.Pull = to.magnitude > 0.4f ? to.normalized * GameRules.BaseSpeed * GameRules.RoiPullMultiplier : Vector3.zero;
-        if (!PlayerController.InputLocked && Input.GetKeyDown(KeyCode.Space) && ++chainPresses >= GameRules.RoiBreakPresses)
+        if (!PlayerController.InputLocked && Controls.Down(GameAction.Jump) && ++chainPresses >= GameRules.RoiBreakPresses)
         {
             net.ToHost("RB|" + chainedBy);
             ReleaseChain();
@@ -1067,14 +1067,23 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         RaiseTestFlag(TestHurt);
         hud.FlashDamage();
         GameAudio.Play2D("hurt", 0.9f, 0.08f);
-        // Son de l'entité qui blesse sans tuer (Pion, Araignée), entendu par tous : l'hôte le relaie.
+        // Son de l'entité qui blesse sans tuer (Pion, Araignée). GDD 12 (V0.5.2) : entendu par tous (l'hôte le relaie)
+        // ou seulement par le joueur touché, selon l'entité.
         if (status.Hp > 0)
         {
-            if (by != null && by.HurtSound != null) net.ToHost("HL|" + by.Id);
+            if (by != null && by.HurtSound != null)
+            {
+                if (by.SoundsShared) net.ToHost("HL|" + by.Id);
+                else by.PlayHurtSound();
+            }
             return;
         }
-        // Son de mise à mort de l'entité, entendu par tous (GDD 12) : l'hôte le relaie.
-        if (by != null) net.ToHost("KL|" + by.Id);
+        // Son de mise à mort de l'entité (GDD 12), même règle.
+        if (by != null)
+        {
+            if (by.SoundsShared) net.ToHost("KL|" + by.Id);
+            else by.PlayKillSound();
+        }
         // Note 03 (V0.4.3) : tué par un Cauchemar, la caméra plonge environ 1,5 seconde dans ses yeux, puis le corps s'effondre.
         if (by != null && by.Nightmare)
         {

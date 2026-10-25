@@ -122,9 +122,7 @@ public class RemotePlayer : MonoBehaviour
         }
         if (dead != Dead)
         {
-            var session = GameSession.Instance;
-            if (dead && hasTarget && (session == null || !session.IsGameOver))
-                GameAudio.Play3DDelayed("death", transform.position, 1f, 30f, 0.06f, GameRules.DeathSoundDelay);
+            // GDD 12 (V0.5.2) : Perso_Mort n'est entendu que par le joueur qui meurt (pas chez les autres).
             presence.Alive = !dead;
             avatar.SetDead(dead);
             nameTag.Show(!dead);

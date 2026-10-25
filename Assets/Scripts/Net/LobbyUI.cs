@@ -36,6 +36,11 @@ public class LobbyUI : MonoBehaviour
     // Drapeaux des langues, en bas à droite (lobby et menu pause).
     GameObject langRow;
     readonly System.Collections.Generic.Dictionary<Lang, MenuButtonHover> flags = new System.Collections.Generic.Dictionary<Lang, MenuButtonHover>();
+    // Contrôles du menu pause (touches modifiables) et fenêtre "Modifier Contrôles".
+    readonly System.Collections.Generic.List<Text> controlLines = new System.Collections.Generic.List<Text>();
+    ControlsUI controlsUI;
+    // Panneau des contrôles (à droite du menu pause) : son survol assombrit aussi la scène.
+    RectTransform controlsPanel;
     // Partie en cours, pour retraduire le menu pause quand la langue change.
     string roomCode;
     bool roomHost;
@@ -55,13 +60,18 @@ public class LobbyUI : MonoBehaviour
         ShowLobby(roomFromUrl.Length > 0 ? Loc.T("Invitation reçue : choisissez un pseudo puis cliquez sur Rejoindre.") : "");
     }
 
-    void OnDestroy() => Loc.Changed -= OnLanguageChanged;
+    void OnDestroy()
+    {
+        Loc.Changed -= OnLanguageChanged;
+        Controls.Changed -= RefreshControlsList;
+    }
 
     void OnLanguageChanged()
     {
         foreach (var kv in flags) kv.Value.Selected = kv.Key == Loc.Current;
         RefreshRoom();
         SetPlayerCount(playerCount);
+        RefreshControlsList();
     }
 
     // ---------- États ----------
@@ -69,6 +79,7 @@ public class LobbyUI : MonoBehaviour
     public void ShowLobby(string message)
     {
         inGame = false;
+        if (controlsUI != null) controlsUI.Close(false);
         lobbyPanel.SetActive(true);
         versionText.gameObject.SetActive(true);
         pausePanel.SetActive(false);
@@ -103,9 +114,31 @@ public class LobbyUI : MonoBehaviour
         RefreshRoom();
         copyButton.SetActive(!solo);
         countText.gameObject.SetActive(!solo);
+        FitPausePanel();
         Loc.Bind(copyLabel, "Copier le lien d'invitation");
         if (EventSystem.current != null) EventSystem.current.SetSelectedGameObject(null);
         RefreshSkin();
+    }
+
+    // Menu pause à la hauteur de son contenu (plus court en solo, sans lien d'invitation ni nombre de joueurs) :
+    // la jauge de PV reste visible dessous. (Pas de ContentSizeFitter : le coup de pinceau du fond a sa propre
+    // hauteur préférée, qui l'emporterait.)
+    void FitPausePanel()
+    {
+        var layout = pausePanel.GetComponent<VerticalLayoutGroup>();
+        float h = layout.padding.top + layout.padding.bottom;
+        int shown = 0;
+        foreach (Transform t in pausePanel.transform)
+        {
+            // (Menu encore caché ici : on lit la hauteur déclarée de chaque ligne, pas celle calculée par la mise en page.)
+            var le = t.GetComponent<LayoutElement>();
+            if (!t.gameObject.activeSelf || le == null || le.ignoreLayout) continue;
+            h += Mathf.Max(0f, le.preferredHeight);
+            shown++;
+        }
+        h += layout.spacing * Mathf.Max(0, shown - 1);
+        var rt = (RectTransform)pausePanel.transform;
+        rt.sizeDelta = new Vector2(rt.sizeDelta.x, h);
     }
 
     void RefreshRoom()
@@ -161,7 +194,8 @@ public class LobbyUI : MonoBehaviour
         bool flagsShown = lobbyPanel.activeSelf || paused;
         if (langRow.activeSelf != flagsShown) langRow.SetActive(flagsShown);
         // Souris sur le menu du lobby ou le menu pause : la scène s'assombrit (fondu dans FilmGrain).
-        FilmGrain.MenuHover = Hovered(lobbyBackdrop) || Hovered(pausePanel.transform as RectTransform);
+        FilmGrain.MenuHover = Hovered(lobbyBackdrop) || Hovered(pausePanel.transform as RectTransform) || Hovered(controlsPanel)
+            || controlsUI.Hovered;
         // Clignotement lent, en fondu.
         if (paused)
         {
@@ -388,27 +422,51 @@ public class LobbyUI : MonoBehaviour
         resumeLabel.rectTransform.sizeDelta = new Vector2(400, 40);
         resumeLabel.raycastTarget = false;
 
-        string[] controls =
-        {
-            "ZQSD : se déplacer",
-            "Shift : courir",
-            "C : marcher discrètement",
-            "Espace : sauter",
-            "A : aboyer",
-            "Souris : orienter la caméra",
-            "Molette : zoom (1re personne au plus près)",
-            "E / Clic gauche : interagir, ramasser",
-            "Clic gauche : utiliser l'objet sélectionné",
-            "1 à 5 : sélectionner un objet",
-            "Échap : menu pause",
-        };
-        var list = UiKit.Panel(hintPanel.transform, "Controles", new Vector2(400, 68 + 26 + controls.Length * 25));
+        // Lignes remplies selon les touches choisies (RefreshControlsList), sous le bouton "Modifier Contrôles".
+        const int lines = 12;
+        var list = UiKit.Panel(hintPanel.transform, "Controles", new Vector2(400, 68 + 26 + lines * 25 + 48));
         UiKit.Paint(list, PanelBlack, 19);
-        UiKit.Place(list, new Vector2(1f, 1f), new Vector2(0, -52));
+        controlsPanel = UiKit.Place(list, new Vector2(1f, 1f), new Vector2(0, -52));
         UiKit.Column(list, 34, 3);
         UiKit.Label(list.transform, "Contrôles", 16, FontStyle.Bold, UiKit.MutedText, 24, TextAnchor.MiddleLeft);
-        foreach (string line in controls)
-            UiKit.Label(list.transform, line, 15, FontStyle.Normal, Color.white, 22, TextAnchor.MiddleLeft);
+        for (int i = 0; i < lines; i++)
+            controlLines.Add(UiKit.Label(list.transform, "", 15, FontStyle.Normal, Color.white, 22, TextAnchor.MiddleLeft));
         foreach (var g in hintPanel.GetComponentsInChildren<Graphic>()) g.raycastTarget = false;
+
+        UiKit.Spacer(list.transform, 6);
+        var edit = UiKit.Button(list.transform, "Modifier Contrôles", JoinBlue, 38, () => controlsUI.Open());
+        UiKit.Paint(edit, JoinBlue, 21);
+        MenuButtonHover.AddTo(list);
+
+        controlsUI = gameObject.AddComponent<ControlsUI>();
+        controlsUI.Init();
+        Controls.Changed += RefreshControlsList;
+        RefreshControlsList();
+    }
+
+    // Liste des contrôles du menu pause, avec les touches choisies par le joueur.
+    void RefreshControlsList()
+    {
+        string L(GameAction a) => Controls.Label(a);
+        string move = L(GameAction.Forward) + L(GameAction.Left) + L(GameAction.Back) + L(GameAction.Right);
+        if (move.Length != 4) move = L(GameAction.Forward) + " / " + L(GameAction.Left) + " / " + L(GameAction.Back) + " / " + L(GameAction.Right);
+        var slots = new[] { L(GameAction.Slot1), L(GameAction.Slot2), L(GameAction.Slot3), L(GameAction.Slot4), L(GameAction.Slot5) };
+        string slotKeys = string.Join("", slots) == "12345" ? Loc.F("{0} à {1}", "1", "5") : string.Join(" / ", slots);
+        string[] text =
+        {
+            Loc.F("{0} : se déplacer", move),
+            Loc.F("{0} : courir", L(GameAction.Run)),
+            Loc.F("{0} : marcher discrètement", L(GameAction.Sneak)),
+            Loc.F("{0} : sauter", L(GameAction.Jump)),
+            Loc.F("{0} : aboyer", L(GameAction.Bark)),
+            Loc.T("Souris : orienter la caméra"),
+            Loc.T("Molette : zoom (1re personne au plus près)"),
+            Loc.F("{0} : interagir, ramasser", L(GameAction.Interact) + " / " + L(GameAction.Use)),
+            Loc.F("{0} : utiliser l'objet sélectionné", L(GameAction.Use)),
+            Loc.F("{0} : sélectionner un objet", slotKeys),
+            Loc.F("{0} : danser", L(GameAction.Dance1) + " / " + L(GameAction.Dance2) + " / " + L(GameAction.Dance3)),
+            Loc.T("Échap : menu pause"),
+        };
+        for (int i = 0; i < controlLines.Count; i++) controlLines[i].text = i < text.Length ? text[i] : "";
     }
 }

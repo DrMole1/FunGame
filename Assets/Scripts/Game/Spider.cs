@@ -183,6 +183,8 @@ public class Spider : Entity
     // V0.4.9 : Araignee_Attaque quand elle blesse un joueur, Araignee_Tuer quand elle le tue (joués chez tous).
     public override string HurtSound => "spider_attack";
     public override string KillSound => "spider_kill";
+    // GDD 12 (V0.5.2) : Araignee_Attaque et Araignee_Tuer, entendus par tous les joueurs, spatialisés.
+    public override bool SoundsShared => true;
 
     protected override void Animate(float dt)
     {

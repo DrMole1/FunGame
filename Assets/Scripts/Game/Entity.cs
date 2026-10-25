@@ -170,11 +170,18 @@ public abstract class Entity : MonoBehaviour
     protected virtual void OnPulse() { }
     protected virtual void Animate(float dt) { }
 
-    // Son joué chez tous quand l'entité tue un joueur (GDD 12), ou null.
+    // Son joué quand l'entité tue un joueur (GDD 12), ou null.
     public virtual string KillSound => null;
-    // Son joué chez tous quand l'entité blesse un joueur sans le tuer (GDD 12, V0.4.9), ou null ; il sert aussi quand elle
+    // Son joué quand l'entité blesse un joueur sans le tuer (GDD 12, V0.4.9), ou null ; il sert aussi quand elle
     // tue, si elle n'a pas de son de mise à mort.
     public virtual string HurtSound => null;
+    // GDD 12 (V0.5.2, colonne "Attribut") : sons de dégâts et de mise à mort entendus par tous les joueurs, spatialisés
+    // (L'Araignée) ; sinon, seulement par le joueur touché.
+    public virtual bool SoundsShared => false;
+
+    // GDD 12 (V0.5.2) : sons "Client uniquement", joués seulement chez le joueur visé par l'entité.
+    protected bool TargetIsLocal =>
+        !string.IsNullOrEmpty(TargetId) && NetworkGame.Instance != null && TargetId == NetworkGame.Instance.MyId;
 
     public void PlayKillSound() => PlayAt(KillSound ?? HurtSound);
 

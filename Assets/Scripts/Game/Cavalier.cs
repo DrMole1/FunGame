@@ -307,7 +307,8 @@ public class Cavalier : Entity
     protected override void OnStateChanged(byte previous, byte next)
     {
         Vector3 mouth = transform.position + Vector3.up * EyeHeight;
-        if ((State)next == State.Chase && (State)previous <= State.Stomp) GameAudio.Play3D("cavalier_alert", mouth, 1f, 40f, 0f);
+        // GDD 12 (V0.5.2) : Cavalier_Alerte et Cavalier_Immobilise ne sont entendus que par le joueur traqué.
+        if ((State)next == State.Chase && (State)previous <= State.Stomp && TargetIsLocal) GameAudio.Play3D("cavalier_alert", mouth, 1f, 40f, 0f);
         if ((State)next == State.Strike) { strikeShownAt = Time.time; strikePlayed = false; }
         if ((State)next == State.Stomp) { stompShownAt = Time.time; stompPlayed = false; }
     }
@@ -318,6 +319,7 @@ public class Cavalier : Entity
 
     protected override void OnPulse()
     {
+        if (!TargetIsLocal) return;
         if (terror != null && terror.isPlaying && terror.clip == SoundBank.Get("cavalier_terror")) terror.Stop();
         terror = GameAudio.Play3D("cavalier_terror", transform.position + Vector3.up * EyeHeight, 1f, 40f, 0f);
     }

@@ -130,7 +130,8 @@ public class OrbitCamera : MonoBehaviour
     void Update()
     {
         // Échap libère la souris, un clic la reverrouille.
-        if (!ControlsEnabled || CursorLockBlocked)
+        // Fenêtre "Modifier Contrôles" ouverte (ou fermée par Échap à cette image) : le menu pause reste affiché.
+        if (!ControlsEnabled || CursorLockBlocked || ControlsUI.IsOpen || ControlsUI.ClosedFrame == Time.frameCount)
         {
             // (Juste après la fermeture du Terminal par Échap, le blocage n'est pas encore levé : on garde le verrouillage.)
             if (Cursor.lockState != CursorLockMode.None && Time.frameCount - resumeFrame > 1) LockCursor(false);

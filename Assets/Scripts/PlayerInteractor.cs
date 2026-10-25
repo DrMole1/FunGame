@@ -1,15 +1,11 @@
 using UnityEngine;
 
-// Visée au centre de l'écran, interactions (E / clic gauche) et sélection d'inventaire (1 à 5).
+// Visée au centre de l'écran, interactions (E / clic gauche) et sélection d'inventaire (1 à 5), touches modifiables (Controls).
 public class PlayerInteractor : MonoBehaviour
 {
-    static readonly KeyCode[] SlotKeys =
+    static readonly GameAction[] SlotActions =
     {
-        KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.Alpha3, KeyCode.Alpha4, KeyCode.Alpha5,
-    };
-    static readonly KeyCode[] PadKeys =
-    {
-        KeyCode.Keypad1, KeyCode.Keypad2, KeyCode.Keypad3, KeyCode.Keypad4, KeyCode.Keypad5,
+        GameAction.Slot1, GameAction.Slot2, GameAction.Slot3, GameAction.Slot4, GameAction.Slot5,
     };
 
     PlayerStatus status;
@@ -29,12 +25,13 @@ public class PlayerInteractor : MonoBehaviour
         SetCurrent(active ? FindTarget() : null);
         if (!active) return;
 
-        for (int i = 0; i < SlotKeys.Length; i++)
-            if (Input.GetKeyDown(SlotKeys[i]) || Input.GetKeyDown(PadKeys[i]))
+        for (int i = 0; i < SlotActions.Length; i++)
+            if (Controls.Down(SlotActions[i]))
                 status.Select(i);
 
-        bool click = Input.GetMouseButtonDown(0) && OrbitCamera.Looking && Time.frameCount != OrbitCamera.LockFrame;
-        bool use = Input.GetKeyDown(KeyCode.E);
+        // "Utiliser l'objet" (clic gauche par défaut) interagit ou utilise l'objet ; "Interagir" (E) interagit seulement.
+        bool click = Controls.Pressed(GameAction.Use);
+        bool use = Controls.Pressed(GameAction.Interact);
         if ((click || use) && current != null)
         {
             // Interagir n'utilise pas l'objet sélectionné dans l'inventaire (Pogo et la Balise du Hub le lisent au moment du clic).

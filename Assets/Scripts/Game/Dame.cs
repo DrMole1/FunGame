@@ -181,10 +181,11 @@ public class Dame : Entity
 
     protected override void OnStateChanged(byte previous, byte next)
     {
-        // Elle crie en repérant un joueur (Dame_Cri), pitché au hasard.
-        if ((State)next == State.Chase && (State)previous == State.Wander)
+        // Elle crie en repérant un joueur (Dame_Cri), pitché au hasard. GDD 12 (V0.5.2) : Dame_Cri et Dame_Attaque
+        // ne sont entendus que par le joueur visé.
+        if ((State)next == State.Chase && (State)previous == State.Wander && TargetIsLocal)
             GameAudio.Play3DSmooth("dame_scream", transform.position + Vector3.up * 1.7f, 1f, GameRules.DameScreamRange, RandomPitch());
-        if ((State)next == State.Attack) GameAudio.Play3D("dame_attack", transform.position + Vector3.up * 1.4f, 1f, 25f, 0f);
+        if ((State)next == State.Attack && TargetIsLocal) GameAudio.Play3D("dame_attack", transform.position + Vector3.up * 1.4f, 1f, 25f, 0f);
     }
 
     public override string KillSound => "dame_kill";

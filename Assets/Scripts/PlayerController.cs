@@ -89,14 +89,14 @@ public class PlayerController : MonoBehaviour
         bool runHeld = false, sneakHeld = false;
         if (CanControl && !Immobilized)
         {
-            // Z/W accepté quel que soit le clavier (AZERTY/QWERTY) ; gauche = la touche Q (voir KeyLayout), A sert à aboyer.
-            if (Input.GetKey(KeyCode.Z) || Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) v += 1f;
-            if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) v -= 1f;
-            if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) h += 1f;
-            if (Input.GetKey(KeyLayout.Left) || Input.GetKey(KeyCode.LeftArrow)) h -= 1f;
-            runHeld = (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)) && !RunBlocked;
+            // Touches modifiables dans le menu pause (Controls) ; par défaut Z/W, Q (selon le clavier), S, D, Shift et C.
+            if (Controls.Held(GameAction.Forward)) v += 1f;
+            if (Controls.Held(GameAction.Back)) v -= 1f;
+            if (Controls.Held(GameAction.Right)) h += 1f;
+            if (Controls.Held(GameAction.Left)) h -= 1f;
+            runHeld = Controls.Held(GameAction.Run) && !RunBlocked;
             // V0.4.1 : la marche discrète passe sur la touche C (Ctrl + touche est réservé par les navigateurs).
-            sneakHeld = Input.GetKey(KeyCode.C);
+            sneakHeld = Controls.Held(GameAction.Sneak);
         }
         // Marche automatique (approche d'un monticule) : en courant.
         if (WalkTarget.HasValue) runHeld = !RunBlocked;
@@ -131,18 +131,19 @@ public class PlayerController : MonoBehaviour
             inputDir = Vector3.ClampMagnitude(to / Mathf.Max(0.01f, CurrentSpeed() * Time.fixedDeltaTime), 1f);
         }
 
-        // Danses : I, O, P (l'IA a choisi les danses 2 et 3) ; un déplacement ou un saut y met fin.
+        // Danses : I, O, P par défaut (l'IA a choisi les danses 2 et 3) ; un déplacement ou un saut y met fin.
         if (CanControl && !Immobilized)
         {
-            if (Input.GetKeyDown(KeyCode.I)) chosenDance = 1;
-            else if (Input.GetKeyDown(KeyCode.O)) chosenDance = 2;
-            else if (Input.GetKeyDown(KeyCode.P)) chosenDance = 3;
+            if (Controls.Down(GameAction.Dance1)) chosenDance = 1;
+            else if (Controls.Down(GameAction.Dance2)) chosenDance = 2;
+            else if (Controls.Down(GameAction.Dance3)) chosenDance = 3;
         }
-        WantsToMove = v != 0f || h != 0f || (CanControl && Input.GetKeyDown(KeyCode.Space));
+        bool jumpPressed = CanControl && Controls.Down(GameAction.Jump);
+        WantsToMove = v != 0f || h != 0f || jumpPressed;
         if (WantsToMove || !CanControl) chosenDance = 0;
 
         grounded = IsGrounded();
-        if (CanControl && !Immobilized && Input.GetKeyDown(KeyCode.Space) && grounded && airborneLock <= 0f)
+        if (jumpPressed && !Immobilized && grounded && airborneLock <= 0f)
         {
             jumpRequested = true;
             // Juste après l'impulsion, le sol est encore détecté : on reste en état "saut".

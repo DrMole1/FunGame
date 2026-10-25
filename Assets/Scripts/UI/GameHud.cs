@@ -157,6 +157,21 @@ public class GameHud : MonoBehaviour
 
     // ================= Construction =================
 
+    static readonly GameAction[] SlotActions = { GameAction.Slot1, GameAction.Slot2, GameAction.Slot3, GameAction.Slot4, GameAction.Slot5 };
+
+    // Chaque case affiche la touche qui la sélectionne (1 à 5 par défaut).
+    void RefreshSlotKeys()
+    {
+        for (int i = 0; i < slotNumber.Length && i < SlotActions.Length; i++)
+            if (slotNumber[i] != null) slotNumber[i].text = Controls.Label(SlotActions[i]);
+    }
+
+    void OnDestroy()
+    {
+        Controls.Changed -= RefreshSlotKeys;
+        Loc.Changed -= RefreshSlotKeys;
+    }
+
     public void Init(System.Action onRestart, System.Action onQuit)
     {
         var canvas = UiKit.CreateCanvas(transform, "HudCanvas", 50);
@@ -227,13 +242,23 @@ public class GameHud : MonoBehaviour
             slotIcon[i].preserveAspect = true;
             slotIcon[i].raycastTarget = false;
             slotIcon[i].enabled = false;
-            var num = UiKit.Label(slot.transform, (i + 1).ToString(), 13, FontStyle.Bold, UiKit.MutedText, 20, TextAnchor.UpperLeft);
+            // Touche de sélection de la case (modifiable dans le menu pause), remplie par RefreshSlotKeys.
+            var num = UiKit.Label(slot.transform, "", 13, FontStyle.Bold, UiKit.MutedText, 20, TextAnchor.UpperLeft);
             UiKit.Stretch(num.rectTransform, 6f);
+            // Nom de touche long ("Clic droit"…) : réduit pour tenir dans la case.
+            num.resizeTextForBestFit = true;
+            num.resizeTextMinSize = 8;
+            num.resizeTextMaxSize = 13;
+            num.verticalOverflow = VerticalWrapMode.Truncate;
             slotNumber[i] = num;
             slotName[i] = UiKit.Label(slot.transform, "", 11, FontStyle.Bold, Color.white, size);
             UiKit.Stretch(slotName[i].rectTransform, 4f);
             slotName[i].rectTransform.offsetMax = new Vector2(-4, -14);
         }
+
+        RefreshSlotKeys();
+        Controls.Changed += RefreshSlotKeys;
+        Loc.Changed += RefreshSlotKeys;
 
         BuildCompass(r);
         BuildSpaceKey(r, rounded);

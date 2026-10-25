@@ -317,7 +317,8 @@ public class Fou : Entity
         {
             case State.Alert:
                 alertTime = 0f;
-                GameAudio.Play3D("fou_alert", mouth, 1f, 35f, 0f);
+                // GDD 12 (V0.5.2) : Fou_Alerte, entendu seulement par le joueur qui a vu le Fou.
+                if (TargetIsLocal) GameAudio.Play3D("fou_alert", mouth, 1f, 35f, 0f);
                 break;
             case State.Dance:
                 danceTime = 0f;
@@ -331,7 +332,8 @@ public class Fou : Entity
     // l'échange).
     protected override void OnPulse()
     {
-        GameAudio.Play3D("fou_attack", transform.position + Vector3.up * EyeHeight, 1f, 35f, 0f);
+        // GDD 12 (V0.5.2) : Fou_TP, entendu seulement par le joueur échangé.
+        if (TargetIsLocal) GameAudio.Play3D("fou_attack", transform.position + Vector3.up * EyeHeight, 1f, 35f, 0f);
         // Une fois sur dix, une surprise (colombe ou chapeau de magicien), la même chez tous : tirée de l'échange.
         int roll = (int)((uint)(Id * 7919 + Pulse * 104729) % 20u);
         Fx.CircusPoof(transform.position, roll == 0 ? Fx.Surprise.Dove : roll == 1 ? Fx.Surprise.Hat : Fx.Surprise.None);

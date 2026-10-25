@@ -348,8 +348,9 @@ public class Roi : Entity
     protected override void OnStateChanged(byte previous, byte next)
     {
         Vector3 head = transform.position + Vector3.up * EyeHeight;
-        // Rire quand il commence à lever le bras.
-        if ((State)next == State.Aim && (State)previous < State.Aim) GameAudio.Play3D("roi_laugh", head, 1f, 35f, 0f);
+        // Rire quand il commence à lever le bras. GDD 12 (V0.5.2) : Roi_Rire, Roi_Flash, Roi_Chaine et Roi_Epee ne sont
+        // entendus que par le joueur visé.
+        if ((State)next == State.Aim && (State)previous < State.Aim && TargetIsLocal) GameAudio.Play3D("roi_laugh", head, 1f, 35f, 0f);
         if ((State)next == State.Aim)
         {
             aimShownAt = Time.time;
@@ -357,10 +358,10 @@ public class Roi : Entity
             aimShownLen = (State)previous >= State.Throw ? GameRules.RoiAimAgain : GameRules.RoiAimFirst;
             // Flash lumineux sur l'écran du joueur visé (GameSession), avec son bruitage.
             PlayerPresence target = FindPresence(TargetId);
-            if (target != null && (State)previous < State.Aim) GameAudio.Play3D("roi_flash", target.Position, 1f, 30f, 0f);
+            if (target != null && (State)previous < State.Aim && TargetIsLocal) GameAudio.Play3D("roi_flash", target.Position, 1f, 30f, 0f);
         }
         // V0.4.7 : la chaîne accroche le joueur, et le rire retentit à nouveau.
-        if ((State)next == State.Pull) GameAudio.Play3D("roi_laugh", head, 1f, 35f, 0f);
+        if ((State)next == State.Pull && TargetIsLocal) GameAudio.Play3D("roi_laugh", head, 1f, 35f, 0f);
         if ((State)next == State.Throw) throwShownAt = Time.time;
         // La chaîne a touché son objectif ou fini sa course : le son du lancer se coupe.
         if ((State)previous == State.Throw && chainSound != null)
@@ -376,7 +377,7 @@ public class Roi : Entity
         {
             grabShownAt = Time.time;
             // Il lève son épée pour tuer le joueur.
-            GameAudio.Play3D("roi_slash", transform.position + Vector3.up * EyeHeight, 1f, 30f, 0f);
+            if (TargetIsLocal) GameAudio.Play3D("roi_slash", transform.position + Vector3.up * EyeHeight, 1f, 30f, 0f);
         }
     }
 
@@ -387,7 +388,7 @@ public class Roi : Entity
     // Lancer de la chaîne.
     protected override void OnPulse()
     {
-        if (Current == State.Throw) chainSound = GameAudio.Play3D("roi_chain", HandPosition(), 1f, 30f, 0f);
+        if (Current == State.Throw && TargetIsLocal) chainSound = GameAudio.Play3D("roi_chain", HandPosition(), 1f, 30f, 0f);
     }
 
     // Bruit de chaîne qui se casse ; les maillons qui tombent font le leur (ChainLink).

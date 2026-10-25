@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.5.1";
+    public const string Version = "V0.5.2";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
