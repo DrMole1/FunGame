@@ -423,7 +423,7 @@ public class LobbyUI : MonoBehaviour
         resumeLabel.raycastTarget = false;
 
         // Lignes remplies selon les touches choisies (RefreshControlsList), sous le bouton "Modifier Contrôles".
-        const int lines = 12;
+        const int lines = 11;
         var list = UiKit.Panel(hintPanel.transform, "Controles", new Vector2(400, 68 + 26 + lines * 25 + 48));
         UiKit.Paint(list, PanelBlack, 19);
         controlsPanel = UiKit.Place(list, new Vector2(1f, 1f), new Vector2(0, -52));
@@ -461,8 +461,7 @@ public class LobbyUI : MonoBehaviour
             Loc.F("{0} : aboyer", L(GameAction.Bark)),
             Loc.T("Souris : orienter la caméra"),
             Loc.T("Molette : zoom (1re personne au plus près)"),
-            Loc.F("{0} : interagir, ramasser", L(GameAction.Interact) + " / " + L(GameAction.Use)),
-            Loc.F("{0} : utiliser l'objet sélectionné", L(GameAction.Use)),
+            Loc.F("{0} : interagir, ramasser, utiliser l'objet", L(GameAction.Interact) + " / " + Loc.T("Clic gauche")),
             Loc.F("{0} : sélectionner un objet", slotKeys),
             Loc.F("{0} : danser", L(GameAction.Dance1) + " / " + L(GameAction.Dance2) + " / " + L(GameAction.Dance3)),
             Loc.T("Échap : menu pause"),

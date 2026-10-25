@@ -133,7 +133,7 @@ public partial class GameSession
         // Sauter ou bouger : il sort du Canon.
         if (!player.WantsToMove) cannonMoveArmed = true;
         else if (cannonMoveArmed) { LeaveCannon(true); return; }
-        bool click = Controls.Pressed(GameAction.Use);
+        bool click = Controls.Pressed(GameAction.Interact);
         if (!click) return;
         if (!cannon.Charged)
         {

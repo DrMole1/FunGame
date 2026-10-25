@@ -44,6 +44,8 @@ public class GameAudio : MonoBehaviour
         {
             music = Mathf.Clamp01(value);
             PlayerPrefs.SetFloat(MusicKey, music);
+            // Écrit tout de suite : dans le navigateur, seul PlayerPrefs.Save() enregistre le réglage pour la prochaine ouverture du jeu.
+            PlayerPrefs.Save();
         }
     }
 
@@ -54,6 +56,8 @@ public class GameAudio : MonoBehaviour
         {
             sfx = Mathf.Clamp01(value);
             PlayerPrefs.SetFloat(SfxKey, sfx);
+            // Écrit tout de suite : dans le navigateur, seul PlayerPrefs.Save() enregistre le réglage pour la prochaine ouverture du jeu.
+            PlayerPrefs.Save();
         }
     }
 

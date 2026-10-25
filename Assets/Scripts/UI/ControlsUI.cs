@@ -19,8 +19,7 @@ public class ControlsUI : MonoBehaviour
     {
         (GameAction.Forward, "Avancer"), (GameAction.Back, "Reculer"), (GameAction.Left, "Gauche"), (GameAction.Right, "Droite"),
         (GameAction.Run, "Courir"), (GameAction.Sneak, "Marcher discrètement"), (GameAction.Jump, "Sauter"), (GameAction.Bark, "Aboyer"),
-        (GameAction.Interact, "Interagir"),
-        (GameAction.Use, "Utiliser l'objet"), (GameAction.Slot1, "Objet 1"), (GameAction.Slot2, "Objet 2"), (GameAction.Slot3, "Objet 3"),
+        (GameAction.Interact, "Interagir / utiliser l'objet"), (GameAction.Slot1, "Objet 1"), (GameAction.Slot2, "Objet 2"), (GameAction.Slot3, "Objet 3"),
         (GameAction.Slot4, "Objet 4"), (GameAction.Slot5, "Objet 5"), (GameAction.Dance1, "Danse 1"), (GameAction.Dance2, "Danse 2"),
         (GameAction.Dance3, "Danse 3"),
     };
@@ -58,6 +57,10 @@ public class ControlsUI : MonoBehaviour
             v.childAlignment = TextAnchor.UpperLeft;
             for (int i = c * perColumn; i < Mathf.Min(Rows.Length, (c + 1) * perColumn); i++)
                 BuildRow(col.transform, i, c * 2 + i);
+            // Le reste de la hauteur va ici : une colonne plus courte garde des lignes régulières, alignées en haut.
+            var filler = new GameObject("Reste", typeof(RectTransform), typeof(LayoutElement));
+            filler.transform.SetParent(col.transform, false);
+            filler.GetComponent<LayoutElement>().flexibleHeight = 100;
         }
 
         UiKit.Spacer(p, 2);
@@ -146,7 +149,8 @@ public class ControlsUI : MonoBehaviour
         {
             var list = new List<KeyCode>();
             foreach (KeyCode k in System.Enum.GetValues(typeof(KeyCode)))
-                if (k != KeyCode.None && k != KeyCode.Escape && k < KeyCode.JoystickButton0 && !list.Contains(k)) list.Add(k);
+                // Le clic gauche est réservé : il interagit / utilise l'objet dans tous les cas.
+                if (k != KeyCode.None && k != KeyCode.Escape && k != KeyCode.Mouse0 && k < KeyCode.JoystickButton0 && !list.Contains(k)) list.Add(k);
             candidates = list.ToArray();
         }
         foreach (var k in candidates)

@@ -3,7 +3,7 @@ using UnityEngine;
 
 public enum GameAction
 {
-    Forward, Back, Left, Right, Run, Sneak, Jump, Bark, Interact, Use,
+    Forward, Back, Left, Right, Run, Sneak, Jump, Bark, Interact,
     Slot1, Slot2, Slot3, Slot4, Slot5, Dance1, Dance2, Dance3,
 }
 
@@ -49,7 +49,6 @@ public static class Controls
             case GameAction.Jump: return new[] { KeyCode.Space };
             case GameAction.Bark: return new[] { KeyLayout.Bark };
             case GameAction.Interact: return new[] { KeyCode.E };
-            case GameAction.Use: return new[] { KeyCode.Mouse0 };
             case GameAction.Slot1: return new[] { KeyCode.Alpha1 };
             case GameAction.Slot2: return new[] { KeyCode.Alpha2 };
             case GameAction.Slot3: return new[] { KeyCode.Alpha3 };
@@ -174,9 +173,13 @@ public static class Controls
     }
 
     // Action déclenchée cette image. Par un bouton de la souris, seulement quand la souris pilote la caméra (pas le clic
-    // qui la reverrouille, ni un clic dans un menu).
-    public static bool Pressed(GameAction a) =>
-        Down(a) && (!IsMouse(a) || (OrbitCamera.Looking && Time.frameCount != OrbitCamera.LockFrame));
+    // qui la reverrouille, ni un clic dans un menu). "Interagir / utiliser l'objet" se déclenche aussi, toujours, au clic gauche.
+    public static bool Pressed(GameAction a)
+    {
+        bool mouseOk = OrbitCamera.Looking && Time.frameCount != OrbitCamera.LockFrame;
+        if (a == GameAction.Interact && Input.GetMouseButtonDown(0) && mouseOk) return true;
+        return Down(a) && (!IsMouse(a) || mouseOk);
+    }
 
     // Nom lisible d'une touche (clé française pour celles qui se traduisent).
     public static string KeyName(KeyCode k)

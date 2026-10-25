@@ -21,6 +21,8 @@ public static class MouseSensitivity
         {
             current = Mathf.Clamp(value, Min, Max);
             PlayerPrefs.SetFloat(Key, current);
+            // Écrit tout de suite : dans le navigateur, seul PlayerPrefs.Save() enregistre le réglage pour la prochaine ouverture du jeu.
+            PlayerPrefs.Save();
         }
     }
 }

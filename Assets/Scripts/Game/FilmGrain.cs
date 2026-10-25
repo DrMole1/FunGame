@@ -24,6 +24,8 @@ public class FilmGrain : MonoBehaviour
         {
             current = Mathf.Clamp01(value);
             PlayerPrefs.SetFloat(Key, current);
+            // Écrit tout de suite : dans le navigateur, seul PlayerPrefs.Save() enregistre le réglage pour la prochaine ouverture du jeu.
+            PlayerPrefs.Save();
         }
     }
 
