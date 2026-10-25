@@ -521,7 +521,7 @@ public class NetworkGame : MonoBehaviour
     static string RandomCode()
     {
         var sb = new StringBuilder();
-        for (int i = 0; i < 5; i++) sb.Append(CodeAlphabet[Random.Range(0, CodeAlphabet.Length)]);
+        for (int i = 0; i < 6; i++) sb.Append(CodeAlphabet[Random.Range(0, CodeAlphabet.Length)]);
         return sb.ToString();
     }
 

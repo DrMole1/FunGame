@@ -107,7 +107,7 @@ public static class Loc
         R("Héberger une partie", "Host a game", "Crear una partida", "Создать игру"),
         R("Skin", "Skin", "Aspecto", "Скин"),
         R("Rejoindre une partie", "Join a game", "Unirse a una partida", "Присоединиться к игре"),
-        R("Code (ex. K7QXP)", "Code (e.g. K7QXP)", "Código (ej. K7QXP)", "Код (напр. K7QXP)"),
+        R("Code (ex. K7QXPM)", "Code (e.g. K7QXPM)", "Código (ej. K7QXPM)", "Код (напр. K7QXPM)"),
         R("Rejoindre", "Join", "Unirse", "Войти"),
         R("Quitter", "Quit", "Salir", "Выход"),
         R("Musique", "Music", "Música", "Музыка"),

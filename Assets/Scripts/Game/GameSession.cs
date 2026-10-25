@@ -640,7 +640,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
         var target = player.GetComponent<PlayerInteractor>().Current;
         string prompt = target != null ? target.Prompt : "";
-        hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : "[E] " + prompt);
+        hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : "[" + Controls.Label(GameAction.Interact) + "] " + prompt);
         // Cap de la caméra (là où le joueur regarde), pas celui du personnage.
         hud.SetCompass(compass && !status.Dead, (orbit != null ? orbit.transform : player.transform).eulerAngles.y);
     }

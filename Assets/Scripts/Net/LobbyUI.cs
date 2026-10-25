@@ -312,7 +312,7 @@ public class LobbyUI : MonoBehaviour
         statusText.gameObject.SetActive(false);
         UiKit.Label(p, "Rejoindre une partie", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         var row = UiKit.Row(p, 54, 10);
-        codeField = UiKit.Field(row.transform, "Code (ex. K7QXP)", roomFromUrl, 8);
+        codeField = UiKit.Field(row.transform, "Code (ex. K7QXPM)", roomFromUrl, 8);
         codeField.characterValidation = InputField.CharacterValidation.Alphanumeric;
         codeField.GetComponent<LayoutElement>().flexibleWidth = 1;
         UiKit.Paint(codeField.gameObject, FieldGrey, 6);
