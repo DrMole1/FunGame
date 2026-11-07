@@ -3,13 +3,14 @@ using UnityEngine;
 
 // La Cloche (entité ID 5, type Normal) : petite cloche de bronze sur pattes, de la vitesse d'un joueur qui marche.
 // Immobile au départ, elle "obnubile" tout joueur qui entre dans son champ de vision (360°, 25 m) : sa caméra est forcée
-// de la regarder et il prend des dégâts toutes les 2 secondes, jusqu'à ce qu'un mur coupe la ligne de vue. Elle scintille
-// (animation et son) en obnubilant. Elle marche ensuite vers le premier joueur obnubilé, jusqu'à 2 m (puis scintille),
-// ou vers un autre joueur obnubilé s'il lui échappe. Sans plus personne d'obnubilé, elle part en courant (x1,5) vers un
+// de la regarder jusqu'à ce qu'un mur coupe la ligne de vue (V0.6 : chaque fois, 20 de sérénité en moins, plus de dégâts
+// toutes les 2 secondes). Elle scintille (animation et son) en obnubilant. Elle marche ensuite vers le premier joueur
+// obnubilé (ou vers un autre joueur obnubilé s'il lui échappe) ; V0.6 : arrivée à 0,4 m de lui, elle explose (animation
+// et particules) et tue les joueurs à moins de 2 m. Sans plus personne d'obnubilé, elle part en courant (x1,5) vers un
 // endroit de sa zone à 50-70 m ("en recherche", sans obnubiler), puis redevient immobile.
 public class Cloche : Entity
 {
-    public enum State : byte { Idle = 0, Approach = 1, Search = 2 }
+    public enum State : byte { Idle = 0, Approach = 1, Search = 2, Explode = 3 }
 
     const float EyeHeight = 0.7f;
 
@@ -21,8 +22,7 @@ public class Cloche : Entity
     // Joueurs obnubilés, dans l'ordre où ils l'ont été.
     readonly List<string> obsessed = new List<string>();
     readonly List<string> scratch = new List<string>();
-    bool arrived;
-    float searchTimer;
+    float searchTimer, explodeTimer;
 
     public bool Obsesses(string playerId) => obsessed.Contains(playerId);
 
@@ -56,6 +56,15 @@ public class Cloche : Entity
 
     public override void Simulate(float dt, IReadOnlyList<PlayerPresence> players)
     {
+        if (Current == State.Explode)
+        {
+            // Le temps que tous les joueurs voient l'explosion, puis elle quitte la partie.
+            Speed = 0f;
+            obsessed.Clear();
+            explodeTimer += dt;
+            if (explodeTimer > 0.5f) Expired = true;
+            return;
+        }
         if (Current == State.Search)
         {
             obsessed.Clear();
@@ -91,23 +100,21 @@ public class Cloche : Entity
         {
             Current = State.Approach;
             TargetId = obsessed[0];
-            arrived = false;
             repathTimer = 0f;
         }
         var target = Find(players, TargetId);
         if (target == null) return;
         Speed = GameRules.BaseSpeed;
-        if (HorizontalDistance(target) > GameRules.ClocheStopDistance)
+        if (HorizontalDistance(target) > GameRules.ClocheStopDistance || Mathf.Abs(Feet(target).y - transform.position.y) > 1.2f)
         {
-            arrived = false;
             Pursue(target, dt);
+            return;
         }
-        else
-        {
-            Face(target.Position, dt);
-            if (!arrived) Pulse++;
-            arrived = true;
-        }
+        // Tout contre sa proie : elle explose.
+        Current = State.Explode;
+        Speed = 0f;
+        explodeTimer = 0f;
+        Host?.Explode(this, transform.position + Vector3.up * 0.5f, GameRules.ClocheBlastRadius, GameRules.ClocheDamage, GameRules.ClocheKnockback, false);
     }
 
     void BeginSearch()
@@ -134,6 +141,25 @@ public class Cloche : Entity
     const float RingInterval = 1f;
     static float lastRing = float.NegativeInfinity;
 
+    // Explosion vue et entendue par tous (comme Le Réveil), éclats de bronze.
+    protected override void OnStateChanged(byte previous, byte next)
+    {
+        if ((State)next != State.Explode) return;
+        Vector3 at = transform.position + Vector3.up * 0.5f;
+        GameAudio.Play3D("reveil_boom", at, 1f, 40f, 0.05f, 1.15f);
+        Vector3 ground = Physics.Raycast(at, Vector3.down, out RaycastHit hit, 3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+            ? hit.point : transform.position;
+        Fx.Explosion(at, ground, GameArt.Lit("EclatsBronze", new Color(0.72f, 0.6f, 0.32f), null, 0.7f));
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            float d = Vector3.Distance(cam.transform.position, at);
+            if (d < 10f) OrbitCamera.Shake(Mathf.Lerp(0.9f, 0.15f, d / 10f));
+        }
+        foreach (var r in GetComponentsInChildren<Renderer>()) r.enabled = false;
+        if (flash != null) flash.enabled = false;
+    }
+
     protected override void OnPulse()
     {
         shimmer = 1f;
@@ -144,6 +170,7 @@ public class Cloche : Entity
 
     protected override void Animate(float dt)
     {
+        if (Current == State.Explode) return;
         if (shimmer > 0f || flash.enabled)
         {
             shimmer = Mathf.Max(0f, shimmer - dt / 0.9f);

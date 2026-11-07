@@ -17,13 +17,11 @@ public class GameAudio : MonoBehaviour
     // Sources (du groupe ou en boucle) qui jouent un son d'entité : muettes dans le Hub.
     readonly HashSet<AudioSource> entitySources = new HashSet<AudioSource>();
     int next;
-    AudioSource hubMusic, mazeDrone, insects, abjurationMusic;
+    AudioSource hubMusic, mazeDrone, curfewMusic;
     const float HubMusicVolume = 0.2f;
 
-    // Proximité des murs infestés (0 à 1), fournie par la session de jeu.
-    public static float InsectLevel { get; set; }
-    // Abjuration en cours (0 ou 1) : sa musique lente remplace les autres ambiances.
-    public static float AbjurationLevel { get; set; }
+    // Couvre Feu en cours (0 ou 1) : sa musique lente remplace les autres ambiances.
+    public static float CurfewLevel { get; set; }
     // Ambiances actives (en jeu ou dans le menu).
     public static bool AmbienceEnabled { get; set; } = true;
     // Séquence de mort : 1 = normal, 0 = ambiances coupées.
@@ -32,7 +30,7 @@ public class GameAudio : MonoBehaviour
     static bool silenced;
 
     // Volumes réglés dans le lobby et le menu pause (0 à 1, 50 % à la première connexion) :
-    // la musique (ambiances du chapiteau, du labyrinthe et de l'Abjuration) et les effets sonores (tout le reste).
+    // la musique (ambiances du chapiteau, du labyrinthe et du Couvre Feu) et les effets sonores (tout le reste).
     // 100 % correspond à 60 % du niveau brut des sons, trop fort sinon.
     const float MasterGain = 0.6f;
     static float music = 0.5f, sfx = 0.5f;
@@ -86,8 +84,7 @@ public class GameAudio : MonoBehaviour
         }
         hubMusic = AmbientLoop("hub_music");
         mazeDrone = AmbientLoop("maze_drone");
-        insects = AmbientLoop("insects");
-        abjurationMusic = AmbientLoop("abjuration_music");
+        curfewMusic = AmbientLoop("curfew_music");
     }
 
     AudioSource AmbientLoop(string clip)
@@ -129,9 +126,9 @@ public class GameAudio : MonoBehaviour
         return src;
     }
 
-    // Sons émis par les entités (pièges, Abjuration, Normal, Cauchemar) : on ne les entend pas depuis le Hub.
+    // Sons émis par les entités (pièges, Couvre Feu, Normal, Cauchemar, Sanction) : on ne les entend pas depuis le Hub.
     // (Le Réveil, qui peut poursuivre un joueur jusque dans le Hub, s'y entend.)
-    static readonly string[] EntityPrefixes = { "laser_", "dame_", "tour_", "pion_", "cloche_", "spider_", "fou_", "roi_", "cavalier_" };
+    static readonly string[] EntityPrefixes = { "laser_", "dame_", "tour_", "pion_", "cloche_", "spider_", "fou_", "roi_", "cavalier_", "tete_" };
 
     static bool IsEntitySound(string clip)
     {
@@ -231,6 +228,23 @@ public class GameAudio : MonoBehaviour
         src.minDistance = 1f;
         src.maxDistance = maxDistance;
         src.dopplerLevel = 0f;
+    }
+
+    // Boucle non spatialisée (ordre d'un glyphe, entendu partout) ; détruire son objet pour l'arrêter.
+    public static AudioSource Loop2D(string clip, float volume)
+    {
+        if (instance == null) return null;
+        var go = new GameObject("Boucle2D_" + clip);
+        go.transform.SetParent(instance.transform, false);
+        var src = go.AddComponent<AudioSource>();
+        src.spatialBlend = 0f;
+        src.clip = SoundBank.Get(clip);
+        src.loop = true;
+        src.volume = volume * sfx;
+        src.playOnAwake = false;
+        instance.loops.Add(new KeyValuePair<AudioSource, float>(src, volume));
+        src.Play();
+        return src;
     }
 
     // Boucle spatialisée attachée à un objet (bourdonnement d'un laser...).
@@ -416,7 +430,7 @@ public class GameAudio : MonoBehaviour
         bool inHub = cam == null || WorldBuilder.IsInHub(cam.transform.position);
         float k = 1f - Mathf.Exp(-1.5f * Time.unscaledDeltaTime);
         float on = AmbienceEnabled && !silenced ? 1f : 0f;
-        float abj = AbjurationLevel * on;
+        float abj = CurfewLevel * on;
         on *= deathDuck;
         // À moins de 7 m d'une Télévision qui diffuse (du personnage, pas de la caméra placée derrière lui), les musiques
         // d'ambiance s'effacent progressivement, et reviennent quand on s'en éloigne.
@@ -425,9 +439,7 @@ public class GameAudio : MonoBehaviour
         hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? HubMusicVolume * on * tv * (1f - abj * 0.8f) * music : 0f, k);
         mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * tv * (1f - abj * 0.5f) * music, k);
         float ka = 1f - Mathf.Exp(-0.6f * Time.unscaledDeltaTime);
-        abjurationMusic.volume = Mathf.Lerp(abjurationMusic.volume, abj * tv * 0.5f * music, ka);
-        float ki = 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime);
-        insects.volume = Mathf.Lerp(insects.volume, inHub ? 0f : InsectLevel * 0.68f * on * sfx, ki);
+        curfewMusic.volume = Mathf.Lerp(curfewMusic.volume, abj * tv * 0.5f * music, ka);
         // Dans le Hub, les sons des entités se taisent (y compris ceux déjà commencés).
         bool hubListener = cam != null && inHub;
         for (int i = loops.Count - 1; i >= 0; i--)

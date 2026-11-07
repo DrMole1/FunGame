@@ -114,12 +114,14 @@ public class ItemPickup : Interactable
     public override void Interact() => GameSession.Instance.RequestPickup(this);
 }
 
-// Bouton Rouge au centre du Hub : seul l'hôte peut l'enclencher.
+// Bouton Rouge au centre du Hub : dans le Hub 1, seul l'hôte peut l'enclencher (il démarre la partie). V0.6 : dans les
+// Hubs suivants, il ouvre seulement la porte vers la zone suivante, sans démarrer de manche.
 // Modèle Meshy (Resources/Art/RedButton) : podium de cirque rayé rouge et crème, gros dôme rouge sur le dessus.
 // Enclenché, il s'enfonce dans le sol du chapiteau (dans un nuage de poussière) jusqu'à disparaître.
 public class RedButton : Interactable
 {
     const float SinkDepth = 1.3f, SinkDuration = 1.6f;
+    public int Hub { get; private set; } = 1;
     bool raised = true;
     float sink;   // 0 : levé, 1 : sous le sol
 
@@ -153,7 +155,7 @@ public class RedButton : Interactable
     // Démarrage lent, comme une plateforme mécanique, puis accélération.
     void Place() => transform.localPosition = Vector3.down * (SinkDepth * sink * sink);
 
-    public static RedButton Create(Transform anchor)
+    public static RedButton Create(Transform anchor, int hub = 1)
     {
         var go = new GameObject("Bouton Rouge");
         go.transform.SetParent(anchor, false);
@@ -167,6 +169,7 @@ public class RedButton : Interactable
             GameArt.Prim(PrimitiveType.Sphere, go.transform, new Vector3(0f, 1.02f, 0f), new Vector3(0.45f, 0.22f, 0.45f), GameArt.Emissive("ButtonRed", new Color(0.9f, 0.05f, 0.05f), new Color(0.6f, 0f, 0f)));
         }
         var button = go.AddComponent<RedButton>();
+        button.Hub = hub;
         button.FitTrigger(new Vector3(0.8f, 1f, 0.8f));
         // Socle solide pour ne pas traverser le bouton.
         var solid = go.AddComponent<CapsuleCollider>();
@@ -177,14 +180,16 @@ public class RedButton : Interactable
     }
 
     public override string Prompt => Loc.T("Appuyer sur le Bouton Rouge");
-    public override void Interact() => GameSession.Instance.PressButton();
+    public override void Interact() => GameSession.Instance.PressButton(Hub);
 }
 
 // Bouton Skip (V0.4.6), sous le Rendu de Quota : apparaît quand le quota est atteint et passe à la manche suivante,
-// comme la commande /skip round.
+// comme la commande /skip round. V0.6 : des confettis explosent joyeusement à côté de lui.
 public class SkipButton : Interactable
 {
-    public static SkipButton Create(Transform anchor)
+    public int Hub { get; private set; } = 1;
+
+    public static SkipButton Create(Transform anchor, int hub = 1)
     {
         var go = new GameObject("Bouton Skip");
         go.transform.SetParent(anchor, false);
@@ -208,6 +213,7 @@ public class SkipButton : Interactable
         }
         foreach (var t in go.GetComponentsInChildren<TextMesh>()) t.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
         var button = go.AddComponent<SkipButton>();
+        button.Hub = hub;
         button.FitTrigger(new Vector3(1.3f, 0.6f, 0.4f));
         return button;
     }
@@ -217,7 +223,7 @@ public class SkipButton : Interactable
     public override string Prompt => Loc.T("Passer à la manche suivante");
     public override void Interact()
     {
-        string refusal = GameSession.Instance.RequestSkipRound();
+        string refusal = GameSession.Instance.RequestSkipRound(Hub);
         if (refusal != null) GameSession.Instance.Toast(refusal);
     }
 }
@@ -249,15 +255,17 @@ public class TerminalStation : Interactable
     public override void Interact() => GameSession.Instance.RequestTerminal();
 }
 
-// Chenil d'un joueur : affiche son état et permet de le réanimer quand il est mort.
+// Chenil d'un joueur (un dans chaque Hub) : affiche son état et permet de le réanimer quand il est mort. V0.6 (note 05 du
+// chapitre 4) : son propriétaire peut rentrer dedans (objet interactif pour lui seul).
 public class Kennel : Interactable
 {
     public string PlayerId { get; private set; }
+    public int Hub { get; private set; } = 1;
     public string PlayerName;
     public bool TargetDead;
     TextMesh sign;
 
-    public static Kennel Create(Transform parent, Vector3 pos, Quaternion rot, string playerId)
+    public static Kennel Create(Transform parent, Vector3 pos, Quaternion rot, string playerId, int hub = 1)
     {
         var go = new GameObject("Chenil");
         go.transform.SetParent(parent, false);
@@ -277,6 +285,7 @@ public class Kennel : Interactable
 
         var kennel = go.AddComponent<Kennel>();
         kennel.PlayerId = playerId;
+        kennel.Hub = hub;
         kennel.FitTrigger(new Vector3(1.2f, 1.2f, 1.2f));
         var solid = go.AddComponent<BoxCollider>();
         Bounds b = GameArt.LocalBounds(go.transform);
@@ -315,13 +324,23 @@ public class Kennel : Interactable
         sign.text = "<b>" + playerName + "</b>\n" + Loc.F("PV : {0} / {1}", hp, GameRules.MaxHp) + "\n" + Loc.F("Distance : {0} m", Mathf.RoundToInt(distance)) + "\n" + status;
     }
 
-    public override bool CanInteract => TargetDead;
-    public override string Prompt => Loc.F("Réanimer {0}", PlayerName);
-    public override void Interact() => GameSession.Instance.RequestRevive(PlayerId);
+    bool Own => NetworkGame.Instance != null && PlayerId == NetworkGame.Instance.MyId;
+
+    // Intérieur de la niche, d'où le propriétaire regarde dehors.
+    public Vector3 Eye => transform.TransformPoint(new Vector3(0f, 0.5f, 0.38f));
+
+    public override bool CanInteract => TargetDead || Own;
+    public override string Prompt => Own ? Loc.T("Entrer dans votre Chenil") : Loc.F("Réanimer {0}", PlayerName);
+    public override void Interact()
+    {
+        if (Own) GameSession.Instance.EnterKennel(this);
+        else GameSession.Instance.RequestRevive(PlayerId, Hub);
+    }
 }
 
-// Orbe globuleux devant la porte de la Zone 2 : terne au départ, il s'active à la fin d'une manche
-// (lumière bleue, aura fantomatique, serrure visible) et se brise si un joueur y utilise une Clé.
+// Orbe globuleux devant une porte à orbes : terne au départ, il s'active au début d'une manche (lumière bleue, aura
+// fantomatique, serrure visible) et se brise si un joueur y utilise une Clé. 'Index' : numéro global de l'orbe (V0.6 :
+// 3 orbes devant la première porte, 5 devant les suivantes). En godmod, l'hôte le brise d'un clic, même éteint.
 public class ZoneOrb : Interactable
 {
     public int Index { get; private set; }
@@ -428,7 +447,7 @@ public class ZoneOrb : Interactable
         }
     }
 
-    public override bool CanInteract => Active;
+    public override bool CanInteract => Active || !broken && GameSession.Instance != null && GameSession.Instance.Godmode;
     // Pas de message à l'écran : viser l'orbe et cliquer avec la Clé suffit.
     public override string Prompt => "";
     public override void Interact() => GameSession.Instance.UseKeyOnOrb(Index);

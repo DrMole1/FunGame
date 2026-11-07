@@ -52,7 +52,7 @@ public class PlayerController : MonoBehaviour
     public float LastJumpTime { get; private set; } = -10f;
     public float VerticalSpeed => rb.velocity.y;
 
-    // Multiplicateur de vitesse imposé par le jeu (brume de l'Abjuration).
+    // Multiplicateur de vitesse imposé par le jeu (brume du Couvre Feu).
     public float SpeedFactor { get; set; } = 1f;
     // Aura blanche du Roi : impossible de courir.
     public bool RunBlocked { get; set; }

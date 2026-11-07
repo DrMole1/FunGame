@@ -32,6 +32,9 @@ public class GameHud : MonoBehaviour
     GameObject crosshairDot, crosshairRing, inventoryBar;
     Gauge health, serenity;
     Text promptText, toastText, spectateText, gameOverText;
+    // Ordres des glyphes en cours (V0.6) : en haut de l'écran, les uns sous les autres, clignotants.
+    readonly Text[] orderTexts = new Text[GameRules.GlyphTypes];
+    int ordersShown;
     readonly Image[] slotBg = new Image[GameRules.InventorySize];
     readonly Text[] slotName = new Text[GameRules.InventorySize];
     readonly Text[] slotNumber = new Text[GameRules.InventorySize];
@@ -209,6 +212,12 @@ public class GameHud : MonoBehaviour
         toastText = Floating(r, new Vector2(0.5f, 1f), new Vector2(0, -96), new Vector2(900, 34), 20);
         toastText.color = new Color(1f, 0.85f, 0.45f);
         spectateText = Floating(r, new Vector2(0.5f, 0f), new Vector2(0, 196), new Vector2(1000, 54), 18);
+        for (int i = 0; i < orderTexts.Length; i++)
+        {
+            orderTexts[i] = Floating(r, new Vector2(0.5f, 1f), new Vector2(0, -78 - i * 48), new Vector2(900, 46), 36);
+            orderTexts[i].color = new Color(1f, 0.2f, 0.15f);
+            orderTexts[i].gameObject.AddComponent<Outline>().effectColor = new Color(0f, 0f, 0f, 0.9f);
+        }
 
         // Jauges : vie (rouge) au-dessus de la sérénité (bleue).
         Texture2D cracked = CrackedTexture(256, 32, 11);
@@ -577,6 +586,16 @@ public class GameHud : MonoBehaviour
     }
     public void SetSpectate(string text) => spectateText.text = text;
 
+    // Ordres des glyphes (null : aucun) ; les messages passent sous eux.
+    public void SetOrders(System.Collections.Generic.List<string> orders)
+    {
+        int n = orders?.Count ?? 0;
+        for (int i = 0; i < orderTexts.Length; i++) orderTexts[i].text = i < n ? orders[i] : "";
+        if (n == ordersShown) return;
+        ordersShown = n;
+        toastText.rectTransform.anchoredPosition = new Vector2(0, -96 - n * 48);
+    }
+
     public void Toast(string message)
     {
         toastText.text = message;
@@ -681,6 +700,13 @@ public class GameHud : MonoBehaviour
             bool down = Mathf.Repeat(Time.unscaledTime, 0.16f) < 0.08f;
             spaceKeyFace.anchoredPosition = new Vector2(0f, down ? -6f : 0f);
             spaceKeyImage.color = down ? new Color(0.72f, 0.72f, 0.7f) : new Color(0.92f, 0.92f, 0.9f);
+        }
+
+        // Ordres des glyphes : ils clignotent.
+        if (ordersShown > 0)
+        {
+            float a = Mathf.Repeat(Time.unscaledTime, 0.8f) < 0.5f ? 1f : 0.25f;
+            foreach (var t in orderTexts) { var c = t.color; c.a = a; t.color = c; }
         }
 
         if (toastTimer > 0f)

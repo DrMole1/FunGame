@@ -1,16 +1,16 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.4.8).
+// Variables numériques du document de Game Design (V0.6).
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.5.2";
+    public const string Version = "V0.6";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
     public const int MaxSerenity = 100;
     public const float HubRegenPerSecond = 5f;
-    // Non précisé dans le GDD (validé en V0.4.10) : hors Abjuration, la sérénité remonte de 2 points par seconde
+    // Non précisé dans le GDD (validé en V0.4.10) : hors Couvre Feu, la sérénité remonte de 2 points par seconde
     // partout (Hub compris), pour qu'un personnage tombé à 0 ne perde pas ses PV indéfiniment.
     public const float CalmSerenityRegenPerSecond = 2f;
     public const float RoundDuration = 15f * 60f;
@@ -54,57 +54,48 @@ public static class GameRules
     // Premier quota à 500 (exemple du document), +250 à chaque nouvelle manche.
     public static int QuotaForRound(int round) => 500 + (round - 1) * 250;
 
-    // ---------- Évolution du terrain (chapitre 10) ----------
+    // ---------- Évolution du terrain (chapitre 10, V0.6) ----------
 
-    // Génération d'objets de valeur, en pourcentage du quota de la manche (manche 8 et suivantes : dernière valeur).
-    static readonly float[] Zone1ValuePercent = { 1.5f, 1.4f, 1.3f, 1.2f, 1.1f, 1f, 0.9f, 0.8f };
-    // V0.4.1 : la Zone 2 reçoit objets et entités dès la manche 3.
-    static readonly float[] Zone2ValuePercent = { 0f, 0f, 1f, 1f, 1.1f, 1.2f, 1.2f, 1.2f };
-    // Entités de type "Cauchemar" qui apparaissent au début de la manche.
-    static readonly int[] Zone1Nightmares = { 0, 1, 2, 1, 2, 2, 2, 2 };
-    static readonly int[] Zone2Nightmares = { 0, 0, 2, 2, 2, 2, 3, 3 };
-    // Entités de type "Normal" (V0.4.2) : 3 par zone ouverte aux entités dès la manche 2 ; manche 1 : 2 après 2 minutes de jeu.
-    public const int NormalsPerZone = 3;
-    public const int LateNormals = 2;
-
-    static int RoundIndex(int round) => Mathf.Clamp(round - 1, 0, Zone1ValuePercent.Length - 1);
+    // Génération d'objets de valeur d'une zone, en pourcentage du quota : 120 + 30 x nZone - 10 x nManche (jamais négative).
+    public static float ValuePercent(int round, int zone) => Mathf.Max(0f, 120f + 30f * zone - 10f * round) / 100f;
+    // V0.6 : à chaque manche, 2 entités de type "Normal" et 2 de type "Cauchemar" apparaissent par zone (choisies au hasard),
+    // et celles de la manche précédente disparaissent.
+    public const int NormalsPerZone = 2;
+    public const int NightmaresPerZone = 2;
 
     // Notes 01 et 02 du chapitre 10 : génération d'objets de valeur x3 seul, x2 à deux, x1,5 à trois, x1,2 à quatre.
     public static float ValueBoost(int players) => players <= 1 ? 3f : players == 2 ? 2f : players == 3 ? 1.5f : players == 4 ? 1.2f : 1f;
 
     // V0.4.6 : les objets de valeur sont dans des monticules ; leur nombre tient compte des chances d'obtention.
-    public static int MoundsForRound(int round, int zone, float boost)
-    {
-        float percent = (zone == 0 ? Zone1ValuePercent : Zone2ValuePercent)[RoundIndex(round)] * boost;
-        return Mathf.CeilToInt(QuotaForRound(round) * percent / Items.MoundValue());
-    }
+    public static int MoundsForRound(int round, int zone, float boost) =>
+        Mathf.CeilToInt(QuotaForRound(round) * ValuePercent(round, zone) * boost / Items.MoundValue());
 
     // Monticules (note 02 du chapitre 7) : creuser prend 1,2 seconde.
     public const float DigDuration = 1.2f;
     // Avant de creuser, le personnage s'avance de lui-même jusqu'à 0,4 m du monticule (centre à centre, à l'horizontale).
     public const float DigApproach = 0.4f;
 
-    public static int NightmaresForRound(int round, int zone) => (zone == 0 ? Zone1Nightmares : Zone2Nightmares)[RoundIndex(round)];
-
-    // Manche 1 : un Cauchemar choisi au hasard apparaît dans la Zone 1 après 3 minutes de jeu, et 2 entités de type Normal
-    // après 2 minutes, sans prévenir les joueurs.
+    // Manche 1 : les entités de type Normal apparaissent après 2 minutes de jeu, et un seul Cauchemar, dans la Zone 1, après
+    // 3 minutes, sans prévenir les joueurs.
     public const int LateSpawnRound = 1;
     public const float LateNightmareDelay = 3f * 60f;
     public const float LateNormalsDelay = 2f * 60f;
 
-    // ---------- L'Abjuration (chapitre 10.1) ----------
+    // ---------- Le Couvre Feu (chapitre 10.1, ex-Abjuration) ----------
 
-    // Elle apparaît quand le Compteur de Temps affiche 7 minutes, jusqu'à la manche suivante.
-    public const float AbjurationStart = 7f * 60f;
-    public const float AbjurationLossPerSecond = 3f;   // sérénité perdue par seconde au contact de la brume (V0.5, avant : 6)
+    // V0.6 : il apparaît quand le Compteur de Temps affiche 3 minutes (avant : 7), jusqu'à la manche suivante.
+    public const float CurfewStart = 3f * 60f;
+    public const float CurfewLossPerSecond = 3f;   // sérénité perdue par seconde au contact de la brume (V0.5, avant : 6)
     // Note 02 du chapitre 3.4 (V0.4.10) : à 0 de sérénité, le personnage perd 15 PV par seconde (au lieu de mourir).
     public const int DespairDamagePerSecond = 15;
     // Note 02 (V0.4.2) : hors de la brume, Hub compris, la sérénité remonte de 10 points par seconde.
-    public const float AbjurationRegenPerSecond = 10f;
+    public const float CurfewRegenPerSecond = 10f;
     public const float MistSpeedMultiplier = 0.8f; // déplacement ralenti de 20 % dans la brume
     public const float MistDeepSpeedMultiplier = 0.68f; // Note 03 (V0.4.11) : immergé jusqu'au cou, ralenti de 32 %
     // Hauteur (absolue) du dessus de la brume : le ras du sol du Hub.
     public const float MistTop = 0.5f;
+    // Note 07 du chapitre 14 (V0.6) : chaque fois qu'un joueur est obnubilé par un son de cloche, il perd 20 de sérénité.
+    public const int BellObsessionSerenity = 20;
 
     // La Dame, La Tour et Le Roi sont 25 % plus grands que la taille de leur modèle (3,33 m) ; le labyrinthe garde au moins
     // 3,6 m sous plafond partout où ils passent (couloirs 4 m, porte de la Zone 2 3,6 m).
@@ -170,7 +161,7 @@ public static class GameRules
     public const float RoiPauseMin = 2f, RoiPauseMax = 5f;  // arrêt, totalement immobile
     public const float RoiTurnBackChance = 0.2f;            // V0.4.7 (avant : 10 %)
     public const float RoiBeaconCooldown = 40f;             // après avoir atteint une Balise
-    // V0.4.7 : plus d'Abjuration ni d'aura blanche autour de lui ; les lumières à moins de 30 m clignotent frénétiquement.
+    // V0.4.7 : plus de brume ni d'aura blanche autour de lui ; les lumières à moins de 30 m clignotent frénétiquement.
     public const float RoiLightRange = 30f;
     public const float RoiAmbienceRange = 30f;              // V0.4.9 : musique d'ambiance (Roi_Autour) autour de lui
     public const float RoiSightRange = 20f;
@@ -204,7 +195,7 @@ public static class GameRules
     // ---------- Le Réveil (entité ID 10, Monticule de terre, V0.4.7) ----------
 
     public const int ReveilDamage = 50;
-    public const float ReveilSpeedMultiplier = 1.05f;
+    public const float ReveilSpeedMultiplier = 1.2f;        // V0.6 (avant : 1,05)
     public const float ReveilWake = 0.8f;                   // bond sur place et mise en marche du mécanisme
     public const float ReveilChase = 5f;
     public const float ReveilBlastRadius = 2f;
@@ -221,14 +212,16 @@ public static class GameRules
 
     // ---------- La Cloche (entité ID 5, Normal) ----------
 
-    public const int ClocheDamage = 10;
+    // V0.6 : plus de dégâts toutes les 2 secondes ; arrivée à 0,4 m de sa proie, elle explose et tue les joueurs à moins de 2 m.
+    public const int ClocheDamage = 100;
     public const float ClocheSightRange = 25f;           // V0.4.9 (avant : 50 m)
-    public const float ClocheTick = 2f;                  // dégâts toutes les 2 secondes passées à la regarder
-    public const float ClocheStopDistance = 2f;
+    public const float ClocheStopDistance = 0.4f;
+    public const float ClocheBlastRadius = 2f;
+    public const float ClocheKnockback = 8f;
     public const float ClocheSearchMin = 50f, ClocheSearchMax = 70f;
     public const float ClocheSearchMultiplier = 1.5f;
 
-    // ---------- L'Araignée (entité ID 6, Abjuration) ----------
+    // ---------- L'Araignée (entité ID 6, Couvre Feu) ----------
 
     public const int SpiderDamage = 50;
     // V0.5 : Araignées par zone déverrouillée selon le nombre de joueurs (3 seul, 4 de 2 à 4 joueurs, 5 de 5 à 8).
@@ -243,19 +236,50 @@ public static class GameRules
     // Une action bruyante (aboiement, saut, objet ramassé ou posé) trahit un joueur accroupi pendant ce délai.
     public const float NoiseMemory = 0.6f;
 
-    // Entités de type Normal au début de la manche : 3 dans chaque zone qui reçoit des Cauchemars (manche 1 : plus tard).
-    public static int NormalsForRound(int round, int zone) =>
-        round > LateSpawnRound && NightmaresForRound(round, zone) > 0 ? NormalsPerZone : 0;
+    // ---------- La Tête de Cloche (entité ID 11, Sanction, V0.6) ----------
 
-    // Zone 2 : les orbes s'activent au début des manches 1, 2 et 3 (V0.3.4).
-    public const int OrbCount = 3;
-    public static bool OrbActive(int orb, int round) => round >= orb + 1;
+    public const int TeteDamage = 100;
+    public const float TeteSpawnDistance = 30f;            // elle apparaît à 30 m du joueur sanctionné
+    public const float TeteSteadyTime = 7f, TeteFullSpeedTime = 20f, TeteMaxMultiplier = 2f;
+    public const float TeteKillDistance = 0.8f;
+    public const float TeteLeaveDistance = 20f;            // elle disparaît à 20 m du cadavre
+    public const float TeteLeaveMultiplier = 0.4f;         // "en se déplaçant lentement"
+    public const float TeteRingSlow = 3f, TeteRingFast = 0.5f, TeteRingNear = 5f;
+    public const float TeteSightRange = 30f;               // obnubile les joueurs en vision directe
+    public const float TeteKillHold = 0.9f;                // immobilisé, puis le coup mortel
+
+    // Vitesse de la Tête de Cloche (multiple de la marche d'un joueur) après 't' secondes de traque : celle du joueur les
+    // 7 premières secondes, puis elle accélère chaque seconde jusqu'à 2x au bout de 20 secondes.
+    public static float TeteSpeed(float t) =>
+        t < TeteSteadyTime ? 1f : Mathf.Lerp(1f, TeteMaxMultiplier, Mathf.Clamp01(Mathf.Floor(t - TeteSteadyTime + 1f) / (TeteFullSpeedTime - TeteSteadyTime)));
+
+    // Délai entre deux coups de marteau sur sa tête : 3 s de loin, jusqu'à 0,5 s à moins de 5 m du joueur traqué.
+    public static float TeteRingDelay(float distance) =>
+        Mathf.Lerp(TeteRingFast, TeteRingSlow, Mathf.InverseLerp(TeteRingNear, TeteSpawnDistance, distance));
+
+    // ---------- Portes et orbes (chapitre 9, V0.6) ----------
+
+    // Chaque porte (entre une zone impaire et la zone paire suivante) a 5 orbes, sauf la première (3). Les orbes s'activent
+    // un par un au début des manches : manches 1 à 3 pour la première porte, manches 4 à 8 pour la deuxième, etc.
+    public static int OrbsOfDoor(int door) => door <= 1 ? 3 : 5;
+    public static int FirstOrb(int door) => door <= 1 ? 0 : 3 + (door - 2) * 5;
+    public static bool OrbActive(int globalOrb, int round) => round >= globalOrb + 1;
+
+    // ---------- Glyphes (chapitre 9, V0.6) ----------
+
+    public const int GlyphTypes = 3;
+    // Durée de l'ordre de chaque glyphe (immobile et accroupi, aller à la niche, aboyer).
+    public static readonly float[] GlyphDuration = { 10f, 30f, 10f };
+    public const float GlyphSitGrace = 2f;       // "Assis !" : 2 secondes pour s'exécuter
+    public const float GlyphBarkGap = 1.5f;      // "Aboie !" : au plus 1,5 seconde sans aboyer
+    // Glyphes d'acquisition d'une zone paire : 3 dans la Zone 2 (un de chaque), puis 2 + nZone / 2.
+    public static int AcquisitionGlyphs(int zone) => zone <= 2 ? 3 : 2 + zone / 2;
 
     // ---------- Balises (chapitre 7.1) ----------
 
     // Charge de la Balise du Hub (au début du jeu, et après chaque Chargeur).
     public const float BeaconCharge = 10f * 60f;
-    // Balise Améliorée (7.3) : ni Abjuration ni apparition d'entité dans ce rayon.
+    // Balise Améliorée (7.3) : ni Couvre Feu ni apparition d'entité dans ce rayon.
     public const float EnhancedBeaconRadius = 5f;
 
     // ---------- Téléporteur (7.2) et Station Curative (7.4) ----------

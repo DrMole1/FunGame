@@ -112,7 +112,8 @@ public class NetworkGame : MonoBehaviour
             session.Toast(Loc.T("Votre onglet était en arrière-plan : la partie était figée pour les autres joueurs. Gardez-le au premier plan."));
 
         Transform t = localPlayer.transform;
-        if (t.position.y < -20f) session.RespawnInHub();
+        // Tombé hors du monde (sous la fosse la plus profonde de sa zone : nZone x 4 m) : retour au Hub.
+        if (t.position.y < -(4f * Mathf.Max(1, WorldBuilder.ZoneAt(t.position)) + 20f)) session.RespawnInHub();
 
         sendTimer += Time.unscaledDeltaTime;
         if (sendTimer >= SendInterval)
@@ -121,7 +122,7 @@ public class NetworkGame : MonoBehaviour
             sendTimer = Mathf.Min(sendTimer - SendInterval, SendInterval);
             Vector3 p = t.position;
             int flags = (session.LocalDead ? FlagDead : 0) | (localPlayer.Sneaking ? FlagSneak : 0) | (GameSession.Teleporting ? FlagTeleport : 0)
-                | (GameSession.InCannon ? FlagHidden : 0) | (GameSession.CannonFlying ? FlagCannonball : 0) | (TerminalUI.IsOpen ? FlagTerminal : 0);
+                | (GameSession.Hidden ? FlagHidden : 0) | (GameSession.CannonFlying ? FlagCannonball : 0) | (TerminalUI.IsOpen ? FlagTerminal : 0);
             string msg = "S|" + myId + "|" + F(p.x) + "|" + F(p.y) + "|" + F(p.z) + "|" + F(t.eulerAngles.y)
                 + "|" + (int)localPlayer.CurrentAnimState + "|" + session.LocalHp + "|" + flags + "|" + Clock();
             if (isHost) PeerNet.BroadcastFast(msg);

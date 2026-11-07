@@ -83,14 +83,15 @@ public partial class GameSession
                 UpdateFlight();
                 break;
         }
-        presence.InCannon = InCannon;
+        // Dans un Canon ou dans sa niche : aucune entité ne peut le prendre pour cible.
+        presence.InCannon = Hidden;
     }
 
     // Note 01 du 7.5 (V0.5) : plus besoin de sauter dessus, il suffit d'être à moins d'1 m du Canon chargé (du bord de son
     // corps, compté depuis l'axe du fût) ; on demande alors à l'hôte d'y entrer.
     void TryEnterCannon()
     {
-        if (status.Dead || PlayerController.InputLocked || localDig >= 0 || Time.time - cannonLeftAt < CannonReentryDelay) return;
+        if (status.Dead || PlayerController.InputLocked || InKennel || localDig >= 0 || Time.time - cannonLeftAt < CannonReentryDelay) return;
         foreach (var b in beacons.Placed)
         {
             if (b == null || b.Kind != DeviceKind.Canon || !b.Charged || !NearCannon(b)) continue;
@@ -283,7 +284,7 @@ public partial class GameSession
         {
             var r = respawns[i];
             // La manche a changé : une autre entité a pris sa place.
-            if (r.round != round || phase != Phase.Running || maze == null) { respawns.RemoveAt(i); continue; }
+            if (r.round != round || phase != Phase.Running || r.zone > zones.Count) { respawns.RemoveAt(i); continue; }
             if (Time.time < r.at) continue;
             respawns.RemoveAt(i);
             var rnd = new System.Random(seed + nextEntityId * 131 + Mathf.RoundToInt(Time.time * 10f));
@@ -312,10 +313,9 @@ public partial class GameSession
     {
         if (!entities.TryGetValue(id, out var e) || e == null) return;
         Vector3 pos = e.transform.position;
-        int node = maze != null ? maze.nav.NodeAt(pos) : -1;
-        int zone = node >= 0 ? Mathf.Max(0, maze.nav.ZoneOfNode(node)) : 0;
-        // Le Réveil ne sort que des monticules : il ne réapparaît pas.
-        if (e.Kind != EntityKind.Reveil) respawns.Add((e.Kind, zone, Time.time + CannonRespawnDelay, round));
+        int zone = Mathf.Max(1, e.Zone);
+        // Le Réveil ne sort que des monticules, la Tête de Cloche que des Sanctions : ils ne réapparaissent pas.
+        if (e.Kind != EntityKind.Reveil && e.Kind != EntityKind.TeteDeCloche) respawns.Add((e.Kind, zone, Time.time + CannonRespawnDelay, round));
         Destroy(e.gameObject);
         entities.Remove(id);
         watching.Remove(id);

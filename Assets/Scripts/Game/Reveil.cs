@@ -4,7 +4,7 @@ using UnityEngine;
 // Le Réveil (entité ID 10, type Monticule de terre, V0.4.7) : il ne sort que d'un monticule creusé (5 % de chances).
 // Petit réveil de la taille du Pion, un visage torturé par la souffrance gravé sur le cadran. Sorti de terre, il bondit
 // sur place et son mécanisme se déclenche : les cymbales de sa tête tintent par saccades, la sonnerie retentit. Le joueur
-// le plus proche devient sa proie : il court vers lui (x1,05 de la marche d'un joueur) en gesticulant, saute une ou deux
+// le plus proche devient sa proie : il court vers lui (V0.6 : x1,2 de la marche d'un joueur) en gesticulant, saute une ou deux
 // fois, et le poursuit même dans le Hub. Au bout de 5 secondes, il explose : dans un rayon de 2 m, les joueurs subissent
 // 50 de dégâts et sont repoussés, et les objets (posés ou à ramasser) sont détruits, sauf dans le Hub.
 public class Reveil : Entity

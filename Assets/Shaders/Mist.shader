@@ -1,7 +1,7 @@
-// Brume de l'Abjuration : nappes horizontales superposées au ras du sol, bleu ectoplasmique.
+// Brume du Couvre Feu : nappes horizontales superposées au ras du sol, bleu ectoplasmique.
 // Bruit fractal en coordonnées monde qui dérive lentement, volutes plus claires, fondu près de la caméra
-// (pas de plan net quand on la traverse) et selon _Abjuration (0 = absente, 1 = pleinement là, réglé par le jeu).
-// Autour du Roi (_RoiMist), elle apparaît aussi hors Abjuration.
+// (pas de plan net quand on la traverse) et selon _CouvreFeu (0 = absente, 1 = pleinement là, réglé par le jeu).
+// Autour du Roi (_RoiMist), elle apparaît aussi hors Couvre Feu.
 Shader "FunGame/Mist"
 {
     Properties
@@ -29,10 +29,10 @@ Shader "FunGame/Mist"
 
             fixed4 _Color, _Glow;
             float _Density, _Scale, _Speed;
-            float _Abjuration; // global
+            float _CouvreFeu; // global
             // Balises Améliorées (xyz, rayon) : la brume n'apparaît pas autour d'elles (global).
             float4 _MistHoles[8];
-            // Le Roi (xyz, rayon) : hors Abjuration, une Abjuration l'entoure (global).
+            // Le Roi (xyz, rayon) : hors Couvre Feu, une brume l'entoure (global).
             float4 _RoiMist[4];
 
             struct v2f
@@ -96,7 +96,7 @@ Shader "FunGame/Mist"
                     float rr = _RoiMist[k].w;
                     if (rr > 0.0) roi = max(roi, 1.0 - smoothstep(rr - 2.5, rr, distance(i.worldPos.xz, _RoiMist[k].xz)));
                 }
-                float alpha = density * _Density * nearFade * max(saturate(_Abjuration), roi) * clearing;
+                float alpha = density * _Density * nearFade * max(saturate(_CouvreFeu), roi) * clearing;
 
                 fixed4 col = fixed4(lerp(_Color.rgb, _Glow.rgb, wisps), alpha);
                 UNITY_APPLY_FOG_COLOR(i.fogCoord, col, fixed4(0, 0, 0, 0));

@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // Identifiants du GDD (chapitre 8) ; le Laser (ID 1) est un piège du décor, pas une entité mobile.
-public enum EntityKind : byte { Dame = 2, Tour = 3, Pion = 4, Cloche = 5, Spider = 6, Fou = 7, Roi = 8, Cavalier = 9, Reveil = 10 }
+public enum EntityKind : byte { Dame = 2, Tour = 3, Pion = 4, Cloche = 5, Spider = 6, Fou = 7, Roi = 8, Cavalier = 9, Reveil = 10, TeteDeCloche = 11 }
 
 // Ce que les entités demandent au jeu (implémenté par GameSession, chez l'hôte).
 public interface IEntityHost
@@ -25,8 +25,9 @@ public interface IEntityHost
     IEnumerable<Vector3> BeaconPositions();
     // Secondes depuis la dernière action bruyante du joueur (aboiement, saut, objet ramassé ou posé).
     float NoiseAge(string playerId);
-    // Le Réveil explose : dégâts et recul aux joueurs dans le rayon (Hub compris), objets détruits (hors Hub).
-    void Explode(Entity entity, Vector3 center, float radius, int damage, float knockback);
+    // Le Réveil (ou La Cloche, V0.6) explose : dégâts et recul aux joueurs dans le rayon (Hub compris) ; pour Le Réveil,
+    // objets détruits (hors Hub).
+    void Explode(Entity entity, Vector3 center, float radius, int damage, float knockback, bool destroyObjects = true);
 }
 
 // Entité mobile : l'hôte simule (Simulate) et envoie position, état, cible, compteur d'événements et données propres
@@ -54,6 +55,8 @@ public abstract class Entity : MonoBehaviour
     protected virtual float ModelScale => 1f;
     // L'entité a fini son rôle (Le Réveil a explosé) : l'hôte la retire de la partie.
     public bool Expired { get; protected set; }
+    // Zone (1, 2, 3...) où elle est apparue (hôte) : ses entités disparaissent quand plus aucun joueur n'est à proximité.
+    public int Zone { get; set; }
 
     protected byte state;
     protected MazeNav nav;
@@ -237,7 +240,7 @@ public abstract class Entity : MonoBehaviour
         return null;
     }
 
-    // Cible possible : vivante, hors du Hub (endroit sûr) et hors d'un Canon (une chasse en cours s'arrête).
+    // Cible possible : vivante, hors du Hub (endroit sûr) et hors d'un Canon ou de sa niche (une chasse en cours s'arrête).
     protected static bool Valid(PlayerPresence p) => p != null && p.Alive && p.isActiveAndEnabled && !p.InCannon && !p.Teleporting && !WorldBuilder.IsInHub(p.Position);
 
     // Pieds du personnage (sa position est le centre de sa capsule).

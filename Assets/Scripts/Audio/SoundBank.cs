@@ -14,8 +14,8 @@ public static class SoundBank
     {
         "button", "door", "tick", "tock", "fanfare", "gameover", "laser_on", "laser_hum", "laser_hit",
         "hurt", "death", "revive", "duck", "pop", "skin", "eat", "key", "beep", "error", "register", "sell_bell",
-        "hub_music", "maze_drone", "insects", "neon", "blink", "step_tile", "step_dirt",
-        "bell", "abjuration_music", "postit", "orb_on", "orb_break", "zone_door",
+        "hub_music", "maze_drone", "neon", "blink", "step_tile", "step_dirt",
+        "bell", "curfew_music", "postit", "orb_on", "orb_break", "zone_door",
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
         "tour_step", "tour_breath", "tour_charge", "tour_channel", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
         "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat", "heart_thump",
@@ -24,6 +24,8 @@ public static class SoundBank
         // V0.4.7 : objets uniques, cri de souffrance de La Dame, Le Cavalier, Le Réveil.
         "tv_static", "tv_countdown", "tinnitus", "spring", "bell_deco", "dame_wail", "cavalier_gallop", "cavalier_alert", "cavalier_terror",
         "cavalier_strike", "cavalier_stomp", "reveil_alarm", "reveil_boom",
+        // V0.6 : glyphes (alertes terrifiantes, moins de 2 secondes) et La Tête de Cloche.
+        "glyph_sit", "glyph_kennel", "glyph_bark", "tete_bell",
         // Sons enregistrés seulement (GDD 12), sans équivalent synthétisé.
         "dame_kill", "tour_kill", "fou_kill", "roi_flash", "roi_kill",
         "doom",
@@ -80,7 +82,6 @@ public static class SoundBank
             case "sell_bell": return SellBell(rnd);
             case "hub_music": return HubMusic(rnd);
             case "maze_drone": return MazeDrone(rnd);
-            case "insects": return Insects(rnd);
             case "neon": return Neon(rnd);
             case "blink": return Blink(rnd);
             case "step_tile": return StepTile(rnd);
@@ -90,7 +91,7 @@ public static class SoundBank
             case "cannon_fire": return CannonFire(rnd);
             case "cannon_impact": return CannonImpact(rnd);
             case "bell": return Bell(rnd);
-            case "abjuration_music": return AbjurationMusic(rnd);
+            case "curfew_music": return CurfewMusic(rnd);
             case "postit": return PostIt(rnd);
             case "orb_on": return OrbOn(rnd);
             case "orb_break": return OrbBreak(rnd);
@@ -139,6 +140,10 @@ public static class SoundBank
             case "cavalier_stomp": return CavalierStomp(rnd);
             case "reveil_alarm": return ReveilAlarm(rnd);
             case "reveil_boom": return ReveilBoom(rnd);
+            case "glyph_sit": return GlyphAlert(rnd, 0);
+            case "glyph_kennel": return GlyphAlert(rnd, 1);
+            case "glyph_bark": return GlyphAlert(rnd, 2);
+            case "tete_bell": return TeteBell(rnd);
         }
         return null;
     }
@@ -720,29 +725,6 @@ public static class SoundBank
         return MakeLoop(d, loop, 1.2f);
     }
 
-    // Grouillement d'insectes (boucle) : petits cliquetis de pattes et frottements de carapaces.
-    static float[] Insects(System.Random rnd)
-    {
-        const float loop = 4f;
-        var d = Buffer(loop + 0.6f);
-        var bp = new BandPass();
-        var hiss = new BandPass();
-        float freq = 4000f;
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate;
-            float density = 0.004f + 0.006f * (0.5f + 0.5f * Sine(t / 2f));
-            float impulse = 0f;
-            if (rnd.NextDouble() < density)
-            {
-                impulse = Noise(rnd) * (0.5f + (float)rnd.NextDouble());
-                freq = 3000f + (float)rnd.NextDouble() * 3500f;
-            }
-            d[i] = bp.Process(impulse, freq, 0.25f) + hiss.Process(Noise(rnd), 6000f, 0.8f) * 0.06f;
-        }
-        return MakeLoop(d, loop, 0.5f);
-    }
-
     // Néon qui grésille en s'éteignant.
     static float[] Neon(System.Random rnd)
     {
@@ -820,7 +802,7 @@ public static class SoundBank
         return d;
     }
 
-    // ---------- Abjuration ----------
+    // ---------- Couvre Feu ----------
 
     // Glas d'une cloche funèbre (moins de 2 secondes) : partiels inharmoniques d'une grosse cloche.
     static float[] Bell(System.Random rnd)
@@ -847,7 +829,7 @@ public static class SoundBank
     }
 
     // Petite musique horrifique au tempo lent : bourdon dissonant, boîte à musique désaccordée, souffles.
-    static float[] AbjurationMusic(System.Random rnd)
+    static float[] CurfewMusic(System.Random rnd)
     {
         const float beat = 60f / 48f;
         float loop = beat * 16f;
@@ -1798,6 +1780,98 @@ public static class SoundBank
             float hit = u < 0f ? 0f : Sine((80f - 30f * u) * u) * AD(u, 0.002f, 0.12f) * 1.2f
                 + lp.Process(Noise(rnd), 2200f) * AD(u, 0.001f, 0.06f) + Sine(1900f * u) * AD(u, 0.001f, 0.08f) * 0.3f;
             d[i] = whoosh * 1.4f + hit;
+        }
+        return d;
+    }
+
+    // ---------- Glyphes et Tête de Cloche (V0.6) ----------
+
+    // Alerte terrifiante propre à chaque glyphe (moins de 2 secondes) :
+    // 0 "Assis !" : sirène qui s'effondre en grinçant, accord métallique dissonant ;
+    // 1 "A la niche !" : hurlement d'alarme qui monte et retombe, glas désaccordé ;
+    // 2 "Aboie !" : trois aboiements rauques et saturés, de plus en plus aigus.
+    static float[] GlyphAlert(System.Random rnd, int type)
+    {
+        float length = type == 1 ? 1.9f : type == 0 ? 1.7f : 1.5f;
+        var d = Buffer(length);
+        var bp = new BandPass();
+        var bp2 = new BandPass();
+        var lp = new LowPass();
+        float phaseA = 0f, phaseB = 0f, phaseC = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float k = t / length;
+            float s = 0f;
+            switch (type)
+            {
+                case 0:
+                {
+                    float f = Mathf.Lerp(1350f, 260f, Mathf.Pow(k, 0.7f)) * (1f + 0.04f * Sine(7f * t));
+                    phaseA += f / Rate; phaseB += f * 1.06f / Rate; phaseC += f * 1.41f / Rate;
+                    s = (Saw(phaseA) + Saw(phaseB) * 0.8f + Square(phaseC) * 0.35f) * 0.4f;
+                    s = bp.Process(s, f * 2.2f, 0.35f) * 1.4f + s * 0.4f;
+                    s += lp.Process(Noise(rnd), 180f) * Decay(t, 0.08f) * 3f;
+                    s *= ASR(t, 0.01f, 0.35f, length);
+                    break;
+                }
+                case 1:
+                {
+                    float sweep = Mathf.Sin(Mathf.PI * k);
+                    float f = 320f + 620f * sweep;
+                    phaseA += f * (1f + 0.012f * Sine(5.5f * t)) / Rate;
+                    phaseB += f * 0.5f * 1.013f / Rate;
+                    s = (Sine(phaseA) + Sine(phaseA * 2f) * 0.35f + Saw(phaseB) * 0.3f) * 0.6f;
+                    // Glas désaccordé au départ.
+                    s += (Sine(146.8f * t) + Sine(155.6f * 1.19f * t) * 0.6f + Sine(146.8f * 2.76f * t) * 0.3f) * Decay(t, 0.6f) * 0.5f;
+                    s += bp.Process(Noise(rnd), f * 3f, 0.6f) * 0.15f * sweep;
+                    s *= ASR(t, 0.04f, 0.4f, length);
+                    break;
+                }
+                default:
+                {
+                    // Trois aboiements : attaque brutale, voix rauque (carré grave filtré) et souffle bruité.
+                    float local = Mathf.Repeat(t, 0.5f);
+                    int bark = Mathf.Min(2, Mathf.FloorToInt(t / 0.5f));
+                    float env = local < 0.32f ? AD(local, 0.008f, 0.09f) : 0f;
+                    float f = (170f + bark * 45f) * (1f + 0.6f * Decay(local, 0.05f));
+                    phaseA += f / Rate;
+                    float voice = Square(phaseA) * 0.7f + Saw(phaseA * 2.02f) * 0.4f;
+                    voice = bp.Process(voice, 900f + bark * 250f, 0.5f) * 1.6f + bp2.Process(voice, 2400f, 0.7f) * 0.6f;
+                    s = (voice + lp.Process(Noise(rnd), 3500f) * 0.5f) * env;
+                    s = Mathf.Clamp(s * 2.5f, -1f, 1f);
+                    break;
+                }
+            }
+            d[i] = s;
+        }
+        return d;
+    }
+
+    // La Tête de Cloche frappe sa tête : choc sourd du marteau, puis une grosse cloche fêlée (partiels graves inharmoniques,
+    // battements), qui résonne longtemps.
+    static float[] TeteBell(System.Random rnd)
+    {
+        var d = Buffer(2.6f);
+        const float f = 74f;
+        (float ratio, float amp, float decay)[] partials =
+        {
+            (0.5f, 0.6f, 1.8f), (1f, 0.9f, 1.4f), (1.18f, 0.7f, 1.1f), (1.53f, 0.45f, 0.8f),
+            (2.03f, 0.5f, 0.7f), (2.61f, 0.3f, 0.45f), (3.27f, 0.22f, 0.3f), (4.43f, 0.12f, 0.2f),
+        };
+        var lp = new LowPass();
+        var crack = new BandPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float s = 0f;
+            foreach (var (ratio, amp, decay) in partials)
+                s += Sine(f * ratio * t * (1f + 0.003f * Sine(3.1f * t))) * amp * Decay(t, decay) * (0.8f + 0.2f * Sine(2.3f * ratio * t));
+            // Fêlure : bruit métallique qui grésille dans la résonance.
+            s += crack.Process(Noise(rnd), 1900f, 0.15f) * Decay(t, 0.5f) * 0.25f;
+            // Coup de marteau.
+            s += lp.Process(Noise(rnd), 900f) * Decay(t, 0.02f) * 2.5f;
+            d[i] = s * Mathf.Clamp01((2.6f - t) / 0.4f);
         }
         return d;
     }

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// L'Araignée (entité ID 6, type Abjuration) : n'apparaît que pendant l'Abjuration (5 par zone déverrouillée, à plus de
+// L'Araignée (entité ID 6, type Couvre Feu) : n'apparaît que pendant le Couvre Feu (5 par zone déverrouillée, à plus de
 // 25 m des joueurs). Plus grande qu'un joueur, elle rôde lentement dans les couloirs. Un joueur debout dans son champ de
 // vision (12 m) qui bouge est attaqué : elle fonce sur lui, l'immobilise à 0,8 m, le frappe (dégâts, recul), s'arrête 1 seconde
 // puis le poursuit 10 secondes à sa vitesse, en l'attaquant de nouveau si elle le rattrape. Un joueur accroupi, ou debout et

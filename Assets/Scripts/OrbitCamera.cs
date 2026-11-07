@@ -45,6 +45,10 @@ public class OrbitCamera : MonoBehaviour
     public static float Yaw { get; private set; }
     // Dans le Canon (V0.4.6) : vue à la première personne depuis ce point, légèrement zoomée.
     public static Vector3? CannonEye;
+    // Dans sa niche (V0.6) : la caméra est à l'intérieur, tournée vers l'extérieur (cap KennelYaw) ; on peut la bouger un peu.
+    public static Vector3? KennelEye;
+    public static float KennelYaw;
+    const float KennelYawRange = 40f, KennelPitchRange = 25f;
     // En boulet de canon : la caméra suit le boulet en fixant son point d'arrivée.
     public static Vector3? FlightLook;
     static float shake;
@@ -244,7 +248,7 @@ public class OrbitCamera : MonoBehaviour
         if (target == null) return;
 
         // Première personne : seulement sur son propre personnage (pas en spectateur), hors du lobby. Forcée dans le Canon.
-        bool fp = (firstPerson || CannonEye.HasValue) && ControlsEnabled && target.GetComponent<PlayerController>() != null;
+        bool fp = (firstPerson || CannonEye.HasValue || KennelEye.HasValue) && ControlsEnabled && target.GetComponent<PlayerController>() != null;
         if (!ControlsEnabled)
             yaw += 6f * Time.deltaTime;
         else if (ForcedLook.HasValue)
@@ -266,6 +270,11 @@ public class OrbitCamera : MonoBehaviour
             pitch -= Input.GetAxis("Mouse Y") * sensitivity;
         }
         pitch = fp ? Mathf.Clamp(pitch, -firstPersonPitch, firstPersonPitch) : Mathf.Clamp(pitch, minPitch, maxPitch);
+        if (KennelEye.HasValue)
+        {
+            yaw = KennelYaw + Mathf.Clamp(Mathf.DeltaAngle(KennelYaw, yaw), -KennelYawRange, KennelYawRange);
+            pitch = Mathf.Clamp(pitch, -KennelPitchRange, KennelPitchRange);
+        }
         yaw = Mathf.Repeat(yaw, 360f);
         Yaw = yaw;
         FirstPerson = fp;
@@ -296,6 +305,11 @@ public class OrbitCamera : MonoBehaviour
         if (CannonEye.HasValue && fp)
         {
             transform.SetPositionAndRotation(CannonEye.Value, rot);
+            return;
+        }
+        if (KennelEye.HasValue && fp)
+        {
+            transform.SetPositionAndRotation(KennelEye.Value, rot);
             return;
         }
         if (FlightLook.HasValue)

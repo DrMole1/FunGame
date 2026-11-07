@@ -17,9 +17,9 @@ public partial class GameSession
 
     void PlaceUniqueObjects()
     {
-        if (!net.IsHost || maze == null) return;
+        if (!net.IsHost || zones.Count == 0) return;
         var rnd = new System.Random(seed * 53 + 7);
-        var spots = new List<Vector3>(maze.itemSpots[0]);
+        var spots = new List<Vector3>(zones[0].itemSpots);
         for (int i = spots.Count - 1; i > 0; i--)
         {
             int j = rnd.Next(i + 1);
@@ -201,7 +201,7 @@ public partial class GameSession
     // ---------- Cloche Décorative ----------
 
     // Posée, elle tinte : chaque joueur qui la voit (aucun mur entre eux) l'entend et en est obnubilé, la caméra forcée de la
-    // fixer, jusqu'à ce qu'un mur les sépare.
+    // fixer, jusqu'à ce qu'un mur les sépare (et il perd 20 de sérénité).
     int bellObsession = -1;
 
     void RingBell(Beacon bell)
@@ -209,6 +209,8 @@ public partial class GameSession
         if (!net.InGame || status.Dead || !BellInSight(bell)) return;
         GameAudio.Play3D("bell_deco", BellPoint(bell), 1f, GameRules.BellSightRange, 0f);
         bellObsession = bell.Id;
+        // Note 07 du chapitre 14 (V0.6) : obnubilé par un son de cloche, -20 de sérénité.
+        LoseBellSerenity();
     }
 
     static Vector3 BellPoint(Beacon bell) => bell.transform.position + Vector3.up * GameRules.BellHeight * 0.55f;
@@ -319,18 +321,20 @@ public partial class GameSession
     // Hôte : il sort du monticule creusé.
     void SpawnReveil(Vector3 pos)
     {
-        if (maze == null || phase != Phase.Running) return;
-        var e = Entity.Create<Reveil>(entitiesRoot, nextEntityId++, pos, Random.Range(0f, 360f), maze.nav);
+        int zone = WorldBuilder.ZoneAt(pos);
+        if (zone < 1 || zone > zones.Count || phase != Phase.Running) return;
+        var e = Entity.Create<Reveil>(entitiesRoot, nextEntityId++, pos, Random.Range(0f, 360f), zones[zone - 1].nav);
+        e.Zone = zone;
         entities[e.Id] = e;
     }
 
     // Explosion (hôte) : les joueurs dans le rayon (Hub compris) sont blessés et repoussés ; hors du Hub, les objets posés
     // ou à ramasser sont détruits.
-    public void Explode(Entity entity, Vector3 center, float radius, int damage, float knockback)
+    public void Explode(Entity entity, Vector3 center, float radius, int damage, float knockback, bool destroyObjects = true)
     {
         foreach (var p in PlayerPresence.All)
             if (p != null && p.Alive && Vector3.Distance(p.Position, center) <= radius + 0.4f) Hit(entity, p.PlayerId, damage, knockback);
-        if (WorldBuilder.IsInHub(center)) return;
+        if (!destroyObjects || WorldBuilder.IsInHub(center)) return;
         foreach (var b in new List<Beacon>(beacons.Placed))
         {
             if (b == null || b.IsHub || WorldBuilder.IsInHub(b.transform.position) || CannonOccupied(b.Id)) continue;
@@ -347,17 +351,20 @@ public partial class GameSession
         }
     }
 
-    // /spawn 10 : près de l'hôte s'il est dans le labyrinthe (sinon au hasard dans la Zone 1).
+    // /spawn 10 : près de l'hôte s'il est dans le labyrinthe (sinon au hasard dans la zone de son Hub).
     string SpawnReveilNearHost(System.Random rnd)
     {
-        if (!maze.nav.Ready) maze.nav.BuildAll();
         Vector3 me = player.transform.position;
-        int node = WorldBuilder.IsInHub(me) ? -1 : maze.nav.RandomNode(Mathf.Max(0, maze.nav.ZoneAt(me)), rnd, me, 5f, 10f);
-        if (node < 0) node = maze.nav.RandomNode(0, rnd, Vector3.zero, 30f);
+        int zone = Mathf.Clamp(WorldBuilder.ZoneAt(me), 1, zones.Count);
+        MazeNav nav = zones[zone - 1].nav;
+        if (!nav.Ready) nav.BuildAll();
+        int node = WorldBuilder.IsInHub(me) ? -1 : nav.RandomNode(0, rnd, me, 5f, 10f);
+        if (node < 0) node = nav.RandomNode(0, rnd, me, 30f);
         if (node < 0) return Loc.T("Impossible pour le moment.");
-        var e = Entity.Create<Reveil>(entitiesRoot, nextEntityId++, maze.nav.Position(node), (float)rnd.NextDouble() * 360f, maze.nav);
+        var e = Entity.Create<Reveil>(entitiesRoot, nextEntityId++, nav.Position(node), (float)rnd.NextDouble() * 360f, nav);
+        e.Zone = zone;
         entities[e.Id] = e;
-        return Loc.T("Un Réveil sonne quelque part dans la Zone 1...");
+        return Loc.F("Un Réveil sonne quelque part dans la Zone {0}...", zone.ToString());
     }
 
     // ================= Le Roi : lumières affolées, flash =================

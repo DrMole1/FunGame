@@ -188,7 +188,7 @@ public static class GameArt
         return cache["Glow" + key] = m;
     }
 
-    // Brume de l'Abjuration (shader Mist, intensité globale _Abjuration).
+    // Brume du Couvre Feu (shader Mist, intensité globale _CouvreFeu).
     public static Material Mist => FromTemplate("Mist", () => Unlit("MistFallback", new Color(0.2f, 0.4f, 0.8f)));
 
     // Grain d'écran (shader FilmGrain) ; sans lui, pas de grain.
