@@ -1328,8 +1328,8 @@ public static class WorldBuilder
             Vector3 p = new Vector3(m.Center(nr.xMin + t, 0).x, 1.7f, back - 0.03f);
             refs.neutralGlyphs.Add(Glyph.Create(props, m.zone * 100 + 50 + t, t, true, m.zone, p, Vector3.back, Glyph.NeutralSize));
         }
-        // Texte non traductible au-dessus des glyphes ; lu depuis l'entrée (l'avant du texte pointe vers le mur).
-        GameArt.CreateText(props, "Neutral Room", new Vector3(m.Center(m.entryCol, 0).x, 3.7f, back - 0.03f), 0.06f, new Color(0.85f, 0.85f, 0.82f)).text = "Neutral Room";
+        // Enseigne non traductible au-dessus des glyphes, lue depuis l'entrée.
+        NeonSign(props, "EnseigneNeutralRoom", "Neutral Room", new Vector3(m.Center(m.entryCol, 0).x, 3.7f, back), NeutralSignWidth);
         Vector3 nrMin = m.origin + new Vector3(nr.xMin * Cell, -1f, nr.yMin * Cell), nrMax = m.origin + new Vector3(nr.xMax * Cell, 7f, nr.yMax * Cell);
         refs.neutralRoom = new Bounds((nrMin + nrMax) * 0.5f, nrMax - nrMin);
 
@@ -1369,7 +1369,31 @@ public static class WorldBuilder
         Vector3 edge = m.Center(HubCol, m.N - 1) + Vector3.forward * (Cell * 0.5f);
         var glyphTypes = refs.acquisitionGlyphs.ConvertAll(g => g.Type);
         refs.acquisitionDoor = AcquisitionDoor.Create(root, edge, Quaternion.LookRotation(Vector3.back), DoorWidth, DoorHeight, glyphTypes);
-        GameArt.CreateText(props, "Acquisition Room", edge + new Vector3(0f, 4.6f, -Wall * 0.5f - 0.03f), 0.06f, new Color(0.85f, 0.85f, 0.82f)).text = "Acquisition Room";
+        NeonSign(props, "EnseigneAcquisitionRoom", "Acquisition Room", edge + new Vector3(0f, 4.6f, -Wall * 0.5f), AcquisitionSignWidth);
+    }
+
+    // Enseignes en lettres de néon blanc (mots 3D générés par Meshy, police soviétique, préparés par "FunGame/Préparer les
+    // enseignes néon") : 1,3 fois la largeur des anciens textes (2,65 m et 3,32 m).
+    const float NeutralSignWidth = 2.65f * 1.3f, AcquisitionSignWidth = 3.32f * 1.3f;
+
+    // Centrée en 'center', collée au mur nord dont la face est en center.z, tournée vers le sud. Sans le maillage, un texte.
+    static void NeonSign(Transform parent, string mesh, string text, Vector3 center, float width)
+    {
+        var shape = Resources.Load<Mesh>("Art/Decor/" + mesh);
+        if (shape == null)
+        {
+            GameArt.CreateText(parent, text, center + Vector3.back * 0.03f, 0.06f * 1.3f, new Color(0.85f, 0.85f, 0.82f)).text = text;
+            return;
+        }
+        float scale = width / Mathf.Max(0.01f, shape.bounds.size.x);
+        var go = GameArt.MeshObject(text, parent, shape, GameArt.Emissive("NeonBlanc", new Color(0.95f, 0.97f, 1f), new Color(0.55f, 0.56f, 0.6f)));
+        go.transform.localScale = Vector3.one * scale;
+        go.transform.localPosition = new Vector3(center.x, center.y - scale * 0.5f, center.z - shape.bounds.max.z * scale - 0.01f);
+        var r = go.GetComponent<MeshRenderer>();
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+        // Halo blanc du néon sur le mur et la salle.
+        AddLight(parent, new Vector3(center.x, center.y, center.z - 0.8f), new Color(0.9f, 0.93f, 1f), 1.2f, 7f);
     }
 
     static float Flat(Vector3 v) => new Vector2(v.x, v.z).magnitude;
