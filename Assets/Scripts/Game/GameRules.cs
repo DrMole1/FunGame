@@ -1,10 +1,10 @@
 using UnityEngine;
 
-// Variables numériques du document de Game Design (V0.6).
+// Variables numériques du document de Game Design (V0.6.1).
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6";
+    public const string Version = "V0.6.1";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -275,6 +275,24 @@ public static class GameRules
     // Glyphes d'acquisition d'une zone paire : 3 dans la Zone 2 (un de chaque), puis 2 + nZone / 2.
     public static int AcquisitionGlyphs(int zone) => zone <= 2 ? 3 : 2 + zone / 2;
 
+    // ---------- Arcades (chapitre 10.2, V0.6.1) ----------
+
+    // Dès que la Zone 3 est accessible, vendre à Pogo un objet des monticules rapporte un Jeton WOOF une fois sur dix.
+    public const float TokenChance = 0.1f;
+    // Bornes d'arcade : à partir de la Zone 3, nZone - 1 par zone (aucune dans les zones 1 et 2).
+    public static int ArcadesInZone(int zone) => zone < 3 ? 0 : zone - 1;
+    public const float ArcadeMusicRange = 10f;    // petite musique de foire d'une borne chargée
+    public const float DiscoMusicRange = 10f;     // musique disco d'une boule à facettes posée
+    // Roulette : 20 sections égales ; 9 tickets 50, 5 tickets 100, 3 tickets 200, 1 ticket 500 et 2 Réveils.
+    public const int RouletteSections = 20;
+    public const float RouletteSpin = 7f;
+    // Machine à pince : 5 peluches à chaque nouvelle manche (lapin 50 %, pingouin 25 %, singe 15 %, chat 10 %).
+    public const int ClawPlushes = 5;
+    public static readonly float[] PlushChances = { 0.5f, 0.25f, 0.15f, 0.1f };
+    // Arcade Dance : 8 flèches, 2 secondes pour chacune ; 0 erreur : diamant, 1 : or, 2 : argent, 3 et plus : rien.
+    public const int DanceArrows = 8;
+    public const float DanceArrowTime = 2f;
+
     // ---------- Balises (chapitre 7.1) ----------
 
     // Charge de la Balise du Hub (au début du jeu, et après chaque Chargeur).
@@ -311,6 +329,10 @@ public enum ItemType
 {
     None = 0, CuisseDePoulet = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8, BaliseAmelioree = 9,
     StationCurative = 10, Os = 11, Canon = 12, Television = 13, Trampoline = 14, ClocheDecorative = 15,
+    // V0.6.1 (chapitre 10.2, Arcades) : Jeton WOOF, lots de la Roulette, de la Machine à pince et de l'Arcade Dance.
+    JetonWoof = 16, Ticket50 = 17, Ticket100 = 18, Ticket200 = 19, Ticket500 = 20,
+    PelucheLapin = 21, PeluchePingouin = 22, PelucheSinge = 23, PelucheChat = 24,
+    BouleArgent = 25, BouleOr = 26, BouleDiamant = 27,
     // Tirage d'un monticule seulement (pas un objet) : Le Réveil en sort.
     Reveil = 99,
 }
@@ -357,11 +379,62 @@ public static class Items
         new ItemDef { type = ItemType.Television, otherId = "O3", name = "Télévision", shortName = "Télé", buyPrice = 0, sellPrice = 50, color = new Color(0.55f, 0.5f, 0.45f) },
         new ItemDef { type = ItemType.Trampoline, otherId = "O4", name = "Trampoline", shortName = "Trampo.", buyPrice = 0, sellPrice = 50, color = new Color(0.3f, 0.5f, 1f) },
         new ItemDef { type = ItemType.ClocheDecorative, otherId = "O5", name = "Cloche Décorative", shortName = "Cloche", buyPrice = 0, sellPrice = 50, color = new Color(0.85f, 0.7f, 0.3f) },
+        // V0.6.1 : Jeton WOOF (donné par Pogo), seul lot de l'arcade à figurer au tableau des autres objets.
+        new ItemDef { type = ItemType.JetonWoof, otherId = "O6", name = "Jeton WOOF", shortName = "Jeton", buyPrice = 0, sellPrice = 1, color = new Color(1f, 0.8f, 0.2f) },
+        // Lots des bornes d'arcade (10.2), échangeables à Pogo.
+        new ItemDef { type = ItemType.Ticket50, name = "Ticket 50", shortName = "Ticket 50", buyPrice = 0, sellPrice = 50, color = new Color(0.3f, 0.85f, 0.35f) },
+        new ItemDef { type = ItemType.Ticket100, name = "Ticket 100", shortName = "Ticket 100", buyPrice = 0, sellPrice = 100, color = new Color(0.3f, 0.55f, 1f) },
+        new ItemDef { type = ItemType.Ticket200, name = "Ticket 200", shortName = "Ticket 200", buyPrice = 0, sellPrice = 200, color = new Color(0.7f, 0.35f, 1f) },
+        new ItemDef { type = ItemType.Ticket500, name = "Ticket 500", shortName = "Ticket 500", buyPrice = 0, sellPrice = 500, color = new Color(1f, 0.78f, 0.2f) },
+        new ItemDef { type = ItemType.PelucheLapin, name = "Lapin en peluche", shortName = "Lapin", buyPrice = 0, sellPrice = 50, color = new Color(0.95f, 0.95f, 0.95f) },
+        new ItemDef { type = ItemType.PeluchePingouin, name = "Pingouin en peluche", shortName = "Pingouin", buyPrice = 0, sellPrice = 100, color = new Color(0.4f, 0.5f, 0.65f) },
+        new ItemDef { type = ItemType.PelucheSinge, name = "Singe en peluche", shortName = "Singe", buyPrice = 0, sellPrice = 200, color = new Color(0.55f, 0.35f, 0.2f) },
+        new ItemDef { type = ItemType.PelucheChat, name = "Chat en peluche", shortName = "Chat", buyPrice = 0, sellPrice = 500, color = new Color(0.7f, 0.7f, 0.72f) },
+        new ItemDef { type = ItemType.BouleArgent, name = "Boule à facettes argent", shortName = "Boule arg.", buyPrice = 0, sellPrice = 50, color = new Color(0.8f, 0.82f, 0.86f) },
+        new ItemDef { type = ItemType.BouleOr, name = "Boule à facettes or", shortName = "Boule or", buyPrice = 0, sellPrice = 70, color = new Color(1f, 0.8f, 0.3f) },
+        new ItemDef { type = ItemType.BouleDiamant, name = "Boule à facettes diamant", shortName = "Boule diam.", buyPrice = 0, sellPrice = 100, color = new Color(0.7f, 0.95f, 1f) },
     };
 
+    // Teinte de chaque lot de l'arcade (un même modèle Meshy pour les quatre tickets et pour les trois boules à facettes).
+    public static Color Tint(ItemType type)
+    {
+        switch (type)
+        {
+            case ItemType.Ticket50: return new Color(0.45f, 1f, 0.45f);
+            case ItemType.Ticket100: return new Color(0.45f, 0.65f, 1f);
+            case ItemType.Ticket200: return new Color(0.78f, 0.45f, 1f);
+            case ItemType.Ticket500: return new Color(1f, 0.82f, 0.25f);
+            case ItemType.BouleOr: return new Color(1f, 0.78f, 0.3f);
+            case ItemType.BouleDiamant: return new Color(0.75f, 0.95f, 1.15f);
+            default: return Color.white;
+        }
+    }
+
+    public static bool IsTicket(ItemType type) => type >= ItemType.Ticket50 && type <= ItemType.Ticket500;
+    public static bool IsPlush(ItemType type) => type >= ItemType.PelucheLapin && type <= ItemType.PelucheChat;
+    public static bool IsDiscoBall(ItemType type) => type >= ItemType.BouleArgent && type <= ItemType.BouleDiamant;
+    // Lot gagné à une borne : il scintille de petites particules, posé à terre devant elle.
+    public static bool IsPrize(ItemType type) => IsTicket(type) || IsPlush(type) || IsDiscoBall(type);
+
     // Modèle 3D (Resources/Art) d'un objet posé au sol ou porté par un Pion.
-    public static string ModelName(ItemType type) =>
-        type == ItemType.Canard ? "DuckSolo" : type == ItemType.Os ? "Os" : type == ItemType.CuisseDePoulet ? "CuisseDePoulet" : "Croquette";
+    public static string ModelName(ItemType type)
+    {
+        switch (type)
+        {
+            case ItemType.Canard: return "DuckSolo";
+            case ItemType.Os: return "Os";
+            case ItemType.CuisseDePoulet: return "CuisseDePoulet";
+            case ItemType.JetonWoof: return "JetonWoof";
+            case ItemType.PelucheLapin: return "PelucheLapin";
+            case ItemType.PeluchePingouin: return "PeluchePingouin";
+            case ItemType.PelucheSinge: return "PelucheSinge";
+            case ItemType.PelucheChat: return "PelucheChat";
+            default:
+                if (IsTicket(type)) return "Ticket";
+                if (IsDiscoBall(type)) return "BouleFacettes";
+                return "Croquette";
+        }
+    }
 
     // Note 05 du chapitre 14 (V0.5.1) : la monnaie est la croquette (ce ne sont plus des golds). "1 croquette", "30 croquettes".
     public static string Price(int amount) => Loc.Price(amount);
@@ -390,10 +463,12 @@ public static class Items
     }
 
     // Mort d'un joueur (3.4) : les objets du Terminal sont détruits, les autres (avec un modèle 3D) restent à terre.
+    // Non précisé dans le GDD (V0.6.1) : le Jeton WOOF et les tickets aussi (les peluches et boules à facettes, qui se
+    // posent comme une Balise, sont posées près du corps, comme les objets uniques).
     public static bool DropsOnDeath(ItemType type)
     {
         var def = Get(type);
-        return def != null && def.buyPrice <= 0 && (type == ItemType.Canard || type == ItemType.Os);
+        return def != null && def.buyPrice <= 0 && (type == ItemType.Canard || type == ItemType.Os || type == ItemType.JetonWoof || IsTicket(type));
     }
 
     public static ItemDef Get(ItemType type)
@@ -424,6 +499,10 @@ public static class Items
 
     // Objets uniques (V0.4.7) : posés au sol à la manière d'une Balise, Hub compris.
     public static bool IsUnique(ItemType type) => type == ItemType.Television || type == ItemType.Trampoline || type == ItemType.ClocheDecorative;
+    // Posés au sol comme une Balise, Hub compris : objets uniques, peluches et boules à facettes (V0.6.1).
+    public static bool IsPlaceable(ItemType type) => IsUnique(type) || IsPlush(type) || IsDiscoBall(type);
+    // Objets ramassés dans les monticules (V0.6.1 : en vendre un à Pogo peut rapporter un Jeton WOOF).
+    public static bool FromMound(ItemType type) => type == ItemType.Os || type == ItemType.Canard;
 
     public static System.Collections.Generic.IEnumerable<ItemDef> Buyable()
     {

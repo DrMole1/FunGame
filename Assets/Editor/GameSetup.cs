@@ -27,6 +27,19 @@ public static class GameSetup
         Debug.Log("FunGame configuré.");
     }
 
+    // V0.6.1 : police du titre, sons des glyphes et de la Cloche, modèles Meshy (bornes d'arcade, lots, porte blindée) et
+    // icônes d'inventaire, sans reconfigurer la scène.
+    [MenuItem("FunGame/Installer la V0.6.1")]
+    public static void SetupV061()
+    {
+        CreateFonts();
+        CreateSounds();
+        ImportArt();
+        IconRenderer.Generate();
+        AssetDatabase.SaveAssets();
+        Debug.Log("V0.6.1 installée.");
+    }
+
     static void CreateMaterials()
     {
         EnsureFolder(MaterialsDir);
@@ -112,6 +125,14 @@ public static class GameSetup
         ("heart_thump", "Assets/Sounds/Battement_Coeur.wav"),
         // Musique du chapiteau, en boucle.
         ("hub_music", "Assets/Sounds/Musique_Hub.wav"),
+        // GDD 12 (V0.6.1) : sons des glyphes (une fois pour un glyphe neutre, en boucle pour un glyphe d'acquisition).
+        ("glyph_sit", "Assets/Sounds/Glyphe01.wav"),
+        ("glyph_kennel", "Assets/Sounds/Glyphe02.wav"),
+        ("glyph_bark", "Assets/Sounds/Glyphe03.wav"),
+        // Cloche : La Cloche qui obnubile (aigu), la Cloche Décorative posée, la Tête de Cloche qui frappe sa tête (grave).
+        ("cloche_ring", "Assets/Sounds/Cloche.wav"),
+        ("bell_deco", "Assets/Sounds/Cloche.wav"),
+        ("tete_bell", "Assets/Sounds/Cloche.wav"),
     };
 
     static void CreateSounds()
@@ -140,6 +161,7 @@ public static class GameSetup
 
     // Police du jeu, à l'essai (l'ancienne : Assets/Font/PUSAB___.otf).
     const string FontPath = "Assets/Font/Nexa-Heavy.ttf";
+    const string TitleFontPath = "Assets/Font/RuslanDisplay-Regular.ttf";
 
     static void CreateFonts()
     {
@@ -152,6 +174,8 @@ public static class GameSetup
         }
         fonts.main = AssetDatabase.LoadAssetAtPath<Font>(FontPath);
         if (fonts.main == null) Debug.LogError("Police introuvable : " + FontPath);
+        fonts.title = AssetDatabase.LoadAssetAtPath<Font>(TitleFontPath);
+        if (fonts.title == null) Debug.LogError("Police introuvable : " + TitleFontPath);
         EditorUtility.SetDirty(fonts);
     }
 
@@ -177,7 +201,8 @@ public static class GameSetup
 
     // Modèles statiques Meshy : pas d'animation, matériaux et textures extraits à côté du modèle.
     // Grands décors vus de près (entrée du chapiteau) : texture en 1024.
-    static readonly string[] LargeArt = { "EntreeChapiteau" };
+    static readonly string[] ReadableArt = { "MachinePince" };
+    static readonly string[] LargeArt = { "EntreeChapiteau", "Roulette", "MachinePince", "ArcadeDance", "PorteBlindee" };
 
     internal static void ImportArt()
     {
@@ -229,6 +254,8 @@ public static class GameSetup
                 texImporter.SaveAndReimport();
             }
             importer.meshCompression = ModelImporterMeshCompression.Medium;
+            // V0.6.1 : la vitrine de la Machine à pince est découpée en jeu (maillage lisible).
+            if (System.Array.IndexOf(ReadableArt, name) >= 0) importer.isReadable = true;
             importer.SaveAndReimport();
         }
     }

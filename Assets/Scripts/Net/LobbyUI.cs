@@ -286,7 +286,13 @@ public class LobbyUI : MonoBehaviour
         backdrop.transform.SetAsFirstSibling();
         UiKit.Paint(backdrop, PanelBlack, 1);
         backdrop.GetComponent<Image>().raycastTarget = false;
-        UiKit.Label(p, "Pavlov's Theory", 44, FontStyle.Bold, Color.white, 56);
+        // Note 02 du chapitre 6.1 (V0.6.1) : police soviétique, rouge, avec un léger contour blanc.
+        var title = UiKit.Label(p, "Pavlov's Theory", 40, FontStyle.Normal, new Color(0.82f, 0.08f, 0.08f), 78);
+        title.lineSpacing = 0.85f;
+        title.font = GameArt.TitleFont;
+        var outline = title.gameObject.AddComponent<Outline>();
+        outline.effectColor = new Color(1f, 1f, 1f, 0.85f);
+        outline.effectDistance = new Vector2(1.5f, -1.5f);
         UiKit.Spacer(p, 4);
 
         UiKit.Label(p, "Pseudo", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);

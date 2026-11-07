@@ -10,6 +10,16 @@ public static class GameArt
     static Material lit, litEmissive, unlit, outline, text3D;
     static Font font;
 
+    // Police du titre du lobby (repli : la police du jeu).
+    public static Font TitleFont
+    {
+        get
+        {
+            var fonts = Resources.Load<GameFonts>("GameFonts");
+            return fonts != null && fonts.title != null ? fonts.title : Font;
+        }
+    }
+
     public static Font Font
     {
         get

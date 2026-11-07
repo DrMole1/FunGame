@@ -29,13 +29,23 @@ public static class IconRenderer
         Render("Television", ItemType.Television, new Vector3(10f, -160f, 0f), 0f);
         Render("Trampoline", ItemType.Trampoline, new Vector3(30f, -150f, 0f), 0f);
         Render("ClocheDecorative", ItemType.ClocheDecorative, new Vector3(10f, -150f, 0f), 0f);
+        // V0.6.1 : Jeton WOOF et lots de l'arcade (tickets et boules à facettes : un même modèle teinté).
+        Render("JetonWoof", ItemType.JetonWoof, new Vector3(5f, -170f, 0f), 0f);
+        foreach (var t in new[] { ItemType.Ticket50, ItemType.Ticket100, ItemType.Ticket200, ItemType.Ticket500 })
+            Render("Ticket", t, new Vector3(55f, -160f, 0f), 0f, null, Items.Tint(t));
+        Render("PelucheLapin", ItemType.PelucheLapin, new Vector3(5f, -160f, 0f), 0f);
+        Render("PeluchePingouin", ItemType.PeluchePingouin, new Vector3(5f, -160f, 0f), 0f);
+        Render("PelucheSinge", ItemType.PelucheSinge, new Vector3(5f, -160f, 0f), 0f);
+        Render("PelucheChat", ItemType.PelucheChat, new Vector3(5f, -160f, 0f), 0f);
+        foreach (var t in new[] { ItemType.BouleArgent, ItemType.BouleOr, ItemType.BouleDiamant })
+            Render("BouleFacettes", t, new Vector3(10f, -150f, 0f), 0f, null, Items.Tint(t) * 1.7f);
         AssetDatabase.Refresh();
         foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { IconDir }))
             ConfigureSprite(AssetDatabase.GUIDToAssetPath(guid));
         Debug.Log("Icônes d'inventaire générées.");
     }
 
-    static void Render(string model, ItemType type, Vector3 viewAngles, float skipBottom, string material = null)
+    static void Render(string model, ItemType type, Vector3 viewAngles, float skipBottom, string material = null, Color tint = default)
     {
         var prefab = Resources.Load<GameObject>("Art/" + model);
         if (prefab == null)
@@ -53,6 +63,9 @@ public static class IconRenderer
         var swap = material != null ? Resources.Load<Material>("Art/" + material) : null;
         if (swap != null)
             foreach (var r in go.GetComponentsInChildren<Renderer>()) r.sharedMaterial = swap;
+        // Variante teintée (tickets, boules à facettes) : copie du matériau, sans toucher à l'asset.
+        if (tint.a > 0f)
+            foreach (var r in go.GetComponentsInChildren<Renderer>()) r.sharedMaterial = new Material(r.sharedMaterial) { color = tint };
 
         Bounds all = new Bounds(go.transform.position, Vector3.zero);
         foreach (var r in go.GetComponentsInChildren<Renderer>()) all.Encapsulate(r.bounds);

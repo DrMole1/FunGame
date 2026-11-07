@@ -165,7 +165,8 @@ public class Cloche : Entity
         shimmer = 1f;
         if (Time.time - lastRing < RingInterval) return;
         lastRing = Time.time;
-        GameAudio.Play3D("cloche_ring", transform.position + Vector3.up * 0.7f, 1f, 40f, 0.04f);
+        // GDD 12 (V0.6.1) : le son de cloche, tiré vers les aigus.
+        GameAudio.Play3D("cloche_ring", transform.position + Vector3.up * 0.7f, 1f, 40f, 0.04f, 1.35f);
     }
 
     protected override void Animate(float dt)

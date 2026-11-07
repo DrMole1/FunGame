@@ -48,11 +48,11 @@ public partial class GameSession
 
     // Hôte : pose un appareil, annoncé à tous et gardé pour les joueurs qui arrivent ; 'placer' : joueur qui l'a posé
     // ("" : génération du terrain, sans animation ni tintement).
-    void PlaceDevice(DeviceKind kind, Vector3 pos, float yaw, string placer)
+    void PlaceDevice(DeviceKind kind, Vector3 pos, float yaw, string placer, bool hanging = false)
     {
         int id = nextBeaconId++;
         string msg = "BW|" + id + "|" + NetworkGame.F(pos.x) + "|" + NetworkGame.F(pos.y) + "|" + NetworkGame.F(pos.z) + "|" + (int)kind
-            + "|" + NetworkGame.F(yaw) + "|" + placer;
+            + "|" + NetworkGame.F(yaw) + "|" + placer + "|" + (hanging ? 1 : 0);
         beaconMessages[id] = msg;
         net.ToAll(msg);
     }

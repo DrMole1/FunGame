@@ -95,7 +95,59 @@ public static class NeonSignsSetup
             Vector3 m = n[i];
             n[i] = new Vector3(-m.x, m.y, -m.z);
         }
+        Simplify(v, n, t, Cell);
         return (v, n, t, (maxX - minX) / cap);
+    }
+
+    // Taille des cases de simplification, en hauteur de capitale (les traits des lettres font ~0,15).
+    const float Cell = 0.04f;
+
+    // Maillage Meshy trop dense (plusieurs Mo par mot) : sommets regroupés par case de la grille et par orientation de normale
+    // (les arêtes vives des lettres restent nettes), triangles devenus plats ou en double retirés.
+    static void Simplify(List<Vector3> v, List<Vector3> n, List<int> t, float cell)
+    {
+        var clusters = new Dictionary<(int, int, int, int), int>();
+        var sumV = new List<Vector3>();
+        var sumN = new List<Vector3>();
+        var count = new List<int>();
+        var remap = new int[v.Count];
+        for (int i = 0; i < v.Count; i++)
+        {
+            Vector3 q = v[i], m = n[i].normalized;
+            // Face de la lettre selon l'axe dominant de la normale (6 orientations : avant, arrière, dessus, dessous, côtés).
+            float ax = Mathf.Abs(m.x), ay = Mathf.Abs(m.y), az = Mathf.Abs(m.z);
+            int dir = ax >= ay && ax >= az ? (m.x > 0 ? 0 : 1) : ay >= az ? (m.y > 0 ? 2 : 3) : (m.z > 0 ? 4 : 5);
+            var key = (Mathf.FloorToInt(q.x / cell), Mathf.FloorToInt(q.y / cell), Mathf.FloorToInt(q.z / cell), dir);
+            if (!clusters.TryGetValue(key, out int c))
+            {
+                c = clusters[key] = sumV.Count;
+                sumV.Add(Vector3.zero);
+                sumN.Add(Vector3.zero);
+                count.Add(0);
+            }
+            sumV[c] += q;
+            sumN[c] += m;
+            count[c]++;
+            remap[i] = c;
+        }
+        var faces = new HashSet<(int, int, int)>();
+        var nt = new List<int>();
+        for (int k = 0; k + 2 < t.Count; k += 3)
+        {
+            int a = remap[t[k]], b = remap[t[k + 1]], c = remap[t[k + 2]];
+            if (a == b || b == c || a == c) continue;
+            // Même triangle quel que soit le sommet de départ (l'ordre, donc la face avant, est conservé).
+            var f = a < b && a < c ? (a, b, c) : b < c ? (b, c, a) : (c, a, b);
+            if (!faces.Add(f)) continue;
+            nt.Add(a); nt.Add(b); nt.Add(c);
+        }
+        v.Clear(); n.Clear(); t.Clear();
+        for (int c = 0; c < sumV.Count; c++)
+        {
+            v.Add(sumV[c] / count[c]);
+            n.Add(sumN[c].normalized);
+        }
+        t.AddRange(nt);
     }
 
     static Mesh Combine(Word first, Word second)

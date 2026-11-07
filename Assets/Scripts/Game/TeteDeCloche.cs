@@ -169,13 +169,19 @@ public class TeteDeCloche : Entity
 
     // ================= Modèle =================
 
-    // Corps de La Dame (modèle Meshy animé), sa tête remplacée par une cloche de bronze, le marteau dans la main droite.
+    // Modèle Meshy animé (cloche de bronze pour tête), le marteau Meshy dans la main droite. Sans lui : le corps de La Dame
+    // coiffé de la Cloche Décorative, puis une silhouette en primitives.
     Transform headBone, armBone, hammer;
     float strikeAt = -10f;
     const float StrikeDuration = 0.45f;
 
     protected override void BuildVisual()
     {
+        if (LoadCreature("TeteDeClocheArt"))
+        {
+            if (animator.isHuman) AttachToBones(false);
+            return;
+        }
         var art = Resources.Load<DameArt>("DameArt");
         if (art != null && art.model != null)
         {
@@ -194,15 +200,7 @@ public class TeteDeCloche : Entity
             var tint = new MaterialPropertyBlock();
             tint.SetColor("_Color", new Color(0.62f, 0.66f, 0.6f));
             foreach (var r in model.GetComponentsInChildren<Renderer>()) r.SetPropertyBlock(tint);
-            if (animator.isHuman)
-            {
-                headBone = animator.GetBoneTransform(HumanBodyBones.Head);
-                armBone = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
-                Transform hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
-                Transform fore = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
-                if (headBone != null) BuildBell(headBone);
-                if (hand != null && fore != null) hammer = BuildHammer(hand, hand.position - fore.position);
-            }
+            if (animator.isHuman) AttachToBones(true);
         }
         else
         {
@@ -218,6 +216,16 @@ public class TeteDeCloche : Entity
             armBone = arm;
             hammer = BuildHammer(arm, Vector3.down);
         }
+    }
+
+    void AttachToBones(bool addBell)
+    {
+        headBone = animator.GetBoneTransform(HumanBodyBones.Head);
+        armBone = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+        Transform hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
+        Transform fore = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
+        if (addBell && headBone != null) BuildBell(headBone);
+        if (hand != null && fore != null) hammer = BuildHammer(hand, hand.position - fore.position);
     }
 
     // Cloche de bronze (modèle de la Cloche Décorative) enfilée sur la tête : le crâne disparaît dedans.
@@ -245,6 +253,7 @@ public class TeteDeCloche : Entity
         Vector3 along = forearm.normalized;
         root.rotation = Quaternion.FromToRotation(Vector3.up, along) * Quaternion.Euler(0f, 90f, 0f);
         root.position = hand.position + along * 0.04f;
+        if (SpawnHammer(root)) return root;
         Material wood = GameArt.Lit("MarteauManche", new Color(0.3f, 0.2f, 0.13f), GameArt.Noise("wood", 128, 0.7f, 0.25f, 3), 0.15f);
         Material iron = GameArt.Lit("MarteauFer", new Color(0.28f, 0.27f, 0.27f), GameArt.Noise("rust", 64, 0.55f, 0.35f, 23), 0.55f);
         GameArt.Prim(PrimitiveType.Cylinder, root, new Vector3(0f, 0.35f, 0f), new Vector3(0.06f, 0.6f, 0.06f), wood);
@@ -262,6 +271,25 @@ public class TeteDeCloche : Entity
         return root;
     }
 
+    // Marteau Meshy (Resources/Art/MarteauTete, "WOOF" gravé sur la tête), livré couché le long de x, tête vers +x :
+    // redressé, manche dans la main, tête en haut.
+    const float HammerLength = 1.1f;
+
+    static bool SpawnHammer(Transform root)
+    {
+        var prefab = Resources.Load<GameObject>("Art/MarteauTete");
+        if (prefab == null) return false;
+        var go = Instantiate(prefab, root);
+        go.transform.localRotation = Quaternion.Euler(0f, 0f, 90f) * prefab.transform.localRotation;
+        foreach (var c in go.GetComponentsInChildren<Collider>()) Destroy(c);
+        Bounds b = GameArt.LocalBounds(root);
+        go.transform.localScale *= HammerLength / Mathf.Max(0.0001f, b.size.y);
+        b = GameArt.LocalBounds(root);
+        go.transform.localPosition = new Vector3(-b.center.x, -b.min.y - 0.15f, -b.center.z);
+        foreach (var r in go.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        return true;
+    }
+
     // ================= Affichage =================
 
     readonly GameAudio.FadedLoop steps = new GameAudio.FadedLoop("dame_step", 0.6f, 25f, 0.35f);
@@ -269,7 +297,8 @@ public class TeteDeCloche : Entity
     protected override void OnPulse()
     {
         strikeAt = Time.time;
-        GameAudio.Play3D("tete_bell", transform.position + Vector3.up * EyesLocal.y, 1f, 60f, 0.03f);
+        // GDD 12 (V0.6.1) : le son de cloche, tiré vers les graves.
+        GameAudio.Play3D("tete_bell", transform.position + Vector3.up * EyesLocal.y, 1f, 60f, 0.03f, 0.7f);
         Rang?.Invoke();
     }
 
@@ -292,8 +321,29 @@ public class TeteDeCloche : Entity
         animator.speed = wanted == "Walk" ? Mathf.Clamp(visualSpeed / 1.3f, 0.5f, 2f) : wanted == "Run" ? Mathf.Clamp(visualSpeed / 4.5f, 0.8f, 2.2f) : 1f;
     }
 
+    // Tête désarticulée (GDD) : penchée sur le côté, elle change de position par à-coups secs, à intervalles irréguliers.
+    Quaternion jerkFrom = Quaternion.identity, jerkTo = Quaternion.identity;
+    float jerkAt, nextJerk;
+    const float JerkSnap = 0.07f;
+
+    void JerkHead()
+    {
+        if (headBone == null || Current == State.Vanish) return;
+        if (Time.time >= nextJerk)
+        {
+            jerkFrom = CurrentJerk();
+            jerkTo = Quaternion.Euler(Random.Range(-10f, 12f), Random.Range(-16f, 16f), Random.Range(10f, 26f) * (Random.value < 0.8f ? 1f : -1f));
+            jerkAt = Time.time;
+            nextJerk = Time.time + Random.Range(0.25f, 1.4f);
+        }
+        headBone.rotation = transform.rotation * CurrentJerk() * Quaternion.Inverse(transform.rotation) * headBone.rotation;
+    }
+
+    Quaternion CurrentJerk() => Quaternion.Slerp(jerkFrom, jerkTo, (Time.time - jerkAt) / JerkSnap);
+
     void LateUpdate()
     {
+        JerkHead();
         // Après l'Animator : le bras droit lève le marteau puis l'abat sur la cloche.
         float t = Time.time - strikeAt;
         if (armBone == null || t >= StrikeDuration) return;

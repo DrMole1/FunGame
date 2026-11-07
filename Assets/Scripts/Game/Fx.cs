@@ -12,6 +12,41 @@ public static class Fx
     static Mesh Sphere => sphere != null ? sphere : (sphere = Resources.GetBuiltinResource<Mesh>("Sphere.fbx"));
     static Mesh Cylinder => cylinder != null ? cylinder : (cylinder = Resources.GetBuiltinResource<Mesh>("Cylinder.fbx"));
 
+    // Scintillement continu d'un lot précieux (V0.6.1) : petites étincelles qui montent doucement autour de l'objet.
+    public static ParticleSystem Sparkle(Transform parent, Color color)
+    {
+        var go = new GameObject("Scintillement");
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = new Vector3(0f, 0.2f, 0f);
+        go.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+        var ps = go.AddComponent<ParticleSystem>();
+        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        var main = ps.main;
+        main.loop = true;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(0.6f, 1.1f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(0.05f, 0.25f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.02f, 0.05f);
+        main.startColor = new ParticleSystem.MinMaxGradient(Color.Lerp(color, Color.white, 0.5f), Color.white);
+        main.maxParticles = 40;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        var emission = ps.emission;
+        emission.rateOverTime = 14f;
+        var shape = ps.shape;
+        shape.shapeType = ParticleSystemShapeType.Sphere;
+        shape.radius = 0.3f;
+        var fade = ps.colorOverLifetime;
+        fade.enabled = true;
+        var g = new Gradient();
+        g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                  new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.25f), new GradientAlphaKey(0f, 1f) });
+        fade.color = g;
+        var r = go.GetComponent<ParticleSystemRenderer>();
+        r.sharedMaterial = GameArt.Spark;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        ps.Play();
+        return ps;
+    }
+
     // Gerbe de petits cubes éclairés (terre, éclats) projetés vers le haut et autour, qui retombent.
     public static ParticleSystem Burst(Vector3 position, Material material, int count, float speed, float size, float lifetime = 1.1f, float gravity = 1.6f)
     {

@@ -329,16 +329,18 @@ public class Bobbing : MonoBehaviour
     }
 }
 
-// Porte massive entre la Zone 1 et la Zone 2, fermée par un battant ectoplasmique.
-// Elle s'ouvre (le battant se dissipe, la porte s'enfonce dans le sol) quand les trois orbes sont brisés.
+// Porte entre une zone impaire et la zone paire suivante. V0.6.1 : porte d'acier blindée de bunker (modèle Meshy
+// "PorteBlindee"), sans voile bleu. Elle s'ouvre (elle s'enfonce dans le sol, un gyrophare orange tourne) quand ses orbes
+// sont brisés.
 public class ZoneDoor : MonoBehaviour
 {
     const float OpenDuration = 4f;
+    // Profondeur de la porte (le modèle Meshy, très épais, est aplati pour tenir dans le mur).
+    const float Depth = 0.7f;
 
     GameObject frame;
-    Material ecto;
     BoxCollider blocker;
-    Light glow;
+    Light warning;
     float height, openAmount;
     bool open;
 
@@ -347,60 +349,46 @@ public class ZoneDoor : MonoBehaviour
 
     public static ZoneDoor Create(Transform parent, Vector3 pos, Quaternion rot, float width, float height)
     {
-        var go = new GameObject("Porte_Zone2");
+        var go = new GameObject("Porte_Zone");
         go.transform.SetParent(parent, false);
         go.transform.SetPositionAndRotation(pos, rot);
         var door = go.AddComponent<ZoneDoor>();
         door.height = height;
 
-        // L'avant du modèle Meshy (+Z) regarde la Zone 1. V0.4.6 : la porte est prise dans le mur qui délimite la Zone 1,
-        // à moitié dans la Zone 1 et à moitié dans la Zone 2.
-        door.frame = GameArt.SpawnModel("ZoneDoor", go.transform, height + 0.6f);
-        float front = 0.2f;
+        // L'avant du modèle Meshy (+Z) regarde la zone impaire. V0.4.6 : la porte est prise dans le mur qui délimite la
+        // zone, à moitié dans chaque zone.
+        door.frame = GameArt.SpawnModel("PorteBlindee", go.transform, height + 0.6f);
         if (door.frame != null)
         {
             Bounds b = GameArt.LocalBounds(door.frame.transform);
             float scale = Mathf.Min(1f, (width + 1.2f) / Mathf.Max(0.01f, b.size.x));
-            door.frame.transform.localScale *= scale;
+            Vector3 s = door.frame.transform.localScale * scale;
+            door.frame.transform.localScale = new Vector3(s.x, s.y, s.z * Depth / Mathf.Max(0.01f, b.size.z * scale));
             b = GameArt.LocalBounds(door.frame.transform);
             door.frame.transform.localPosition += new Vector3(0f, 0f, -b.center.z);
-            front = b.extents.z;
         }
         else
         {
             door.frame = new GameObject("Cadre");
             door.frame.transform.SetParent(go.transform, false);
-            Material stone = GameArt.Lit("DoorStone", new Color(0.18f, 0.18f, 0.2f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.05f);
+            Material steel = GameArt.Lit("PorteAcier", new Color(0.32f, 0.33f, 0.35f), GameArt.Noise("rust", 64, 0.55f, 0.35f, 23), 0.55f);
             foreach (float s in new[] { -1f, 1f })
-                GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(s * (width * 0.5f + 0.25f), height * 0.5f + 0.1f, 0f), new Vector3(0.5f, height + 0.2f, 0.8f), stone);
-            GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height + 0.35f, 0f), new Vector3(width + 1f, 0.5f, 0.8f), stone);
-            GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height * 0.5f, 0f), new Vector3(width, height, 0.15f), GameArt.Lit("DoorSlab", new Color(0.05f, 0.07f, 0.1f), null, 0.4f));
-            front = 0.4f;
+                GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(s * (width * 0.5f + 0.25f), height * 0.5f + 0.1f, 0f), new Vector3(0.5f, height + 0.2f, Depth), steel);
+            GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height + 0.35f, 0f), new Vector3(width + 1f, 0.5f, Depth), steel);
+            GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height * 0.5f, 0f), new Vector3(width, height, Depth * 0.6f), steel);
         }
 
-        // Battant ectoplasmique, devant la porte.
-        var slab = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        Destroy(slab.GetComponent<Collider>());
-        slab.name = "Ectoplasme";
-        slab.transform.SetParent(go.transform, false);
-        slab.transform.localPosition = new Vector3(0f, height * 0.5f, front + 0.02f);
-        // Le quad regarde vers -Z : on le retourne vers la Zone 1.
-        slab.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-        slab.transform.localScale = new Vector3(width * 0.92f, height * 0.95f, 1f);
-        door.ecto = new Material(GameArt.Ectoplasm);
-        door.ecto.SetFloat("_Aspect", width / height);
-        var r = slab.GetComponent<Renderer>();
-        r.sharedMaterial = door.ecto;
-        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-
-        door.glow = new GameObject("Lueur").AddComponent<Light>();
-        door.glow.transform.SetParent(go.transform, false);
-        door.glow.transform.localPosition = new Vector3(0f, height * 0.6f, front + 1.2f);
-        door.glow.type = LightType.Point;
-        door.glow.color = new Color(0.3f, 0.6f, 1f);
-        door.glow.range = 9f;
-        door.glow.intensity = 1.4f;
-        door.glow.shadows = LightShadows.None;
+        // Gyrophare orange au-dessus de la porte, allumé pendant l'ouverture.
+        door.warning = new GameObject("Gyrophare").AddComponent<Light>();
+        door.warning.transform.SetParent(go.transform, false);
+        door.warning.transform.localPosition = new Vector3(0f, height + 0.9f, Depth * 0.5f + 0.4f);
+        door.warning.type = LightType.Spot;
+        door.warning.color = new Color(1f, 0.55f, 0.1f);
+        door.warning.range = 12f;
+        door.warning.spotAngle = 70f;
+        door.warning.intensity = 3f;
+        door.warning.shadows = LightShadows.None;
+        door.warning.enabled = false;
 
         door.blocker = go.AddComponent<BoxCollider>();
         door.blocker.center = new Vector3(0f, height * 0.5f, 0f);
@@ -426,10 +414,11 @@ public class ZoneDoor : MonoBehaviour
     void Apply(float amount)
     {
         openAmount = amount;
-        ecto.SetFloat("_Open", Mathf.Clamp01(amount * 1.6f));
-        float sink = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((amount - 0.3f) / 0.7f));
+        // Les verrous sautent, puis la porte s'enfonce lourdement dans le sol.
+        float sink = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((amount - 0.15f) / 0.85f));
         frame.transform.localPosition = new Vector3(frame.transform.localPosition.x, -sink * (height + 1.2f), frame.transform.localPosition.z);
         frame.SetActive(amount < 0.999f);
-        glow.intensity = Mathf.Lerp(1.4f, 0f, amount);
+        warning.enabled = amount > 0.001f && amount < 0.999f;
+        if (warning.enabled) warning.transform.localRotation = Quaternion.Euler(35f, Time.time * 360f, 0f);
     }
 }

@@ -47,6 +47,8 @@ public class OrbitCamera : MonoBehaviour
     public static Vector3? CannonEye;
     // Dans sa niche (V0.6) : la caméra est à l'intérieur, tournée vers l'extérieur (cap KennelYaw) ; on peut la bouger un peu.
     public static Vector3? KennelEye;
+    // Machine à pince (V0.6.1) : la caméra rejoint ce point de vue et s'y bloque jusqu'à la fin de la partie.
+    public static Pose? FixedView;
     public static float KennelYaw;
     const float KennelYawRange = 40f, KennelPitchRange = 25f;
     // En boulet de canon : la caméra suit le boulet en fixant son point d'arrivée.
@@ -301,6 +303,15 @@ public class OrbitCamera : MonoBehaviour
             return;
         }
 
+        if (FixedView.HasValue)
+        {
+            HideTarget(null);
+            FirstPerson = false;
+            float follow = 1f - Mathf.Exp(-7f * Time.deltaTime);
+            transform.SetPositionAndRotation(Vector3.Lerp(transform.position, FixedView.Value.position, follow),
+                Quaternion.Slerp(transform.rotation, FixedView.Value.rotation, follow));
+            return;
+        }
         Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
         if (CannonEye.HasValue && fp)
         {

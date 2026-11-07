@@ -418,6 +418,9 @@ public class GameAudio : MonoBehaviour
         return orbit != null && orbit.target != null ? orbit.target.position : cam.transform.position;
     }
 
+    // À 10 m ou moins d'une boule à facettes posée (GameSession).
+    public static bool DiscoNear;
+
     public static bool InRange(Vector3 position, float distance)
     {
         Camera cam = Camera.main;
@@ -434,7 +437,8 @@ public class GameAudio : MonoBehaviour
         on *= deathDuck;
         // À moins de 7 m d'une Télévision qui diffuse (du personnage, pas de la caméra placée derrière lui), les musiques
         // d'ambiance s'effacent progressivement, et reviennent quand on s'en éloigne.
-        float tv = TvScreen.Broadcasting(ListenerBody(cam), GameRules.TvMusicDuckRange) ? 0f : 1f;
+        // V0.6.1 : de même près d'une boule à facettes posée (sa musique disco remplace la musique d'ambiance).
+        float tv = TvScreen.Broadcasting(ListenerBody(cam), GameRules.TvMusicDuckRange) || DiscoNear ? 0f : 1f;
         // Musique_Hub (enregistrée, en boucle) : gardée discrète, même avec la musique réglée à 50 %.
         hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? HubMusicVolume * on * tv * (1f - abj * 0.8f) * music : 0f, k);
         mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * tv * (1f - abj * 0.5f) * music, k);

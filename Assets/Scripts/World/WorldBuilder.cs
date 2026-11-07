@@ -3,14 +3,14 @@ using UnityEngine;
 
 // Construit les Hubs (chapiteaux circulaires) et les zones du labyrinthe procédural (V0.6) : le terrain se génère à
 // l'infini vers le nord (+Z), en suivant le schéma Hub > zone avec porte > zone avec Neutral Room et Acquisition Room >
-// Hub suivant... Chaque zone fait 200 m x 200 m ; le Hub N est au sud de la zone 2N - 1, et la porte de son chapiteau
+// Hub suivant... Chaque zone fait 170 m x 170 m ; le Hub N est au sud de la zone 2N - 1, et la porte de son chapiteau
 // est dans l'Acquisition Room de la zone 2N - 2. Une zone dépend uniquement de la graine et de son numéro : tous les
 // clients génèrent la même, et on ne la génère qu'au moment où des joueurs s'en approchent.
 public static class WorldBuilder
 {
     public const float Cell = 5f;
-    // V0.6 : chaque zone fait 200 m de large et de long (40 x 40 cellules de 5 m).
-    public const int ZoneCells = 40;
+    // V0.6.1 : chaque zone fait 170 m de large et de long (34 x 34 cellules de 5 m ; 200 m en V0.6).
+    public const int ZoneCells = 34;
     public const float ZoneSize = ZoneCells * Cell;
     // Colonne du Hub (et de la porte de chaque chapiteau) ; le Hub occupe 5 x 5 cellules au sud des zones impaires.
     public const int HubCol = ZoneCells / 2;
@@ -72,6 +72,7 @@ public static class WorldBuilder
         public AcquisitionDoor acquisitionDoor;   // zones paires : porte du chapiteau suivant
         public Bounds neutralRoom;
         public Vector3 entrance;     // point d'arrivée dans la zone (derrière la porte du Hub ou la porte à orbes)
+        public readonly List<ArcadeMachine> arcades = new List<ArcadeMachine>();   // V0.6.1 : à partir de la Zone 3
         internal Maze maze;
     }
 
@@ -963,6 +964,7 @@ public static class WorldBuilder
         BuildGeometry(m, root, colliders);
         if (m.hub) BuildZoneDoor(m, root, refs);
         else BuildGlyphRooms(m, root, refs, new System.Random(seed * 59 + zone * 613));
+        BuildArcades(m, root, refs, new System.Random(seed * 67 + zone * 389));
 
         // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, fosses, plateformes).
         Physics.SyncTransforms();
@@ -1334,7 +1336,7 @@ public static class WorldBuilder
         refs.neutralRoom = new Bounds((nrMin + nrMax) * 0.5f, nrMax - nrMin);
 
         // Glyphes d'acquisition : Zone 2, un de chaque ; ensuite, 2 + nZone / 2 tirés au hasard. Loin des deux salles et
-        // les uns des autres, contre le mur d'une cellule de plain-pied.
+        // les uns des autres (V0.6.1 : au moins 50 m entre eux), contre le mur d'une cellule de plain-pied.
         int count = GameRules.AcquisitionGlyphs(m.zone);
         var types = new List<int>();
         for (int k = 0; k < count; k++) types.Add(m.zone == 2 ? k % GameRules.GlyphTypes : rnd.Next(GameRules.GlyphTypes));
@@ -1349,8 +1351,10 @@ public static class WorldBuilder
             }
         var placed = new List<Vector3>();
         Vector3 nrCenter = refs.neutralRoom.center, arCenter = m.Center(HubCol, m.N - 2);
-        foreach (float spacing in new[] { 45f, 30f, 15f })
-            for (int attempt = 0; attempt < 600 && placed.Count < count; attempt++)
+        // Zones 4 et plus (non précisé dans le GDD) : 50 m si possible, sinon de moins en moins.
+        float[] spacings = m.zone == 2 ? new[] { 60f, GlyphMinSpacing } : new[] { 60f, GlyphMinSpacing, 30f, 15f };
+        foreach (float spacing in spacings)
+            for (int attempt = 0; attempt < 4000 && placed.Count < count; attempt++)
             {
                 Vector2Int c = cells[rnd.Next(cells.Count)];
                 int dir = rnd.Next(4);
@@ -1370,6 +1374,77 @@ public static class WorldBuilder
         var glyphTypes = refs.acquisitionGlyphs.ConvertAll(g => g.Type);
         refs.acquisitionDoor = AcquisitionDoor.Create(root, edge, Quaternion.LookRotation(Vector3.back), DoorWidth, DoorHeight, glyphTypes);
         NeonSign(props, "EnseigneAcquisitionRoom", "Acquisition Room", edge + new Vector3(0f, 4.6f, -Wall * 0.5f), AcquisitionSignWidth);
+    }
+
+    // Distance minimale entre deux glyphes d'acquisition de la Zone 2 (V0.6.1).
+    const float GlyphMinSpacing = 50f;
+
+    // ---------- Bornes d'arcade (chapitre 10.2, V0.6.1) ----------
+
+    // nZone - 1 bornes à partir de la Zone 3, de type tiré au hasard, contre le mur d'une cellule de plain-pied (au niveau du
+    // Hub, assez haute), loin des salles fixes, des glyphes et des autres bornes ; la cellule reste sans décor (les plaques
+    // de l'Arcade Dance s'étendent devant la borne).
+    const float ArcadeSpacing = 25f;
+    static int ArcadeId(int zone, int k) => zone * 100 + 70 + k;
+
+    static void BuildArcades(Maze m, Transform root, ZoneRefs refs, System.Random rnd)
+    {
+        int count = GameRules.ArcadesInZone(m.zone);
+        if (count <= 0) return;
+        Physics.SyncTransforms();
+        var props = new GameObject("Arcades").transform;
+        props.SetParent(root, false);
+        var avoid = new List<Vector3>();
+        foreach (var g in refs.acquisitionGlyphs) avoid.Add(g.transform.position);
+        if (refs.acquisitionDoor != null) avoid.Add(refs.acquisitionDoor.transform.position);
+        if (refs.door != null) avoid.Add(refs.door.transform.position);
+        var placed = new List<Vector3>();
+        for (int attempt = 0; attempt < 3000 && placed.Count < count; attempt++)
+        {
+            int i = rnd.Next(m.N), j = rnd.Next(m.N), dir = rnd.Next(4);
+            Room room = m.RoomAt(i, j);
+            var cell = new Vector2Int(i, j);
+            if (m.Reserved(i, j) || m.Fixed(i, j) || m.keepClear.Contains(cell) || cell == m.start) continue;
+            if (room != null && (room.style == RoomStyle.Pit || room.floor > 0f || room.levels != null)) continue;
+            if (m.Ceil(i, j) < 3f || !HasWall(m, i, j, dir)) continue;
+            Vector3 center = m.Center(i, j);
+            if (avoid.Exists(q => Flat(q - center) < 12f) || placed.Exists(q => Flat(q - center) < ArcadeSpacing)) continue;
+            if (m.neutralRoom.width > 0 && m.neutralRoom.Contains(cell)) continue;
+            Vector3 toWall = new Vector3(DI[dir], 0f, DJ[dir]);
+            // Dos au mur (la borne fait moins d'un mètre de profondeur), face à la cellule.
+            Vector3 pos = center + toWall * (Cell * 0.5f - Wall * 0.5f - 0.62f);
+            if (!FlatGround(pos, -toWall)) continue;
+            var kind = (ArcadeKind)rnd.Next(3);
+            int k = placed.Count;
+            placed.Add(center);
+            m.keepClear.Add(cell);
+            float yaw = Mathf.Atan2(-toWall.x, -toWall.z) * Mathf.Rad2Deg;
+            refs.arcades.Add(ArcadeMachine.Create(props, ArcadeId(m.zone, k), kind, m.zone, pos, yaw));
+        }
+    }
+
+    // Sol plat au niveau du Hub sous la borne et devant elle (jusqu'aux plaques de l'Arcade Dance).
+    static bool FlatGround(Vector3 pos, Vector3 forward)
+    {
+        Vector3 side = Vector3.Cross(Vector3.up, forward);
+        foreach (float ahead in new[] { 0f, 1f, 2.6f })
+            foreach (float across in new[] { -0.8f, 0f, 0.8f })
+            {
+                Vector3 p = pos + forward * ahead + side * across + Vector3.up * 2f;
+                if (!Physics.Raycast(p, Vector3.down, out RaycastHit hit, 3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return false;
+                if (Mathf.Abs(hit.point.y) > 0.05f || hit.normal.y < 0.95f) return false;
+            }
+        return true;
+    }
+
+    // Godmod (V0.6.1) : bornes du Hub 1 (Roulette, Machine à pince, Arcade Dance), entre les Chenils et le Bouton Rouge,
+    // tournées vers le centre, sans masquer l'Écran des Logs.
+    static readonly float[] HubArcadeAngles = { 75f, -75f, 122f };
+
+    public static (Vector3 pos, float yaw) HubArcadeSpot(HubRefs h, int k)
+    {
+        float angle = HubArcadeAngles[Mathf.Clamp(k, 0, HubArcadeAngles.Length - 1)];
+        return (h.center + Polar(angle, k == 2 ? 6.6f : 7.4f, 0f), angle + 180f);
     }
 
     // Enseignes en lettres de néon blanc (mots 3D générés par Meshy, police soviétique, préparés par "FunGame/Préparer les

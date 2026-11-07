@@ -79,3 +79,15 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: bf985b3895aa2ea41a7dd9dad3974595, type: 3}
   - key: hub_music
     clip: {fileID: 8300000, guid: 91e33a21e30176444b1f3b305c696ea2, type: 3}
+  - key: glyph_sit
+    clip: {fileID: 8300000, guid: ca8b5255e837dd2478f890a510a1ca9a, type: 3}
+  - key: glyph_kennel
+    clip: {fileID: 8300000, guid: 556aec340ea02404c93dff2be225f9a9, type: 3}
+  - key: glyph_bark
+    clip: {fileID: 8300000, guid: 661e85908ab2fcb46be6a81dc8a866b2, type: 3}
+  - key: cloche_ring
+    clip: {fileID: 8300000, guid: b7691be12dfc86742a8681ac9d4947ce, type: 3}
+  - key: bell_deco
+    clip: {fileID: 8300000, guid: b7691be12dfc86742a8681ac9d4947ce, type: 3}
+  - key: tete_bell
+    clip: {fileID: 8300000, guid: b7691be12dfc86742a8681ac9d4947ce, type: 3}

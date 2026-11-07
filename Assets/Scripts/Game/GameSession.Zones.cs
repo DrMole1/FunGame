@@ -26,6 +26,7 @@ public partial class GameSession
         int index = zones.Count + 1;
         var zone = WorldBuilder.BuildZone(worldRoot, seed, index, index > 1 ? zones[index - 2] : null);
         zones.Add(zone);
+        RegisterArcades(zone.arcades);
         // Le Hub N est au sud de la zone 2N - 1.
         if (index > 1 && index % 2 == 1) AddHubFixtures(WorldBuilder.BuildHub(worldRoot, (index + 1) / 2));
         if (itemsRound == round) SpawnZoneItems(zone);
@@ -34,7 +35,11 @@ public partial class GameSession
     // Partie quittée ou nouvelle graine : seuls restent le Hub 1 et ses équipements.
     void DestroyZones()
     {
-        foreach (var z in zones) if (z.root != null) Destroy(z.root);
+        foreach (var z in zones)
+        {
+            foreach (var m in z.arcades) UnregisterArcade(m);
+            if (z.root != null) Destroy(z.root);
+        }
         zones.Clear();
         for (int i = hubs.Count - 1; i >= 1; i--)
         {
@@ -258,6 +263,7 @@ public partial class GameSession
     readonly Order[] orders = new Order[GameRules.GlyphTypes];
     float glyphTimer, lastBarkAt = -100f;
     static readonly string[] OrderTexts = { "Assis !", "A la niche !", "Aboie !" };
+    const int GlyphTextlessZone = 4;
 
     Glyph FindGlyph(int id)
     {
@@ -276,6 +282,7 @@ public partial class GameSession
         glyphTimer -= Time.unscaledDeltaTime;
         if (glyphTimer > 0f) return;
         glyphTimer = 0.4f;
+        CheckKennelOrder();
         foreach (var z in zones)
         {
             if (z.acquisitionGlyphs.Count == 0) continue;
@@ -298,6 +305,7 @@ public partial class GameSession
                 else if (source < 0) OnGlyphDischarged(g);
             }
             // Tous les glyphes de la zone chargés : la porte du chapiteau s'ouvre, pour de bon.
+            // (Plus bas : "A la niche !" s'arrête plus tôt si tous les joueurs sont dans leur niche.)
             if (!openedAcquisitions.Contains(z.index) && z.acquisitionGlyphs.TrueForAll(g => glyphSources.TryGetValue(g.Id, out int s) && s >= 0))
             {
                 openedAcquisitions.Add(z.index);
@@ -306,6 +314,23 @@ public partial class GameSession
                 BroadcastState();
             }
         }
+    }
+
+    // Hôte (V0.6.1) : "A la niche !" s'arrête avant la fin des 30 secondes dès que tous les joueurs en vie sont dans leur
+    // niche (un joueur caché qui n'est pas dans un Canon est dans sa niche).
+    void CheckKennelOrder()
+    {
+        const int kennelOrder = 1;
+        if (!OrderActive(kennelOrder)) return;
+        int alive = 0;
+        foreach (var p in PlayerPresence.All)
+        {
+            if (p == null || !p.isActiveAndEnabled || !p.Alive) continue;
+            alive++;
+            bool inKennel = p.PlayerId == net.MyId ? InKennel : p.InCannon && !cannonOccupants.ContainsValue(p.PlayerId);
+            if (!inKennel) return;
+        }
+        if (alive > 0) EndOrder(kennelOrder);
     }
 
     // Hôte : son ordre s'impose à tous (un seul ordre en cours par type de glyphe), pendant une manche.
@@ -404,7 +429,8 @@ public partial class GameSession
                 StopOrder(t);
                 continue;
             }
-            texts.Add(Loc.T(OrderTexts[t]));
+            // V0.6.1 : dans les zones 4 et plus, seuls les sons sont joués (aucun texte).
+            if (order.glyph / 100 < GlyphTextlessZone) texts.Add(Loc.T(OrderTexts[t]));
             if (t == 0 && elapsed >= GameRules.GlyphSitGrace)
                 CheckOrder(order, InKennel || player.Crouched && presence.Still);
             else if (t == 2)

@@ -52,6 +52,16 @@ public static class EntitySetup
         AssetDatabase.SaveAssets();
     }
 
+    // La Tête de Cloche (V0.6) : marche, course et coup de marteau (mise à mort) ; de la taille de La Dame. Son marteau
+    // (Resources/Art/MarteauTete) est importé avec les autres modèles.
+    [MenuItem("FunGame/Installer La Tête de Cloche")]
+    public static void SetupTeteDeCloche()
+    {
+        GameSetup.ImportArt();
+        SetupCreature("TeteDeCloche", 2.66f, new[] { ("Walk", true), ("Run", true), ("Attack", false) });
+        AssetDatabase.SaveAssets();
+    }
+
     // Le Réveil (V0.4.7) : marche et course sur ses petites pattes ; de la taille du Pion.
     [MenuItem("FunGame/Installer Le Réveil")]
     public static void SetupReveil()

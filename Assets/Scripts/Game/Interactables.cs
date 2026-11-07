@@ -80,9 +80,16 @@ public class ItemPickup : Interactable
         var visual = new GameObject("Visuel").transform;
         visual.SetParent(go.transform, false);
 
-        if (GameArt.SpawnModel(Items.ModelName(type), visual, 0.45f) == null)
+        if (GameArt.SpawnModel(Items.ModelName(type), visual, ModelHeight(type)) == null)
             BuildFallback(visual, type);
+        // V0.6.1 : un même modèle teinté pour les quatre tickets et les trois boules à facettes.
+        Color tint = Items.Tint(type);
+        if (tint != Color.white)
+            foreach (var r in visual.GetComponentsInChildren<Renderer>())
+                r.sharedMaterial = new Material(r.sharedMaterial) { color = tint * (Items.IsDiscoBall(type) ? 1.7f : 1f) };
         visual.gameObject.AddComponent<Bobbing>();
+        // Lot gagné à une borne d'arcade : il scintille de petites particules (un lot précieux).
+        if (Items.IsPrize(type)) Fx.Sparkle(go.transform, Items.Get(type).color);
 
         var pickup = go.AddComponent<ItemPickup>();
         pickup.Id = id;
@@ -93,6 +100,10 @@ public class ItemPickup : Interactable
         col.size = new Vector3(0.7f, 0.7f, 0.7f);
         return pickup;
     }
+
+    // Hauteur du modèle à terre (le ticket est posé à plat, le Jeton WOOF debout comme une pièce).
+    static float ModelHeight(ItemType type) =>
+        Items.IsTicket(type) ? 0.05f : type == ItemType.JetonWoof ? 0.24f : Items.IsDiscoBall(type) ? 0.34f : 0.45f;
 
     static void BuildFallback(Transform parent, ItemType type)
     {

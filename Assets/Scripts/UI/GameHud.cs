@@ -25,7 +25,7 @@ public class GameHud : MonoBehaviour
 
     GameObject root, gameOverPanel, restartButton, compassRoot;
     // Chaîne du Roi (V0.4.6) : une barre d'espace enfoncée et relâchée frénétiquement.
-    GameObject spaceKey;
+    GameObject spaceKey, useKey;
     RectTransform spaceKeyFace;
     Image spaceKeyImage;
     // Dans le Canon (V0.4.6) : le viseur devient un rond blanc et l'inventaire est caché.
@@ -271,6 +271,7 @@ public class GameHud : MonoBehaviour
 
         BuildCompass(r);
         BuildSpaceKey(r, rounded);
+        BuildUseKey(r, rounded);
 
         // Game over.
         gameOverPanel = UiKit.Panel(canvas.transform, "GameOver", Vector2.zero, new Color(0.12f, 0f, 0f, 0.88f));
@@ -567,6 +568,37 @@ public class GameHud : MonoBehaviour
         UiKit.Stretch(label.rectTransform);
         foreach (var img in spaceKey.GetComponentsInChildren<Graphic>()) img.raycastTarget = false;
         spaceKey.SetActive(false);
+    }
+
+    // Machine à pince (V0.6.1) : la barre d'espace dessinée en haut de l'écran, avec le mot "Utiliser" (comme pour la chaîne
+    // du Roi).
+    void BuildUseKey(Transform parent, Sprite rounded)
+    {
+        useKey = new GameObject("ToucheUtiliser", typeof(RectTransform));
+        useKey.transform.SetParent(parent, false);
+        ((RectTransform)useKey.transform).sizeDelta = new Vector2(300, 110);
+        UiKit.Place(useKey, new Vector2(0.5f, 1f), new Vector2(0, -90));
+        var shadow = UiKit.Panel(useKey.transform, "Ombre", new Vector2(280, 58), new Color(0.05f, 0.05f, 0.06f, 0.9f));
+        UiKit.Place(shadow, new Vector2(0.5f, 0.5f), new Vector2(0, 4));
+        shadow.GetComponent<Image>().sprite = rounded;
+        shadow.GetComponent<Image>().type = Image.Type.Sliced;
+        var face = UiKit.Panel(useKey.transform, "Touche", new Vector2(280, 58), new Color(0.92f, 0.92f, 0.9f));
+        UiKit.Place(face, new Vector2(0.5f, 0.5f), new Vector2(0, 10));
+        face.GetComponent<Image>().sprite = rounded;
+        face.GetComponent<Image>().type = Image.Type.Sliced;
+        var label = UiKit.Label(face.transform, "ESPACE", 24, FontStyle.Bold, new Color(0.12f, 0.12f, 0.14f), 58);
+        UiKit.Stretch(label.rectTransform);
+        var word = UiKit.Label(useKey.transform, "Utiliser", 22, FontStyle.Bold, Color.white, 30);
+        UiKit.Place(word.gameObject, new Vector2(0.5f, 0.5f), new Vector2(0, -42));
+        word.rectTransform.sizeDelta = new Vector2(300, 30);
+        word.gameObject.AddComponent<Outline>().effectColor = new Color(0f, 0f, 0f, 0.8f);
+        foreach (var img in useKey.GetComponentsInChildren<Graphic>()) img.raycastTarget = false;
+        useKey.SetActive(false);
+    }
+
+    public void SetUsePrompt(bool visible)
+    {
+        if (useKey != null && useKey.activeSelf != visible) useKey.SetActive(visible);
     }
 
     // Anneau blanc (viseur du Canon) : rayons intérieur et extérieur en fraction de la taille.

@@ -3,7 +3,12 @@ using UnityEngine;
 
 // Appareils posés au sol, ramassables, reliés au réseau d'énergie des Balises (GDD 7.1 à 7.5), et objets uniques posés
 // de la même manière (7.6 à 7.8, V0.4.7) : la Télévision se relie aux Balises, le Trampoline et la Cloche Décorative non.
-public enum DeviceKind : byte { Beacon = 0, Enhanced = 1, Teleporter = 2, Station = 3, Canon = 4, Television = 5, Trampoline = 6, Bell = 7 }
+// V0.6.1 : peluches et boules à facettes (lots de l'arcade), posées et ramassées comme une Balise, hors du réseau d'énergie.
+public enum DeviceKind : byte
+{
+    Beacon = 0, Enhanced = 1, Teleporter = 2, Station = 3, Canon = 4, Television = 5, Trampoline = 6, Bell = 7,
+    Lapin = 8, Pingouin = 9, Singe = 10, Chat = 11, DiscoArgent = 12, DiscoOr = 13, DiscoDiamant = 14,
+}
 
 // Balise (GDD 7.1) : petite borne posée au sol, ramassable. La Balise du Hub, plus grande, ne se ramasse pas :
 // elle est chargée 10 minutes au début du jeu (jauge circulaire autour d'elle) et se recharge avec un Chargeur.
@@ -18,7 +23,8 @@ public class Beacon : Interactable
     public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f, StationHeight = 1.15f;
     // Canon posé au sol : 0,64 fois la taille d'un personnage (1,8 m), soit environ 2,4 m de long ; fût à 80 % de sa hauteur.
     public const float CanonHeight = 0.64f * 1.8f, CanonBarrel = CanonHeight * 0.8f, CanonHalfLength = 1.2f;
-    public const DeviceKind LastKind = DeviceKind.Bell;
+    public const DeviceKind LastKind = DeviceKind.DiscoDiamant;
+    public const float PlushHeight = 0.45f, DiscoHeight = 0.36f, DiscoChain = 0.25f;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
     public int Id { get; private set; }   // -N : Balise principale du Hub N
@@ -31,8 +37,13 @@ public class Beacon : Interactable
     public static Color HubColor(int hub) => HubColors[(Mathf.Max(1, hub) - 1) % HubColors.Length];
     // Balises (simples ou améliorées) : elles relaient l'énergie ; Téléporteur et Station ne font que la recevoir.
     public bool Relays => Kind == DeviceKind.Beacon || Kind == DeviceKind.Enhanced;
-    // Relié au réseau d'énergie (chargé s'il voit une Balise chargée) : tout sauf le Trampoline et la Cloche Décorative.
-    public bool Networked => Kind != DeviceKind.Trampoline && Kind != DeviceKind.Bell;
+    // Relié au réseau d'énergie (chargé s'il voit une Balise chargée) : ni le Trampoline, ni la Cloche Décorative, ni les
+    // lots de l'arcade.
+    public bool Networked => Kind <= DeviceKind.Television;
+    public bool IsDisco => IsDiscoKind(Kind);
+    public static bool IsDiscoKind(DeviceKind kind) => kind >= DeviceKind.DiscoArgent && kind <= DeviceKind.DiscoDiamant;
+    // Boule à facettes suspendue au plafond (point de pose au plafond).
+    public bool Hanging { get; private set; }
     // Télévision : son écran (sans signal, décompte ou vidéo).
     public TvScreen Screen { get; private set; }
     public bool Charged { get; private set; }
@@ -52,6 +63,13 @@ public class Beacon : Interactable
             case DeviceKind.Television: return ItemType.Television;
             case DeviceKind.Trampoline: return ItemType.Trampoline;
             case DeviceKind.Bell: return ItemType.ClocheDecorative;
+            case DeviceKind.Lapin: return ItemType.PelucheLapin;
+            case DeviceKind.Pingouin: return ItemType.PeluchePingouin;
+            case DeviceKind.Singe: return ItemType.PelucheSinge;
+            case DeviceKind.Chat: return ItemType.PelucheChat;
+            case DeviceKind.DiscoArgent: return ItemType.BouleArgent;
+            case DeviceKind.DiscoOr: return ItemType.BouleOr;
+            case DeviceKind.DiscoDiamant: return ItemType.BouleDiamant;
             default: return ItemType.Balise;
         }
     }
@@ -73,6 +91,8 @@ public class Beacon : Interactable
             case DeviceKind.Television: return GameRules.TvHeight;
             case DeviceKind.Trampoline: return GameRules.TrampolineHeight;
             case DeviceKind.Bell: return GameRules.BellHeight;
+            case DeviceKind.Lapin: case DeviceKind.Pingouin: case DeviceKind.Singe: case DeviceKind.Chat: return PlushHeight;
+            case DeviceKind.DiscoArgent: case DeviceKind.DiscoOr: case DeviceKind.DiscoDiamant: return DiscoHeight;
             default: return Height;
         }
     }
@@ -88,7 +108,7 @@ public class Beacon : Interactable
     Transform visualRoot;
     float recoil = -1f, placedPop = -1f;
 
-    public static Beacon Create(Transform parent, int id, Vector3 pos, float yaw, DeviceKind kind = DeviceKind.Beacon)
+    public static Beacon Create(Transform parent, int id, Vector3 pos, float yaw, DeviceKind kind = DeviceKind.Beacon, bool hanging = false)
     {
         // (Modèles Meshy des objets uniques, sans socle : Resources/Art/Television, Trampoline et ClocheDecorative.)
         bool hub = id < 0;
@@ -98,6 +118,7 @@ public class Beacon : Interactable
         var beacon = go.AddComponent<Beacon>();
         beacon.Id = id;
         beacon.Kind = kind;
+        beacon.Hanging = hanging && IsDiscoKind(kind);
         float height = beacon.VisualHeight;
         var visual = new GameObject("Visuel").transform;
         visual.SetParent(go.transform, false);
@@ -131,6 +152,18 @@ public class Beacon : Interactable
                 break;
             case DeviceKind.Bell:
                 if (GameArt.SpawnModel("ClocheDecorative", visual, height) == null) BuildBell(visual, height);
+                break;
+            case DeviceKind.Lapin:
+            case DeviceKind.Pingouin:
+            case DeviceKind.Singe:
+            case DeviceKind.Chat:
+                if (GameArt.SpawnModel(Items.ModelName(ItemOf(kind)), visual, height) == null)
+                    GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, height * 0.45f, 0f), Vector3.one * height * 0.8f, GameArt.Lit("PelucheRepli", Items.Get(ItemOf(kind)).color));
+                break;
+            case DeviceKind.DiscoArgent:
+            case DeviceKind.DiscoOr:
+            case DeviceKind.DiscoDiamant:
+                BuildDiscoBall(go, visual, kind, height, beacon.Hanging);
                 break;
             case DeviceKind.Station:
                 if (GameArt.SpawnModel("StationCurative", visual, height) == null)
@@ -204,7 +237,7 @@ public class Beacon : Interactable
             beacon.coordinates = GameArt.CreateText(go.transform, "DistanceHub", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(1f, 0.45f, 0.4f));
         }
         beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.76f, CanonHeight, 1.76f)
-            : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : new Vector3(0.6f, height, 0.6f));
+            : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.5f, 0.5f, 0.5f) : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;
     }
@@ -254,6 +287,38 @@ public class Beacon : Interactable
         handle.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
     }
 
+    // Boule à facettes (V0.6.1) : modèle Meshy argenté, teinté or ou diamant, très réfléchissant. Au plafond, elle pend au
+    // bout d'une chaînette ; elle tourne et projette des faisceaux colorés (DiscoBall).
+    static void BuildDiscoBall(GameObject device, Transform visual, DeviceKind kind, float height, bool hanging)
+    {
+        var ball = new GameObject("Boule").transform;
+        ball.SetParent(visual, false);
+        float drop = hanging ? DiscoChain + height : 0f;
+        ball.localPosition = Vector3.down * drop;
+        if (GameArt.SpawnModel("BouleFacettes", ball, height) == null)
+            GameArt.Prim(PrimitiveType.Sphere, ball, new Vector3(0f, height * 0.5f, 0f), Vector3.one * height, GameArt.Lit("BouleRepli", Color.white, null, 0.95f));
+        Color tint = Items.Tint(ItemOf(kind));
+        foreach (var r in ball.GetComponentsInChildren<Renderer>())
+        {
+            var m = new Material(r.sharedMaterial) { name = "Boule" + kind };
+            // Facettes miroir : plus claires que la texture Meshy, presque métalliques.
+            m.color = tint * 1.7f;
+            if (m.HasProperty("_Glossiness")) m.SetFloat("_Glossiness", 0.92f);
+            if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", 0.6f);
+            r.sharedMaterial = m;
+        }
+        if (hanging)
+            GameArt.Prim(PrimitiveType.Cylinder, visual, Vector3.down * DiscoChain * 0.5f, new Vector3(0.012f, DiscoChain * 0.5f, 0.012f), GameArt.Metal);
+        // Les faisceaux partent du centre de la boule.
+        var center = new GameObject("Centre").transform;
+        center.SetParent(ball, false);
+        center.localPosition = Vector3.up * height * 0.5f;
+        DiscoBall.Attach(device, ball, center, kind, hanging);
+    }
+
+    // Point d'où la musique disco se diffuse (centre de la boule).
+    public Vector3 DiscoCenter => transform.position + Vector3.down * (Hanging ? DiscoChain + DiscoHeight * 0.5f : -DiscoHeight * 0.5f);
+
     // Gaz vert pétillant dans le tube de la Station Curative.
     static ParticleSystem BuildGas(Transform parent, float height)
     {
@@ -296,6 +361,8 @@ public class Beacon : Interactable
         if (glow != null) glow.enabled = on;
         if (gas != null) { if (on && !gas.isPlaying) gas.Play(); else if (!on && gas.isPlaying) gas.Stop(); }
         if (block == null) block = new MaterialPropertyBlock();
+        // Les boules à facettes gardent leur teinte (argent, or, diamant).
+        if (IsDisco) return;
         block.SetColor("_Color", on || !Networked || Kind == DeviceKind.Television ? ChargedTint : DischargedTint);
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
     }
@@ -475,11 +542,11 @@ public class BeaconNetwork : MonoBehaviour
         return best;
     }
 
-    public Beacon Add(int id, Vector3 pos, DeviceKind kind = DeviceKind.Beacon, float yaw = float.NaN)
+    public Beacon Add(int id, Vector3 pos, DeviceKind kind = DeviceKind.Beacon, float yaw = float.NaN, bool hanging = false)
     {
         if (placed.TryGetValue(id, out var existing) && existing != null) return existing;
         // Orientation : celle choisie à la pose (la Télévision fait face au joueur), sinon au hasard.
-        var b = Beacon.Create(transform, id, pos, float.IsNaN(yaw) ? Random.Range(0f, 360f) : yaw, kind);
+        var b = Beacon.Create(transform, id, pos, float.IsNaN(yaw) ? Random.Range(0f, 360f) : yaw, kind, hanging);
         Beacon nearest = NearestHub(pos);
         if (nearest != null) b.ShowHubDistance(nearest.transform.position);
         placed[id] = b;

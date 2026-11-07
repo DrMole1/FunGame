@@ -329,6 +329,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         foreach (var list in kennels.Values) foreach (var k in list) if (k != null) Destroy(k.gameObject);
         kennels.Clear();
         ResetGlyphs();
+        ClearArcadeState();
+        SetHubArcades(false);
         phase = Phase.Waiting;
         round = 1;
         quota = GameRules.QuotaForRound(1);
@@ -557,7 +559,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     void Update()
     {
         bool inGame = net.InGame;
-        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || ControlsUI.IsOpen || phase == Phase.GameOver || Teleporting || localDig >= 0 || CannonFlying || InKennel;
+        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || ControlsUI.IsOpen || phase == Phase.GameOver || Teleporting || localDig >= 0 || CannonFlying || InKennel || ClawActive;
         OrbitCamera.CursorLockBlocked = TerminalUI.IsOpen || PostItUI.IsOpen || GameHud.GameOverVisible;
 
         if (phase == Phase.Running && !WipedOut)
@@ -576,6 +578,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             UpdateHostWipeOut();
             UpdateHostZones();
             UpdateHostGlyphs();
+            UpdateHostArcades();
             SimulateEntities();
         }
 
@@ -633,6 +636,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateMistContact();
         UpdateDespair();
         UpdateGlyphOrders();
+        UpdateArcades();
         UpdateWatching();
         UpdateDread();
         UpdateSpectate();
@@ -1034,6 +1038,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (!net.IsHost) return null;
         Godmode = on;
         if (on) player.ReleaseImmobilize();
+        // V0.6.1 : en godmod, une borne d'arcade de chaque type apparaît dans le Hub 1 (chez tous les joueurs).
+        SetHubArcades(on);
+        net.ToAll("AG|" + (on ? 1 : 0));
         return Loc.T(on ? "Godmod activé : achats gratuits, invincible, sérénité intacte, jamais immobilisé." : "Godmod désactivé.");
     }
 
@@ -1092,14 +1099,15 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (cause != null)
             for (int i = 0; i < GameRules.InventorySize; i++)
                 if (Items.DropsOnDeath(status[i])) left.Add(status[i]);
-                else if (Items.IsUnique(status[i])) unique.Add(status[i]);
+                else if (Items.IsPlaceable(status[i])) unique.Add(status[i]);
         status.ClearInventory();
         pendingPickups = 0;
         presence.Alive = false;
         player.SetFrozen(true);
         // Capsule désactivée : les objets tombent jusqu'au sol.
         foreach (var type in left) DropNear(type, player.transform.position);
-        // Les objets uniques (Télévision, Trampoline, Cloche Décorative) se retrouvent posés près du corps.
+        // Les objets uniques (Télévision, Trampoline, Cloche Décorative), peluches et boules à facettes se retrouvent posés
+        // près du corps.
         foreach (var type in unique) PlaceNear(type, player.transform.position);
         nearNightmareSince = -1f;
         terminal.Close();
@@ -1171,7 +1179,17 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case ItemType.Television:
             case ItemType.Trampoline:
             case ItemType.ClocheDecorative:
+            case ItemType.PelucheLapin:
+            case ItemType.PeluchePingouin:
+            case ItemType.PelucheSinge:
+            case ItemType.PelucheChat:
+            case ItemType.BouleArgent:
+            case ItemType.BouleOr:
+            case ItemType.BouleDiamant:
                 TryPlaceBeacon(slot, Beacon.KindOf(status[slot]));
+                break;
+            case ItemType.JetonWoof:
+                hud.Toast(Loc.T("Visez une borne d'arcade chargée pour y insérer le Jeton WOOF."));
                 break;
             case ItemType.Chargeur:
                 hud.Toast(Loc.T("Visez la Balise d'un Hub, près de la porte, pour la recharger."));
@@ -1241,16 +1259,19 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Camera cam = Camera.main;
         if (cam == null) return;
         Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
-        bool ground = Physics.Raycast(ray, out RaycastHit hit, 14f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
-            && hit.normal.y > 0.7f
-            && hit.collider.GetComponentInParent<Interactable>() == null
-            && Vector3.Distance(hit.point, player.transform.position) <= GameRules.InteractRange + 1.5f;
-        if (!ground)
+        // V0.6.1 : une boule à facettes se pose au sol ou au plafond (elle y pend au bout d'une chaînette).
+        bool disco = Beacon.IsDiscoKind(kind);
+        bool aimed = Physics.Raycast(ray, out RaycastHit hit, 14f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+            && hit.collider.GetComponentInParent<Interactable>() == null;
+        bool ceiling = disco && aimed && hit.normal.y < -0.7f && Vector3.Distance(hit.point, player.transform.position) <= GameRules.InteractRange + 4f;
+        bool ground = aimed && hit.normal.y > 0.7f && Vector3.Distance(hit.point, player.transform.position) <= GameRules.InteractRange + 1.5f;
+        if (!ground && !ceiling)
         {
-            hud.Toast(Loc.F("Visez le sol, tout près de vous, pour y poser : {0}.", what));
+            hud.Toast(disco ? Loc.F("Visez le sol ou le plafond, tout près de vous, pour y poser : {0}.", what)
+                            : Loc.F("Visez le sol, tout près de vous, pour y poser : {0}.", what));
             return;
         }
-        if (WorldBuilder.IsInHub(hit.point) && !Items.IsUnique(status[slot]) && kind != DeviceKind.Beacon && kind != DeviceKind.Enhanced)
+        if (WorldBuilder.IsInHub(hit.point) && !Items.IsPlaceable(status[slot]) && kind != DeviceKind.Beacon && kind != DeviceKind.Enhanced)
         {
             hud.Toast(Loc.F("{0} : à poser hors du Hub.", what));
             return;
@@ -1266,7 +1287,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Vector3 back = player.transform.position - hit.point;
         float yaw = back.sqrMagnitude > 0.01f ? Mathf.Atan2(back.x, back.z) * Mathf.Rad2Deg : 0f;
         net.ToHost("BN|" + NetworkGame.F(hit.point.x) + "|" + NetworkGame.F(hit.point.y) + "|" + NetworkGame.F(hit.point.z) + "|" + (int)kind
-            + "|" + NetworkGame.F(yaw));
+            + "|" + NetworkGame.F(yaw) + "|" + (ceiling ? 1 : 0));
     }
 
     // Un mur (ni le sol visé, ni un joueur, une entité ou un objet) à moins de 'distance' du point, à l'horizontale.
@@ -2163,6 +2184,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         foreach (var kv in dropped) net.ToPeer(to, DropMsg(kv.Key, kv.Value));
         net.ToPeer(to, PogoMsg(""));
         SendGlyphSnapshot(to);
+        SendArcadeSnapshot(to);
     }
 
     // Journal : modèle français et arguments, traduits à l'affichage chez chaque joueur (Loc.Line).
@@ -2259,6 +2281,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         ApplyWorld();
         BroadcastState();
         ResetGlyphs();
+        ClearArcadeState();
         OnRestart();
         // Après OnRestart (qui retire les appareils posés) : les objets uniques de la nouvelle partie.
         PlaceUniqueObjects();
@@ -2340,6 +2363,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (HandleZoneMessage(from, f, host)) return;
         if (HandleCannonMessage(from, f, host)) return;
         if (HandleObjectMessage(from, f, host)) return;
+        if (HandleArcadeMessage(from, f, host)) return;
         switch (f[0])
         {
             case "G" when !host && f.Length >= 10:
@@ -2596,7 +2620,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 noiseAt[from] = Time.time;
                 var kind = f.Length >= 5 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[4]), 0, (int)Beacon.LastKind) : DeviceKind.Beacon;
                 var pos = new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3]));
-                PlaceDevice(kind, pos, f.Length >= 6 ? NetworkGame.P(f[5]) : Random.Range(0f, 360f), from);
+                PlaceDevice(kind, pos, f.Length >= 6 ? NetworkGame.P(f[5]) : Random.Range(0f, 360f), from, f.Length >= 7 && f[6] == "1");
                 break;
             }
             // BV : appareil déjà posé (joueur qui arrive), sans animation.
@@ -2608,7 +2632,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 var kind = f.Length >= 6 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[5]), 0, (int)Beacon.LastKind) : DeviceKind.Beacon;
                 float yaw = f.Length >= 7 ? NetworkGame.P(f[6]) : float.NaN;
                 string placer = f.Length >= 8 ? f[7] : "";
-                Beacon placedDevice = beacons.Add(NetworkGame.I(f[1]), pos, kind, yaw);
+                bool hanging = f.Length >= 9 && f[8] == "1";
+                Beacon placedDevice = beacons.Add(NetworkGame.I(f[1]), pos, kind, yaw, hanging);
                 if (live && placer.Length > 0) GameAudio.Play3D("pop", pos, 0.8f, 15f, 0.1f, 0.8f);
                 OnDevicePlaced(placedDevice, placer, live);
                 break;
@@ -2667,6 +2692,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 Log("Le joueur {0} a vendu {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(def.sellPrice));
                 // Sujet de test : un objet vendu à Pogo.
                 testFlags |= TestPogoSale;
+                // V0.6.1 : dès que la Zone 3 est accessible, un objet des monticules vendu rapporte un Jeton WOOF une fois sur dix.
+                if (Items.FromMound(def.type) && ZoneUnlocked(3) && Random.value < GameRules.TokenChance) net.ToPeer(from, "JT");
                 BroadcastState();
                 // Un achat le rend heureux (3 s de sourire) et le calme.
                 pogoActiveAt = Time.time;

@@ -162,6 +162,14 @@ public static class GlyphArt
         return masks[type] = tex;
     }
 
+    // Gravure seule (traits du glyphe sur fond transparent, non éclairée), posée à même un médaillon (porte du chapiteau).
+    public static Material Engraving(int type)
+    {
+        var mat = new Material(Shader.Find("Sprites/Default")) { name = "Gravure" + type, color = new Color(0.72f, 0.68f, 0.6f) };
+        mat.mainTexture = Mask(type);
+        return mat;
+    }
+
     // Pierre sombre gravée du glyphe en os pâle ; l'émission (bleue quand le glyphe est chargé) suit la gravure.
     public static Material Material(int type)
     {
@@ -201,11 +209,14 @@ public static class GlyphArt
 public class AcquisitionDoor : MonoBehaviour
 {
     const float OpenDuration = 3f;
+    // Battant devant la face du mur (le mur fait 30 cm d'épaisseur), débordant de 18 cm sur les montants et le linteau.
+    const float SlabOffset = 0.24f, SlabOverlap = 0.18f;
+    float slabZ;
 
     Transform slab;
     BoxCollider blocker;
     readonly List<Renderer> icons = new List<Renderer>();
-    MaterialPropertyBlock block;
+    readonly List<bool> lit = new List<bool>();
     Light glow;
     float height, openAmount;
     bool open;
@@ -219,16 +230,21 @@ public class AcquisitionDoor : MonoBehaviour
         go.transform.SetPositionAndRotation(pos, rot);
         var door = go.AddComponent<AcquisitionDoor>();
         door.height = height;
-        door.block = new MaterialPropertyBlock();
 
-        // Battant rouge du chapiteau, rayé de crème, cerclé d'or ; les glyphes sur des médaillons sombres.
+        // Battant rouge du chapiteau, rayé de crème, cerclé d'or ; les glyphes gravés à même des médaillons sombres (V0.6.1 :
+        // plus de carré de pierre autour de la gravure).
+        // V0.6.1 (note 01) : le battant n'est plus pris dans l'épaisseur du mur (ses bords se mêlaient aux montants et au
+        // chapiteau voisin) ; il est posé devant la face du mur, côté Acquisition Room, et déborde sur les montants.
         door.slab = new GameObject("Battant").transform;
         door.slab.SetParent(go.transform, false);
+        door.slabZ = SlabOffset;
+        door.slab.localPosition = Vector3.forward * SlabOffset;
         Material red = GameArt.Lit("HubRed", new Color(0.72f, 0.08f, 0.1f), GameArt.Canvas(), 0.85f);
         Material gold = GameArt.Lit("HubGold", new Color(0.85f, 0.65f, 0.2f), null, 0.6f);
-        GameArt.Prim(PrimitiveType.Cube, door.slab, new Vector3(0f, height * 0.5f, 0f), new Vector3(width + 0.1f, height, 0.14f), red);
-        GameArt.Prim(PrimitiveType.Cube, door.slab, new Vector3(0f, height - 0.08f, 0.08f), new Vector3(width + 0.1f, 0.12f, 0.03f), gold);
-        GameArt.Prim(PrimitiveType.Cube, door.slab, new Vector3(0f, 0.08f, 0.08f), new Vector3(width + 0.1f, 0.12f, 0.03f), gold);
+        float leaf = width + SlabOverlap * 2f;
+        GameArt.Prim(PrimitiveType.Cube, door.slab, new Vector3(0f, (height + SlabOverlap) * 0.5f, 0f), new Vector3(leaf, height + SlabOverlap, 0.14f), red);
+        GameArt.Prim(PrimitiveType.Cube, door.slab, new Vector3(0f, height + SlabOverlap - 0.08f, 0.08f), new Vector3(leaf, 0.12f, 0.03f), gold);
+        GameArt.Prim(PrimitiveType.Cube, door.slab, new Vector3(0f, 0.08f, 0.08f), new Vector3(leaf, 0.12f, 0.03f), gold);
 
         int count = glyphTypes.Count;
         int columns = Mathf.Max(1, Mathf.Min(count, 3)), rows = Mathf.Max(1, Mathf.CeilToInt(count / 3f));
@@ -239,9 +255,11 @@ public class AcquisitionDoor : MonoBehaviour
             int row = k / 3, col = k % 3, inRow = Mathf.Min(3, count - row * 3);
             var at = new Vector3((col - (inRow - 1) * 0.5f) * cell, height * 0.55f + ((rows - 1) * 0.5f - row) * cell, 0.085f);
             GameArt.Prim(PrimitiveType.Cylinder, door.slab, at, new Vector3(cell * 0.85f, 0.01f, cell * 0.85f), plate).transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            var quad = GameArt.Prim(PrimitiveType.Quad, door.slab, at + Vector3.forward * 0.012f, Vector3.one * cell * 0.7f, GlyphArt.Material(glyphTypes[k]));
+            var quad = GameArt.Prim(PrimitiveType.Quad, door.slab, at + Vector3.forward * 0.012f, Vector3.one * cell * 0.62f, GlyphArt.Engraving(glyphTypes[k]));
             quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            quad.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             door.icons.Add(quad.GetComponent<Renderer>());
+            door.lit.Add(false);
         }
 
         door.glow = new GameObject("Lueur").AddComponent<Light>();
@@ -263,15 +281,12 @@ public class AcquisitionDoor : MonoBehaviour
     public void SetGlyphLit(int index, bool on)
     {
         if (index < 0 || index >= icons.Count) return;
-        block.SetColor("_EmissionColor", on ? new Color(0.35f, 0.7f, 1.6f) : Color.black);
-        icons[index].SetPropertyBlock(block);
-        int lit = 0;
-        foreach (var r in icons)
-        {
-            r.GetPropertyBlock(block);
-            if (block.GetColor("_EmissionColor").maxColorComponent > 0.01f) lit++;
-        }
-        glow.intensity = icons.Count > 0 ? 1.4f * lit / icons.Count : 0f;
+        lit[index] = on;
+        // Gravure couleur d'os pâle, bleue et lumineuse quand son glyphe est chargé.
+        icons[index].material.color = on ? new Color(0.45f, 0.8f, 1f) : new Color(0.72f, 0.68f, 0.6f);
+        int count = 0;
+        foreach (bool l in lit) if (l) count++;
+        glow.intensity = icons.Count > 0 ? 1.4f * count / icons.Count : 0f;
     }
 
     public void SetOpen(bool value, bool instant)
@@ -292,7 +307,7 @@ public class AcquisitionDoor : MonoBehaviour
     void Apply(float amount)
     {
         openAmount = amount;
-        slab.localPosition = Vector3.down * (Mathf.SmoothStep(0f, 1f, amount) * (height + 0.1f));
+        slab.localPosition = Vector3.forward * slabZ + Vector3.down * (Mathf.SmoothStep(0f, 1f, amount) * (height + SlabOverlap + 0.1f));
         slab.gameObject.SetActive(amount < 0.999f);
     }
 }
