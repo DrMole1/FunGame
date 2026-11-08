@@ -68,7 +68,7 @@ public class GameAudio : MonoBehaviour
         music = Mathf.Clamp01(PlayerPrefs.GetFloat(MusicKey, 0.5f));
         sfx = Mathf.Clamp01(PlayerPrefs.GetFloat(SfxKey, 0.5f));
         AudioListener.volume = MasterGain;
-        SoundBank.Preload();
+        instance.StartCoroutine(SoundBank.Preload());
         instance.Setup();
     }
 

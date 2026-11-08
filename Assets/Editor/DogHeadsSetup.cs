@@ -47,6 +47,7 @@ public static class DogHeadsSetup
             Object.DestroyImmediate(tex);
         }
         AssetDatabase.Refresh();
+        MeshDecimator.SimplifyDogHeads();
         Debug.Log("Têtes de chiens prêtes.");
     }
 

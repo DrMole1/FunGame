@@ -33,9 +33,20 @@ public static class SoundBank
         "doom",
     };
 
-    public static void Preload()
+    // Synthèse des sons étalée sur les premières images : le jeu ne se fige pas au lancement. Un son demandé avant son tour est
+    // simplement préparé à ce moment-là.
+    const long PreloadBudgetMs = 6;
+
+    public static System.Collections.IEnumerator Preload()
     {
-        foreach (string name in All) Get(name);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        foreach (string name in All)
+        {
+            Get(name);
+            if (watch.ElapsedMilliseconds < PreloadBudgetMs) continue;
+            yield return null;
+            watch.Restart();
+        }
     }
 
     static GameSounds recorded;

@@ -213,6 +213,15 @@ public class FlickerLight : MonoBehaviour
         bulb = bulbRenderer;
         baseIntensity = l.intensity;
         flickers = flicker;
+        WorldStreamer.Register(this);
+    }
+
+    // Lampe trop loin de la caméra : éteinte, et plus aucune mise à jour (WorldStreamer).
+    public void SetLit(bool lit)
+    {
+        if (enabled == lit) return;
+        enabled = lit;
+        lightSource.enabled = lit;
     }
 
     bool Frantic

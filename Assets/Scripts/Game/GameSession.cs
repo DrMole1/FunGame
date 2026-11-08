@@ -225,7 +225,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     static void ConfigureRendering()
     {
-        QualitySettings.pixelLightCount = 4;
+        // Assez pour presque tous les morceaux de murs (jusqu'à 8 lampes) : pas de ruptures de lumière entre eux.
+        QualitySettings.pixelLightCount = 6;
         QualitySettings.shadows = ShadowQuality.Disable;
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
@@ -1561,12 +1562,21 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         lastEntityTime = double.NegativeInfinity;
     }
 
+    // Copies réutilisées d'une image à l'autre (les entités peuvent apparaître ou disparaître pendant le parcours).
+    readonly List<Entity> entityBuffer = new List<Entity>();
+
     void SimulateEntities()
     {
         if (phase == Phase.Running)
-            foreach (var d in new List<Entity>(entities.Values)) if (d != null) d.Simulate(Time.deltaTime, PlayerPresence.All);
+        {
+            entityBuffer.Clear();
+            entityBuffer.AddRange(entities.Values);
+            foreach (var d in entityBuffer) if (d != null) d.Simulate(Time.deltaTime, PlayerPresence.All);
+        }
         // Le Réveil a explosé : il quitte la partie (et disparaît chez les autres avec l'envoi suivant).
-        foreach (var d in new List<Entity>(entities.Values))
+        entityBuffer.Clear();
+        entityBuffer.AddRange(entities.Values);
+        foreach (var d in entityBuffer)
             if (d != null && d.Expired)
             {
                 entities.Remove(d.Id);

@@ -419,7 +419,8 @@ public partial class GameSession
             line.SetPosition(1, g.Anchor);
         }
 
-        var texts = new List<string>();
+        var texts = orderTexts;
+        texts.Clear();
         for (int t = 0; t < orders.Length; t++)
         {
             var order = orders[t];
@@ -441,6 +442,8 @@ public partial class GameSession
         }
         hud.SetOrders(texts);
     }
+
+    readonly List<string> orderTexts = new List<string>();
 
     void CheckOrder(Order order, bool obeyed)
     {

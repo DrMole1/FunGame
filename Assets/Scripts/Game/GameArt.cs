@@ -527,5 +527,9 @@ public static class GameArt
     }
 
     static Mesh lowSphere;
-    public static Mesh LowSphere => lowSphere != null ? lowSphere : (lowSphere = MeshBuilder.UvSphere(14, 9));
+    public static Mesh LowSphere => lowSphere != null ? lowSphere : (lowSphere = MeshBuilder.UvSphere(12, 7));
+
+    // Petites parties d'un œil (iris, pupille, paupière) : répétées par centaines dans chaque zone.
+    static Mesh tinySphere;
+    public static Mesh TinySphere => tinySphere != null ? tinySphere : (tinySphere = MeshBuilder.UvSphere(8, 5));
 }

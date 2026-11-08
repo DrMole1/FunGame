@@ -127,6 +127,7 @@ public partial class GameSession
     // Charge (Balise chargée la plus proche qui voit la borne, Balises des Hubs comprises), fin des parties.
     void UpdateHostArcades()
     {
+        if (arcadeSessions.Count == 0) return;
         foreach (var kv in new List<KeyValuePair<int, ArcadeSession>>(arcadeSessions))
         {
             if (!arcades.TryGetValue(kv.Key, out var m) || m == null) { EndArcade(kv.Key); continue; }

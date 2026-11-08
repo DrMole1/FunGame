@@ -23,7 +23,11 @@ public static class WorldBuilder
     // Sommet du toit du chapiteau (cône de 6 m posé sur les murs), au-dessus du sol du Hub.
     public const float ChapiteauTop = HubWallHeight + 6f;
     const float DoorWidth = 2.4f, DoorHeight = 2.8f, SillTop = 0.015f, SillDepth = 0.05f;
-    const int ChunkSize = 5;
+    const int ChunkSize = 5, WallChunkSize = 2;
+    // Jointures des murs : chaque pan s'engage de 1 cm sous son poteau (plus de fins traits là où les hauteurs diffèrent). Les deux
+    // faces restent dans le même plan : un poteau en saillie, même de 1 mm, dessine une ligne pointillée le long du mur.
+    const float JointOverlap = 0.01f;
+    const float WallRun = Cell - Wall + JointOverlap * 2f;
     const float StepHeight = 0.2f, StepDepth = 0.3f;
 
     // Coin sud-ouest des zones : le centre de la colonne du Hub est en x = 0, le centre du Hub 1 à l'origine.
@@ -1061,6 +1065,11 @@ public static class WorldBuilder
             for (int y = 0; y < chunks; y++)
                 chunkData[x, y] = new Chunk();
         Chunk ChunkOf(int i, int j) => chunkData[Mathf.Clamp(i, 0, n - 1) / ChunkSize, Mathf.Clamp(j, 0, n - 1) / ChunkSize];
+        // Murs découpés plus finement que les sols : chaque morceau reçoit assez peu de lampes pour qu'elles soient toutes
+        // calculées précisément, sans rupture de lumière d'un morceau à l'autre.
+        int wallChunks = (n + WallChunkSize - 1) / WallChunkSize;
+        var wallData = new MeshBuilder[wallChunks, wallChunks];
+        MeshBuilder WallsOf(int i, int j) => wallData[Mathf.Clamp(i, 0, n - 1) / WallChunkSize, Mathf.Clamp(j, 0, n - 1) / WallChunkSize] ??= new MeshBuilder();
 
         void AddCollider(Vector3 center, Vector3 size)
         {
@@ -1115,7 +1124,8 @@ public static class WorldBuilder
             foreach (float s in new[] { -1f, 1f })
             {
                 var center = edge + axis * (s * (width * 0.5f + side * 0.5f)) + Vector3.up * (h * 0.5f);
-                mb.Box(center, Size(side, h), tex, 0b0011_0011);
+                // Le pan s'engage sous le poteau (voir JointOverlap).
+                mb.Box(center + axis * (s * JointOverlap * 0.5f), Size(side + JointOverlap, h), tex, 0b0011_0011);
                 AddCollider(center, Size(side, h));
             }
             var header = edge + Vector3.up * ((height + h) * 0.5f);
@@ -1139,18 +1149,18 @@ public static class WorldBuilder
                 float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i + 1, j));
                 float x = x0 + (i + 1) * Cell;
                 float z = z0 + j * Cell + Cell * 0.5f;
-                MeshBuilder mb = ChunkOf(leftIn ? i : i + 1, j).checker;
+                MeshBuilder mb = WallsOf(leftIn ? i : i + 1, j);
                 const float tex = 0.5f;
                 if (!wall)
                 {
                     float low = Mathf.Min(m.Ceil(i, j), m.Ceil(i + 1, j));
                     if (h - low < 0.01f) continue;
                     var lintel = new Vector3(x, (low + h) * 0.5f, z);
-                    mb.Box(lintel, new Vector3(Wall, h - low, Cell - Wall), tex, 0b0000_1011);
+                    mb.Box(lintel, new Vector3(Wall, h - low, WallRun), tex, 0b0000_1011);
                     AddCollider(lintel, new Vector3(Wall, h - low, Cell + Wall));
                     continue;
                 }
-                mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell - Wall), tex, 0b0000_0011);
+                mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, WallRun), tex, 0b0000_0011);
                 AddCollider(new Vector3(x, h * 0.5f, z), new Vector3(Wall, h, Cell + Wall));
                 posts.Add(new Vector2Int(i + 1, j)); posts.Add(new Vector2Int(i + 1, j + 1));
             }
@@ -1163,7 +1173,7 @@ public static class WorldBuilder
                 float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i, j + 1));
                 float x = x0 + i * Cell + Cell * 0.5f;
                 float z = z0 + (j + 1) * Cell;
-                MeshBuilder mb = ChunkOf(i, lowIn ? j : j + 1).checker;
+                MeshBuilder mb = WallsOf(i, lowIn ? j : j + 1);
                 const float tex = 0.5f;
                 if (!lowIn && m.southHeights != null)
                 {
@@ -1187,7 +1197,7 @@ public static class WorldBuilder
                     float low = Mathf.Min(m.Ceil(i, j), m.Ceil(i, j + 1));
                     if (h - low < 0.01f) continue;
                     var lintel = new Vector3(x, (low + h) * 0.5f, z);
-                    mb.Box(lintel, new Vector3(Cell - Wall, h - low, Wall), tex, 0b0011_1000);
+                    mb.Box(lintel, new Vector3(WallRun, h - low, Wall), tex, 0b0011_1000);
                     AddCollider(lintel, new Vector3(Cell + Wall, h - low, Wall));
                     continue;
                 }
@@ -1199,7 +1209,7 @@ public static class WorldBuilder
                     Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex); // porte du chapiteau suivant
                 else
                 {
-                    mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(Cell - Wall, h, Wall), tex, 0b0011_0000);
+                    mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(WallRun, h, Wall), tex, 0b0011_0000);
                     AddCollider(new Vector3(x, h * 0.5f, z), new Vector3(Cell + Wall, h, Wall));
                 }
                 posts.Add(new Vector2Int(i, j + 1)); posts.Add(new Vector2Int(i + 1, j + 1));
@@ -1210,7 +1220,7 @@ public static class WorldBuilder
             if (p.y == 0 && m.southHeights != null) continue;
             float h = Mathf.Max(Mathf.Max(m.Ceil(p.x - 1, p.y - 1), m.Ceil(p.x, p.y - 1)), Mathf.Max(m.Ceil(p.x - 1, p.y), m.Ceil(p.x, p.y)));
             var c = new Vector3(x0 + p.x * Cell, h * 0.5f, z0 + p.y * Cell);
-            ChunkOf(p.x, p.y).checker.Box(c, new Vector3(Wall, h, Wall), 0.5f, 0b0011_0011);
+            WallsOf(p.x, p.y).Box(c, new Vector3(Wall, h, Wall), 0.5f, 0b0011_0011);
         }
 
         foreach (Room room in m.rooms)
@@ -1264,6 +1274,13 @@ public static class WorldBuilder
                 if (!ch.ceiling.IsEmpty) GameArt.MeshObject(name + "_Plafond", root, ch.ceiling.Build(name), GameArt.DarkConcrete);
                 if (!ch.checker.IsEmpty) GameArt.MeshObject(name + "_Damier", root, ch.checker.Build(name), GameArt.CheckerWall);
             }
+        for (int x = 0; x < wallChunks; x++)
+            for (int y = 0; y < wallChunks; y++)
+                if (wallData[x, y] != null && !wallData[x, y].IsEmpty)
+                {
+                    string name = "Z" + m.zone + "_Murs_" + x + "_" + y;
+                    GameArt.MeshObject(name, root, wallData[x, y].Build(name), GameArt.CheckerWall);
+                }
     }
 
     // Coin (x et z minimaux) de la grille fine d'une salle.
@@ -1664,7 +1681,7 @@ public static class WorldBuilder
                 probe.backgroundColor = Color.black;
                 probe.cullingMask = ~((1 << 2) | (1 << 5)); // sans les joueurs ni l'UI
                 probe.farClipPlane = 30f;
-                probe.RenderProbe();
+                WorldStreamer.EnqueueProbe(probe);
             }
     }
 
@@ -2052,7 +2069,16 @@ public static class WorldBuilder
         go.AddComponent<FlickerLight>().Init(l, bulb.GetComponent<Renderer>(), rnd.NextDouble() < 0.45);
     }
 
+    // Très nombreux et purement visuels : construits sur les images suivantes, pour ne pas figer le jeu à la création d'une zone.
     static void AddEye(Transform parent, Vector3 pos, Vector3 normal, float size)
+    {
+        WorldStreamer.Enqueue(() =>
+        {
+            if (parent != null) BuildEye(parent, pos, normal, size);
+        });
+    }
+
+    static void BuildEye(Transform parent, Vector3 pos, Vector3 normal, float size)
     {
         var go = new GameObject("Oeil");
         go.transform.SetParent(parent, false);
@@ -2070,14 +2096,14 @@ public static class WorldBuilder
         ball.SetParent(go.transform, false);
         ball.localPosition = Vector3.forward * 0.05f;
         GameArt.MeshObject("Blanc", ball, sphere, GameArt.Lit("EyeWhite", Color.white, GameArt.EyeSclera(), 0.85f));
-        var iris = GameArt.MeshObject("Iris", ball, sphere, GameArt.Lit("EyeIris", new Color(0.45f, 0.47f, 0.45f), GameArt.Noise("iris", 64, 0.6f, 0.4f, 21), 0.9f));
+        var iris = GameArt.MeshObject("Iris", ball, GameArt.TinySphere, GameArt.Lit("EyeIris", new Color(0.45f, 0.47f, 0.45f), GameArt.Noise("iris", 64, 0.6f, 0.4f, 21), 0.9f));
         iris.transform.localPosition = new Vector3(0f, 0f, 0.4f);
         iris.transform.localScale = new Vector3(0.5f, 0.5f, 0.22f);
-        var pupil = GameArt.MeshObject("Pupille", ball, sphere, GameArt.Lit("EyePupil", new Color(0.01f, 0.01f, 0.01f), null, 0.95f));
+        var pupil = GameArt.MeshObject("Pupille", ball, GameArt.TinySphere, GameArt.Lit("EyePupil", new Color(0.01f, 0.01f, 0.01f), null, 0.95f));
         pupil.transform.localPosition = new Vector3(0f, 0f, 0.47f);
         pupil.transform.localScale = new Vector3(0.24f, 0.24f, 0.1f);
 
-        var lid = GameArt.MeshObject("Paupiere", go.transform, sphere, GameArt.Lit("EyeLid", new Color(0.2f, 0.19f, 0.19f), null, 0.1f));
+        var lid = GameArt.MeshObject("Paupiere", go.transform, GameArt.TinySphere, GameArt.Lit("EyeLid", new Color(0.2f, 0.19f, 0.19f), null, 0.1f));
         lid.transform.localPosition = ball.localPosition;
         lid.SetActive(false);
 
