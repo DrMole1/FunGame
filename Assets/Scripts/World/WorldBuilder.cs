@@ -66,7 +66,6 @@ public static class WorldBuilder
         public int index;
         public GameObject root;
         public Transform structure;  // collisions du bâti (sols, murs, rampes), sans le décor
-        public List<Bounds> underground = new List<Bounds>();  // liaisons souterraines (chapitre 10.3)
         public readonly List<Vector3> itemSpots = new List<Vector3>();
         public MazeNav nav;
         public GameObject mist;      // brume du Couvre Feu
@@ -450,6 +449,7 @@ public static class WorldBuilder
         public RoomStyle style;
         public bool chess;
         public bool plain;        // Neutral Room, Acquisition Room : sans décor
+        public bool gallery;       // chapitre 10.3 : plateformes fines le long des murs (salle très haute)
         public float statueHeight; // chapitre 10.3 : hauteur de la statue de Pavlov dressée au centre (0 : aucune)
         public readonly List<Vector2Int> cells = new List<Vector2Int>();
 
@@ -481,12 +481,10 @@ public static class WorldBuilder
         public readonly int zone, N;
         public readonly List<Rect> blocks = new List<Rect>();  // chapitre 10.3 : emprises (X, Z) des plateformes pleines et de leurs escaliers
         public readonly List<Star> stars = new List<Star>();   // chapitre 10.3 : emplacements prioritaires des bornes d'arcade
-        // Liaisons entre salles : trémies (cellule, sens de l'escalier), ouvertures dans les murs (arête est ou nord d'une cellule),
-        // volumes souterrains (la brume du Couvre Feu n'y entre pas).
+        // Liaisons entre salles : trémies (cellule, sens de l'escalier), ouvertures dans les murs (arête est ou nord d'une cellule).
         public readonly List<RoomLink> links = new List<RoomLink>();
         public readonly Dictionary<Vector2Int, int> shafts = new Dictionary<Vector2Int, int>();
         public readonly Dictionary<(int, int, bool), (float low, float high)> wallHoles = new Dictionary<(int, int, bool), (float, float)>();
-        public readonly List<Bounds> undergroundBounds = new List<Bounds>();
         public readonly List<Rect> airLines = new List<Rect>();  // emprises au sol des tubes aériens
         public readonly List<Rect> deckBlocks = new List<Rect>();  // paliers et escaliers des liaisons aériennes
         public readonly Vector3 origin;   // coin (x et z minimaux) de la cellule (0, 0)
@@ -1071,13 +1069,12 @@ public static class WorldBuilder
         var colliders = new GameObject("Colliders");
         colliders.transform.SetParent(root, false);
         refs.structure = colliders.transform;
-        refs.underground = m.undergroundBounds;
         refs.entrance = m.Center(m.start.x, m.start.y);
 
         BuildGeometry(m, root, colliders);
         if (m.hub) BuildZoneDoor(m, root, refs);
         else BuildGlyphRooms(m, root, refs, new System.Random(seed * 59 + zone * 613));
-        BuildTemplates(m, root, colliders.transform, new System.Random(seed * 71 + zone * 733));
+        BuildTemplates(m, root, colliders.transform, refs.acquisitionGlyphs, new System.Random(seed * 71 + zone * 733));
         BuildArcades(m, root, refs, new System.Random(seed * 67 + zone * 389));
 
         // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, fosses, plateformes).
@@ -1725,8 +1722,26 @@ public static class WorldBuilder
             for (int y = 0; y < chunks; y++)
                 if (builders[x, y] != null)
                     GameArt.MeshObject("Brume_Z" + m.zone + "_" + x + "_" + y, mist.transform, builders[x, y].Build("Brume"), GameArt.Mist);
+        foreach (RoomLink link in m.links)
+            if (!link.aerial) AddLinkMist(m, mist.transform, link);
         mist.SetActive(false);
         return mist;
+    }
+
+    // La brume emplit aussi les liaisons souterraines : nappes d'une tête d'escalier à l'autre, du fond du tube jusque sous le sol.
+    static void AddLinkMist(Maze m, Transform mist, RoomLink link)
+    {
+        var mb = new MeshBuilder();
+        Vector3 along = new Vector3(DI[link.dir], 0f, DJ[link.dir]);
+        Vector3 side = new Vector3(along.z, 0f, along.x) * ShaftHalfWidth;
+        Vector3 from = m.Center(link.a.x, link.a.y) - along * ShaftHalfLength;
+        Vector3 to = m.Center(link.b.x, link.b.y) + along * ShaftHalfLength;
+        for (float y = link.level + 0.3f; y < -0.2f; y += 0.9f)
+        {
+            Vector3 up = Vector3.up * y;
+            mb.WorldQuad(from - side + up, to - side + up, to + side + up, from + side + up, Vector3.up, 0.2f);
+        }
+        GameArt.MeshObject("Brume_Liaison", mist, mb.Build("Brume"), GameArt.Mist);
     }
 
     // Escalier montant depuis le côté 'dir' de la cellule (sol du voisin, à la hauteur 'from') vers le plancher de la salle.
@@ -1977,8 +1992,8 @@ public static class WorldBuilder
                     foreach (var c in room.cells)
                     {
                         Vector3 p = m.Center(c.x, c.y) + new Vector3(Rand(rnd, -1.3f, 1.3f), room.floor, Rand(rnd, -1.3f, 1.3f));
-                        if (rnd.NextDouble() < 0.6) AddBlock(props, p, room.floor, room.ceil, rnd);
-                        else AddEye(props, p + Vector3.down * 0.2f, Vector3.up, Rand(rnd, 0.9f, 1.4f));
+                        if (rnd.NextDouble() >= 0.6) AddEye(props, p + Vector3.down * 0.2f, Vector3.up, Rand(rnd, 0.9f, 1.4f));
+                        else if (!m.airLines.Exists(r => r.Contains(new Vector2(p.x, p.z)))) AddBlock(props, p, room.floor, room.ceil, rnd);
                     }
                     break;
             }
@@ -2342,9 +2357,15 @@ public static class WorldBuilder
         Material mat = GameArt.CheckerWall;
         Material pillar = GameArt.Concrete;
         int count = 4 + rnd.Next(3) + room.cells.Count / 3;
+        if (room.gallery)
+        {
+            minX += GalleryChaoticInset; maxX -= GalleryChaoticInset;
+            minZ += GalleryChaoticInset; maxZ -= GalleryChaoticInset;
+        }
         Vector3 p = new Vector3(Rand(rnd, minX, maxX), room.floor, Rand(rnd, minZ, maxZ));
         float top = room.floor;
-        float maxTop = room.ceil - 2.4f;
+        // Note 01 du chapitre 10.3 : dans les très hautes salles, plus de petites plateformes volantes au-dessus de 5 m.
+        float maxTop = room.ceil > TallRoom ? ThinPlatformLevel : room.ceil - 2.4f;
         for (int k = 0; k < count; k++)
         {
             top = Mathf.Min(top + Rand(rnd, 0.6f, 0.85f), maxTop);
@@ -2426,13 +2447,18 @@ public static class WorldBuilder
         return false;
     }
 
-    static void BuildTemplates(Maze m, Transform root, Transform colliders, System.Random rnd)
+    static void BuildTemplates(Maze m, Transform root, Transform colliders, List<Glyph> glyphs, System.Random rnd)
     {
         var props = new GameObject("Architectures").transform;
         props.SetParent(root, false);
         BuildLinks(m, props);
+        // Les galeries sondent le sol au pied de leur premier escalier.
+        Physics.SyncTransforms();
         foreach (Room room in m.rooms)
+        {
+            if (CanHoldGallery(m, room, glyphs)) BuildGallery(m, room, props, rnd);
             if (room.style == RoomStyle.Template) BuildTemplateRoom(m, room, props, colliders, rnd);
+        }
     }
 
     static void BuildTemplateRoom(Maze m, Room room, Transform props, Transform colliders, System.Random rnd)
@@ -2586,20 +2612,31 @@ public static class WorldBuilder
     // Disque plein : prisme convexe, au sommet parfaitement plat (la capsule d'un cylindre Unity serait bombée).
     static void AddPrismCollider(Transform parent, Vector3 center, float radius, float top, float bottom)
     {
-        var vertices = new Vector3[PrismSides * 2];
-        var triangles = new List<int>();
+        var outline = new List<Vector3>(PrismSides);
         for (int i = 0; i < PrismSides; i++)
         {
             float a = i * Mathf.PI * 2f / PrismSides;
-            Vector3 d = new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a)) * radius;
-            vertices[i] = new Vector3(center.x + d.x, top, center.z + d.z);
-            vertices[i + PrismSides] = new Vector3(center.x + d.x, bottom, center.z + d.z);
-            int next = (i + 1) % PrismSides;
-            triangles.AddRange(new[] { i, i + PrismSides, next + PrismSides, i, next + PrismSides, next });
+            outline.Add(center + new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a)) * radius);
+        }
+        AddOutlineCollider(parent, outline, top, bottom);
+    }
+
+    // Prisme convexe de contour 'outline' (points dans l'ordre du tour).
+    static void AddOutlineCollider(Transform parent, List<Vector3> outline, float top, float bottom)
+    {
+        int sides = outline.Count;
+        var vertices = new Vector3[sides * 2];
+        var triangles = new List<int>();
+        for (int i = 0; i < sides; i++)
+        {
+            vertices[i] = new Vector3(outline[i].x, top, outline[i].z);
+            vertices[i + sides] = new Vector3(outline[i].x, bottom, outline[i].z);
+            int next = (i + 1) % sides;
+            triangles.AddRange(new[] { i, i + sides, next + sides, i, next + sides, next });
             if (i > 0 && next != 0)
             {
                 triangles.AddRange(new[] { 0, i, next });
-                triangles.AddRange(new[] { PrismSides, next + PrismSides, i + PrismSides });
+                triangles.AddRange(new[] { sides, next + sides, i + sides });
             }
         }
         var mesh = new Mesh { name = "Plateforme", vertices = vertices, triangles = triangles.ToArray() };
@@ -2625,6 +2662,212 @@ public static class WorldBuilder
             mb.Box(center, size, 0.5f, 0b0011_0111);
         }
         AddRamp(colliders, head + outward * (steps * StepDepth), head + Vector3.up * top, StairWidth);
+    }
+
+    // ================= Très hautes salles (Note 01 du chapitre 10.3, V0.6.4) =================
+    // Galerie qui monte le long des murs : plateformes fines de 1 m d'épaisseur calées dans les coins (rectangulaires, arrondies
+    // ou polygonales), reliées par un escalier suspendu suivi d'un pont. Le premier escalier part du sol, contre un mur plein.
+    // On passe dessous partout. Comme les passerelles et les îlots, elle reste réservée aux joueurs.
+
+    const float TallRoom = 11f, VeryTallRoom = 21f, ThinPlatformLevel = 5f, ThinPlatformDepth = 1f;
+    const float GalleryRise = 0.25f, GalleryWidth = 1.6f, GalleryTopRoom = 5f, GalleryTopVeryTall = 10f;
+    // Bas de l'escalier (sous 2,5 m, on ne passe pas dessous) et hauteur au-delà de laquelle une ouverture voisine n'est plus couverte.
+    const float GalleryLowRun = 3f, GalleryMaxGap = 3f, GalleryColumnGap = 0.7f;
+    const float GalleryMinBridge = 0.6f, GalleryClearance = 3.8f, GalleryChaoticInset = 2.6f, GalleryRampDepth = 0.2f, GalleryTreadDepth = 0.5f, GalleryBridgeInset = 0.04f;
+    // Première montée : 15 marches (plateforme à 3,75 m), 18 dans les salles à plateformes pour passer au-dessus d'elles (3 m de haut).
+    const float GalleryApproach = 1.2f;
+    const int GalleryFirstSteps = 15, GalleryFirstStepsTemplate = 18, GalleryMaxSteps = 16, GalleryMinSteps = 2, RoundCornerSides = 8;
+
+    static bool CanHoldGallery(Maze m, Room room, List<Glyph> glyphs)
+    {
+        // Une salle d'une seule cellule de large n'a pas la place pour deux plateformes de coin face à face.
+        if (room.ceil <= TallRoom || room.plain || room.style == RoomStyle.Pit || room.statueHeight > 0f || Mathf.Min(room.rect.width, room.rect.height) < 2) return false;
+        foreach (RoomLink link in m.links)
+            if (m.RoomAt(link.a.x, link.a.y) == room || m.RoomAt(link.b.x, link.b.y) == room) return false;
+        Rect area = InnerRect(m, room);
+        if (glyphs.Exists(g => area.Contains(new Vector2(g.transform.position.x, g.transform.position.z)))) return false;
+        return !m.airLines.Exists(r => r.Overlaps(area));
+    }
+
+    static Rect InnerRect(Maze m, Room room) => Rect.MinMaxRect(
+        m.Center(room.rect.xMin, 0).x - Cell * 0.5f + Wall * 0.5f, m.Center(0, room.rect.yMin).z - Cell * 0.5f + Wall * 0.5f,
+        m.Center(room.rect.xMax - 1, 0).x + Cell * 0.5f - Wall * 0.5f, m.Center(0, room.rect.yMax - 1).z + Cell * 0.5f - Wall * 0.5f);
+
+    // Contour d'une plateforme de coin (u et v : distances aux deux murs) ; 'reach' : où un escalier arrive de plain-pied.
+    static List<Vector2> CornerOutline(bool large, int shape, out float reach)
+    {
+        var outline = new List<Vector2> { Vector2.zero };
+        if (shape == 0)
+        {
+            float s = large ? 3.4f : 2.8f;   // 11,6 m² ou 7,8 m²
+            outline.Add(new Vector2(s, 0f)); outline.Add(new Vector2(s, s)); outline.Add(new Vector2(0f, s));
+            reach = s;
+        }
+        else if (shape == 1)
+        {
+            float r = large ? 3.8f : 3f;     // quart de disque de 11,3 m² ou 7,1 m²
+            for (int i = 0; i <= RoundCornerSides; i++)
+            {
+                float a = i * Mathf.PI * 0.5f / RoundCornerSides;
+                outline.Add(new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r);
+            }
+            reach = Mathf.Sqrt(r * r - GalleryWidth * GalleryWidth);
+        }
+        else
+        {
+            float s = large ? 3.4f : 2.8f, cut = large ? 1.4f : 1.2f;   // 10,6 m² ou 7,1 m²
+            outline.Add(new Vector2(s, 0f)); outline.Add(new Vector2(s, s - cut)); outline.Add(new Vector2(s - cut, s)); outline.Add(new Vector2(0f, s));
+            reach = s;
+        }
+        return outline;
+    }
+
+    static void AddCornerPlatform(MeshBuilder mb, Transform props, Vector3 corner, Vector3 u, Vector3 v, List<Vector2> outline, float top)
+    {
+        const float texScale = 0.5f;
+        float bottom = top - ThinPlatformDepth;
+        var points = outline.ConvertAll(p => corner + u * p.x + v * p.y);
+        Vector3 At(Vector3 p, float y) => new Vector3(p.x, y, p.z);
+        Vector3 middle = Vector3.zero;
+        foreach (Vector3 p in points) middle += p / points.Count;
+        for (int i = 1; i + 1 < points.Count; i++)
+        {
+            mb.WorldQuad(At(points[0], top), At(points[i], top), At(points[i + 1], top), At(points[i + 1], top), Vector3.up, texScale);
+            mb.WorldQuad(At(points[0], bottom), At(points[i], bottom), At(points[i + 1], bottom), At(points[i + 1], bottom), Vector3.down, texScale);
+            // Tranches libres : les deux bords collés aux murs (ceux qui partent du coin) restent sans face.
+            Vector3 a = points[i], b = points[i + 1], d = (b - a).normalized;
+            Vector3 n = new Vector3(d.z, 0f, -d.x);
+            if (Vector3.Dot(n, a - middle) < 0f) n = -n;
+            mb.WorldQuad(At(a, bottom), At(b, bottom), At(b, top), At(a, top), n, texScale);
+        }
+        AddOutlineCollider(props, points, top, bottom);
+    }
+
+    // Rampe invisible d'un escalier suspendu : une dalle inclinée sous les pieds, qui laisse le passage en dessous.
+    static void AddFlyingRamp(Transform props, Vector3 foot, Vector3 head, float width)
+    {
+        Vector3 slope = head - foot;
+        var go = new GameObject("Rampe");
+        go.transform.SetParent(props, false);
+        go.transform.rotation = Quaternion.LookRotation(slope);
+        go.transform.position = (foot + head) * 0.5f - go.transform.up * (GalleryRampDepth * 0.5f);
+        go.AddComponent<BoxCollider>().size = new Vector3(width, GalleryRampDepth, slope.magnitude);
+    }
+
+    // Le mur 'outward' de la salle, de 'from' à 'to' le long de 'dir' (distances depuis 'origin') : mur plein, ou ouverture dont
+    // le linteau commence au plus 'maxGap' au-dessus de la hauteur 'y'. Sans hauteur (y négatif) : seul un mur plein convient.
+    static bool WallBehind(Maze m, Room room, Vector3 origin, Vector3 dir, int outward, float from, float to, float y)
+    {
+        float start = Vector3.Dot(origin, dir);
+        foreach (Vector2Int c in room.cells)
+        {
+            int ni = c.x + DI[outward], nj = c.y + DJ[outward];
+            if (m.RoomAt(ni, nj) == room) continue;
+            float along = Vector3.Dot(m.Center(c.x, c.y), dir) - start;
+            if (along + Cell * 0.5f <= from + 0.05f || along - Cell * 0.5f >= to - 0.05f || HasWall(m, c.x, c.y, outward)) continue;
+            if (y < 0f || m.Ceil(ni, nj) > y + GalleryMaxGap) return false;
+        }
+        return true;
+    }
+
+    // Sol plat sous le bas de l'escalier et devant lui, côté salle : pas d'escalier d'entrée ni de marche à cet endroit.
+    static bool GalleryFootFlat(Vector3 foot, Vector3 dir, Vector3 inward, float floor)
+    {
+        foreach (float along in new[] { -GalleryApproach, 0f, 1.5f, GalleryLowRun })
+            foreach (float across in new[] { 0.2f, 0.8f, 1.4f, 2.4f })
+            {
+                Vector3 p = foot + dir * along + inward * across;
+                if (!Physics.Raycast(new Vector3(p.x, floor + 1.5f, p.z), Vector3.down, out RaycastHit hit, 2.5f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+                    || Mathf.Abs(hit.point.y - floor) > 0.05f) return false;
+            }
+        return true;
+    }
+
+    static void BuildGallery(Maze m, Room room, Transform props, System.Random rnd)
+    {
+        bool large = room.ceil > VeryTallRoom;
+        float top = room.ceil - (large ? GalleryTopVeryTall : GalleryTopRoom);
+        int firstSteps = room.style == RoomStyle.Template ? GalleryFirstStepsTemplate : GalleryFirstSteps;
+        float firstLevel = room.floor + firstSteps * GalleryRise;
+        if (top < firstLevel) return;
+        Rect area = InnerRect(m, room);
+        var corners = new[] { new Vector3(area.xMin, 0f, area.yMin), new Vector3(area.xMax, 0f, area.yMin), new Vector3(area.xMax, 0f, area.yMax), new Vector3(area.xMin, 0f, area.yMax) };
+        Vector3 roomMiddle = new Vector3(area.center.x, 0f, area.center.y);
+        Vector3 Inward(Vector3 point, Vector3 dir)
+        {
+            var n = new Vector3(dir.z, 0f, dir.x);
+            return Vector3.Dot(roomMiddle - point, n) > 0f ? n : -n;
+        }
+        int Outward(Vector3 n) => Mathf.Abs(n.x) > 0.5f ? (n.x > 0f ? 1 : 0) : (n.z > 0f ? 3 : 2);
+        // Une plateforme de coin est juxtaposée à un mur : au moins un de ses deux côtés en a un à cette hauteur.
+        bool Supported(Vector3 a, Vector3 b, float reach, float y, int order)
+        {
+            Vector3 dir = (b - a).normalized, after = corners[(System.Array.IndexOf(corners, b) + order + 4) % 4] - b;
+            return WallBehind(m, room, b, -dir, Outward(Inward(b, dir)), 0f, reach, y)
+                || WallBehind(m, room, b, after.normalized, Outward(Inward(b, after.normalized)), 0f, reach, y);
+        }
+
+        // Premier escalier : un coin et un sens de tour au mur plein derrière le bas des marches, au pied dégagé.
+        var outlineB = CornerOutline(large, rnd.Next(3), out float reachB);
+        float firstLength = firstSteps * StepDepth;
+        int first = -1, turn = 1;
+        int offset = rnd.Next(4), side = rnd.Next(2) * 2 - 1;
+        for (int k = 0; k < 8 && first < 0; k++)
+        {
+            int c = (offset + k) % 4, t = k < 4 ? side : -side;
+            Vector3 a = corners[c], b = corners[(c + t + 4) % 4], dir = (b - a).normalized;
+            // Le pied de l'escalier se prend de face : il faut de la place devant lui.
+            float start = (b - a).magnitude - reachB - GalleryMinBridge - firstLength;
+            if (start < GalleryApproach) continue;
+            Vector3 foot = a + dir * start, n = Inward(a, dir);
+            Rect strip = MinMax(foot - dir, foot + dir * firstLength + n * GalleryWidth);
+            if (WallBehind(m, room, a, dir, Outward(n), start - 0.5f, start + GalleryLowRun, -1f) && !m.blocks.Exists(r => r.Overlaps(strip))
+                && GalleryFootFlat(foot, dir, n, room.floor)
+                && Supported(a, b, reachB, firstLevel, t)) { first = c; turn = t; }
+        }
+        if (first < 0) return;
+
+        var mb = new MeshBuilder();
+        float level = room.floor, reachA = 0f;
+        for (int k = 0; ; k++)
+        {
+            int c = (first + turn * k % 4 + 4) % 4, next = (c + turn + 4) % 4;
+            Vector3 a = corners[c], b = corners[next], dir = (b - a).normalized, n = Inward(a, dir);
+            float run = (b - a).magnitude - reachA - reachB;
+            int steps = k == 0 ? firstSteps : Mathf.Min(GalleryMaxSteps, Mathf.Min(Mathf.FloorToInt((run - GalleryMinBridge) / StepDepth), Mathf.FloorToInt((top - level) / GalleryRise)));
+            if (steps < GalleryMinSteps) break;
+            float arrival = level + steps * GalleryRise, length = steps * StepDepth;
+            // Plus de mur à cette hauteur (salles voisines aussi hautes, sans cloison) : la galerie s'arrête là.
+            if (k > 0 && !Supported(a, b, reachB, arrival, turn)) break;
+            Vector3 foot = (k == 0 ? b - dir * (reachB + GalleryMinBridge + length) : a + dir * reachA) + n * (GalleryWidth * 0.5f);
+            bool alongX = Mathf.Abs(dir.x) > 0.5f;
+            Vector3 Oriented(float along, float height, float across) => alongX ? new Vector3(along, height, across) : new Vector3(across, height, along);
+            // Toutes les faces sauf celle qui touche le mur.
+            int faces = 63 & ~(1 << (Mathf.Abs(n.x) > 0.5f ? (n.x > 0f ? 1 : 0) : (n.z > 0f ? 5 : 4)));
+            for (int s = 1; s < steps; s++)
+                mb.Box(foot + dir * ((s + 0.5f) * StepDepth) + Vector3.up * (level + s * GalleryRise - GalleryTreadDepth * 0.5f), Oriented(StepDepth, GalleryTreadDepth, GalleryWidth), 0.5f, faces);
+            AddFlyingRamp(props, foot + Vector3.up * level, foot + dir * length + Vector3.up * arrival, GalleryWidth);
+
+            // Le pont finit à la plateforme ; un peu sous son sommet, pour ne pas se confondre avec lui.
+            Vector3 deck = foot + dir * length;
+            float bridge = Vector3.Dot(b - dir * reachB - deck, dir);
+            if (bridge > 0.01f)
+                AddSolid(mb, props, deck + dir * (bridge * 0.5f) + Vector3.up * (arrival - GalleryBridgeInset - BridgeDepth * 0.5f), Oriented(bridge, BridgeDepth, GalleryWidth), faces);
+            AddCornerPlatform(mb, props, b, -dir, n, outlineB, arrival);
+
+            Vector3 approach = k == 0 ? dir * GalleryApproach : Vector3.zero;
+            Rect strip = MinMax(foot - approach - n * (GalleryWidth * 0.5f), deck + dir * bridge + n * (GalleryWidth * 0.5f));
+            if (k == 0) m.blocks.Add(strip);
+            // Les colonnes du décor restent à l'écart de l'escalier et des plateformes.
+            m.airLines.Add(Rect.MinMaxRect(strip.xMin - GalleryColumnGap, strip.yMin - GalleryColumnGap, strip.xMax + GalleryColumnGap, strip.yMax + GalleryColumnGap));
+            m.airLines.Add(MinMax(b, b + (n - dir) * GalleryClearance));
+
+            level = arrival;
+            reachA = reachB;
+            outlineB = CornerOutline(large, rnd.Next(3), out reachB);
+        }
+        room.gallery = true;
+        GameArt.MeshObject("Architecture", props, mb.Build("Galerie"), GameArt.CheckerFloor);
     }
 
     // ================= Liaisons entre salles (flèches bleues du chapitre 10.3, V0.6.3) =================
@@ -2732,14 +2975,8 @@ public static class WorldBuilder
         foreach (var end in new[] { a, b })
         {
             m.shafts[end] = dir;
-            Rect hole = ShaftRect(m, end, dir);
-            m.blocks.Add(hole);
-            m.undergroundBounds.Add(new Bounds(new Vector3(hole.center.x, -3.25f, hole.center.y), new Vector3(hole.width, 5.5f, hole.height)));
+            m.blocks.Add(ShaftRect(m, end, dir));
         }
-        Vector3 ca = m.Center(a.x, a.y), cb = m.Center(b.x, b.y);
-        var mid = (ca + cb) * 0.5f;
-        float length = Vector3.Distance(ca, cb);
-        m.undergroundBounds.Add(new Bounds(new Vector3(mid.x, -3.25f, mid.z), dir < 2 ? new Vector3(length, 5.5f, TubeDiameter) : new Vector3(TubeDiameter, 5.5f, length)));
         return true;
     }
 
@@ -2959,8 +3196,11 @@ public static class WorldBuilder
         Vector3 side = new Vector3(o.z, 0f, o.x);
         bool alongX = Mathf.Abs(o.x) > 0.5f;
         float depth = DeckDepth - Wall * 0.5f;
-        Vector3 size = alongX ? new Vector3(depth, level, DeckHalfWidth * 2f) : new Vector3(DeckHalfWidth * 2f, level, depth);
-        AddSolid(mb, props, wall + o * (depth * 0.5f) + Vector3.up * (level * 0.5f), size);
+        // Note 01 du chapitre 10.3 : au-dessus de 5 m dans une très haute salle, palier fin, sous lequel on passe.
+        float bottom = m.RoomAt(cell.x, cell.y).ceil > TallRoom && level > ThinPlatformLevel ? level - ThinPlatformDepth : 0f;
+        float height = level - bottom;
+        Vector3 size = alongX ? new Vector3(depth, height, DeckHalfWidth * 2f) : new Vector3(DeckHalfWidth * 2f, height, depth);
+        AddSolid(mb, props, wall + o * (depth * 0.5f) + Vector3.up * (bottom + height * 0.5f), size);
         AddRoomStairs(mb, props, wall + o * depth + Vector3.up * 0f, o, AerialSteps(level), level);
     }
 

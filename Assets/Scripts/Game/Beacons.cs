@@ -26,7 +26,7 @@ public class Beacon : Interactable
     // Canon posé au sol : 0,64 fois la taille d'un personnage (1,8 m), soit environ 2,4 m de long ; fût à 80 % de sa hauteur.
     public const float CanonHeight = 0.64f * 1.8f, CanonBarrel = CanonHeight * 0.8f, CanonHalfLength = 1.2f;
     public const DeviceKind LastKind = DeviceKind.CanardColore + Items.MaxDuckTier - 1;
-    public const float PlushHeight = 0.45f, DiscoHeight = 0.72f, DiscoChain = 0.25f, ColoredDuckHeight = 0.6f;
+    public const float PlushHeight = 0.9f, DuckHeight = 0.45f, DiscoHeight = 0.72f, DiscoDiamondHeight = 1.44f, DiscoChain = 0.25f, ColoredDuckHeight = 0.6f;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
     public int Id { get; private set; }   // -N : Balise principale du Hub N
@@ -98,8 +98,10 @@ public class Beacon : Interactable
             case DeviceKind.Television: return GameRules.TvHeight;
             case DeviceKind.Trampoline: return GameRules.TrampolineHeight;
             case DeviceKind.Bell: return GameRules.BellHeight;
-            case DeviceKind.Lapin: case DeviceKind.Pingouin: case DeviceKind.Singe: case DeviceKind.Chat: case DeviceKind.Canard: return PlushHeight;
-            case DeviceKind.DiscoArgent: case DeviceKind.DiscoOr: case DeviceKind.DiscoDiamant: return DiscoHeight;
+            case DeviceKind.Lapin: case DeviceKind.Pingouin: case DeviceKind.Singe: case DeviceKind.Chat: return PlushHeight;
+            case DeviceKind.Canard: return DuckHeight;
+            case DeviceKind.DiscoArgent: case DeviceKind.DiscoOr: return DiscoHeight;
+            case DeviceKind.DiscoDiamant: return DiscoDiamondHeight;
             default: return Height;
         }
     }
@@ -346,7 +348,7 @@ public class Beacon : Interactable
     }
 
     // Point d'où la musique disco se diffuse (centre de la boule).
-    public Vector3 DiscoCenter => transform.position + Vector3.down * (Hanging ? DiscoChain + DiscoHeight * 0.5f : -DiscoHeight * 0.5f);
+    public Vector3 DiscoCenter => transform.position + Vector3.down * (Hanging ? DiscoChain + VisualHeight * 0.5f : -VisualHeight * 0.5f);
 
     // Gaz vert pétillant dans le tube de la Station Curative.
     static ParticleSystem BuildGas(Transform parent, float height)

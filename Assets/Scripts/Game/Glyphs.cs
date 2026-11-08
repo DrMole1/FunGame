@@ -1,9 +1,8 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Glyphes (GDD 9, V0.6) : logos inspirés des sinogrammes chinois, gravés sur des plaques de pierre.
-//   0 : "immobile et accroupi" (d'après 坐, s'asseoir)   1 : "aller à la niche" (宀, le toit, sur 犬, le chien)
-//   2 : "aboyer" (吠 : 口, la bouche, et 犬)
+// Glyphes (GDD 9, V0.6.4) : motifs rouges sur plaque crème, dans un contour blanc lumineux (Resources/Art/Glyphes, d'après
+// Assets/Sprite). 0 : "immobile et accroupi"   1 : "aller à la niche"   2 : "aboyer"
 // Dans la Neutral Room, les glyphes neutres jouent seulement leur son quand on clique dessus. Dans le reste des zones
 // paires, les glyphes d'acquisition (plus grands) se chargent quand une Balise chargée les voit : ils brillent de bleu,
 // un rayon les relie à la Balise, et leur ordre s'impose à tous les joueurs.
@@ -39,12 +38,10 @@ public class Glyph : Interactable
         glyph.Zone = zone;
         glyph.Neutral = neutral;
 
-        // Plaque de pierre sombre, encadrée de métal terni.
+        // Plaque crème.
         float depth = 0.08f;
-        GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, 0f, depth * 0.5f), new Vector3(size * 1.12f, size * 1.12f, depth), GameArt.Metal, true);
-        GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, 0f, depth + 0.01f), new Vector3(size, size, 0.02f),
-            GameArt.Lit("GlyphStone", new Color(0.16f, 0.16f, 0.17f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.1f));
-        var quad = GameArt.Prim(PrimitiveType.Quad, go.transform, new Vector3(0f, 0f, depth + 0.025f), new Vector3(size * 0.92f, size * 0.92f, 1f), GlyphArt.Material(type));
+        GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, 0f, depth * 0.5f), new Vector3(size, size, depth), GlyphArt.Cream, true);
+        var quad = GameArt.Prim(PrimitiveType.Quad, go.transform, new Vector3(0f, 0f, depth + 0.006f), new Vector3(size, size, 1f), GlyphArt.Material(type));
         // Le quad est visible depuis son -Z : retourné vers l'avant.
         quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
         quad.name = "Gravure";
@@ -69,16 +66,13 @@ public class Glyph : Interactable
         return glyph;
     }
 
-    // Cadre d'arabesques blanc lumineux, toujours visible (image générée par Meshy, fond retiré), glissé derrière la plaque
-    // qui en cache le filet intérieur : seules les volutes dépassent tout autour.
-    const float FrameWidthRatio = 1.55f, FrameOffset = 0.03f;
+    // Contour blanc lumineux, toujours visible, glissé derrière la plaque qui en cache le bord intérieur.
+    const float FrameWidthRatio = 1.75f, FrameOffset = 0.03f;
     static Material frameMaterial;
 
     void AddFrame(float size)
     {
-        var tex = Resources.Load<Texture2D>("Art/Decor/CadreGlypheTexture");
-        if (tex == null) return;
-        if (frameMaterial == null) frameMaterial = new Material(Shader.Find("Sprites/Default")) { name = "GlypheCadre", mainTexture = tex };
+        if (frameMaterial == null) frameMaterial = new Material(Shader.Find("Sprites/Default")) { name = "GlypheCadre", mainTexture = GlyphArt.Load("Cadre") };
         var quad = GameArt.Prim(PrimitiveType.Quad, transform, Vector3.forward * FrameOffset, Vector3.one * size * FrameWidthRatio, frameMaterial);
         quad.name = "Cadre";
         quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
@@ -113,114 +107,29 @@ public class Glyph : Interactable
     public override void Interact() => GameSession.Instance.TouchGlyph(this);
 }
 
-// Textures des glyphes : traits de pinceau (polylignes dans un carré unité, y vers le haut), gravés en clair sur la pierre.
-// La même forme sert de carte d'émission : le glyphe chargé s'illumine.
+// Textures des glyphes : motif seul (blanc sur transparent), sert aussi de carte d'émission pour que le glyphe chargé s'illumine.
 public static class GlyphArt
 {
-    static readonly Vector2[][][] Strokes =
-    {
-        // 0 : 坐 — deux 人 au-dessus de 土.
-        new[]
-        {
-            new[] { new Vector2(0.31f, 0.84f), new Vector2(0.20f, 0.58f) }, new[] { new Vector2(0.27f, 0.72f), new Vector2(0.40f, 0.58f) },
-            new[] { new Vector2(0.71f, 0.84f), new Vector2(0.60f, 0.58f) }, new[] { new Vector2(0.67f, 0.72f), new Vector2(0.80f, 0.58f) },
-            new[] { new Vector2(0.50f, 0.90f), new Vector2(0.50f, 0.17f) }, new[] { new Vector2(0.27f, 0.44f), new Vector2(0.73f, 0.44f) },
-            new[] { new Vector2(0.12f, 0.17f), new Vector2(0.88f, 0.17f) },
-        },
-        // 1 : 宀 (le toit) sur 犬 (le chien) : rentrer à la niche.
-        new[]
-        {
-            new[] { new Vector2(0.50f, 0.95f), new Vector2(0.53f, 0.86f) },
-            new[] { new Vector2(0.14f, 0.70f), new Vector2(0.15f, 0.80f), new Vector2(0.85f, 0.80f), new Vector2(0.80f, 0.70f) },
-            new[] { new Vector2(0.22f, 0.50f), new Vector2(0.78f, 0.50f) },
-            new[] { new Vector2(0.50f, 0.70f), new Vector2(0.48f, 0.50f), new Vector2(0.22f, 0.10f) },
-            new[] { new Vector2(0.53f, 0.46f), new Vector2(0.82f, 0.10f) },
-            new[] { new Vector2(0.65f, 0.66f), new Vector2(0.72f, 0.59f) },
-        },
-        // 2 : 吠 — 口 (la bouche) et 犬 (le chien) : aboyer.
-        new[]
-        {
-            new[] { new Vector2(0.07f, 0.64f), new Vector2(0.31f, 0.64f), new Vector2(0.31f, 0.30f), new Vector2(0.07f, 0.30f), new Vector2(0.07f, 0.64f) },
-            new[] { new Vector2(0.39f, 0.58f), new Vector2(0.94f, 0.58f) },
-            new[] { new Vector2(0.66f, 0.88f), new Vector2(0.64f, 0.58f), new Vector2(0.39f, 0.10f) },
-            new[] { new Vector2(0.68f, 0.52f), new Vector2(0.94f, 0.10f) },
-            new[] { new Vector2(0.80f, 0.82f), new Vector2(0.88f, 0.74f) },
-        },
-    };
+    public static readonly Color Red = new Color32(224, 60, 64, 255);
+    public static Material Cream => GameArt.Lit("GlyphCream", new Color32(245, 235, 210, 255), null, 0.25f);
 
     static readonly Dictionary<int, Material> materials = new Dictionary<int, Material>();
-    static readonly Dictionary<int, Texture2D> masks = new Dictionary<int, Texture2D>();
 
-    // Gravure seule (blanc sur transparent), pour les glyphes de la porte du chapiteau.
-    public static Texture2D Mask(int type)
-    {
-        if (masks.TryGetValue(type, out var tex) && tex != null) return tex;
-        const int size = 128;
-        tex = new Texture2D(size, size, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp, name = "Glyphe" + type };
-        var rnd = new System.Random(type * 977 + 5);
-        var px = new Color[size * size];
-        Vector2[][] strokes = Strokes[Mathf.Clamp(type, 0, Strokes.Length - 1)];
-        for (int y = 0; y < size; y++)
-            for (int x = 0; x < size; x++)
-            {
-                var p = new Vector2((x + 0.5f) / size, (y + 0.5f) / size);
-                float best = 0f;
-                foreach (var stroke in strokes)
-                    for (int k = 0; k + 1 < stroke.Length; k++)
-                    {
-                        Vector2 a = stroke[k], b = stroke[k + 1], ab = b - a;
-                        float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(1e-5f, ab.sqrMagnitude));
-                        float d = Vector2.Distance(p, a + ab * t);
-                        // Coup de pinceau : plus épais au départ, effilé à la fin, bord rongé.
-                        float along = (k + t) / (stroke.Length - 1);
-                        float width = 0.055f * Mathf.Lerp(1.15f, 0.55f, along);
-                        width *= 0.85f + 0.3f * Mathf.PerlinNoise(p.x * 23f + type * 7f, p.y * 23f);
-                        best = Mathf.Max(best, 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(width * 0.75f, width, d)));
-                    }
-                float grain = 0.8f + 0.2f * (float)rnd.NextDouble();
-                px[y * size + x] = new Color(grain, grain, grain, best);
-            }
-        tex.SetPixels(px);
-        tex.Apply();
-        return masks[type] = tex;
-    }
+    public static Texture2D Load(string name) => Resources.Load<Texture2D>("Art/Glyphes/" + name);
 
-    // Gravure seule (traits du glyphe sur fond transparent, non éclairée), posée à même un médaillon (porte du chapiteau).
-    public static Material Engraving(int type)
-    {
-        var mat = new Material(Shader.Find("Sprites/Default")) { name = "Gravure" + type, color = new Color(0.72f, 0.68f, 0.6f) };
-        mat.mainTexture = Mask(type);
-        return mat;
-    }
+    // Motif seul sur fond transparent, non éclairé, posé à même un médaillon (porte du chapiteau).
+    public static Material Engraving(int type) =>
+        new Material(Shader.Find("Sprites/Default")) { name = "Gravure" + type, color = Red, mainTexture = Load("Glyphe" + (type + 1)) };
 
-    // Pierre sombre gravée du glyphe en os pâle ; l'émission (bleue quand le glyphe est chargé) suit la gravure.
+    // Plaque crème au motif rouge ; l'émission (bleue quand le glyphe est chargé) suit le motif.
     public static Material Material(int type)
     {
         if (materials.TryGetValue(type, out var mat) && mat != null) return mat;
-        const int size = 128;
-        Texture2D mask = Mask(type);
-        var albedo = new Texture2D(size, size, TextureFormat.RGBA32, true) { name = "GlypheAlbedo" + type };
-        var emission = new Texture2D(size, size, TextureFormat.RGBA32, true) { name = "GlypheEmission" + type };
-        Color[] m = mask.GetPixels();
-        var a = new Color[m.Length];
-        var e = new Color[m.Length];
-        for (int i = 0; i < m.Length; i++)
-        {
-            int x = i % size, y = i / size;
-            float stone = 0.13f + 0.07f * Mathf.PerlinNoise(x * 0.09f, y * 0.09f);
-            a[i] = Color.Lerp(new Color(stone, stone, stone * 1.05f), new Color(0.78f, 0.74f, 0.66f) * m[i].r, m[i].a);
-            a[i].a = 1f;
-            e[i] = new Color(m[i].a, m[i].a, m[i].a, 1f);
-        }
-        albedo.SetPixels(a);
-        albedo.Apply();
-        emission.SetPixels(e);
-        emission.Apply();
         mat = new Material(GameArt.Lit("GlyphFaceTemplate", Color.white, null, 0.25f)) { name = "Glyphe" + type };
-        mat.mainTexture = albedo;
+        mat.mainTexture = Load("Glyphe" + (type + 1) + "_Plaque");
         mat.EnableKeyword("_EMISSION");
         mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
-        mat.SetTexture("_EmissionMap", emission);
+        mat.SetTexture("_EmissionMap", Load("Glyphe" + (type + 1)));
         mat.SetColor("_EmissionColor", Color.black);
         return materials[type] = mat;
     }
@@ -254,8 +163,8 @@ public class AcquisitionDoor : MonoBehaviour
         var door = go.AddComponent<AcquisitionDoor>();
         door.height = height;
 
-        // Battant rouge du chapiteau, rayé de crème, cerclé d'or ; les glyphes gravés à même des médaillons sombres (V0.6.1 :
-        // plus de carré de pierre autour de la gravure).
+        // Battant rouge du chapiteau, rayé de crème, cerclé d'or ; les glyphes rouges à même des médaillons crème (V0.6.1 :
+        // pas de carré autour du motif).
         // V0.6.1 (note 01) : le battant n'est plus pris dans l'épaisseur du mur (ses bords se mêlaient aux montants et au
         // chapiteau voisin) ; il est posé devant la face du mur, côté Acquisition Room, et déborde sur les montants.
         door.slab = new GameObject("Battant").transform;
@@ -272,12 +181,11 @@ public class AcquisitionDoor : MonoBehaviour
         int count = glyphTypes.Count;
         int columns = Mathf.Max(1, Mathf.Min(count, 3)), rows = Mathf.Max(1, Mathf.CeilToInt(count / 3f));
         float cell = Mathf.Min((width - 0.3f) / columns, (height - 0.6f) / rows);
-        Material plate = GameArt.Lit("GlyphStone", new Color(0.16f, 0.16f, 0.17f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.1f);
         for (int k = 0; k < count; k++)
         {
             int row = k / 3, col = k % 3, inRow = Mathf.Min(3, count - row * 3);
             var at = new Vector3((col - (inRow - 1) * 0.5f) * cell, height * 0.55f + ((rows - 1) * 0.5f - row) * cell, 0.085f);
-            GameArt.Prim(PrimitiveType.Cylinder, door.slab, at, new Vector3(cell * 0.85f, 0.01f, cell * 0.85f), plate).transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            GameArt.Prim(PrimitiveType.Cylinder, door.slab, at, new Vector3(cell * 0.85f, 0.01f, cell * 0.85f), GlyphArt.Cream).transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
             var quad = GameArt.Prim(PrimitiveType.Quad, door.slab, at + Vector3.forward * 0.012f, Vector3.one * cell * 0.62f, GlyphArt.Engraving(glyphTypes[k]));
             quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
             quad.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -305,8 +213,8 @@ public class AcquisitionDoor : MonoBehaviour
     {
         if (index < 0 || index >= icons.Count) return;
         lit[index] = on;
-        // Gravure couleur d'os pâle, bleue et lumineuse quand son glyphe est chargé.
-        icons[index].material.color = on ? new Color(0.45f, 0.8f, 1f) : new Color(0.72f, 0.68f, 0.6f);
+        // Motif rouge, bleu et lumineux quand son glyphe est chargé.
+        icons[index].material.color = on ? new Color(0.45f, 0.8f, 1f) : GlyphArt.Red;
         int count = 0;
         foreach (bool l in lit) if (l) count++;
         glow.intensity = icons.Count > 0 ? 1.4f * count / icons.Count : 0f;

@@ -780,7 +780,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Vector3 p = player.transform.position;
         var capsule = player.GetComponent<CapsuleCollider>();
         float feet = p.y + capsule.center.y - capsule.height * 0.5f;
-        inMist = !status.Dead && !Teleporting && !CannonFlying && !InKennel && CurfewActive && mistAmount > 0.5f && zones.Count > 0 && !InUndergroundLink(player.transform.position)
+        inMist = !status.Dead && !Teleporting && !CannonFlying && !InKennel && CurfewActive && mistAmount > 0.5f && zones.Count > 0
             && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
         // Dans la brume, le personnage avance 20 % moins vite ; immergé jusqu'au cou (Note 03, V0.4.11), 32 % moins vite.
         player.SpeedFactor = !inMist ? 1f : NeckHeight() < GameRules.MistTop ? GameRules.MistDeepSpeedMultiplier : GameRules.MistSpeedMultiplier;
@@ -795,15 +795,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (loss <= 0) return;
         mistTimer -= loss;
         status.SetSerenity(status.Serenity - loss);
-    }
-
-    // Liaison souterraine entre deux salles (chapitre 10.3) : la brume du Couvre Feu, qui reste en surface, n'y entre pas.
-    bool InUndergroundLink(Vector3 p)
-    {
-        foreach (var z in zones)
-            foreach (var b in z.underground)
-                if (b.Contains(p)) return true;
-        return false;
     }
 
     // Note 02 du chapitre 3.4 (V0.4.10) : à 0 de sérénité, le personnage ne meurt plus d'un coup ; il perd 15 PV par
