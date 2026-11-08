@@ -11,7 +11,6 @@ public abstract class Interactable : MonoBehaviour
 
     // Un objet peut être visé sans afficher de contour (Pogo une fois sorti de sa boîte).
     protected virtual bool OutlineVisible => true;
-    protected virtual Material OutlineMaterial => GameArt.Outline;
 
     public abstract string Prompt { get; }
     public virtual bool CanInteract => true;
@@ -41,7 +40,7 @@ public abstract class Interactable : MonoBehaviour
                 originals[i] = renderers[i].sharedMaterials;
                 var mats = new Material[originals[i].Length + 1];
                 originals[i].CopyTo(mats, 0);
-                mats[mats.Length - 1] = OutlineMaterial;
+                mats[mats.Length - 1] = GameArt.WhiteOutline;
                 renderers[i].sharedMaterials = mats;
             }
         }
@@ -211,8 +210,20 @@ public class SkipButton : Interactable
         {
             Bounds b = GameArt.LocalBounds(go.transform);
             plate.transform.localPosition = new Vector3(0f, -SkipPlateHeight * 0.5f, b.extents.z + 0.01f);
-            GameArt.CreateText(go.transform, "Texte", new Vector3(0f, SkipPlateHeight * 0.2f, b.size.z + 0.03f), 0.045f,
-                Color.white, TextAnchor.MiddleCenter, TextAlignment.Center).text = "<b>SKIP</b>";
+            // Mot "SKIP" en 3D (Meshy, police soviétique du titre), en relief sur la plaque, au-dessus du bouton.
+            var word = GameArt.SpawnModel("Decor/TexteSkip", go.transform, SkipWordHeight);
+            if (word != null)
+            {
+                float depth = GameArt.LocalBounds(word.transform).size.z;
+                word.transform.localPosition = new Vector3(0f, SkipPlateHeight * 0.2f - SkipWordHeight * 0.5f, b.size.z + depth * 0.5f);
+                // Livré lisible depuis son -Z : demi-tour pour se lire depuis le centre du Hub.
+                word.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+                var white = GameArt.Emissive("SkipBlanc", new Color(0.95f, 0.95f, 0.92f), new Color(0.4f, 0.4f, 0.38f));
+                foreach (var r in word.GetComponentsInChildren<Renderer>()) r.sharedMaterial = white;
+            }
+            else
+                GameArt.CreateText(go.transform, "Texte", new Vector3(0f, SkipPlateHeight * 0.2f, b.size.z + 0.03f), 0.045f,
+                    Color.white, TextAnchor.MiddleCenter, TextAlignment.Center).text = "<b>SKIP</b>";
         }
         else
         {
@@ -229,7 +240,7 @@ public class SkipButton : Interactable
         return button;
     }
 
-    const float SkipPlateHeight = 0.65f;
+    const float SkipPlateHeight = 0.65f, SkipWordHeight = 0.16f;
 
     public override string Prompt => Loc.T("Passer à la manche suivante");
     public override void Interact()

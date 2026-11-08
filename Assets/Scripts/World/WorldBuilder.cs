@@ -22,7 +22,7 @@ public static class WorldBuilder
     const float HubWallHeight = 5f;
     // Sommet du toit du chapiteau (cône de 6 m posé sur les murs), au-dessus du sol du Hub.
     public const float ChapiteauTop = HubWallHeight + 6f;
-    const float DoorWidth = 2.4f, DoorHeight = 2.8f;
+    const float DoorWidth = 2.4f, DoorHeight = 2.8f, SillTop = 0.015f, SillDepth = 0.05f;
     const int ChunkSize = 5;
     const float StepHeight = 0.2f, StepDepth = 0.3f;
 
@@ -134,8 +134,8 @@ public static class WorldBuilder
         floorCol.size = new Vector3(Cell * 5f, 1f, Cell * 5f);
 
         // Piste centrale.
-        GameArt.Prim(PrimitiveType.Cylinder, root, new Vector3(0f, 0.005f, 0f), new Vector3(7f, 0.005f, 7f), redMat);
-        GameArt.Prim(PrimitiveType.Cylinder, root, new Vector3(0f, 0.01f, 0f), new Vector3(6.2f, 0.005f, 6.2f), creamMat);
+        AddRing(root, "PisteRouge", 3.5f, 0.01f, redMat);
+        AddRing(root, "PisteCreme", 3.1f, 0.015f, creamMat);
 
         // Mur circulaire à rayures, ouvert au nord pour la porte.
         const int segments = 32;
@@ -149,16 +149,16 @@ public static class WorldBuilder
             seg.name = "HubWall";
             seg.transform.localRotation = FacingCenter(angle);
         }
-        // Liseré doré en haut et en bas.
+        // Guirlande de cirque dorée en haut et en bas (sauf au sol devant les portes), un morceau par pan de mur.
+        var garlands = new GameObject("Guirlandes").transform;
+        garlands.SetParent(root, false);
         for (int i = 0; i < segments; i++)
         {
             float angle = i * 360f / segments;
             for (int k = 0; k < 2; k++)
             {
-                var trim = GameArt.Prim(PrimitiveType.Cube, root, Polar(angle, HubRadius - 0.02f, k == 0 ? 0.1f : HubWallHeight - 0.1f),
-                    new Vector3(segLen, 0.2f, 0.1f), gold);
-                trim.transform.localRotation = FacingCenter(angle);
-                if ((i == 0 || entrance && i == segments / 2) && k == 0) Object.Destroy(trim);
+                if (k == 0 && (i == 0 || entrance && i == segments / 2)) continue;
+                AddGarland(garlands, angle, k == 0, segLen, gold);
             }
         }
 
@@ -173,21 +173,27 @@ public static class WorldBuilder
         GameArt.Prim(PrimitiveType.Sphere, root, new Vector3(0f, HubWallHeight + 5.6f, 0f), Vector3.one * 0.6f, gold);
 
         // Passage vers le labyrinthe et porte.
-        float zIn = HubRadius - 0.4f, zOut = HubRadius + 0.5f + 0.15f;
+        // Montants et linteau s'arrêtent à la face du mur du dédale (axe à HubRadius + 0,5) : entrer dans son épaisseur
+        // superposerait leurs faces à celles de l'ouverture (scintillement des textures).
+        float zIn = HubRadius - 0.4f, zOut = HubRadius + 0.5f - Wall * 0.5f;
+        float lintelIn = HubRadius - 0.15f, lintelZ = (lintelIn + zOut) * 0.5f, lintelDepth = zOut - lintelIn;
         float side = DoorWidth * 0.5f + 0.1f;
         foreach (float sx in new[] { -side, side })
             GameArt.Prim(PrimitiveType.Cube, root, new Vector3(sx, DoorHeight * 0.5f, (zIn + zOut) * 0.5f), new Vector3(0.2f, DoorHeight, zOut - zIn), redMat, true);
-        GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, (DoorHeight + HubWallHeight) * 0.5f, HubRadius + 0.15f),
-            new Vector3(DoorWidth + 0.6f, HubWallHeight - DoorHeight, 0.6f), creamMat, true);
+        GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, (DoorHeight + HubWallHeight) * 0.5f, lintelZ),
+            new Vector3(DoorWidth + 0.6f, HubWallHeight - DoorHeight, lintelDepth), creamMat, true);
+        // Seuil : couvre l'écart entre le sol rond du chapiteau et celui du dédale, à peine au-dessus d'eux, derrière la porte.
+        float sillIn = HubRadius + 0.22f, sillOut = HubRadius + 0.5f + Wall * 0.5f;
+        Vector3 sillCenter = new Vector3(0f, SillTop - SillDepth * 0.5f, (sillIn + sillOut) * 0.5f);
+        Vector3 sillSize = new Vector3(DoorWidth, SillDepth, sillOut - sillIn);
+        GameArt.Prim(PrimitiveType.Cube, root, sillCenter, sillSize, gold);
         // Entrée du chapiteau (modèle Meshy) : arche de cirque à colonnes, rideaux de velours, panneau à ampoules où
         // s'affiche le Compteur de Temps. Sans le modèle : simple liseré doré au-dessus de la porte.
         Transform arch = BuildEntrance(root);
         if (arch == null)
             GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, DoorHeight + 0.1f, HubRadius - 0.2f), new Vector3(DoorWidth + 0.6f, 0.2f, 0.12f), gold);
 
-        var door = GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, DoorHeight * 0.5f, HubRadius + 0.15f),
-            new Vector3(DoorWidth + 0.1f, DoorHeight, 0.12f), GameArt.Lit("Door", new Color(0.25f, 0.05f, 0.06f), null, 0.5f), true);
-        door.name = "HubDoor";
+        var door = BuildHubDoor(root, new Vector3(0f, DoorHeight * 0.5f, HubRadius + 0.15f), new Vector3(DoorWidth + 0.1f, DoorHeight, 0.12f));
         refs.door = door.AddComponent<HubDoor>();
         refs.door.Init(DoorHeight - 0.05f);
 
@@ -196,9 +202,10 @@ public static class WorldBuilder
         {
             foreach (float sx in new[] { -side, side })
                 GameArt.Prim(PrimitiveType.Cube, root, new Vector3(sx, DoorHeight * 0.5f, -(zIn + zOut) * 0.5f), new Vector3(0.2f, DoorHeight, zOut - zIn), redMat, true);
-            GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, (DoorHeight + HubWallHeight) * 0.5f, -(HubRadius + 0.15f)),
-                new Vector3(DoorWidth + 0.6f, HubWallHeight - DoorHeight, 0.6f), creamMat, true);
+            GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, (DoorHeight + HubWallHeight) * 0.5f, -lintelZ),
+                new Vector3(DoorWidth + 0.6f, HubWallHeight - DoorHeight, lintelDepth), creamMat, true);
             GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, DoorHeight + 0.1f, -(HubRadius - 0.2f)), new Vector3(DoorWidth + 0.6f, 0.2f, 0.12f), gold);
+            GameArt.Prim(PrimitiveType.Cube, root, new Vector3(0f, sillCenter.y, -sillCenter.z), sillSize, gold);
         }
 
         // Éclairage chaud du chapiteau.
@@ -284,6 +291,61 @@ public static class WorldBuilder
         return refs;
     }
 
+    // Disque de la piste centrale : assez de côtés pour que son contour paraisse parfaitement rond, texture à l'échelle du disque.
+    const int RingSegments = 128;
+
+    static void AddRing(Transform root, string name, float radius, float y, Material mat)
+    {
+        var ring = new MeshBuilder();
+        ring.Disc(new Vector3(0f, y, 0f), radius, RingSegments, 0.5f / radius);
+        GameArt.MeshObject(name, root, ring.Build(name), mat);
+    }
+
+    // Morceau de guirlande (modèle Meshy : deux festons arrondis sous une barre, décor tourné vers son +Z), adossé au mur,
+    // posé au sol ou sous le toit. Sans le modèle : simple liseré doré.
+    const float GarlandHeight = 0.44f, GarlandGround = 0.02f, GarlandEmbed = 0.005f;
+
+    static void AddGarland(Transform parent, float angle, bool ground, float length, Material gold)
+    {
+        var garland = GameArt.SpawnModel("Decor/GuirlandeChapiteau", parent, GarlandHeight);
+        if (garland == null)
+        {
+            var trim = GameArt.Prim(PrimitiveType.Cube, parent, Polar(angle, HubRadius - 0.02f, ground ? 0.1f : HubWallHeight - 0.1f), new Vector3(length, 0.2f, 0.1f), gold);
+            trim.transform.localRotation = FacingCenter(angle);
+            return;
+        }
+        float depth = GameArt.LocalBounds(garland.transform).size.z;
+        // Au sol, la pièce est retournée (barre en bas, festons vers le haut) : son origine, à sa base, passe au sommet.
+        float y = ground ? GarlandGround + GarlandHeight : HubWallHeight - GarlandHeight - GarlandGround;
+        garland.transform.localPosition = Polar(angle, HubRadius - depth * 0.5f + GarlandEmbed, y);
+        garland.transform.localRotation = FacingCenter(angle) * (ground ? Quaternion.Euler(0f, 0f, 180f) : Quaternion.identity);
+        foreach (var r in garland.GetComponentsInChildren<Renderer>())
+        {
+            r.sharedMaterial = gold;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+    }
+
+    // Porte coulissante du chapiteau (modèle Meshy : bandes rouges et crème, arabesques dorées, empreintes ensanglantées),
+    // ajustée aux dimensions du passage. Sans le modèle : simple panneau sombre.
+    static GameObject BuildHubDoor(Transform root, Vector3 center, Vector3 size)
+    {
+        var door = new GameObject("HubDoor");
+        door.transform.SetParent(root, false);
+        door.transform.localPosition = center;
+        door.AddComponent<BoxCollider>().size = size;
+        var model = GameArt.SpawnModel("PorteChapiteau", door.transform, size.y);
+        if (model == null)
+        {
+            GameArt.Prim(PrimitiveType.Cube, door.transform, Vector3.zero, size, GameArt.Lit("Door", new Color(0.25f, 0.05f, 0.06f), null, 0.5f));
+            return door;
+        }
+        Bounds b = GameArt.LocalBounds(model.transform);
+        model.transform.localScale = new Vector3(size.x / b.size.x, 1f, size.z / b.size.z);
+        model.transform.localPosition = new Vector3(0f, -size.y * 0.5f, 0f);
+        return door;
+    }
+
     // Arche de l'entrée : 5,4 m de haut, élargie de 15 % pour que le passage entre les rideaux dégage toute la porte.
     const float EntranceHeight = 5.4f, EntranceStretch = 1.15f, EntranceZ = HubRadius - 0.45f;
 
@@ -309,6 +371,16 @@ public static class WorldBuilder
         return arch.transform;
     }
 
+    const float ScreenCorner = 0.25f, ScreenBorder = 0.1f;
+    const int ScreenCornerSegments = 10;
+
+    static void ScreenPlate(Transform parent, string name, Vector3 position, Vector2 size, float depth, float corner, Material mat)
+    {
+        var plate = new MeshBuilder();
+        plate.RoundedPlate(size, depth, corner, ScreenCornerSegments);
+        GameArt.MeshObject(name, parent, plate.Build(name), mat).transform.localPosition = position;
+    }
+
     static TextMesh Screen(Transform root, string name, float angle, float radius, float y, Vector2 size, float charSize,
         TextAnchor anchor = TextAnchor.MiddleCenter)
     {
@@ -318,8 +390,10 @@ public static class WorldBuilder
         // Le texte se lit quand on le regarde selon son axe +Z : l'avant pointe vers le mur.
         go.localRotation = Quaternion.Euler(0f, angle, 0f);
 
-        GameArt.Prim(PrimitiveType.Cube, go, new Vector3(0f, 0f, 0.06f), new Vector3(size.x + 0.2f, size.y + 0.2f, 0.08f), GameArt.Lit("ScreenFrame", new Color(0.1f, 0.1f, 0.1f), null, 0.6f));
-        GameArt.Prim(PrimitiveType.Cube, go, new Vector3(0f, 0f, 0.01f), new Vector3(size.x, size.y, 0.02f), GameArt.Unlit("ScreenBg", new Color(0.02f, 0.03f, 0.04f)));
+        // Coins arrondis, ceux du cadre concentriques à ceux de l'écran.
+        ScreenPlate(go, "Cadre", new Vector3(0f, 0f, 0.06f), new Vector2(size.x + ScreenBorder * 2f, size.y + ScreenBorder * 2f), 0.08f, ScreenCorner + ScreenBorder,
+            GameArt.Lit("ScreenFrame", new Color(0.1f, 0.1f, 0.1f), null, 0.6f));
+        ScreenPlate(go, "Fond", new Vector3(0f, 0f, 0.01f), size, 0.02f, ScreenCorner, GameArt.Unlit("ScreenBg", new Color(0.02f, 0.03f, 0.04f)));
 
         Vector3 textPos = anchor == TextAnchor.MiddleLeft ? new Vector3(-size.x * 0.5f + 0.15f, 0f, -0.01f) : new Vector3(0f, 0f, -0.01f);
         var tm = GameArt.CreateText(go, "Text", textPos, charSize, Color.white, anchor,

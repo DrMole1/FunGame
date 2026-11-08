@@ -71,7 +71,7 @@ public static class GameArt
 
     public static Material Outline => Template(ref outline, "Outline", "FunGame/Outline");
 
-    // Contour blanc (boîte de Pogo).
+    // Contour blanc de tous les objets interactifs visés.
     public static Material WhiteOutline
     {
         get

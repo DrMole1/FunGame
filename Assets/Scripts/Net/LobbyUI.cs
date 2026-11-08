@@ -266,8 +266,8 @@ public class LobbyUI : MonoBehaviour
     // Note 02 du chapitre 6.1 (V0.6.1) : "Pavlov's Theory" en police soviétique, rouge, avec un léger contour blanc, sur deux
     // lignes en grandes lettres. Le "o" de "Theory" est la patte de chien (Assets/Sprite/DogIcon), cadrée à la taille d'une
     // lettre ; son halo orange passe derrière les lettres voisines.
-    const int TitleSize = 50;
-    const float TitleHeight = 80f, PawWidth = 36f, PawSize = 44f, PawDrop = -3f;
+    const int TitleSize = 58;
+    const float TitleHeight = 92f, PawWidth = 42f, PawSize = 51f, PawDrop = -5.5f, PawShift = 0.7f;
     static readonly Color TitleRed = new Color(0.82f, 0.08f, 0.08f);
 
     void BuildTitle(Transform parent)
@@ -306,7 +306,7 @@ public class LobbyUI : MonoBehaviour
         slot.GetComponent<LayoutElement>().preferredWidth = PawWidth;
         slot.GetComponent<LayoutElement>().preferredHeight = TitleHeight * 0.5f;
         TitleText(row.transform, "ry");
-        pawImage.gameObject.AddComponent<FollowRect>().Init((RectTransform)slot.transform, new Vector2(0f, -PawDrop));
+        pawImage.gameObject.AddComponent<FollowRect>().Init((RectTransform)slot.transform, new Vector2(PawShift, -PawDrop));
     }
 
     static Text TitleText(Transform parent, string text)
@@ -356,6 +356,8 @@ public class LobbyUI : MonoBehaviour
         }
     }
 
+    const float NameRowHeight = 44f, NameTitleGap = 10f;
+
     void BuildLobby(Transform root, string savedName, string roomFromUrl)
     {
         lobbyPanel = UiKit.Panel(root, "Lobby", new Vector2(460, 780));
@@ -381,9 +383,15 @@ public class LobbyUI : MonoBehaviour
         backdrop.GetComponent<Image>().raycastTarget = false;
         BuildTitle(p);
 
-        UiKit.Label(p, "Pseudo", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
-        // Laissé vide, le pseudo devient le nom du skin choisi.
-        nameField = UiKit.Field(p, "Votre pseudo", savedName, 16);
+        // La hauteur gagnée sur la ligne du pseudo devient de l'espace sous le titre (les autres lignes gardent leur taille).
+        UiKit.Spacer(p, NameTitleGap);
+        // Libellé à gauche de la zone de saisie, aligné sur ceux des volumes. Laissé vide, le pseudo devient le nom du skin choisi.
+        var nameRow = UiKit.Row(p, NameRowHeight, 8);
+        nameRow.GetComponent<LayoutElement>().flexibleHeight = 0f;
+        var nameLabel = UiKit.Label(nameRow.transform, "Pseudo", 16, FontStyle.Bold, UiKit.MutedText, NameRowHeight, TextAnchor.MiddleLeft);
+        nameLabel.GetComponent<LayoutElement>().preferredWidth = 118;
+        nameField = UiKit.Field(nameRow.transform, "Votre pseudo", savedName, 16);
+        nameField.GetComponent<LayoutElement>().flexibleWidth = 1;
         UiKit.Paint(nameField.gameObject, FieldGrey, 2);
         // Partie seul, sans connexion ni code pour rejoindre.
         var soloGo = UiKit.Button(p, "Partie Solo", HostRed, 48, () => net.SoloGame(nameField.text));

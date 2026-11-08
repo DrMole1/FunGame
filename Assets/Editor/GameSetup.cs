@@ -213,8 +213,8 @@ public static class GameSetup
 
     // Modèles statiques Meshy : pas d'animation, matériaux et textures extraits à côté du modèle.
     // Grands décors vus de près (entrée du chapiteau) : texture en 1024.
-    static readonly string[] ReadableArt = { "MachinePince", "PogoCouvercle" };
-    static readonly string[] LargeArt = { "EntreeChapiteau", "Roulette", "MachinePince", "ArcadeDance", "PorteBlindee", "PogoCouvercle" };
+    static readonly string[] ReadableArt = { "MachinePince", "PogoCouvercle", "PorteChapiteau" };
+    static readonly string[] LargeArt = { "EntreeChapiteau", "Roulette", "MachinePince", "ArcadeDance", "PorteBlindee", "PogoCouvercle", "PorteChapiteau" };
 
     internal static void ImportArt()
     {

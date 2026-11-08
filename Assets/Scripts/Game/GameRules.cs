@@ -51,8 +51,8 @@ public static class GameRules
     public const float SneakEyeDrop = 0.3f;
     public const float BaseSpeed = 4f;
 
-    // Premier quota à 500 (exemple du document), +250 à chaque nouvelle manche.
-    public static int QuotaForRound(int round) => 500 + (round - 1) * 250;
+    // Premier quota à 500 (exemple du document), +200 à chaque nouvelle manche.
+    public static int QuotaForRound(int round) => 500 + (round - 1) * 200;
 
     // ---------- Évolution du terrain (chapitre 10, V0.6) ----------
 

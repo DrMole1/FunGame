@@ -214,7 +214,6 @@ public class Pogo : Interactable
 
     // Contour blanc uniquement tant que Pogo dort dans sa boîte.
     protected override bool OutlineVisible => State == Mood.Closed;
-    protected override Material OutlineMaterial => GameArt.WhiteOutline;
 
     void Update()
     {

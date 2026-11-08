@@ -102,6 +102,53 @@ public class MeshBuilder
         }
     }
 
+    // Plaque à coins arrondis, centrée sur l'origine, dans le plan XY, d'épaisseur 'depth' selon Z.
+    public void RoundedPlate(Vector2 size, float depth, float radius, int cornerSegments)
+    {
+        radius = Mathf.Min(radius, Mathf.Min(size.x, size.y) * 0.5f);
+        float halfX = size.x * 0.5f - radius, halfY = size.y * 0.5f - radius, halfZ = depth * 0.5f;
+        var outline = new List<Vector2>();
+        var outward = new List<Vector2>();
+        // Sens horaire vu de -Z : haut-droite, bas-droite, bas-gauche, haut-gauche.
+        var corners = new[] { new Vector2(halfX, halfY), new Vector2(halfX, -halfY), new Vector2(-halfX, -halfY), new Vector2(-halfX, halfY) };
+        for (int c = 0; c < 4; c++)
+            for (int s = 0; s <= cornerSegments; s++)
+            {
+                float a = (90f - c * 90f - 90f * s / cornerSegments) * Mathf.Deg2Rad;
+                var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+                outline.Add(corners[c] + dir * radius);
+                outward.Add(dir);
+            }
+
+        void Cap(float z, Vector3 normal)
+        {
+            int center = Vert(new Vector3(0f, 0f, z), normal, Vector2.zero);
+            int first = Vert(new Vector3(outline[0].x, outline[0].y, z), normal, outline[0]);
+            int prev = first;
+            for (int i = 1; i < outline.Count; i++)
+            {
+                int next = Vert(new Vector3(outline[i].x, outline[i].y, z), normal, outline[i]);
+                Tri(center, prev, next, normal);
+                prev = next;
+            }
+            Tri(center, prev, first, normal);
+        }
+        Cap(-halfZ, Vector3.back);
+        Cap(halfZ, Vector3.forward);
+
+        for (int i = 0; i < outline.Count; i++)
+        {
+            int j = (i + 1) % outline.Count;
+            Vector3 na = outward[i], nb = outward[j], facing = (na + nb).normalized;
+            int a = Vert(new Vector3(outline[i].x, outline[i].y, -halfZ), na, Vector2.zero);
+            int b = Vert(new Vector3(outline[j].x, outline[j].y, -halfZ), nb, Vector2.zero);
+            int c = Vert(new Vector3(outline[j].x, outline[j].y, halfZ), nb, Vector2.zero);
+            int d = Vert(new Vector3(outline[i].x, outline[i].y, halfZ), na, Vector2.zero);
+            Tri(a, b, c, facing);
+            Tri(a, c, d, facing);
+        }
+    }
+
     public Mesh Build(string name)
     {
         var mesh = new Mesh { name = name };
