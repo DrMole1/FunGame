@@ -13,11 +13,14 @@ public static class DogHeads
     }
 
     static List<Variant> variants;
+    const float SizeFactor = 0.75f;
 
     public static void Spawn(Transform parent, Vector3 surface, Vector3 normal, float size, System.Random rnd, bool onFloor)
     {
         if (variants == null) Load();
         if (variants.Count == 0) return;
+        // V0.6.1 : 25 % plus petites.
+        size *= SizeFactor;
         Variant v = variants[rnd.Next(variants.Count)];
         float spin = (float)rnd.NextDouble() * 360f;
         float tilt = (float)rnd.NextDouble() * 40f - 20f;

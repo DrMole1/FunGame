@@ -103,7 +103,7 @@ public class ItemPickup : Interactable
 
     // Hauteur du modèle à terre (le ticket est posé à plat, le Jeton WOOF debout comme une pièce).
     static float ModelHeight(ItemType type) =>
-        Items.IsTicket(type) ? 0.05f : type == ItemType.JetonWoof ? 0.24f : Items.IsDiscoBall(type) ? 0.34f : 0.45f;
+        Items.IsTicket(type) ? 0.05f : type == ItemType.JetonWoof ? 0.24f : Items.IsDiscoBall(type) ? 0.68f : 0.45f;
 
     static void BuildFallback(Transform parent, ItemType type)
     {

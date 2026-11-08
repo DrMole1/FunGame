@@ -14,3 +14,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   main: {fileID: 12800000, guid: 07b3a5c29dae3804a8f99e01ca6fc943, type: 3}
   title: {fileID: 12800000, guid: 986197d810685c54eba88c9781f86d97, type: 3}
+  titleIcon: {fileID: 21300000, guid: 13802152172c40f488bf1042170f8cb0, type: 3}

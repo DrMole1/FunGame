@@ -194,31 +194,14 @@ public partial class GameSession
 
     // ================= Bornes : joueur local =================
 
-    // Jeton WOOF sélectionné : il est inséré (l'hôte confirme) et la borne s'active.
+    // Jeton WOOF sélectionné : il est inséré (l'hôte confirme) et la borne s'active. Borne éteinte, occupée ou (pince)
+    // vide, ou sans jeton : elle ne réagit pas, sans message.
     public void UseArcade(ArcadeMachine m)
     {
-        if (m == null || status.Dead || ClawActive || danceMachine != null) return;
-        if (!m.Charged)
-        {
-            hud.Toast(Loc.T("Cette borne d'arcade est éteinte : une Balise chargée doit la voir."));
-            return;
-        }
-        if (m.Busy)
-        {
-            hud.Toast(Loc.T("Un joueur utilise déjà cette borne."));
-            return;
-        }
+        if (m == null || status.Dead || ClawActive || danceMachine != null || !m.Charged || m.Busy) return;
         int slot = status.Selected;
-        if (slot < 0 || status[slot] != ItemType.JetonWoof)
-        {
-            hud.Toast(Loc.T("Sélectionnez un Jeton WOOF pour jouer. Pogo en donne parfois en échange d'un objet des monticules."));
-            return;
-        }
-        if (m.Kind == ArcadeKind.Claw && !m.HasPlush)
-        {
-            hud.Toast(Loc.T("La Machine à pince est vide : elle se remplit à chaque nouvelle manche."));
-            return;
-        }
+        if (slot < 0 || status[slot] != ItemType.JetonWoof) return;
+        if (m.Kind == ArcadeKind.Claw && !m.HasPlush) return;
         Gesture(PlayerGesture.Use);
         net.ToHost("AU|" + m.Id + "|" + slot);
     }
@@ -412,11 +395,8 @@ public partial class GameSession
             case "AK" when f.Length >= 4:
             {
                 int id = NetworkGame.I(f[1]), slot = NetworkGame.I(f[2]);
-                if (f[3] != "1")
-                {
-                    hud.Toast(Loc.T("La borne refuse le jeton : elle est occupée ou éteinte."));
-                    return true;
-                }
+                // Refusé (borne occupée ou éteinte entre-temps) : le joueur garde son jeton.
+                if (f[3] != "1") return true;
                 // Le jeton est avalé par la machine.
                 if (slot >= 0 && slot < GameRules.InventorySize && status[slot] == ItemType.JetonWoof) status.RemoveAt(slot);
                 else
@@ -432,7 +412,6 @@ public partial class GameSession
                     {
                         danceMachine = m;
                         m.BeginDance(m.PadAt(player.transform.position + Vector3.down * 0.95f));
-                        hud.Toast(Loc.T("Montez sur la plaque de la flèche affichée, en moins de 2 secondes !"));
                     }
                 }
                 return true;

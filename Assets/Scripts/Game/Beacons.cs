@@ -24,7 +24,7 @@ public class Beacon : Interactable
     // Canon posé au sol : 0,64 fois la taille d'un personnage (1,8 m), soit environ 2,4 m de long ; fût à 80 % de sa hauteur.
     public const float CanonHeight = 0.64f * 1.8f, CanonBarrel = CanonHeight * 0.8f, CanonHalfLength = 1.2f;
     public const DeviceKind LastKind = DeviceKind.DiscoDiamant;
-    public const float PlushHeight = 0.45f, DiscoHeight = 0.36f, DiscoChain = 0.25f;
+    public const float PlushHeight = 0.45f, DiscoHeight = 0.72f, DiscoChain = 0.25f;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
     public int Id { get; private set; }   // -N : Balise principale du Hub N
@@ -205,12 +205,23 @@ public class Beacon : Interactable
         if (hub)
         {
             Color color = HubColor(-id);
-            // Hubs 2 et suivants : le cristal prend la couleur de son Hub (violet, vert, doré...).
+            // Hubs 2 et suivants : la Balise et son cristal prennent la couleur de son Hub (violet, vert, doré...).
             if (-id > 1)
             {
-                var crystal = GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, height * 0.86f, 0f), new Vector3(0.3f, 0.34f, 0.3f) * (height / Height),
-                    GameArt.Emissive("BeaconCrystalHub" + (-id - 1) % HubColors.Length, color, color * 0.9f));
-                crystal.name = "Cristal";
+                // Modèle Meshy : texture recolorée (menu "FunGame/Préparer les balises des Hubs"). Hub 5, 9... : bleue d'origine.
+                int colorIndex = (-id - 1) % HubColors.Length;
+                var tinted = colorIndex > 0 ? Resources.Load<Material>("Art/BaliseHub" + (colorIndex + 1)) : null;
+                if (visual.Find("Balise") != null)
+                {
+                    if (tinted != null) foreach (var r in visual.GetComponentsInChildren<Renderer>()) r.sharedMaterial = tinted;
+                }
+                else
+                {
+                    // Silhouette de secours, sans modèle : un cristal à la couleur du Hub.
+                    var crystal = GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, height * 0.86f, 0f), new Vector3(0.3f, 0.34f, 0.3f) * (height / Height),
+                        GameArt.Emissive("BeaconCrystalHub" + colorIndex, color, color * 0.9f));
+                    crystal.name = "Cristal";
+                }
                 if (beacon.halo != null) Object.Destroy(beacon.halo);
                 beacon.halo = GameArt.Prim(PrimitiveType.Sphere, go.transform, beacon.Top - pos, Vector3.one * height * 0.26f,
                     GameArt.GhostAuraTinted("Hub" + (-id - 1) % HubColors.Length, color));
@@ -237,7 +248,7 @@ public class Beacon : Interactable
             beacon.coordinates = GameArt.CreateText(go.transform, "DistanceHub", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(1f, 0.45f, 0.4f));
         }
         beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.76f, CanonHeight, 1.76f)
-            : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.5f, 0.5f, 0.5f) : new Vector3(0.6f, height, 0.6f));
+            : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.9f, 0.9f, 0.9f) : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;
     }

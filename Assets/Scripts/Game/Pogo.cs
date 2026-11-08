@@ -17,6 +17,19 @@ public class Pogo : Interactable
 
     public Mood State { get; private set; }
 
+    // Chaque joueur tué par Pogo laisse une empreinte de plus sur le couvercle. Emplacements libres sur l'image du couvercle
+    // (1024 x 1024, colonne, ligne) et rotation en degrés ; au-delà du dernier, le couvercle ne change plus.
+    static readonly Vector3[] PrintSpots =
+    {
+        new Vector3(150f, 330f, 15f), new Vector3(880f, 570f, -25f), new Vector3(130f, 690f, 40f), new Vector3(850f, 760f, -10f),
+        new Vector3(430f, 890f, 170f), new Vector3(190f, 190f, -35f), new Vector3(800f, 215f, 30f), new Vector3(590f, 690f, 200f),
+    };
+    const float PrintWidth = 0.19f, PrintAspect = 238f / 180f, ImageSize = 1024f;
+    static Material printMaterial;
+    readonly System.Collections.Generic.List<GameObject> prints = new System.Collections.Generic.List<GameObject>();
+    public int Kills { get; private set; }
+    float width, lidSize, lidTop;
+
     Transform lid, bust, head;
     GameObject abyss;
     GameObject angryEyes;
@@ -51,11 +64,27 @@ public class Pogo : Interactable
         pogo.lid = new GameObject("Charniere").transform;
         pogo.lid.SetParent(go.transform, false);
         pogo.lid.localPosition = new Vector3(0f, BoxHeight, -width * 0.5f);
-        var lidMat = GameArt.Lit("PogoLid", new Color(0.4f, 0.07f, 0.08f), null, 0.35f);
-        GameArt.Prim(PrimitiveType.Cube, pogo.lid, new Vector3(0f, 0.04f, width * 0.5f), new Vector3(width * 1.04f, 0.08f, width * 1.04f), lidMat);
-        GameArt.Prim(PrimitiveType.Cube, pogo.lid, new Vector3(0f, 0.09f, width * 0.5f), new Vector3(width * 0.8f, 0.03f, width * 0.8f),
-            GameArt.Lit("PogoGold", new Color(0.75f, 0.58f, 0.2f), null, 0.6f));
-        foreach (var c in pogo.lid.GetComponentsInChildren<Collider>()) Destroy(c);
+        // Ajout V0.6.2 : couvercle Meshy (étoile, empreintes de pattes ensanglantées), posé à plat, le haut du dessin côté charnière.
+        float lidSize = width * 1.04f;
+        pogo.width = width;
+        pogo.lidSize = lidSize;
+        pogo.lidTop = 0.112f;
+        var lidModel = GameArt.SpawnModel("PogoCouvercle", pogo.lid, lidSize);
+        if (lidModel != null)
+        {
+            float thickness = GameArt.LocalBounds(lidModel.transform).size.z;
+            pogo.lidTop = thickness * 0.93f;
+            lidModel.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+            lidModel.transform.localPosition = new Vector3(0f, thickness * 0.5f, (width + lidSize) * 0.5f);
+        }
+        else
+        {
+            var lidMat = GameArt.Lit("PogoLid", new Color(0.4f, 0.07f, 0.08f), null, 0.35f);
+            GameArt.Prim(PrimitiveType.Cube, pogo.lid, new Vector3(0f, 0.04f, width * 0.5f), new Vector3(lidSize, 0.08f, lidSize), lidMat);
+            GameArt.Prim(PrimitiveType.Cube, pogo.lid, new Vector3(0f, 0.09f, width * 0.5f), new Vector3(width * 0.8f, 0.03f, width * 0.8f),
+                GameArt.Lit("PogoGold", new Color(0.75f, 0.58f, 0.2f), null, 0.6f));
+            foreach (var c in pogo.lid.GetComponentsInChildren<Collider>()) Destroy(c);
+        }
 
         // V0.4.1 : boîte ouverte, une surface noire sous le rebord cache le bas du ressort et le fond de la boîte.
         pogo.abyss = GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, BoxHeight - 0.06f, 0f),
@@ -150,6 +179,37 @@ public class Pogo : Interactable
         angryEyes.SetActive(mood == Mood.Angry);
         angryLight.enabled = mood == Mood.Angry;
         UpdateOutline();
+    }
+
+    // Nombre de joueurs tués depuis le début de la partie (décidé par l'hôte).
+    public void SetKills(int kills)
+    {
+        Kills = kills;
+        int wanted = Mathf.Clamp(kills, 0, PrintSpots.Length);
+        while (prints.Count > wanted)
+        {
+            Destroy(prints[prints.Count - 1]);
+            prints.RemoveAt(prints.Count - 1);
+        }
+        while (prints.Count < wanted) prints.Add(CreatePrint(PrintSpots[prints.Count]));
+    }
+
+    GameObject CreatePrint(Vector3 spot)
+    {
+        if (printMaterial == null)
+            printMaterial = new Material(Shader.Find("Sprites/Default"))
+            {
+                name = "PogoPatte",
+                mainTexture = Resources.Load<Texture2D>("Art/PogoPatte"),
+                color = new Color(0.8f, 0.8f, 0.8f),
+            };
+        // Le haut de l'image est côté charnière ; sa droite est à droite d'un joueur placé devant la boîte.
+        var position = new Vector3((0.5f - spot.x / ImageSize) * lidSize, lidTop, (width - lidSize) * 0.5f + spot.y / ImageSize * lidSize);
+        float size = lidSize * PrintWidth;
+        var print = GameArt.Prim(PrimitiveType.Quad, lid, position, new Vector3(size, size * PrintAspect, 1f), printMaterial);
+        print.name = "Empreinte";
+        print.transform.localRotation = Quaternion.Euler(90f, 180f + spot.z, 0f);
+        return print;
     }
 
     // Contour blanc uniquement tant que Pogo dort dans sa boîte.

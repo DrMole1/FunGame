@@ -34,7 +34,7 @@ using UnityEngine;
 //   BW|id|x|y|z|appareil|cap|joueur / BZ|id                     hôte -> tous : appareil posé / retiré (Balise, Balise Améliorée,
 //                                                               Téléporteur, Station Curative, Canon, objets uniques)
 //   JO / JS|objet / JE                                          joueur -> hôte : ouvrir Pogo / lui vendre un objet / cliquer les mains vides
-//   JX|état|sourire|frappé / JK / JN|raison                     hôte -> tous : état de Pogo ; -> joueur : coup mortel / refus
+//   JX|état|sourire|frappé|victimes / JK / JN|raison                    hôte -> tous : état de Pogo ; -> joueur : coup mortel / refus
 //   DF|durée                                                    hôte -> joueur : La Dame vous attaque, immobilisé
 //   SK|hub -> SR|bonus (-1 = refusé), SX|hub                    /skip round ou Bouton Skip (confettis à côté du bouton)
 //   BK|pitch -> BA|id|pitch                                     aboiement d'un joueur
@@ -133,6 +133,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // Pogo (hôte) : humeur, dernière activité (achat ou ouverture), fin du sourire et de la pénitence.
     Pogo.Mood pogoMood;
     float pogoActiveAt, pogoSmileUntil, pogoCooldownUntil;
+    int pogoKills;
     bool hostCurfew;
 
     float syncTimer, regenAcc, serenityRegenAcc, mistTimer, screenTimer, entityTimer;
@@ -283,7 +284,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         bellObsession = -1;
         pogoMood = Pogo.Mood.Closed;
         pogoSmileUntil = pogoCooldownUntil = 0f;
-        foreach (var p in pogos) if (p != null) p.SetState(Pogo.Mood.Closed, false, "");
+        pogoKills = 0;
+        foreach (var p in pogos) if (p != null)
+        {
+            p.SetState(Pogo.Mood.Closed, false, "");
+            p.SetKills(0);
+        }
     }
 
     public void OnLocalEnter()
@@ -360,7 +366,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (orbit != null) orbit.target = player.transform;
         hub.door.SetOpen(false, true);
         button.SetRaised(true, false);
-        foreach (var p in pogos) if (p != null) p.SetState(Pogo.Mood.Closed, false, "");
+        pogoKills = 0;
+        foreach (var p in pogos) if (p != null)
+        {
+            p.SetState(Pogo.Mood.Closed, false, "");
+            p.SetKills(0);
+        }
         mistAmount = 0f;
         UpdateScreens();
     }
@@ -1077,8 +1088,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         // 1,5 seconde dans ses yeux, puis le corps s'effondre.
         if (by != null && (by.Nightmare || by.Kind == EntityKind.TeteDeCloche))
         {
-            OrbitCamera.StartJumpscare(by.transform, by.EyesLocal, GameRules.NightmareStareDuration, true, 0.6f);
-            KillLocal(cause, GameRules.NightmareStareDuration);
+            float stare = by.Kind == EntityKind.TeteDeCloche ? GameRules.TeteStareDuration : GameRules.NightmareStareDuration;
+            OrbitCamera.StartJumpscare(by.transform, by.EyesLocal, stare, true, 0.6f);
+            KillLocal(cause, stare);
         }
         else KillLocal(cause);
     }
@@ -1187,9 +1199,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case ItemType.BouleOr:
             case ItemType.BouleDiamant:
                 TryPlaceBeacon(slot, Beacon.KindOf(status[slot]));
-                break;
-            case ItemType.JetonWoof:
-                hud.Toast(Loc.T("Visez une borne d'arcade chargée pour y insérer le Jeton WOOF."));
                 break;
             case ItemType.Chargeur:
                 hud.Toast(Loc.T("Visez la Balise d'un Hub, près de la porte, pour la recharger."));
@@ -1336,7 +1345,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // ================= Pogo =================
 
-    string PogoMsg(string attacked) => "JX|" + (int)pogoMood + "|" + (Time.time < pogoSmileUntil ? 1 : 0) + "|" + attacked;
+    string PogoMsg(string attacked) => "JX|" + (int)pogoMood + "|" + (Time.time < pogoSmileUntil ? 1 : 0) + "|" + attacked + "|" + pogoKills;
 
     void SetPogo(Pogo.Mood mood, string attacked = "")
     {
@@ -2708,12 +2717,17 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                     // Coup de tête mortel, puis il rentre dans sa boîte : 5 s avant de pouvoir le rappeler.
                     pogoCooldownUntil = Time.time + GameRules.PogoCooldown;
                     pogoSmileUntil = 0f;
+                    pogoKills++;
                     SetPogo(Pogo.Mood.Closed, from);
                     net.ToPeer(from, "JK");
                 }
                 break;
-            case "JX" when f.Length >= 4:
-                foreach (var p in pogos) if (p != null) p.SetState((Pogo.Mood)Mathf.Clamp(NetworkGame.I(f[1]), 0, 2), f[2] == "1", f[3]);
+            case "JX" when f.Length >= 5:
+                foreach (var p in pogos) if (p != null)
+                {
+                    p.SetState((Pogo.Mood)Mathf.Clamp(NetworkGame.I(f[1]), 0, 2), f[2] == "1", f[3]);
+                    p.SetKills(NetworkGame.I(f[4]));
+                }
                 break;
             case "JK":
                 if (!status.Dead && !Invincible)

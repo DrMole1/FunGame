@@ -14,6 +14,7 @@ public static class EntitySetup
     {
         GameSetup.ImportArt();
         CreateRedBeacon();
+        CreateHubBeacons();
         SetupCreature("Tour", 2.66f, new[] { ("Walk", true), ("Run", true), ("Look", true), ("Stance", true) });
         SetupCreature("Cloche", 1f, new[] { ("Walk", true), ("Run", true) });
         SetupFou();
@@ -118,6 +119,65 @@ public static class EntitySetup
         EditorUtility.SetDirty(art);
         Debug.Log(name + " installée (échelle " + art.scale.ToString("0.###") + ").");
     }
+
+    // Balises principales des Hubs 2 à 4 (violette, verte, dorée ; GDD 9) : les parties bleues de la texture prennent la
+    // couleur du Hub, le reste (socle, métal) ne change pas. Les Hubs suivants réutilisent ces matériaux.
+    const float BeaconBlueHue = 0.59f;
+
+    [MenuItem("FunGame/Préparer les balises des Hubs")]
+    public static void CreateHubBeacons()
+    {
+        const string art = "Assets/Resources/Art/";
+        const string source = art + "Balise_Textures/Balise_BaseColor.png";
+        if (!File.Exists(source)) return;
+        byte[] original = File.ReadAllBytes(source);
+        for (int hub = 2; hub <= 4; hub++)
+        {
+            string name = "BaliseHub" + hub;
+            string texDir = art + name + "_Textures";
+            string texPath = texDir + "/" + name + "_BaseColor.png";
+            if (!AssetDatabase.IsValidFolder(texDir)) AssetDatabase.CreateFolder("Assets/Resources/Art", name + "_Textures");
+
+            Color.RGBToHSV(Beacon.HubColor(hub), out float targetHue, out _, out _);
+            var tex = new Texture2D(2, 2);
+            tex.LoadImage(original);
+            Color[] px = tex.GetPixels();
+            for (int i = 0; i < px.Length; i++) px[i] = TintBlue(px[i], targetHue);
+            tex.SetPixels(px);
+            File.WriteAllBytes(texPath, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(texPath);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(texPath);
+            importer.maxTextureSize = 512;
+            importer.SaveAndReimport();
+
+            string matPath = art + name + ".mat";
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+            if (mat == null)
+            {
+                mat = new Material(Shader.Find("Standard"));
+                AssetDatabase.CreateAsset(mat, matPath);
+            }
+            mat.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+            mat.color = Color.white;
+            mat.SetFloat("_Glossiness", 0.25f);
+            EditorUtility.SetDirty(mat);
+        }
+        AssetDatabase.SaveAssets();
+    }
+
+    // Plus le pixel est franchement bleu, plus il prend la teinte voulue (fondu sur les gris bleutés pour éviter les ruptures).
+    static Color TintBlue(Color c, float targetHue)
+    {
+        Color.RGBToHSV(c, out float h, out float s, out float v);
+        float weight = Soft(0.06f, 0.2f, s) * Soft(0.47f, 0.52f, h) * (1f - Soft(0.72f, 0.78f, h));
+        if (weight <= 0f) return c;
+        Color tinted = Color.HSVToRGB(Mathf.Repeat(targetHue + (h - BeaconBlueHue) * 0.5f, 1f), s, v);
+        tinted.a = c.a;
+        return Color.Lerp(c, tinted, weight);
+    }
+
+    static float Soft(float from, float to, float value) => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(from, to, value));
 
     // Balise Améliorée : la texture de la Balise dont le cristal bleu devient rouge.
     static void CreateRedBeacon()

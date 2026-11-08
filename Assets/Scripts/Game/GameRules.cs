@@ -246,7 +246,9 @@ public static class GameRules
     public const float TeteLeaveMultiplier = 0.4f;         // "en se déplaçant lentement"
     public const float TeteRingSlow = 3f, TeteRingFast = 0.5f, TeteRingNear = 5f;
     public const float TeteSightRange = 30f;               // obnubile les joueurs en vision directe
-    public const float TeteKillHold = 0.9f;                // immobilisé, puis le coup mortel
+    public const float TeteKillHold = 0.63f;               // immobilisé, puis le coup mortel
+    public const float TeteKillAnimSpeed = 1f / 0.7f;      // animation d'attaque accélérée pour tenir dans ce délai
+    public const float TeteStareDuration = 1.05f;          // la caméra de la victime plonge dans ses yeux
 
     // Vitesse de la Tête de Cloche (multiple de la marche d'un joueur) après 't' secondes de traque : celle du joueur les
     // 7 premières secondes, puis elle accélère chaque seconde jusqu'à 2x au bout de 20 secondes.

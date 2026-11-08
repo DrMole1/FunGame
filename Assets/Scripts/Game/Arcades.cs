@@ -18,7 +18,6 @@ public class ArcadeMachine : Interactable
     {
         new Color(0.2f, 0.75f, 0.3f), new Color(0.2f, 0.45f, 0.95f), new Color(0.6f, 0.25f, 0.9f), new Color(1f, 0.78f, 0.15f), new Color(0.12f, 0.1f, 0.1f),
     };
-    static readonly string[] SectionLabels = { "50", "100", "200", "500", "" };
     static readonly ItemType[] Tickets = { ItemType.Ticket50, ItemType.Ticket100, ItemType.Ticket200, ItemType.Ticket500 };
     // Section tirée : un ticket, ou ItemType.Reveil (le Réveil apparaît et poursuit le joueur).
     public static ItemType SectionPrize(int section) =>
@@ -138,12 +137,9 @@ public class ArcadeMachine : Interactable
     {
         get
         {
-            string name = Loc.T(KindName);
-            if (!Charged) return Loc.F("{0} éteinte : chargez-la avec une Balise", name);
-            if (Busy) return Loc.F("{0} : un joueur l'utilise", name);
+            // Seul texte d'une borne : "Utiliser", Jeton WOOF sélectionné ; sinon, aucun.
             var session = GameSession.Instance;
-            bool token = session != null && session.SelectedItem == ItemType.JetonWoof;
-            return token ? Loc.F("Insérer un Jeton WOOF dans : {0}", name) : Loc.F("{0} : sélectionnez un Jeton WOOF", name);
+            return session != null && session.SelectedItem == ItemType.JetonWoof ? Loc.T("Utiliser") : "";
         }
     }
 
@@ -195,31 +191,10 @@ public class ArcadeMachine : Interactable
         wheel.SetParent(visual, false);
         wheel.localPosition = new Vector3(0f, WheelY, WheelZ);
         wheelMat = Unlit("RoueRoulette", Color.white);
-        // Transparent sans profondeur : la roue passe avant les lots écrits dessus.
-        wheelMat.renderQueue = 2990;
         var disc = new GameObject("Secteurs", typeof(MeshFilter), typeof(MeshRenderer));
         disc.transform.SetParent(wheel, false);
         disc.GetComponent<MeshFilter>().sharedMesh = WheelMesh();
         disc.GetComponent<MeshRenderer>().sharedMaterial = wheelMat;
-        // Lots écrits sur chaque section (le texte monte vers le bord) ; une horloge pour le Réveil.
-        for (int s = 0; s < Sections.Length; s++)
-        {
-            float a = (s * 18f + 9f) * Mathf.Deg2Rad;
-            var dir = new Vector3(Mathf.Sin(a), Mathf.Cos(a), 0f);
-            Quaternion rot = Quaternion.AngleAxis(-(s * 18f + 9f), Vector3.forward) * Quaternion.Euler(0f, 180f, 0f);
-            if (Sections[s] < 4)
-            {
-                var label = GameArt.CreateText(wheel, "Lot" + s, dir * WheelRadius * 0.7f + Vector3.forward * 0.004f, 0.0052f, Color.white);
-                label.text = SectionLabels[Sections[s]];
-                label.transform.localRotation = rot;
-            }
-            else
-            {
-                var clock = GameArt.Prim(PrimitiveType.Quad, wheel, dir * WheelRadius * 0.64f + Vector3.forward * 0.004f, Vector3.one * 0.09f,
-                    Unlit("HorlogeReveil", new Color(1f, 0.35f, 0.3f), ClockTexture()));
-                clock.transform.localRotation = rot;
-            }
-        }
         var hub = GameArt.Prim(PrimitiveType.Sphere, wheel, new Vector3(0f, 0f, 0.02f), new Vector3(0.09f, 0.09f, 0.05f), GameArt.Lit("MoyeuRoulette", new Color(0.85f, 0.65f, 0.2f), null, 0.8f));
         foreach (var c in wheel.GetComponentsInChildren<Collider>()) Destroy(c);
         dynamicParts.Add(wheel);
@@ -277,33 +252,6 @@ public class ArcadeMachine : Interactable
         wheelMesh.SetTriangles(tris, 0);
         wheelMesh.RecalculateBounds();
         return wheelMesh;
-    }
-
-    // Petite horloge de réveil (cadran, aiguilles, deux cloches) en blanc sur transparent.
-    static Texture2D clockTex;
-    static Texture2D ClockTexture()
-    {
-        if (clockTex != null) return clockTex;
-        const int size = 64;
-        clockTex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, name = "HorlogeReveil" };
-        var px = new Color[size * size];
-        var c = new Vector2(32f, 28f);
-        for (int y = 0; y < size; y++)
-            for (int x = 0; x < size; x++)
-            {
-                var p = new Vector2(x + 0.5f, y + 0.5f);
-                float d = Vector2.Distance(p, c);
-                bool on = d < 22f;
-                bool face = d < 17f;
-                // Aiguilles (midi et trois heures) et cloches.
-                bool hand = face && (Mathf.Abs(p.x - c.x) < 2f && p.y > c.y && p.y < c.y + 13f || Mathf.Abs(p.y - c.y) < 2f && p.x > c.x && p.x < c.x + 10f);
-                bool bells = Vector2.Distance(p, new Vector2(15f, 51f)) < 8f || Vector2.Distance(p, new Vector2(49f, 51f)) < 8f;
-                float a = on && (!face || hand) || bells ? 1f : 0f;
-                px[y * size + x] = new Color(1f, 1f, 1f, a);
-            }
-        clockTex.SetPixels(px);
-        clockTex.Apply();
-        return clockTex;
     }
 
     // La roue tourne 7 secondes et s'arrête sur la section tirée (sous le pointeur, en haut).

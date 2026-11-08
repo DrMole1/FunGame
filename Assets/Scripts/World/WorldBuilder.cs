@@ -2065,13 +2065,14 @@ public static class WorldBuilder
         }
     }
 
-    // Grande sphère posée (à moitié enfoncée dans le sol) ou suspendue au plafond : fantomatique, noire ou blanche.
+    // Grande sphère posée (à moitié enfoncée dans le sol) ou suspendue au plafond : fantomatique, noire ou blanche, sans
+    // collision (on la traverse, et les Balises se voient à travers).
     static void AddBigSphere(Transform parent, Vector3 pos, float radius, float floor, float ceil, System.Random rnd)
     {
         Material mat = GameArt.Translucent(rnd.NextDouble() < 0.5);
         bool hanging = ceil - floor > 5f && rnd.NextDouble() < 0.5;
         float y = hanging ? Rand(rnd, floor + 2.6f + radius, ceil - radius - 0.3f) : floor + radius * Rand(rnd, 0.3f, 0.9f);
-        var sphere = GameArt.Prim(PrimitiveType.Sphere, parent, new Vector3(pos.x, y, pos.z), Vector3.one * radius * 2f, mat, true);
+        var sphere = GameArt.Prim(PrimitiveType.Sphere, parent, new Vector3(pos.x, y, pos.z), Vector3.one * radius * 2f, mat);
         sphere.name = "Sphere";
         if (hanging)
         {

@@ -42,6 +42,7 @@ public static class DogHeadsSetup
             AssetDatabase.CreateAsset(head, Folder + name + ".asset");
             var tex = Readable(source);
             if (EyeSpots.TryGetValue(entry.name, out var eyes)) PaintEyes(head, tex, eyes.left, eyes.right, eyes.radius);
+            Dull(tex);
             File.WriteAllBytes(Folder + name + ".png", tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
         }
@@ -157,6 +158,23 @@ public static class DogHeadsSetup
                     if (l1 < margin || l2 < margin || l3 < margin) continue;
                     if (InEye(a * l1 + b * l2 + c * l3)) px[y * w + x] = new Color32(4, 3, 3, 255);
                 }
+        }
+        tex.SetPixels32(px);
+        tex.Apply();
+    }
+
+    // Couleurs ternes (décor) : saturation réduite de moitié, un peu assombries.
+    const float Saturation = 0.5f, Brightness = 0.85f;
+
+    static void Dull(Texture2D tex)
+    {
+        var px = tex.GetPixels32();
+        for (int i = 0; i < px.Length; i++)
+        {
+            Color32 c = px[i];
+            float lum = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+            byte F(byte v) => (byte)Mathf.Clamp(Mathf.RoundToInt((lum + (v - lum) * Saturation) * Brightness), 0, 255);
+            px[i] = new Color32(F(c.r), F(c.g), F(c.b), c.a);
         }
         tex.SetPixels32(px);
         tex.Apply();

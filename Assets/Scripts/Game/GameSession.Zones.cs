@@ -74,6 +74,7 @@ public partial class GameSession
         {
             beacons.AddHub(h.index, h.beaconPosition, h.beaconYaw);
             p.SetState(pogos[0].State, false, "");
+            p.SetKills(pogos[0].Kills);
             OnRosterChanged();
             UpdateScreens();
         }
@@ -264,6 +265,8 @@ public partial class GameSession
     float glyphTimer, lastBarkAt = -100f;
     static readonly string[] OrderTexts = { "Assis !", "A la niche !", "Aboie !" };
     const int GlyphTextlessZone = 4;
+    // Sons des glyphes (neutres et d'acquisition) un peu baissés.
+    const float GlyphVolume = 0.75f;
 
     Glyph FindGlyph(int id)
     {
@@ -352,7 +355,7 @@ public partial class GameSession
     {
         var order = orders[type];
         orders[type] = null;
-        if (order?.sound != null) Destroy(order.sound.gameObject);
+        if (order?.sound != null) GameAudio.ReleaseLoop(order.sound);
     }
 
     // Glyphe neutre touché : son seul, entendu de tous les joueurs présents dans la Neutral Room.
@@ -569,7 +572,7 @@ public partial class GameSession
                 if (glyph < 0) return true;
                 var order = new Order { glyph = glyph, start = Time.time - NetworkGame.P(f[3]) };
                 // Le son du glyphe, partout, en boucle, pendant toute la durée de l'ordre.
-                order.sound = GameAudio.Loop2D(Glyph.Sounds[type], 0.85f);
+                order.sound = GameAudio.Loop2D(Glyph.Sounds[type], 0.85f * GlyphVolume);
                 orders[type] = order;
                 return true;
             }
@@ -580,7 +583,7 @@ public partial class GameSession
             {
                 int zone = NetworkGame.I(f[1]), type = NetworkGame.I(f[2]);
                 if (zone < 1 || zone > zones.Count || type < 0 || type >= Glyph.Sounds.Length) return true;
-                if (zones[zone - 1].neutralRoom.Contains(player.transform.position)) GameAudio.Play2D(Glyph.Sounds[type], 0.9f);
+                if (zones[zone - 1].neutralRoom.Contains(player.transform.position)) GameAudio.Play2D(Glyph.Sounds[type], 0.9f * GlyphVolume);
                 return true;
             }
             case "SN" when host:

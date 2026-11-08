@@ -230,7 +230,65 @@ public class GameAudio : MonoBehaviour
         src.dopplerLevel = 0f;
     }
 
-    // Boucle non spatialisée (ordre d'un glyphe, entendu partout) ; détruire son objet pour l'arrêter.
+    // Arrêt d'une boucle en laissant planer un écho : WebGL ne gère pas les filtres audio, l'écho est donc fait de copies
+    // retardées du son, de plus en plus faibles.
+    const float EchoDelay = 0.22f, EchoDecay = 0.5f, EchoLife = 0.8f, EchoAttack = 0.03f, EchoReleaseFade = 0.3f;
+    const int EchoTaps = 4;
+
+    public static void ReleaseLoop(AudioSource src)
+    {
+        if (src == null) return;
+        if (instance == null)
+        {
+            Destroy(src.gameObject);
+            return;
+        }
+        int i = instance.loops.FindIndex(l => l.Key == src);
+        float volume = i >= 0 ? instance.loops[i].Value : src.volume / Mathf.Max(sfx, 0.001f);
+        if (i >= 0) instance.loops.RemoveAt(i);
+        instance.StartCoroutine(instance.EchoOut(src, volume));
+    }
+
+    System.Collections.IEnumerator EchoOut(AudioSource src, float volume)
+    {
+        var taps = new AudioSource[EchoTaps];
+        float position = src.time, start = Time.unscaledTime;
+        float total = EchoDelay * EchoTaps + EchoLife;
+        while (src != null && Time.unscaledTime - start < total)
+        {
+            float t = Time.unscaledTime - start;
+            float level = silenced ? 0f : volume * sfx;
+            src.volume = level * Mathf.Clamp01(1f - t / EchoReleaseFade);
+            for (int k = 0; k < EchoTaps; k++)
+            {
+                float local = t - EchoDelay * (k + 1);
+                if (local < 0f) continue;
+                if (taps[k] == null) taps[k] = StartEchoTap(src, position);
+                float envelope = Mathf.Clamp01(local / EchoAttack) * Mathf.Clamp01(1f - local / EchoLife);
+                taps[k].volume = level * Mathf.Pow(EchoDecay, k + 1) * envelope;
+            }
+            yield return null;
+        }
+        // Les copies sont des enfants de la boucle : détruites avec elle.
+        if (src != null) Destroy(src.gameObject);
+    }
+
+    static AudioSource StartEchoTap(AudioSource src, float position)
+    {
+        var go = new GameObject("Echo");
+        go.transform.SetParent(src.transform, false);
+        var tap = go.AddComponent<AudioSource>();
+        tap.spatialBlend = 0f;
+        tap.clip = src.clip;
+        tap.loop = true;
+        tap.volume = 0f;
+        tap.playOnAwake = false;
+        tap.time = position;
+        tap.Play();
+        return tap;
+    }
+
+    // Boucle non spatialisée (ordre d'un glyphe, entendu partout) ; ReleaseLoop l'arrête en douceur.
     public static AudioSource Loop2D(string clip, float volume)
     {
         if (instance == null) return null;

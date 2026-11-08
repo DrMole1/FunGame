@@ -10,6 +10,9 @@ public static class GameArt
     static Material lit, litEmissive, unlit, outline, text3D;
     static Font font;
 
+    // Patte du titre du lobby (null : le titre s'écrit en entier).
+    public static Sprite TitleIcon => Resources.Load<GameFonts>("GameFonts")?.titleIcon;
+
     // Police du titre du lobby (repli : la police du jeu).
     public static Font TitleFont
     {

@@ -162,6 +162,7 @@ public static class GameSetup
     // Police du jeu, à l'essai (l'ancienne : Assets/Font/PUSAB___.otf).
     const string FontPath = "Assets/Font/Nexa-Heavy.ttf";
     const string TitleFontPath = "Assets/Font/RuslanDisplay-Regular.ttf";
+    const string TitleIconPath = "Assets/Sprite/DogIcon.png";
 
     static void CreateFonts()
     {
@@ -176,6 +177,17 @@ public static class GameSetup
         if (fonts.main == null) Debug.LogError("Police introuvable : " + FontPath);
         fonts.title = AssetDatabase.LoadAssetAtPath<Font>(TitleFontPath);
         if (fonts.title == null) Debug.LogError("Police introuvable : " + TitleFontPath);
+        // Patte du titre, importée en sprite.
+        if (AssetImporter.GetAtPath(TitleIconPath) is TextureImporter icon && (icon.textureType != TextureImporterType.Sprite || !icon.alphaIsTransparency))
+        {
+            icon.textureType = TextureImporterType.Sprite;
+            icon.spriteImportMode = SpriteImportMode.Single;
+            icon.alphaIsTransparency = true;
+            icon.mipmapEnabled = false;
+            icon.SaveAndReimport();
+        }
+        fonts.titleIcon = AssetDatabase.LoadAssetAtPath<Sprite>(TitleIconPath);
+        if (fonts.titleIcon == null) Debug.LogError("Image introuvable : " + TitleIconPath);
         EditorUtility.SetDirty(fonts);
     }
 
@@ -201,8 +213,8 @@ public static class GameSetup
 
     // Modèles statiques Meshy : pas d'animation, matériaux et textures extraits à côté du modèle.
     // Grands décors vus de près (entrée du chapiteau) : texture en 1024.
-    static readonly string[] ReadableArt = { "MachinePince" };
-    static readonly string[] LargeArt = { "EntreeChapiteau", "Roulette", "MachinePince", "ArcadeDance", "PorteBlindee" };
+    static readonly string[] ReadableArt = { "MachinePince", "PogoCouvercle" };
+    static readonly string[] LargeArt = { "EntreeChapiteau", "Roulette", "MachinePince", "ArcadeDance", "PorteBlindee", "PogoCouvercle" };
 
     internal static void ImportArt()
     {
