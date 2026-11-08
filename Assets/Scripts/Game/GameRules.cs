@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6.1";
+    public const string Version = "V0.6.2";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -129,6 +129,8 @@ public static class GameRules
     public const float TourWalkMultiplier = 0.7f;        // "modérément lente"
     public const float TourRunMultiplier = 1.4f;          // V0.4.6 : elle court (vers sa distance d'attaque, ou la localisation tampon)
     public const float TourAttackDistance = 20f;          // V0.4.6 : au-delà, elle court vers le joueur avant de canaliser
+    public const float TourRunLimit = 20f;                // temps de course cumulé sur un même joueur, puis elle abandonne
+    public const float TourIgnore = 6f;                   // puis ne le prend plus pour cible pendant 6 s
     public const float TourSightRange = 50f;
     public const float TourStepRange = 30f;
     public const float TourSurveyMin = 7f, TourSurveyMax = 15f, TourSurveyDuration = 2f;

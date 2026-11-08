@@ -368,6 +368,7 @@ public class ZoneOrb : Interactable
     public int Index { get; private set; }
     bool active, broken;
     GameObject model, aura, keyhole;
+    Collider solid;
     Light glow;
     float pulse;
 
@@ -426,6 +427,7 @@ public class ZoneOrb : Interactable
         solid.center = new Vector3(0f, b.center.y, 0f);
         solid.height = b.size.y;
         solid.radius = Mathf.Min(b.size.x, b.size.z) * 0.4f;
+        orb.solid = solid;
         return orb;
     }
 
@@ -438,6 +440,8 @@ public class ZoneOrb : Interactable
         active = isActive;
         broken = isBroken;
         model.SetActive(!broken);
+        // Brisé : plus rien ne bloque le passage des joueurs.
+        solid.enabled = !broken;
         bool lit = active && !broken;
         aura.SetActive(lit);
         keyhole.SetActive(lit);

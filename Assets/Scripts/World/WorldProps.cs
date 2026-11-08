@@ -41,12 +41,15 @@ public class PlayerPresence : MonoBehaviour
     void OnDisable() => All.Remove(this);
 }
 
-// Piège Laser : deux embouts face à face, faisceau visible quand un joueur s'approche à moins de 2 m
-// (1 m s'il marche discrètement). Chaque client applique les dégâts à son propre personnage.
+// Piège Laser : deux embouts face à face, faisceau visible quand un joueur s'approche à moins de 4 m (2 m s'il marche
+// discrètement) et voit au moins un embout : derrière un mur, dans le couloir d'à côté, il ne l'allume pas.
+// Chaque client applique les dégâts à son propre personnage.
 public class Laser : MonoBehaviour
 {
     const float RepeatDelay = 1f;
     const float PlayerRadius = 0.35f, PlayerHalfHeight = 0.9f;
+    // Hauteur du regard au-dessus du centre du personnage, et point visé juste devant l'embout, encastré au ras du mur.
+    const float ViewHeight = 0.4f, TipInset = 0.2f;
 
     Vector3 a, b;
     GameObject beam;
@@ -73,7 +76,7 @@ public class Laser : MonoBehaviour
         {
             if (!p.Alive || p.Teleporting) continue;
             float range = GameRules.LaserTriggerDistance * (p.Sneaking ? 0.5f : 1f);
-            if (DistancePointSegment(p.Position, a, b) <= range) { active = true; break; }
+            if (DistancePointSegment(p.Position, a, b) <= range && SeesTip(p)) { active = true; break; }
         }
         if (active != Active)
         {
@@ -114,6 +117,16 @@ public class Laser : MonoBehaviour
         }
         touching = hit;
     }
+
+    bool SeesTip(PlayerPresence p)
+    {
+        Vector3 eye = p.Position + Vector3.up * ViewHeight;
+        Vector3 inset = (b - a).normalized * TipInset;
+        return ClearLine(eye, a + inset) || ClearLine(eye, b - inset);
+    }
+
+    static bool ClearLine(Vector3 from, Vector3 to) =>
+        !Physics.Linecast(from, to, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
 
     public static float DistancePointSegment(Vector3 p, Vector3 s0, Vector3 s1)
     {

@@ -17,6 +17,13 @@ public class Footsteps : MonoBehaviour
     void Update()
     {
         if (avatar == null || (presence != null && !presence.Alive)) return;
+        // En téléportation (boule d'énergie), aucun pas, ni à l'arrivée.
+        if (presence != null && presence.Teleporting)
+        {
+            last = AnimState.Idle;
+            timer = 0.12f;
+            return;
+        }
         AnimState state = avatar.State;
         // Réception d'un saut.
         if (last == AnimState.Jump && state != AnimState.Jump) Step(0.8f, 0.85f);

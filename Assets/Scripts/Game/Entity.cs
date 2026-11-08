@@ -69,6 +69,8 @@ public abstract class Entity : MonoBehaviour
     // Affichage.
     protected Animator animator;
     protected float visualSpeed;
+    Vector3 velocity;                     // vitesse horizontale lissée, mesurée à l'affichage (hôte et clients)
+    const float RecedingSpeed = 0.3f;     // m/s : en deçà, elle est considérée comme immobile ou passant à côté
     readonly NetSmoother smoother = new NetSmoother();
     bool hasNet;
     Vector3 lastPos;
@@ -163,11 +165,17 @@ public abstract class Entity : MonoBehaviour
             if (Pulse != shownPulse) OnPulse();
             shownPulse = Pulse;
         }
-        float moved = Horizontal(transform.position - lastPos).magnitude / Mathf.Max(dt, 0.0001f);
+        Vector3 step = Horizontal(transform.position - lastPos) / Mathf.Max(dt, 0.0001f);
         lastPos = transform.position;
-        visualSpeed = Mathf.Lerp(visualSpeed, moved, 1f - Mathf.Exp(-6f * dt));
+        float smoothing = 1f - Mathf.Exp(-6f * dt);
+        visualSpeed = Mathf.Lerp(visualSpeed, step.magnitude, smoothing);
+        velocity = Vector3.Lerp(velocity, step, smoothing);
         Animate(dt);
     }
+
+    // L'entité s'éloigne de ce point par son propre déplacement (celui du joueur ne compte pas).
+    public bool MovingAwayFrom(Vector3 point) =>
+        Vector3.Dot(velocity, Horizontal(transform.position - point).normalized) > RecedingSpeed;
 
     protected virtual void OnStateChanged(byte previous, byte next) { }
     protected virtual void OnPulse() { }

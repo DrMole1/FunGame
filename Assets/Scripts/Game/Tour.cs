@@ -7,7 +7,8 @@ using UnityEngine;
 // Elle voit à 50 m devant elle (les murs bloquent la vue). Un joueur repéré à plus de 20 m (distance d'attaque) voit la
 // Tour courir vers lui (V0.4.6) ; à 20 m, il entend une alerte, sa position est mémorisée (localisation tampon) et la Tour
 // se prépare 3 secondes. S'il est encore en vue, il est immobilisé et la Tour le charge à une vitesse fulgurante, à travers
-// obstacles et dénivelés. S'il s'est caché, elle court vers la localisation tampon.
+// obstacles et dénivelés. S'il s'est caché, elle court vers la localisation tampon. Après 20 secondes de course cumulées
+// sur un même joueur (même s'il lui échappe et qu'elle le retrouve), elle abandonne et l'ignore pendant 6 secondes.
 public class Tour : Entity
 {
     public enum State : byte { Walk = 0, Survey = 1, Channel = 2, Charge = 3, Investigate = 4, Approach = 5 }
@@ -23,9 +24,11 @@ public class Tour : Entity
     public override Vector3 EyesLocal => new Vector3(0f, EyeHeight, 0.3f);
     public State Current { get => (State)state; private set => state = (byte)value; }
 
-    float surveyTimer, stateTimer, stepTimer;
+    float surveyTimer, stateTimer, stepTimer, runTime;
     Vector3 buffer, chargeFrom, chargeTo;
     bool turnBack;
+    string quarry = "";                   // joueur auquel 'runTime' se rapporte
+    readonly Dictionary<string, float> ignoreUntil = new Dictionary<string, float>();
 
     protected override void Init() => surveyTimer = Range(GameRules.TourSurveyMin, GameRules.TourSurveyMax);
 
@@ -83,10 +86,11 @@ public class Tour : Entity
             {
                 // Toujours à l'affût, même en allant vers la localisation tampon.
                 foreach (var p in players)
-                    if (Valid(p) && Sees(p, EyeHeight, GameRules.TourSightRange, FieldOfView)) { Spot(p); return; }
+                    if (CanSpot(p) && Sees(p, EyeHeight, GameRules.TourSightRange, FieldOfView)) { Spot(p); return; }
 
                 if (Current == State.Investigate)
                 {
+                    if (RunExhausted(dt)) { GiveUp(); break; }
                     Speed = GameRules.BaseSpeed * GameRules.TourRunMultiplier;
                     FollowPath(dt);
                     if (PathDone) BeginSurvey();
@@ -102,9 +106,12 @@ public class Tour : Entity
             case State.Survey:
                 Speed = 0f;
                 foreach (var p in players)
-                    if (Valid(p) && Sees(p, EyeHeight, GameRules.TourSightRange, 360f)) { Spot(p); return; }
+                    if (CanSpot(p) && Sees(p, EyeHeight, GameRules.TourSightRange, 360f)) { Spot(p); return; }
                 if (stateTimer >= GameRules.TourSurveyDuration)
                 {
+                    // Plus personne en vue : la prochaine poursuite repart de zéro.
+                    runTime = 0f;
+                    quarry = "";
                     Current = State.Walk;
                     surveyTimer = Range(GameRules.TourSurveyMin, GameRules.TourSurveyMax);
                     // 30 % : demi-tour, vers un point derrière elle ; sinon elle reprend sa route.
@@ -116,6 +123,7 @@ public class Tour : Entity
             case State.Approach:
             {
                 // Elle court vers le joueur repéré jusqu'à sa distance d'attaque.
+                if (RunExhausted(dt)) { GiveUp(); break; }
                 var target = Find(players, TargetId);
                 bool seen = Valid(target) && Sees(target, EyeHeight, GameRules.TourSightRange, 360f);
                 if (seen) buffer = Feet(target);
@@ -178,15 +186,38 @@ public class Tour : Entity
                 int node = nav.NodeAt(transform.position);
                 if (node >= 0) transform.position = nav.Position(node);
                 TargetId = "";
+                runTime = 0f;
                 BeginSurvey();
                 break;
             }
         }
     }
 
+    bool CanSpot(PlayerPresence p) => Valid(p) && !(ignoreUntil.TryGetValue(p.PlayerId, out float until) && Time.time < until);
+
+    bool RunExhausted(float dt)
+    {
+        runTime += dt;
+        return runTime >= GameRules.TourRunLimit;
+    }
+
+    // Trop longue course : elle s'arrête, regarde autour d'elle et laisse ce joueur tranquille un moment.
+    void GiveUp()
+    {
+        if (quarry.Length > 0) ignoreUntil[quarry] = Time.time + GameRules.TourIgnore;
+        TargetId = "";
+        ClearPath();
+        BeginSurvey();
+    }
+
     // Joueur repéré : trop loin, elle court vers lui ; à sa distance d'attaque, elle canalise.
     void Spot(PlayerPresence p)
     {
+        if (p.PlayerId != quarry)
+        {
+            quarry = p.PlayerId;
+            runTime = 0f;
+        }
         if (Horizontal(p.Position - transform.position).magnitude <= GameRules.TourAttackDistance) { BeginChannel(p); return; }
         Current = State.Approach;
         stateTimer = 0f;

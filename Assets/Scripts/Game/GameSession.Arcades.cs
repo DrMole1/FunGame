@@ -127,14 +127,14 @@ public partial class GameSession
     // Charge (Balise chargée la plus proche qui voit la borne, Balises des Hubs comprises), fin des parties.
     void UpdateHostArcades()
     {
-        if (arcadeSessions.Count == 0) return;
-        foreach (var kv in new List<KeyValuePair<int, ArcadeSession>>(arcadeSessions))
-        {
-            if (!arcades.TryGetValue(kv.Key, out var m) || m == null) { EndArcade(kv.Key); continue; }
-            float age = Time.time - kv.Value.start;
-            if (m.Kind == ArcadeKind.Roulette && age >= GameRules.RouletteSpin) FinishRoulette(m, kv.Value);
-            else if (age >= ArcadeTimeout || !net.Roster.ContainsKey(kv.Value.user)) EndArcade(kv.Key);
-        }
+        if (arcadeSessions.Count > 0)
+            foreach (var kv in new List<KeyValuePair<int, ArcadeSession>>(arcadeSessions))
+            {
+                if (!arcades.TryGetValue(kv.Key, out var m) || m == null) { EndArcade(kv.Key); continue; }
+                float age = Time.time - kv.Value.start;
+                if (m.Kind == ArcadeKind.Roulette && age >= GameRules.RouletteSpin) FinishRoulette(m, kv.Value);
+                else if (age >= ArcadeTimeout || !net.Roster.ContainsKey(kv.Value.user)) EndArcade(kv.Key);
+            }
         arcadeTimer -= Time.unscaledDeltaTime;
         if (arcadeTimer > 0f) return;
         arcadeTimer = 0.4f;

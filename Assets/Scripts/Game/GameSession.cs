@@ -1712,7 +1712,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     }
 
     // Pulsations cardiaques (GDD 8, Note 02, V0.4.8) : un Cauchemar à moins de 10 m que la caméra voit (marche discrète
-    // sans effet sur la distance), ou un Cauchemar qui traque le personnage ; plus il est proche, plus le cœur bat vite.
+    // sans effet sur la distance) et qui ne s'éloigne pas, ou un Cauchemar qui traque le personnage ; plus il est proche,
+    // plus le cœur bat vite.
     const float DreadSightRange = 10f, DreadChaseRange = 30f;
 
     void UpdateDread()
@@ -1727,7 +1728,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 // Traqué : la tension ne descend pas sous un plancher, même de loin.
                 if (e.TargetId == net.MyId)
                     dread = Mathf.Max(dread, Mathf.Lerp(0.35f, 1f, 1f - Mathf.Clamp01(d / DreadChaseRange)));
-                if (d < DreadSightRange && CameraSees(cam, e, DreadSightRange + 6f))
+                if (d < DreadSightRange && !e.MovingAwayFrom(player.transform.position) && CameraSees(cam, e, DreadSightRange + 6f))
                     dread = Mathf.Max(dread, Mathf.Lerp(0.25f, 1f, 1f - d / DreadSightRange));
             }
         OrbitCamera.Dread = dread;

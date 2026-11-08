@@ -71,15 +71,15 @@ public class OrbitCamera : MonoBehaviour
     // Pulsations cardiaques (GDD 8, Note 02, V0.4.8) : 0 = calme, 1 = Cauchemar tout proche. Fixé à chaque image par la
     // session ; la caméra bat au rythme du cœur (d'autant plus vite que l'entité est proche), avec un battement sonore
     // bien audible, et le balancement de tête à la première personne se fait plus insistant. L'effet monte vite et retombe
-    // lentement.
+    // en 1 seconde environ.
     public static float Dread;
-    // Personnage mort : la tension retombe plus vite, le battement s'estompe en 1,4 s environ (avant le silence de la mort).
+    // Personnage mort : le battement s'estompe en 1,4 s environ (avant le silence de la mort).
     public static bool Dying;
     static float dread, heartPhase, heartFov, beatAt = -10f;
     // Tension lissée (0 à 1) et battement en cours (0 à 1,6), pour l'assombrissement de l'écran (GameHud).
     public static float HeartTension => dread;
     public static float HeartBeat => dread > 0.001f ? HeartEnvelope(Time.time - beatAt) : 0f;
-    const float DreadRise = 3f, DreadFall = 0.35f, DreadFallDying = 0.7f;
+    const float DreadRise = 3f, DreadFall = 1f, DreadFallDying = 0.7f;
     const float HeartRateCalm = 60f, HeartRatePanic = 120f;   // battements par minute
     const float HeartFovPulse = 2.6f;                          // degrés de champ de vision au battement
     // Son Battement_Coeur (GDD 12, V0.4.11) : un « poum-poum » par pulsation, dont les deux coups tombent 0,09 s et

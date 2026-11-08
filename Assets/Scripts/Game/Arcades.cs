@@ -174,6 +174,12 @@ public class ArcadeMachine : Interactable
 
     // Roue de la borne Meshy (repère de la borne de 2 m) : centre, rayon de la face peinte, et pointeur au-dessus.
     const float WheelY = 1.39f, WheelZ = 0.215f, WheelRadius = 0.415f;
+    // Texture de pinceau des boutons du menu, sans ses bords déchirés (zone utile de UMin à UMax et de VMin à VMax) ; chaque
+    // section en occupe une bande. WheelBoost compense sa teinte moyenne (0,92), pour garder les couleurs des sections.
+    const int WheelBrushW = 256, WheelBrushH = 512, WheelBrushSeed = 57;
+    const float WheelUMin = 0.1f, WheelUMax = 0.9f, WheelVMin = 0.1f, WheelVMax = 0.9f, WheelBandV = 0.12f, WheelBoost = 1f / 0.92f;
+    static readonly Color WheelLit = new Color(WheelBoost, WheelBoost, WheelBoost, 1f);
+    static readonly Color WheelDim = new Color(0.42f * WheelBoost, 0.42f * WheelBoost, 0.45f * WheelBoost, 1f);
     Transform wheel;
     Material wheelMat;
     float spinStart = -1f, spinFrom, spinTo, wheelAngle, nextSpark;
@@ -190,7 +196,7 @@ public class ArcadeMachine : Interactable
         wheel = new GameObject("Roue").transform;
         wheel.SetParent(visual, false);
         wheel.localPosition = new Vector3(0f, WheelY, WheelZ);
-        wheelMat = Unlit("RoueRoulette", Color.white);
+        wheelMat = Unlit("RoueRoulette", WheelDim, UiKit.BrushTexture(WheelBrushW, WheelBrushH, WheelBrushSeed));
         var disc = new GameObject("Secteurs", typeof(MeshFilter), typeof(MeshRenderer));
         disc.transform.SetParent(wheel, false);
         disc.GetComponent<MeshFilter>().sharedMesh = WheelMesh();
@@ -200,8 +206,8 @@ public class ArcadeMachine : Interactable
         dynamicParts.Add(wheel);
     }
 
-    // Disque des 20 sections (couleur par sommet), visible des deux côtés ; la section s est centrée sur l'angle s x 18 + 9
-    // (sens horaire depuis le haut, en regardant le repère local).
+    // Disque des 20 sections (couleur par sommet, matière par la texture, traînées du centre vers le bord), visible des deux
+    // côtés ; la section s est centrée sur l'angle s x 18 + 9 (sens horaire depuis le haut, en regardant le repère local).
     static Mesh wheelMesh;
     static Mesh WheelMesh()
     {
@@ -209,16 +215,19 @@ public class ArcadeMachine : Interactable
         const int sub = 6;
         var verts = new List<Vector3>();
         var colors = new List<Color>();
+        var uvs = new List<Vector2>();
         var tris = new List<int>();
-        // Fond doré sous les sections (les liserés), dessiné en premier : le matériau n'écrit pas la profondeur.
+        // Fond noir sous les sections (les lignes qui les séparent), dessiné en premier : le matériau n'écrit pas la profondeur.
         int bg = verts.Count;
         verts.Add(new Vector3(0f, 0f, -0.002f));
-        colors.Add(new Color(0.85f, 0.65f, 0.2f));
+        colors.Add(Color.black);
+        uvs.Add(new Vector2(0.5f, 0.5f));
         for (int k = 0; k <= 60; k++)
         {
             float a = k / 60f * Mathf.PI * 2f;
             verts.Add(new Vector3(Mathf.Sin(a), Mathf.Cos(a), -0.002f / WheelRadius) * WheelRadius);
-            colors.Add(new Color(0.85f, 0.65f, 0.2f));
+            colors.Add(Color.black);
+            uvs.Add(new Vector2(0.5f, 0.5f));
         }
         for (int k = 0; k < 60; k++)
         {
@@ -232,13 +241,17 @@ public class ArcadeMachine : Interactable
             int center = verts.Count;
             verts.Add(Vector3.zero);
             colors.Add(inner);
+            // Bandes larges pour une matière nette : elles se chevauchent, réparties dans le désordre entre sections voisines.
+            float startV = WheelVMin + (s * 7 % Sections.Length) * (WheelVMax - WheelVMin - WheelBandV) / (Sections.Length - 1);
+            uvs.Add(new Vector2(WheelUMin, startV + 0.5f * WheelBandV));
             for (int k = 0; k <= sub; k++)
             {
-                // Fin liseré doré entre deux sections.
+                // Fine ligne noire entre deux sections.
                 float t = (float)k / sub;
                 float a = (s * 18f + Mathf.Lerp(0.6f, 17.4f, t)) * Mathf.Deg2Rad;
                 verts.Add(new Vector3(Mathf.Sin(a), Mathf.Cos(a), 0f) * WheelRadius);
                 colors.Add(c);
+                uvs.Add(new Vector2(WheelUMax, startV + t * WheelBandV));
             }
             for (int k = 0; k < sub; k++)
             {
@@ -249,6 +262,7 @@ public class ArcadeMachine : Interactable
         wheelMesh = new Mesh { name = "RoueRoulette" };
         wheelMesh.SetVertices(verts);
         wheelMesh.SetColors(colors);
+        wheelMesh.SetUVs(0, uvs);
         wheelMesh.SetTriangles(tris, 0);
         wheelMesh.RecalculateBounds();
         return wheelMesh;
@@ -268,7 +282,7 @@ public class ArcadeMachine : Interactable
     void UpdateRoulette()
     {
         if (wheel == null) return;
-        wheelMat.color = Charged ? Color.white : new Color(0.42f, 0.42f, 0.45f);
+        wheelMat.color = Charged ? WheelLit : WheelDim;
         if (spinStart < 0f) return;
         float t = Mathf.Clamp01((Time.time - spinStart) / GameRules.RouletteSpin);
         float ease = 1f - Mathf.Pow(1f - t, 3f);
