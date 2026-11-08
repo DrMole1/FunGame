@@ -8,6 +8,8 @@ public enum DeviceKind : byte
 {
     Beacon = 0, Enhanced = 1, Teleporter = 2, Station = 3, Canon = 4, Television = 5, Trampoline = 6, Bell = 7,
     Lapin = 8, Pingouin = 9, Singe = 10, Chat = 11, DiscoArgent = 12, DiscoOr = 13, DiscoDiamant = 14,
+    // V0.6.3 (note 06 du chapitre 7) : canards posés au sol. CanardColore : palier 1 ; les paliers suivants suivent.
+    Canard = 15, CanardColore = 16,
 }
 
 // Balise (GDD 7.1) : petite borne posée au sol, ramassable. La Balise du Hub, plus grande, ne se ramasse pas :
@@ -23,8 +25,8 @@ public class Beacon : Interactable
     public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f, StationHeight = 1.15f;
     // Canon posé au sol : 0,64 fois la taille d'un personnage (1,8 m), soit environ 2,4 m de long ; fût à 80 % de sa hauteur.
     public const float CanonHeight = 0.64f * 1.8f, CanonBarrel = CanonHeight * 0.8f, CanonHalfLength = 1.2f;
-    public const DeviceKind LastKind = DeviceKind.DiscoDiamant;
-    public const float PlushHeight = 0.45f, DiscoHeight = 0.72f, DiscoChain = 0.25f;
+    public const DeviceKind LastKind = DeviceKind.CanardColore + Items.MaxDuckTier - 1;
+    public const float PlushHeight = 0.45f, DiscoHeight = 0.72f, DiscoChain = 0.25f, ColoredDuckHeight = 0.6f;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
     public int Id { get; private set; }   // -N : Balise principale du Hub N
@@ -42,6 +44,7 @@ public class Beacon : Interactable
     public bool Networked => Kind <= DeviceKind.Television;
     public bool IsDisco => IsDiscoKind(Kind);
     public static bool IsDiscoKind(DeviceKind kind) => kind >= DeviceKind.DiscoArgent && kind <= DeviceKind.DiscoDiamant;
+    public bool IsDuck => Kind >= DeviceKind.Canard;
     // Boule à facettes suspendue au plafond (point de pose au plafond).
     public bool Hanging { get; private set; }
     // Télévision : son écran (sans signal, décompte ou vidéo).
@@ -54,6 +57,7 @@ public class Beacon : Interactable
 
     public static ItemType ItemOf(DeviceKind kind)
     {
+        if (kind >= DeviceKind.CanardColore) return ItemType.CanardColore + (kind - DeviceKind.CanardColore + 1);
         switch (kind)
         {
             case DeviceKind.Enhanced: return ItemType.BaliseAmelioree;
@@ -70,6 +74,7 @@ public class Beacon : Interactable
             case DeviceKind.DiscoArgent: return ItemType.BouleArgent;
             case DeviceKind.DiscoOr: return ItemType.BouleOr;
             case DeviceKind.DiscoDiamant: return ItemType.BouleDiamant;
+            case DeviceKind.Canard: return ItemType.Canard;
             default: return ItemType.Balise;
         }
     }
@@ -77,12 +82,14 @@ public class Beacon : Interactable
     // Appareil posé par cet objet de l'inventaire (Balise si l'objet ne se pose pas).
     public static DeviceKind KindOf(ItemType item)
     {
-        for (var k = DeviceKind.Beacon; k <= LastKind; k++) if (ItemOf(k) == item) return k;
+        if (Items.IsColoredDuck(item)) return (DeviceKind)((int)DeviceKind.CanardColore + Items.DuckTier(item) - 1);
+        for (var k = DeviceKind.Beacon; k <= DeviceKind.Canard; k++) if (ItemOf(k) == item) return k;
         return DeviceKind.Beacon;
     }
 
     public static float HeightOf(DeviceKind kind)
     {
+        if (kind >= DeviceKind.CanardColore) return ColoredDuckHeight;
         switch (kind)
         {
             case DeviceKind.Teleporter: return PadHeight;
@@ -91,7 +98,7 @@ public class Beacon : Interactable
             case DeviceKind.Television: return GameRules.TvHeight;
             case DeviceKind.Trampoline: return GameRules.TrampolineHeight;
             case DeviceKind.Bell: return GameRules.BellHeight;
-            case DeviceKind.Lapin: case DeviceKind.Pingouin: case DeviceKind.Singe: case DeviceKind.Chat: return PlushHeight;
+            case DeviceKind.Lapin: case DeviceKind.Pingouin: case DeviceKind.Singe: case DeviceKind.Chat: case DeviceKind.Canard: return PlushHeight;
             case DeviceKind.DiscoArgent: case DeviceKind.DiscoOr: case DeviceKind.DiscoDiamant: return DiscoHeight;
             default: return Height;
         }
@@ -123,7 +130,8 @@ public class Beacon : Interactable
         var visual = new GameObject("Visuel").transform;
         visual.SetParent(go.transform, false);
         beacon.visualRoot = visual;
-        switch (kind)
+        if (beacon.IsDuck) BuildDuck(visual, kind, height);
+        else switch (kind)
         {
             case DeviceKind.Canon:
                 // Le fût du modèle Meshy pointe vers +X : on le tourne vers l'avant de l'appareil.
@@ -193,6 +201,9 @@ public class Beacon : Interactable
 
         beacon.bodies = visual.GetComponentsInChildren<Renderer>();
         beacon.block = new MaterialPropertyBlock();
+        if (Items.Dances(beacon.Item)) DiscoDancer.Attach(visual);
+        // Le Canard Coloré scintille, posé comme à terre.
+        if (Items.IsColoredDuck(beacon.Item)) Fx.Sparkle(go.transform, Items.Get(beacon.Item).color);
         // Halo autour du cristal quand l'appareil est chargé (rouge pour la Balise Améliorée). Aucun sur le Téléporteur.
         if (kind == DeviceKind.Beacon || kind == DeviceKind.Enhanced || kind == DeviceKind.Station)
         {
@@ -251,6 +262,13 @@ public class Beacon : Interactable
             : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.9f, 0.9f, 0.9f) : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;
+    }
+
+    static void BuildDuck(Transform visual, DeviceKind kind, float height)
+    {
+        ItemType item = ItemOf(kind);
+        if (GameArt.SpawnModel(Items.ModelName(item), visual, height) != null) Items.ApplyLook(visual, item);
+        else GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, height * 0.45f, 0f), Vector3.one * height * 0.8f, GameArt.Lit("Canard" + (int)kind, Items.Get(item).color));
     }
 
     // ---------- Objets uniques (repli en primitives si le modèle Meshy manque) ----------
@@ -372,8 +390,8 @@ public class Beacon : Interactable
         if (glow != null) glow.enabled = on;
         if (gas != null) { if (on && !gas.isPlaying) gas.Play(); else if (!on && gas.isPlaying) gas.Stop(); }
         if (block == null) block = new MaterialPropertyBlock();
-        // Les boules à facettes gardent leur teinte (argent, or, diamant).
-        if (IsDisco) return;
+        // Les boules à facettes (argent, or, diamant) et les canards colorés gardent leur teinte.
+        if (IsDisco || IsDuck) return;
         block.SetColor("_Color", on || !Networked || Kind == DeviceKind.Television ? ChargedTint : DischargedTint);
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
     }

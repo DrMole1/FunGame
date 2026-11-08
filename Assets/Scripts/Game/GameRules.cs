@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6.2";
+    public const string Version = "V0.6.3";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -68,7 +68,7 @@ public static class GameRules
 
     // V0.4.6 : les objets de valeur sont dans des monticules ; leur nombre tient compte des chances d'obtention.
     public static int MoundsForRound(int round, int zone, float boost) =>
-        Mathf.CeilToInt(QuotaForRound(round) * ValuePercent(round, zone) * boost / Items.MoundValue());
+        Mathf.CeilToInt(QuotaForRound(round) * ValuePercent(round, zone) * boost / Items.MoundValue(zone));
 
     // Monticules (note 02 du chapitre 7) : creuser prend 1,2 seconde.
     public const float DigDuration = 1.2f;
@@ -274,15 +274,16 @@ public static class GameRules
     public const int GlyphTypes = 3;
     // Durée de l'ordre de chaque glyphe (immobile et accroupi, aller à la niche, aboyer).
     public static readonly float[] GlyphDuration = { 10f, 30f, 10f };
-    public const float GlyphSitGrace = 2f;       // "Assis !" : 2 secondes pour s'exécuter
+    public const float GlyphSitGrace = 2.5f;     // "Assis !" : au plus 2,5 secondes de suite sans être immobile et accroupi (V0.6.3)
     public const float GlyphBarkGap = 1.5f;      // "Aboie !" : au plus 1,5 seconde sans aboyer
     // Glyphes d'acquisition d'une zone paire : 3 dans la Zone 2 (un de chaque), puis 2 + nZone / 2.
     public static int AcquisitionGlyphs(int zone) => zone <= 2 ? 3 : 2 + zone / 2;
 
     // ---------- Arcades (chapitre 10.2, V0.6.1) ----------
 
-    // Dès que la Zone 3 est accessible, vendre à Pogo un objet des monticules rapporte un Jeton WOOF une fois sur dix.
-    public const float TokenChance = 0.1f;
+    // Dès que la Zone 3 est accessible, vendre à Pogo un objet des monticules peut rapporter un Jeton WOOF
+    // (V0.6.3 : chance = zone la plus lointaine atteinte au cours de la partie x 3 %).
+    public static float TokenChance(int lastZone) => lastZone * 0.03f;
     // Bornes d'arcade : à partir de la Zone 3, nZone - 1 par zone (aucune dans les zones 1 et 2).
     public static int ArcadesInZone(int zone) => zone < 3 ? 0 : zone - 1;
     public const float ArcadeMusicRange = 10f;    // petite musique de foire d'une borne chargée
@@ -337,6 +338,9 @@ public enum ItemType
     JetonWoof = 16, Ticket50 = 17, Ticket100 = 18, Ticket200 = 19, Ticket500 = 20,
     PelucheLapin = 21, PeluchePingouin = 22, PelucheSinge = 23, PelucheChat = 24,
     BouleArgent = 25, BouleOr = 26, BouleDiamant = 27,
+    // V0.6.3 (O7) : Canard en Plastique Coloré. Le type réel est CanardColore + nZone / 2 (101 : Zone 2, 102 : Zone 4...),
+    // ce qui lui donne sa couleur et sa valeur sans rien transmettre de plus sur le réseau.
+    CanardColore = 100,
     // Tirage d'un monticule seulement (pas un objet) : Le Réveil en sort.
     Reveil = 99,
 }
@@ -364,6 +368,26 @@ public static class Items
     public const int PostItMaxChars = 20;
     public const float PostItLockSeconds = 2f; // un Post-It ne peut pas être retiré juste après avoir été accroché
 
+    // V0.6.3 : un Canard Coloré par palier (nZone / 2) : valeur 25 + palier x 25, couleur de la Balise du Hub de la zone précédente.
+    public const int MaxDuckTier = 120;
+    static readonly System.Collections.Generic.Dictionary<int, ItemDef> coloredDucks = new System.Collections.Generic.Dictionary<int, ItemDef>();
+
+    static ItemDef ColoredDuck(int tier)
+    {
+        if (!coloredDucks.TryGetValue(tier, out var def))
+            coloredDucks[tier] = def = new ItemDef
+            {
+                type = ItemType.CanardColore + tier, otherId = tier == 1 ? "O7" : null, name = "Canard en Plastique Coloré", shortName = "Canard col.",
+                buyPrice = 0, sellPrice = 25 + tier * 25, color = Beacon.HubColor(tier),
+            };
+        return def;
+    }
+
+    public static bool IsColoredDuck(ItemType type) => type > ItemType.CanardColore && type <= ItemType.CanardColore + MaxDuckTier;
+    public static bool IsDuck(ItemType type) => type == ItemType.Canard || IsColoredDuck(type);
+    public static int DuckTier(ItemType type) => type - ItemType.CanardColore;
+    public static ItemType ColoredDuckOf(int zone) => ItemType.CanardColore + Mathf.Clamp(zone / 2, 1, MaxDuckTier);
+
     static readonly ItemDef[] All =
     {
         // Objets obtenables au Terminal (ID 1 à 10), dans l'ordre du document.
@@ -385,18 +409,20 @@ public static class Items
         new ItemDef { type = ItemType.ClocheDecorative, otherId = "O5", name = "Cloche Décorative", shortName = "Cloche", buyPrice = 0, sellPrice = 50, color = new Color(0.85f, 0.7f, 0.3f) },
         // V0.6.1 : Jeton WOOF (donné par Pogo), seul lot de l'arcade à figurer au tableau des autres objets.
         new ItemDef { type = ItemType.JetonWoof, otherId = "O6", name = "Jeton WOOF", shortName = "Jeton", buyPrice = 0, sellPrice = 1, color = new Color(1f, 0.8f, 0.2f) },
+        // V0.6.3 : O7, un exemplaire pour /give (celui de la Zone 2) ; les autres paliers sont créés à la demande.
+        ColoredDuck(1),
         // Lots des bornes d'arcade (10.2), échangeables à Pogo.
         new ItemDef { type = ItemType.Ticket50, name = "Ticket 50", shortName = "Ticket 50", buyPrice = 0, sellPrice = 50, color = new Color(0.3f, 0.85f, 0.35f) },
         new ItemDef { type = ItemType.Ticket100, name = "Ticket 100", shortName = "Ticket 100", buyPrice = 0, sellPrice = 100, color = new Color(0.3f, 0.55f, 1f) },
         new ItemDef { type = ItemType.Ticket200, name = "Ticket 200", shortName = "Ticket 200", buyPrice = 0, sellPrice = 200, color = new Color(0.7f, 0.35f, 1f) },
         new ItemDef { type = ItemType.Ticket500, name = "Ticket 500", shortName = "Ticket 500", buyPrice = 0, sellPrice = 500, color = new Color(1f, 0.78f, 0.2f) },
-        new ItemDef { type = ItemType.PelucheLapin, name = "Lapin en peluche", shortName = "Lapin", buyPrice = 0, sellPrice = 50, color = new Color(0.95f, 0.95f, 0.95f) },
-        new ItemDef { type = ItemType.PeluchePingouin, name = "Pingouin en peluche", shortName = "Pingouin", buyPrice = 0, sellPrice = 100, color = new Color(0.4f, 0.5f, 0.65f) },
-        new ItemDef { type = ItemType.PelucheSinge, name = "Singe en peluche", shortName = "Singe", buyPrice = 0, sellPrice = 200, color = new Color(0.55f, 0.35f, 0.2f) },
-        new ItemDef { type = ItemType.PelucheChat, name = "Chat en peluche", shortName = "Chat", buyPrice = 0, sellPrice = 500, color = new Color(0.7f, 0.7f, 0.72f) },
-        new ItemDef { type = ItemType.BouleArgent, name = "Boule à facettes argent", shortName = "Boule arg.", buyPrice = 0, sellPrice = 50, color = new Color(0.8f, 0.82f, 0.86f) },
-        new ItemDef { type = ItemType.BouleOr, name = "Boule à facettes or", shortName = "Boule or", buyPrice = 0, sellPrice = 70, color = new Color(1f, 0.8f, 0.3f) },
-        new ItemDef { type = ItemType.BouleDiamant, name = "Boule à facettes diamant", shortName = "Boule diam.", buyPrice = 0, sellPrice = 100, color = new Color(0.7f, 0.95f, 1f) },
+        new ItemDef { type = ItemType.PelucheLapin, otherId = "O11", name = "Lapin en peluche", shortName = "Lapin", buyPrice = 0, sellPrice = 50, color = new Color(0.95f, 0.95f, 0.95f) },
+        new ItemDef { type = ItemType.PeluchePingouin, otherId = "O12", name = "Pingouin en peluche", shortName = "Pingouin", buyPrice = 0, sellPrice = 100, color = new Color(0.4f, 0.5f, 0.65f) },
+        new ItemDef { type = ItemType.PelucheSinge, otherId = "O13", name = "Singe en peluche", shortName = "Singe", buyPrice = 0, sellPrice = 200, color = new Color(0.55f, 0.35f, 0.2f) },
+        new ItemDef { type = ItemType.PelucheChat, otherId = "O14", name = "Chat en peluche", shortName = "Chat", buyPrice = 0, sellPrice = 500, color = new Color(0.7f, 0.7f, 0.72f) },
+        new ItemDef { type = ItemType.BouleArgent, otherId = "O8", name = "Boule à facettes argent", shortName = "Boule arg.", buyPrice = 0, sellPrice = 50, color = new Color(0.8f, 0.82f, 0.86f) },
+        new ItemDef { type = ItemType.BouleOr, otherId = "O9", name = "Boule à facettes or", shortName = "Boule or", buyPrice = 0, sellPrice = 70, color = new Color(1f, 0.8f, 0.3f) },
+        new ItemDef { type = ItemType.BouleDiamant, otherId = "O10", name = "Boule à facettes diamant", shortName = "Boule diam.", buyPrice = 0, sellPrice = 100, color = new Color(0.7f, 0.95f, 1f) },
     };
 
     // Teinte de chaque lot de l'arcade (un même modèle Meshy pour les quatre tickets et pour les trois boules à facettes).
@@ -412,6 +438,32 @@ public static class Items
             case ItemType.BouleDiamant: return new Color(0.75f, 0.95f, 1.15f);
             default: return Color.white;
         }
+    }
+
+    // Apparence d'un objet (à terre, posé ou porté par un Pion) : teinte des lots, couleur des Canards Colorés.
+    public static void ApplyLook(Transform visual, ItemType type)
+    {
+        if (IsColoredDuck(type))
+        {
+            Material duck = ColoredDuckMaterial(DuckTier(type));
+            foreach (var r in visual.GetComponentsInChildren<Renderer>()) r.sharedMaterial = duck;
+            return;
+        }
+        Color tint = Tint(type);
+        if (tint == Color.white) return;
+        foreach (var r in visual.GetComponentsInChildren<Renderer>())
+            r.sharedMaterial = new Material(r.sharedMaterial) { color = tint * (IsDiscoBall(type) ? 1.7f : 1f) };
+    }
+
+    // Texture du canard désaturée (menu "FunGame/Préparer les modèles V0.6.3"), teintée par la couleur du Hub. Le doré est
+    // métallique : il ne se confond pas avec le simple canard jaune.
+    static Material ColoredDuckMaterial(int tier)
+    {
+        int colorIndex = (tier - 1) % 4;
+        bool gold = colorIndex == 3;
+        Material m = GameArt.Lit("CanardColore" + colorIndex, Color.Lerp(Beacon.HubColor(tier), Color.white, 0.08f) * 1.25f, Resources.Load<Texture2D>("Art/DuckGris"), gold ? 0.85f : 0.6f);
+        if (gold) m.SetFloat("_Metallic", 0.9f);
+        return m;
     }
 
     public static bool IsTicket(ItemType type) => type >= ItemType.Ticket50 && type <= ItemType.Ticket500;
@@ -436,6 +488,7 @@ public static class Items
             default:
                 if (IsTicket(type)) return "Ticket";
                 if (IsDiscoBall(type)) return "BouleFacettes";
+                if (IsColoredDuck(type)) return "DuckSolo";
                 return "Croquette";
         }
     }
@@ -443,26 +496,32 @@ public static class Items
     // Note 05 du chapitre 14 (V0.5.1) : la monnaie est la croquette (ce ne sont plus des golds). "1 croquette", "30 croquettes".
     public static string Price(int amount) => Loc.Price(amount);
 
-    // Tableaux des monticules (chapitre 9, V0.4.7) : objet trouvé et chance d'obtention, identiques dans les deux zones.
+    // Tableaux des monticules (chapitre 9, V0.6.3) : objet trouvé et chance d'obtention, selon la parité de la zone.
     // ItemType.Reveil n'est pas un objet : l'entité Le Réveil sort du monticule.
-    public static readonly (ItemType type, float chance)[] MoundLoot = { (ItemType.Os, 0.85f), (ItemType.Canard, 0.1f), (ItemType.Reveil, 0.05f) };
+    static readonly (ItemType type, float chance)[] OddMoundLoot = { (ItemType.Os, 0.85f), (ItemType.Canard, 0.1f), (ItemType.Reveil, 0.05f) };
+    static readonly (ItemType type, float chance)[] EvenMoundLoot = { (ItemType.Os, 0.1f), (ItemType.Canard, 0.4f), (ItemType.CanardColore, 0.45f), (ItemType.Reveil, 0.05f) };
 
-    public static ItemType RollMound(System.Random rnd)
+    static (ItemType type, float chance)[] MoundLoot(int zone) => zone % 2 == 0 ? EvenMoundLoot : OddMoundLoot;
+    // Le Canard Coloré d'un tableau est celui de la zone du monticule.
+    static ItemType InZone(ItemType type, int zone) => type == ItemType.CanardColore ? ColoredDuckOf(zone) : type;
+
+    public static ItemType RollMound(System.Random rnd, int zone)
     {
+        var loot = MoundLoot(zone);
         double roll = rnd.NextDouble();
-        foreach (var (type, chance) in MoundLoot)
+        foreach (var (type, chance) in loot)
         {
-            if (roll < chance) return type;
+            if (roll < chance) return InZone(type, zone);
             roll -= chance;
         }
-        return MoundLoot[MoundLoot.Length - 1].type;
+        return loot[loot.Length - 1].type;
     }
 
-    // Valeur moyenne d'un monticule (sert à en générer assez pour le quota).
-    public static float MoundValue()
+    // Valeur moyenne d'un monticule de cette zone (sert à en générer assez pour le quota).
+    public static float MoundValue(int zone)
     {
         float v = 0f;
-        foreach (var (type, chance) in MoundLoot) v += (Get(type)?.sellPrice ?? 0) * chance;
+        foreach (var (type, chance) in MoundLoot(zone)) v += (Get(InZone(type, zone))?.sellPrice ?? 0) * chance;
         return v;
     }
 
@@ -472,11 +531,12 @@ public static class Items
     public static bool DropsOnDeath(ItemType type)
     {
         var def = Get(type);
-        return def != null && def.buyPrice <= 0 && (type == ItemType.Canard || type == ItemType.Os || type == ItemType.JetonWoof || IsTicket(type));
+        return def != null && def.buyPrice <= 0 && (IsDuck(type) || type == ItemType.Os || type == ItemType.JetonWoof || IsTicket(type));
     }
 
     public static ItemDef Get(ItemType type)
     {
+        if (IsColoredDuck(type)) return ColoredDuck(DuckTier(type));
         foreach (var d in All) if (d.type == type) return d;
         return null;
     }
@@ -503,10 +563,12 @@ public static class Items
 
     // Objets uniques (V0.4.7) : posés au sol à la manière d'une Balise, Hub compris.
     public static bool IsUnique(ItemType type) => type == ItemType.Television || type == ItemType.Trampoline || type == ItemType.ClocheDecorative;
-    // Posés au sol comme une Balise, Hub compris : objets uniques, peluches et boules à facettes (V0.6.1).
-    public static bool IsPlaceable(ItemType type) => IsUnique(type) || IsPlush(type) || IsDiscoBall(type);
+    // Posés au sol comme une Balise, Hub compris : objets uniques, peluches et boules à facettes (V0.6.1), canards (V0.6.3).
+    public static bool IsPlaceable(ItemType type) => IsUnique(type) || IsPlush(type) || IsDiscoBall(type) || IsDuck(type);
+    // Note 01 du chapitre 10.2 (V0.6.3) : ils se balancent près d'une boule à facettes posée.
+    public static bool Dances(ItemType type) => IsDuck(type) || IsPlush(type);
     // Objets ramassés dans les monticules (V0.6.1 : en vendre un à Pogo peut rapporter un Jeton WOOF).
-    public static bool FromMound(ItemType type) => type == ItemType.Os || type == ItemType.Canard;
+    public static bool FromMound(ItemType type) => type == ItemType.Os || IsDuck(type);
 
     public static System.Collections.Generic.IEnumerable<ItemDef> Buyable()
     {

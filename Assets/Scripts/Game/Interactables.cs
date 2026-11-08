@@ -11,6 +11,7 @@ public abstract class Interactable : MonoBehaviour
 
     // Un objet peut être visé sans afficher de contour (Pogo une fois sorti de sa boîte).
     protected virtual bool OutlineVisible => true;
+    protected virtual bool HasOutline(Renderer r) => true;
 
     public abstract string Prompt { get; }
     public virtual bool CanInteract => true;
@@ -32,7 +33,7 @@ public abstract class Interactable : MonoBehaviour
         {
             var list = new List<Renderer>();
             foreach (var r in GetComponentsInChildren<Renderer>())
-                if (!(r is ParticleSystemRenderer) && r.GetComponent<TextMesh>() == null) list.Add(r);
+                if (!(r is ParticleSystemRenderer) && r.GetComponent<TextMesh>() == null && HasOutline(r)) list.Add(r);
             renderers = list.ToArray();
             originals = new Material[renderers.Length][];
             for (int i = 0; i < renderers.Length; i++)
@@ -81,14 +82,12 @@ public class ItemPickup : Interactable
 
         if (GameArt.SpawnModel(Items.ModelName(type), visual, ModelHeight(type)) == null)
             BuildFallback(visual, type);
-        // V0.6.1 : un même modèle teinté pour les quatre tickets et les trois boules à facettes.
-        Color tint = Items.Tint(type);
-        if (tint != Color.white)
-            foreach (var r in visual.GetComponentsInChildren<Renderer>())
-                r.sharedMaterial = new Material(r.sharedMaterial) { color = tint * (Items.IsDiscoBall(type) ? 1.7f : 1f) };
+        // V0.6.1 : un même modèle teinté pour les quatre tickets et les trois boules à facettes ; V0.6.3 : canards colorés.
+        Items.ApplyLook(visual, type);
         visual.gameObject.AddComponent<Bobbing>();
-        // Lot gagné à une borne d'arcade : il scintille de petites particules (un lot précieux).
-        if (Items.IsPrize(type)) Fx.Sparkle(go.transform, Items.Get(type).color);
+        if (Items.Dances(type)) DiscoDancer.Attach(visual);
+        // Lot gagné à une borne d'arcade ou Canard Coloré : il scintille de petites particules (un objet précieux).
+        if (Items.IsPrize(type) || Items.IsColoredDuck(type)) Fx.Sparkle(go.transform, Items.Get(type).color);
 
         var pickup = go.AddComponent<ItemPickup>();
         pickup.Id = id;
@@ -102,13 +101,13 @@ public class ItemPickup : Interactable
 
     // Hauteur du modèle à terre (le ticket est posé à plat, le Jeton WOOF debout comme une pièce).
     static float ModelHeight(ItemType type) =>
-        Items.IsTicket(type) ? 0.05f : type == ItemType.JetonWoof ? 0.24f : Items.IsDiscoBall(type) ? 0.68f : 0.45f;
+        Items.IsTicket(type) ? 0.05f : type == ItemType.JetonWoof ? 0.24f : Items.IsDiscoBall(type) ? 0.68f : Items.IsColoredDuck(type) ? Beacon.ColoredDuckHeight : 0.45f;
 
     static void BuildFallback(Transform parent, ItemType type)
     {
         ItemDef def = Items.Get(type);
         Material body = GameArt.Lit("Item" + type, def.color, null, 0.8f);
-        if (type == ItemType.Canard)
+        if (Items.IsDuck(type))
         {
             GameArt.Prim(PrimitiveType.Sphere, parent, new Vector3(0f, 0.15f, 0f), new Vector3(0.36f, 0.28f, 0.42f), body);
             GameArt.Prim(PrimitiveType.Sphere, parent, new Vector3(0f, 0.35f, 0.12f), Vector3.one * 0.22f, body);

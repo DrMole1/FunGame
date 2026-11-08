@@ -485,6 +485,8 @@ public class GameHud : MonoBehaviour
             Sprite sprite = Icon(t);
             slotIcon[i].sprite = sprite;
             slotIcon[i].enabled = sprite != null;
+            // Canard Coloré : l'icône désaturée du canard, à la couleur de son Hub.
+            slotIcon[i].color = Items.IsColoredDuck(t) ? Color.Lerp(def.color, Color.white, 0.1f) : Color.white;
             // Le nom ne s'affiche que si l'objet n'a pas d'icône.
             slotName[i].text = def != null && sprite == null ? def.shortName : "";
             slotBg[i].color = selected ? SlotSelectedColor : SlotColor;
@@ -499,7 +501,7 @@ public class GameHud : MonoBehaviour
     Sprite Icon(ItemType type)
     {
         if (type == ItemType.None) return null;
-        if (!icons.TryGetValue(type, out var sprite)) icons[type] = sprite = Resources.Load<Sprite>("Icons/" + type);
+        if (!icons.TryGetValue(type, out var sprite)) icons[type] = sprite = Resources.Load<Sprite>("Icons/" + (Items.IsColoredDuck(type) ? "CanardGris" : type.ToString()));
         return sprite;
     }
 

@@ -393,6 +393,8 @@ public static class Loc
         R("Canon", "Cannon", "Cañón", "Пушка"),
         R("Canard en Plastique", "Rubber Duck", "Pato de Goma", "Резиновая уточка"),
         R("Canard", "Duck", "Pato", "Уточка"),
+        R("Canard en Plastique Coloré", "Colored Rubber Duck", "Pato de Goma de Color", "Цветная резиновая уточка"),
+        R("Canard col.", "Col. Duck", "Pato col.", "Цв. уточка"),
         R("Os", "Bone", "Hueso", "Кость"),
         R("Télévision", "Television", "Televisión", "Телевизор"),
         R("Télé", "TV", "Tele", "ТВ"),

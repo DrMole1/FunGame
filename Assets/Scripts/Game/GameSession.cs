@@ -436,7 +436,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         for (int k = 0; k < count; k++)
         {
             int id = zone.index * MoundIdsPerZone + k;
-            ItemType loot = Items.RollMound(rnd);
+            ItemType loot = Items.RollMound(rnd, zone.index);
             float yaw = (float)rnd.NextDouble() * 360f;
             moundLoot[id] = (loot, spots[k]);
             if (!dugMounds.Contains(id)) mounds[id] = Mound.Create(itemsRoot, id, loot, spots[k], yaw);
@@ -780,7 +780,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Vector3 p = player.transform.position;
         var capsule = player.GetComponent<CapsuleCollider>();
         float feet = p.y + capsule.center.y - capsule.height * 0.5f;
-        inMist = !status.Dead && !Teleporting && !CannonFlying && !InKennel && CurfewActive && mistAmount > 0.5f && zones.Count > 0
+        inMist = !status.Dead && !Teleporting && !CannonFlying && !InKennel && CurfewActive && mistAmount > 0.5f && zones.Count > 0 && !InUndergroundLink(player.transform.position)
             && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
         // Dans la brume, le personnage avance 20 % moins vite ; immergé jusqu'au cou (Note 03, V0.4.11), 32 % moins vite.
         player.SpeedFactor = !inMist ? 1f : NeckHeight() < GameRules.MistTop ? GameRules.MistDeepSpeedMultiplier : GameRules.MistSpeedMultiplier;
@@ -795,6 +795,15 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (loss <= 0) return;
         mistTimer -= loss;
         status.SetSerenity(status.Serenity - loss);
+    }
+
+    // Liaison souterraine entre deux salles (chapitre 10.3) : la brume du Couvre Feu, qui reste en surface, n'y entre pas.
+    bool InUndergroundLink(Vector3 p)
+    {
+        foreach (var z in zones)
+            foreach (var b in z.underground)
+                if (b.Contains(p)) return true;
+        return false;
     }
 
     // Note 02 du chapitre 3.4 (V0.4.10) : à 0 de sérénité, le personnage ne meurt plus d'un coup ; il perd 15 PV par
@@ -1159,6 +1168,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         int slot = status.Selected;
         if (slot < 0) return;
+        if (Items.IsColoredDuck(status[slot]))
+        {
+            TryPlaceBeacon(slot, Beacon.KindOf(status[slot]));
+            return;
+        }
         switch (status[slot])
         {
             case ItemType.CuisseDePoulet:
@@ -1192,6 +1206,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case ItemType.Television:
             case ItemType.Trampoline:
             case ItemType.ClocheDecorative:
+            case ItemType.Canard:
             case ItemType.PelucheLapin:
             case ItemType.PeluchePingouin:
             case ItemType.PelucheSinge:
@@ -2453,7 +2468,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case "IR" when f.Length >= 3:
                 if (NetworkGame.I(f[1]) != round) break;
                 if (items.TryGetValue(NetworkGame.I(f[2]), out var taken) && taken != null)
-                    GameAudio.Play3D(taken.Type == ItemType.Canard ? "duck" : "pop", taken.transform.position, 0.9f, 15f, 0.1f);
+                    GameAudio.Play3D(Items.IsDuck(taken.Type) ? "duck" : "pop", taken.transform.position, 0.9f, 15f, 0.1f);
                 RemoveItem(NetworkGame.I(f[2]));
                 break;
             case "PK" when host && f.Length >= 2:
@@ -2712,8 +2727,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 Log("Le joueur {0} a vendu {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(def.sellPrice));
                 // Sujet de test : un objet vendu à Pogo.
                 testFlags |= TestPogoSale;
-                // V0.6.1 : dès que la Zone 3 est accessible, un objet des monticules vendu rapporte un Jeton WOOF une fois sur dix.
-                if (Items.FromMound(def.type) && ZoneUnlocked(3) && Random.value < GameRules.TokenChance) net.ToPeer(from, "JT");
+                // Dès que la Zone 3 est accessible, un objet des monticules vendu peut rapporter un Jeton WOOF (V0.6.3 : lastZone x 3 %).
+                if (Items.FromMound(def.type) && ZoneUnlocked(3) && Random.value < GameRules.TokenChance(lastZone)) net.ToPeer(from, "JT");
                 BroadcastState();
                 // Un achat le rend heureux (3 s de sourire) et le calme.
                 pogoActiveAt = Time.time;

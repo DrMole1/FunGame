@@ -13,6 +13,8 @@ public partial class GameSession
     // Zones générées (index 0 : Zone 1) ; nombre de zones à générer (fixé par l'hôte, au moins 2 : la Zone 1 et sa voisine).
     readonly List<WorldBuilder.ZoneRefs> zones = new List<WorldBuilder.ZoneRefs>();
     int zoneCount = 2;
+    // Zone la plus lointaine atteinte par les joueurs au cours de la partie (hôte, V0.6.3 : chance du Jeton WOOF).
+    int lastZone = 1;
     // /tp N : au-delà, la génération prendrait trop longtemps.
     const int MaxTeleportZone = 30;
     float zoneTimer;
@@ -120,6 +122,7 @@ public partial class GameSession
         openedHubs.Clear();
         openedAcquisitions.Clear();
         zoneCount = 2;
+        lastZone = 1;
         normalsSpawned.Clear();
         nightmaresSpawned.Clear();
     }
@@ -197,6 +200,7 @@ public partial class GameSession
         int furthest = 1;
         foreach (var p in PlayerPresence.All)
             if (p != null && p.isActiveAndEnabled) furthest = Mathf.Max(furthest, WorldBuilder.ZoneAt(p.Position));
+        lastZone = Mathf.Max(lastZone, furthest);
         if (furthest + 1 > zoneCount)
         {
             zoneCount = furthest + 1;
@@ -259,6 +263,7 @@ public partial class GameSession
         public int glyph;
         public float start;          // Time.time chez ce joueur
         public bool sanctioned;      // joueur local déjà sanctionné pour cet ordre
+        public float sitBreach;      // "Assis !" : secondes d'affilée sans être immobile et accroupi
         public AudioSource sound;
     }
     readonly Order[] orders = new Order[GameRules.GlyphTypes];
@@ -435,8 +440,13 @@ public partial class GameSession
             }
             // V0.6.1 : dans les zones 4 et plus, seuls les sons sont joués (aucun texte).
             if (order.glyph / 100 < GlyphTextlessZone) texts.Add(Loc.T(OrderTexts[t]));
-            if (t == 0 && elapsed >= GameRules.GlyphSitGrace)
-                CheckOrder(order, InKennel || player.Crouched && presence.Still);
+            if (t == 0)
+            {
+                // V0.6.3 : la Sanction tombe après plus de 2,5 secondes d'affilée sans respecter l'ordre.
+                bool sits = InKennel || player.Crouched && presence.Still;
+                order.sitBreach = sits ? 0f : order.sitBreach + Time.deltaTime;
+                if (order.sitBreach > GameRules.GlyphSitGrace) CheckOrder(order, false);
+            }
             else if (t == 2)
                 CheckOrder(order, InKennel || Time.time - Mathf.Max(lastBarkAt, order.start) <= GameRules.GlyphBarkGap);
         }

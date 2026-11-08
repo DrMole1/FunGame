@@ -860,3 +860,50 @@ public class DiscoBall : MonoBehaviour
         foreach (var s in spots) s.intensity = 2.2f * k;
     }
 }
+
+// Note 01 du chapitre 10.2 (V0.6.3) : un canard ou une peluche, près d'une boule à facettes posée, danse au rythme de sa
+// musique : il se balance et son volume bat la mesure. Tout est local : rien ne passe par le réseau.
+public class DiscoDancer : MonoBehaviour
+{
+    public const float Bpm = 118f;
+    const float SwayDegrees = 14f, PulseAmount = 0.16f, FadeSpeed = 4f, CheckEvery = 0.3f;
+    // Boules posées et temps de la musique (mis à jour à chaque image par la session).
+    public static readonly List<Vector3> Balls = new List<Vector3>();
+    public static float MusicTime;
+
+    Vector3 baseScale;
+    Quaternion baseRotation;
+    float amount, checkTimer;
+    bool near;
+
+    // Sur le modèle (pivot à sa base), pas sur le visuel qu'anime déjà le flottement ou la pose.
+    public static void Attach(Transform visual)
+    {
+        if (visual.childCount > 0) visual.GetChild(0).gameObject.AddComponent<DiscoDancer>();
+    }
+
+    void Start()
+    {
+        baseScale = transform.localScale;
+        baseRotation = transform.localRotation;
+        checkTimer = Random.value * CheckEvery;
+    }
+
+    void Update()
+    {
+        checkTimer -= Time.deltaTime;
+        if (checkTimer <= 0f)
+        {
+            checkTimer = CheckEvery;
+            near = false;
+            float range = GameRules.DiscoMusicRange * GameRules.DiscoMusicRange;
+            foreach (var ball in Balls)
+                if ((ball - transform.position).sqrMagnitude < range) { near = true; break; }
+        }
+        if (!near && amount <= 0f) return;
+        amount = Mathf.MoveTowards(amount, near ? 1f : 0f, Time.deltaTime * FadeSpeed);
+        float beat = MusicTime * Bpm / 60f * Mathf.PI;
+        transform.localRotation = baseRotation * Quaternion.Euler(0f, 0f, Mathf.Sin(beat) * SwayDegrees * amount);
+        transform.localScale = baseScale * (1f + PulseAmount * amount * Mathf.Pow(Mathf.Abs(Mathf.Cos(beat)), 4f));
+    }
+}

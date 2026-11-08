@@ -282,9 +282,13 @@ public partial class GameSession
         Vector3 me = player.transform.position;
         Beacon nearest = null;
         float best = GameRules.DiscoMusicRange;
+        // Sans musique à proximité, les objets dansent quand même en mesure, sur l'horloge du jeu.
+        DiscoDancer.MusicTime = discoMusic != null && discoMusic.isPlaying ? discoMusic.time : Time.time;
+        DiscoDancer.Balls.Clear();
         foreach (var b in beacons.Placed)
         {
             if (b == null || !b.IsDisco) continue;
+            DiscoDancer.Balls.Add(b.DiscoCenter);
             float d = Vector3.Distance(b.DiscoCenter, me);
             if (d < best) { best = d; nearest = b; }
         }

@@ -20,7 +20,7 @@ public class Glyph : Interactable
     // Centre de la face gravée (point d'attache du rayon d'énergie).
     public Vector3 Anchor => face != null ? face.transform.position : transform.position;
 
-    Renderer face;
+    Renderer face, frame;
     Light glow;
     MaterialPropertyBlock block;
 
@@ -63,9 +63,32 @@ public class Glyph : Interactable
         glyph.glow.enabled = false;
 
         glyph.FitTrigger(new Vector3(size, size, 0.4f));
+        // Après la zone de sélection : elle reste à la taille de la plaque.
+        glyph.AddFrame(size);
         glyph.SetCharged(false);
         return glyph;
     }
+
+    // Cadre d'arabesques blanc lumineux, toujours visible (image générée par Meshy, fond retiré), glissé derrière la plaque
+    // qui en cache le filet intérieur : seules les volutes dépassent tout autour.
+    const float FrameWidthRatio = 1.55f, FrameOffset = 0.03f;
+    static Material frameMaterial;
+
+    void AddFrame(float size)
+    {
+        var tex = Resources.Load<Texture2D>("Art/Decor/CadreGlypheTexture");
+        if (tex == null) return;
+        if (frameMaterial == null) frameMaterial = new Material(Shader.Find("Sprites/Default")) { name = "GlypheCadre", mainTexture = tex };
+        var quad = GameArt.Prim(PrimitiveType.Quad, transform, Vector3.forward * FrameOffset, Vector3.one * size * FrameWidthRatio, frameMaterial);
+        quad.name = "Cadre";
+        quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+        frame = quad.GetComponent<Renderer>();
+        frame.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        frame.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+    }
+
+    // Pas de contour de sélection autour du carré invisible qui porte le cadre.
+    protected override bool HasOutline(Renderer r) => r != frame;
 
     public void SetCharged(bool on)
     {
