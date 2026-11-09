@@ -7,9 +7,14 @@ using UnityEngine;
 // reflets), et éteint les lampes trop loin de la caméra pour éclairer quoi que ce soit de visible.
 public class WorldStreamer : MonoBehaviour
 {
-    // Temps consacré à la construction à chaque image, et captures de reflets par image (chacune rend 6 vues de la zone).
+    // Temps consacré à la construction à chaque image.
     const long BudgetMs = 3;
-    const int ProbesPerFrame = 1;
+    // Reflets : capturés seulement près de la caméra, le plus proche d'abord, une image sur deux (chacun rend 6 vues). La caméra
+    // voit à 45 m : à 70 m, le reflet est prêt avant d'être visible.
+    const float ProbeRange = 70f;
+    const int ProbeFrameInterval = 2;
+    // Portée utile d'une capture : sa distance de vue (30 m) et la portée des lampes qu'elle montre.
+    const float ProbeLampRange = 50f;
 
     // La caméra voit à 45 m et une lampe porte à moins de 10 m : au-delà, elle n'éclaire rien de visible.
     const float LampRange = 55f;
@@ -17,11 +22,10 @@ public class WorldStreamer : MonoBehaviour
 
     static WorldStreamer instance;
     readonly Queue<Action> work = new Queue<Action>();
-    readonly Queue<ReflectionProbe> probes = new Queue<ReflectionProbe>();
+    readonly List<ReflectionProbe> probes = new List<ReflectionProbe>();
     readonly List<FlickerLight> lamps = new List<FlickerLight>();
     readonly Stopwatch watch = new Stopwatch();
     int nextLamp;
-    bool allLampsLit;
 
     static WorldStreamer Instance
     {
@@ -37,6 +41,9 @@ public class WorldStreamer : MonoBehaviour
         }
     }
 
+    // Du décor reste à poser.
+    public static bool Busy => instance != null && instance.work.Count > 0;
+
     // Hors du jeu (outils de l'éditeur), le travail est fait tout de suite.
     public static void Enqueue(Action action)
     {
@@ -46,7 +53,7 @@ public class WorldStreamer : MonoBehaviour
 
     public static void EnqueueProbe(ReflectionProbe probe)
     {
-        if (Application.isPlaying) Instance.probes.Enqueue(probe);
+        if (Application.isPlaying) Instance.probes.Add(probe);
         else probe.RenderProbe();
     }
 
@@ -59,26 +66,45 @@ public class WorldStreamer : MonoBehaviour
     {
         watch.Restart();
         while (work.Count > 0 && watch.ElapsedMilliseconds < BudgetMs) work.Dequeue()();
-        // Les reflets montrent le décor et les lampes : ils attendent que tout soit en place, lampes lointaines rallumées.
-        if (work.Count == 0 && probes.Count > 0) RenderProbes();
-        else if (probes.Count == 0) allLampsLit = false;
-        if (probes.Count == 0) CullLamps();
+        // Les reflets montrent le décor et les lampes : ils attendent que tout soit en place.
+        bool captured = work.Count == 0 && probes.Count > 0 && Time.frameCount % ProbeFrameInterval == 0 && CaptureNearestProbe();
+        // La capture se fait plus tard dans l'image : ses lampes doivent rester allumées jusque-là.
+        if (!captured) CullLamps();
     }
 
-    void RenderProbes()
+    bool CaptureNearestProbe()
     {
-        if (!allLampsLit)
+        Camera cam = Camera.main;
+        if (cam == null) return false;
+        Vector3 eye = cam.transform.position;
+        int best = -1;
+        float bestDist = ProbeRange * ProbeRange;
+        for (int k = probes.Count - 1; k >= 0; k--)
         {
-            allLampsLit = true;
-            foreach (var lamp in lamps) if (lamp != null) lamp.SetLit(true);
+            ReflectionProbe candidate = probes[k];
+            if (candidate == null)
+            {
+                probes[k] = probes[probes.Count - 1];
+                probes.RemoveAt(probes.Count - 1);
+                if (best == probes.Count) best = k;
+                continue;
+            }
+            if (!candidate.isActiveAndEnabled) continue;
+            float d = (candidate.transform.position - eye).sqrMagnitude;
+            if (d < bestDist) { bestDist = d; best = k; }
         }
-        for (int done = 0; done < ProbesPerFrame && probes.Count > 0; )
-        {
-            ReflectionProbe probe = probes.Dequeue();
-            if (probe == null) continue;
-            probe.RenderProbe();
-            done++;
-        }
+        if (best < 0) return false;
+
+        ReflectionProbe probe = probes[best];
+        probes[best] = probes[probes.Count - 1];
+        probes.RemoveAt(probes.Count - 1);
+        // Seules les lampes autour du reflet : les autres restent éteintes.
+        Vector3 at = probe.transform.position;
+        float range = ProbeLampRange * ProbeLampRange;
+        foreach (var lamp in lamps)
+            if (lamp != null && (lamp.transform.position - at).sqrMagnitude < range) lamp.SetLit(true);
+        probe.RenderProbe();
+        return true;
     }
 
     void CullLamps()

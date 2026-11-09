@@ -90,15 +90,21 @@ public class Glyph : Interactable
 
     // Boîtier de verre : il enferme la plaque et son contour, dans une fine armature de métal.
     const float CaseRatio = 1.85f, CaseDepth = 0.28f, CaseBar = 0.035f;
+    // Verre à peine visible de près, totalement transparent de loin (distance à la caméra).
+    const float GlassNearAlpha = 0.006f, GlassFadeStart = 5f, GlassFadeEnd = 10f;
+    static readonly Color GlassColor = new Color(0.92f, 0.95f, 1f, 0f);
+    Renderer glass;
+    MaterialPropertyBlock glassBlock;
 
     void AddCase(float size)
     {
-        if (glassMaterial == null) glassMaterial = new Material(Shader.Find("Sprites/Default")) { name = "BoitierVerre", color = new Color(0.72f, 0.88f, 1f, 0.2f) };
+        if (glassMaterial == null) glassMaterial = new Material(Shader.Find("Sprites/Default")) { name = "BoitierVerre", color = GlassColor };
         glassCase = new GameObject("Boitier");
         glassCase.transform.SetParent(transform, false);
         float w = size * CaseRatio;
-        var glass = GameArt.Prim(PrimitiveType.Cube, glassCase.transform, Vector3.forward * CaseDepth * 0.5f, new Vector3(w, w, CaseDepth), glassMaterial);
-        glass.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        glass = GameArt.Prim(PrimitiveType.Cube, glassCase.transform, Vector3.forward * CaseDepth * 0.5f, new Vector3(w, w, CaseDepth), glassMaterial).GetComponent<Renderer>();
+        glass.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        glassBlock = new MaterialPropertyBlock();
         Material metal = GameArt.Lit("BoitierMetal", new Color(0.35f, 0.37f, 0.4f), null, 0.6f);
         foreach (float s in new[] { -1f, 1f })
         {
@@ -175,8 +181,21 @@ public class Glyph : Interactable
         face.SetPropertyBlock(block);
     }
 
+    void UpdateGlass()
+    {
+        if (glass == null || CaseBroken || !glass.isVisible) return;
+        Camera cam = Camera.main;
+        if (cam == null) return;
+        Color c = GlassColor;
+        c.a = GlassNearAlpha * Mathf.InverseLerp(GlassFadeEnd, GlassFadeStart, Vector3.Distance(cam.transform.position, transform.position));
+        glassBlock.SetColor("_Color", c);
+        // Sur le verre seul : le contour de sélection, ajouté en second matériau, garde sa couleur.
+        glass.SetPropertyBlock(glassBlock, 0);
+    }
+
     void Update()
     {
+        UpdateGlass();
         if (!Charged) return;
         float k = 0.8f + 0.2f * Mathf.Sin(Time.time * 3.1f + Id);
         glow.intensity = 1.5f * k;

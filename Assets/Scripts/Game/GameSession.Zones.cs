@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
 
 // V0.6 : remaniement du terrain. Les zones se génèrent au fil de l'avancée des joueurs (la zone où ils se trouvent et les
@@ -25,20 +26,69 @@ public partial class GameSession
 
     // ================= Zones et Hubs =================
 
-    void GenerateNextZone()
+    // Génération en cours, étalée sur plusieurs images : au plus ce temps par image.
+    const long ZoneBuildBudgetMs = 4;
+    WorldBuilder.ZoneBuild zoneBuild;
+    readonly Stopwatch zoneBuildWatch = new Stopwatch();
+
+    void StartNextZone()
     {
         int index = zones.Count + 1;
-        var zone = WorldBuilder.BuildZone(worldRoot, seed, index, index > 1 ? zones[index - 2] : null);
+        zoneBuild = WorldBuilder.StartZoneBuild(worldRoot, seed, index, index > 1 ? zones[index - 2] : null);
+    }
+
+    // À chaque image : avance la génération des zones qui manquent (les joueurs sont encore loin d'elles).
+    void AdvanceZoneBuild()
+    {
+        if (zoneBuild == null)
+        {
+            if (zones.Count >= zoneCount) return;
+            StartNextZone();
+        }
+        zoneBuildWatch.Restart();
+        do
+        {
+            if (zoneBuild.Steps.MoveNext()) continue;
+            CompleteZoneBuild();
+            // Ce qui a été reçu pendant sa génération (boîtiers brisés, portes ouvertes).
+            UpdateDoors(true);
+            return;
+        }
+        while (zoneBuildWatch.ElapsedMilliseconds < ZoneBuildBudgetMs);
+    }
+
+    // Tout de suite (début de partie, /tp) : termine la zone en cours et génère celles qui manquent.
+    void GenerateZonesNow()
+    {
+        while (zones.Count < zoneCount)
+        {
+            if (zoneBuild == null) StartNextZone();
+            while (zoneBuild.Steps.MoveNext()) { }
+            CompleteZoneBuild();
+        }
+    }
+
+    void CompleteZoneBuild()
+    {
+        WorldBuilder.ZoneRefs zone = zoneBuild.Refs;
+        int index = zones.Count + 1;
+        zoneBuild = null;
         zones.Add(zone);
         RegisterArcades(zone.arcades);
         // Le Hub N est au sud de la zone 2N - 1.
         if (index > 1 && index % 2 == 1) AddHubFixtures(WorldBuilder.BuildHub(worldRoot, (index + 1) / 2));
         if (itemsRound == round) SpawnZoneItems(zone);
+        // Glyphes chargés reçus pendant sa génération.
+        foreach (var kv in new List<KeyValuePair<int, int>>(glyphSources))
+            if (kv.Key / 100 == index) SetGlyphSource(kv.Key, kv.Value);
     }
 
     // Partie quittée ou nouvelle graine : seuls restent le Hub 1 et ses équipements.
     void DestroyZones()
     {
+        // Génération abandonnée (nouvelle graine).
+        if (zoneBuild != null && zoneBuild.Refs != null && zoneBuild.Refs.root != null) Destroy(zoneBuild.Refs.root);
+        zoneBuild = null;
         foreach (var z in zones)
         {
             foreach (var m in z.arcades) UnregisterArcade(m);
@@ -333,6 +383,42 @@ public partial class GameSession
             Destroy(kv.Value.gameObject);
             items.Remove(kv.Key);
             dropped.Remove(kv.Key);
+        }
+    }
+
+    // ================= Zones trop loin pour être vues =================
+
+    // Tous, pour ce joueur seulement : on ne dessine et n'anime que la zone de la caméra (et du personnage) et ses voisines. La
+    // caméra voit à 45 m, une zone en fait 170. Un délai évite de tout rebasculer à chaque passage d'une limite de zone.
+    const float ZoneVisibilityInterval = 0.25f, ZoneHideDelay = 5f;
+    float zoneVisibilityTimer;
+
+    void UpdateZoneVisibility()
+    {
+        zoneVisibilityTimer -= Time.unscaledDeltaTime;
+        if (zoneVisibilityTimer > 0f) return;
+        zoneVisibilityTimer = ZoneVisibilityInterval;
+        Camera cam = Camera.main;
+        int body = WorldBuilder.ZoneAt(player.transform.position), eye = cam != null ? WorldBuilder.ZoneAt(cam.transform.position) : 0;
+        if (body < 1) body = eye;
+        if (eye < 1) eye = body;
+        if (body < 1) return;
+
+        bool hidOne = false;
+        foreach (var z in zones)
+        {
+            if (!z.root.activeSelf) continue;
+            if (Mathf.Abs(z.index - body) <= 1 || Mathf.Abs(z.index - eye) <= 1)
+            {
+                z.lastNeeded = Time.unscaledTime;
+                z.ShowVisuals();
+            }
+            // Une seule par passage, et jamais tant que du décor reste à poser (il ne serait pas caché).
+            else if (!hidOne && !z.VisualsHidden && !WorldStreamer.Busy && Time.unscaledTime - z.lastNeeded > ZoneHideDelay)
+            {
+                z.HideVisuals();
+                hidOne = true;
+            }
         }
     }
 

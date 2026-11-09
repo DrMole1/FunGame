@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -76,6 +77,47 @@ public static class WorldBuilder
         public Vector3 entrance;     // point d'arrivée dans la zone (derrière la porte du Hub ou de la Neutral Room)
         public readonly List<ArcadeMachine> arcades = new List<ArcadeMachine>();   // V0.6.1 : à partir de la Zone 3
         internal Maze maze;
+
+        // Zone loin de la caméra : ni dessinée ni animée. Ses collisions restent, pour que les règles du jeu (lignes de vue des
+        // Balises, entités...) ne dépendent pas de ce que voit ce joueur.
+        public bool VisualsHidden { get; private set; }
+        public float lastNeeded;
+        Renderer[] hiddenRenderers;
+        Behaviour[] hiddenScripts;
+        ParticleSystem[] pausedParticles;
+
+        public void HideVisuals()
+        {
+            if (VisualsHidden) return;
+            VisualsHidden = true;
+            hiddenRenderers = System.Array.FindAll(root.GetComponentsInChildren<Renderer>(true), r => r.enabled);
+            var scripts = new List<Behaviour>(root.GetComponentsInChildren<Eye>(true));
+            scripts.AddRange(root.GetComponentsInChildren<Laser>(true));
+            hiddenScripts = scripts.FindAll(s => s.enabled).ToArray();
+            pausedParticles = System.Array.FindAll(root.GetComponentsInChildren<ParticleSystem>(true), p => p.isPlaying);
+            foreach (var r in hiddenRenderers) r.enabled = false;
+            foreach (var s in hiddenScripts) s.enabled = false;
+            foreach (var p in pausedParticles) p.Pause(false);
+        }
+
+        public void ShowVisuals()
+        {
+            if (!VisualsHidden) return;
+            VisualsHidden = false;
+            foreach (var r in hiddenRenderers) if (r != null) r.enabled = true;
+            foreach (var s in hiddenScripts) if (s != null) s.enabled = true;
+            foreach (var p in pausedParticles) if (p != null) p.Play(false);
+            hiddenRenderers = null;
+            hiddenScripts = null;
+            pausedParticles = null;
+        }
+    }
+
+    // Génération d'une zone, avancée par petits morceaux (GameSession lui donne quelques millisecondes à chaque image).
+    public class ZoneBuild
+    {
+        public ZoneRefs Refs;
+        public IEnumerator Steps;
     }
 
     // Zone (1, 2, 3...) qui contient le point, 0 en dehors (au sud du Hub 1 ou hors des murs).
@@ -484,6 +526,7 @@ public static class WorldBuilder
         public readonly Dictionary<Vector2Int, int> shafts = new Dictionary<Vector2Int, int>();
         public readonly Dictionary<(int, int, bool), (float low, float high)> wallHoles = new Dictionary<(int, int, bool), (float, float)>();
         public readonly List<Rect> airLines = new List<Rect>();  // emprises au sol des tubes aériens
+        public readonly List<Rect> stairPlateaus = new List<Rect>();  // sommets des cellules à escaliers, où un monticule peut se poser
         public readonly List<Rect> deckBlocks = new List<Rect>();  // paliers et escaliers des liaisons aériennes
         public readonly Vector3 origin;   // coin (x et z minimaux) de la cellule (0, 0)
         public readonly bool hub;
@@ -1039,15 +1082,33 @@ public static class WorldBuilder
     // Zone 1), dont le mur nord sert de mur sud à celle-ci.
     public static ZoneRefs BuildZone(Transform parent, int seed, int zone, ZoneRefs previous)
     {
+        ZoneBuild build = StartZoneBuild(parent, seed, zone, previous);
+        while (build.Steps.MoveNext()) { }
+        return build.Refs;
+    }
+
+    public static ZoneBuild StartZoneBuild(Transform parent, int seed, int zone, ZoneRefs previous)
+    {
+        var build = new ZoneBuild();
+        build.Steps = BuildZoneSteps(build, parent, seed, zone, previous);
+        return build;
+    }
+
+    // Tout le tirage est fait d'après la graine, dans un ordre fixe : le découpage en étapes ne change rien au résultat.
+    static IEnumerator BuildZoneSteps(ZoneBuild build, Transform parent, int seed, int zone, ZoneRefs previous)
+    {
         var rnd = new System.Random(seed * 31 + zone * 7919);
         Maze m = CreateMaze(seed, zone);
         if (previous != null) m.southHeights = previous.maze.northHeights;
         Generate(m, rnd, StyleFor(zone));
+        yield return null;
         StampFixedRooms(m);
         ChooseStatueRoom(m, new System.Random(seed * 83 + zone * 457));
         ChooseLinks(m, new System.Random(seed * 89 + zone * 281));
+        yield return null;
 
         var refs = new ZoneRefs { index = zone, maze = m, root = new GameObject("Zone " + zone) };
+        build.Refs = refs;
         Transform root = refs.root.transform;
         root.SetParent(parent, false);
         var colliders = new GameObject("Colliders");
@@ -1055,26 +1116,32 @@ public static class WorldBuilder
         refs.structure = colliders.transform;
         refs.entrance = m.Center(m.start.x, m.start.y);
 
-        BuildGeometry(m, root, colliders);
+        var geometry = BuildGeometry(m, root, colliders);
+        while (geometry.MoveNext()) yield return null;
         var glyphRnd = new System.Random(seed * 59 + zone * 613);
         if (m.hub) BuildNeutralRoom(m, root, refs, glyphRnd);
         else BuildAcquisitionRoom(m, root, refs, glyphRnd);
-        BuildTemplates(m, root, colliders.transform, m.hub ? refs.neutralGlyphs : refs.acquisitionGlyphs, new System.Random(seed * 71 + zone * 733));
+        yield return null;
+        var templates = BuildTemplates(m, root, colliders.transform, m.hub ? refs.neutralGlyphs : refs.acquisitionGlyphs, new System.Random(seed * 71 + zone * 733));
+        while (templates.MoveNext()) yield return null;
         BuildArcades(m, root, refs, new System.Random(seed * 67 + zone * 389));
+        yield return null;
 
         // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, fosses, plateformes).
         Physics.SyncTransforms();
-        Decorate(m, root, colliders.transform, rnd, refs.itemSpots);
+        var decor = Decorate(m, root, colliders.transform, rnd, refs.itemSpots);
+        while (decor.MoveNext()) yield return null;
         MarkIntangibleSpheres(root);
+        yield return null;
         refs.mist = BuildMist(m, root);
+        yield return null;
         refs.nav = new MazeNav();
         refs.nav.AddZone(m.origin, m.N, Cell, (i, j) => !m.Reserved(i, j), (i, j) => m.Ceil(i, j));
         refs.nav.Prepare(colliders.transform, refs.door != null ? refs.door.Blocker : null);
         AddReflectionProbes(m, root);
-        return refs;
     }
 
-    static void BuildGeometry(Maze m, Transform root, GameObject colliders)
+    static IEnumerator BuildGeometry(Maze m, Transform root, GameObject colliders)
     {
         int n = m.N;
         int chunks = (n + ChunkSize - 1) / ChunkSize;
@@ -1102,6 +1169,7 @@ public static class WorldBuilder
         for (int i = 0; i < n; i++)
             for (int j = 0; j < n; j++)
             {
+                if (j == 0) yield return null;
                 if (m.Reserved(i, j)) continue;
                 Vector3 c = m.Center(i, j);
                 float e = Cell * 0.5f;
@@ -1138,6 +1206,7 @@ public static class WorldBuilder
                 AddCollider(new Vector3(r.center.x, -0.5f, r.center.y), new Vector3(r.width, 1f, r.height));
             }
         }
+        yield return null;
         // Plafonds : une collision par suite de cellules de même hauteur sur chaque rangée (rien au-dessus du Hub).
         for (int j = 0; j < n; j++)
             for (int i = 0; i < n;)
@@ -1198,6 +1267,7 @@ public static class WorldBuilder
         for (int i = -1; i < n; i++)
             for (int j = 0; j < n; j++)
             {
+                if (j == 0) yield return null;
                 // Arête verticale (le long de Z) à droite de la cellule (i, j) ; les bords est et ouest sont des murs pleins.
                 bool leftIn = i >= 0, rightIn = i + 1 < n;
                 bool boundary = !leftIn || !rightIn;
@@ -1242,6 +1312,7 @@ public static class WorldBuilder
         for (int i = 0; i < n; i++)
             for (int j = -1; j < n; j++)
             {
+                if (j == -1) yield return null;
                 // Arête horizontale (le long de X) au-dessus de la cellule (i, j).
                 bool lowIn = j >= 0, highIn = j + 1 < n;
                 float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i, j + 1));
@@ -1312,6 +1383,7 @@ public static class WorldBuilder
 
         foreach (Room room in m.rooms)
         {
+            yield return null;
             if (room.style == RoomStyle.Pit)
             {
                 BuildDepths(m, room, ChunkOf(room.rect.xMin, room.rect.yMin), colliders.transform, AddCollider);
@@ -1322,30 +1394,23 @@ public static class WorldBuilder
             if (room.floor <= 0f) continue;
             foreach (var cell in room.cells)
             {
-                Vector3 c = m.Center(cell.x, cell.y);
-                float minX = c.x - Cell * 0.5f, maxX = c.x + Cell * 0.5f, minZ = c.z - Cell * 0.5f, maxZ = c.z + Cell * 0.5f;
                 Chunk ch = ChunkOf(cell.x, cell.y);
+                var flights = new List<StairFlight>();
                 for (int d = 0; d < 4; d++)
                 {
                     int ni = cell.x + DI[d], nj = cell.y + DJ[d];
                     if (HasWall(m, cell.x, cell.y, d) || m.RoomAt(ni, nj) == room) continue;
                     float below = m.Floor(ni, nj);
                     if (below >= room.floor - 0.01f) continue;
-                    int steps = Mathf.RoundToInt((room.floor - below) / StepHeight);
-                    float depth = steps * StepDepth;
-                    switch (d)
-                    {
-                        case 0: maxX -= depth; break;
-                        case 1: minX += depth; break;
-                        case 2: maxZ -= depth; break;
-                        default: minZ += depth; break;
-                    }
-                    AddStairs(ch.floor, colliders.transform, c, d, steps, below, room.floor);
+                    flights.Add(new StairFlight { dir = d, steps = Mathf.RoundToInt((room.floor - below) / StepHeight), from = below });
                 }
-                // Escaliers de part et d'autre d'une même cellule : ils se rejoignent, sans dalle entre eux.
-                if (maxX - minX < 0.05f || maxZ - minZ < 0.05f) continue;
-                var slab = new Vector3((minX + maxX) * 0.5f, room.floor * 0.5f, (minZ + maxZ) * 0.5f);
-                var size = new Vector3(maxX - minX, room.floor, maxZ - minZ);
+                if (flights.Count > 0)
+                {
+                    AddCellStairs(m, ch.floor, colliders.transform, cell, room.floor, flights, AddCollider);
+                    continue;
+                }
+                var slab = m.Center(cell.x, cell.y) + Vector3.up * (room.floor * 0.5f);
+                var size = new Vector3(Cell, room.floor, Cell);
                 ch.floor.Box(slab, size, 0.5f, 0b0011_0111);
                 AddCollider(slab, size);
             }
@@ -1355,6 +1420,7 @@ public static class WorldBuilder
         for (int x = 0; x < chunks; x++)
             for (int y = 0; y < chunks; y++)
             {
+                yield return null;
                 Chunk ch = chunkData[x, y];
                 string name = "Z" + m.zone + "_Bloc_" + x + "_" + y;
                 if (!ch.floor.IsEmpty) GameArt.MeshObject(name + "_Sol", root, ch.floor.Build(name), GameArt.CheckerFloor);
@@ -1365,6 +1431,7 @@ public static class WorldBuilder
             for (int y = 0; y < wallChunks; y++)
                 if (wallData[x, y] != null && !wallData[x, y].IsEmpty)
                 {
+                    if (y % 4 == 0) yield return null;
                     string name = "Z" + m.zone + "_Murs_" + x + "_" + y;
                     GameArt.MeshObject(name, root, wallData[x, y].Build(name), GameArt.CheckerWall);
                 }
@@ -1852,22 +1919,95 @@ public static class WorldBuilder
 
     // Escalier montant depuis le côté 'dir' de la cellule (sol du voisin, à la hauteur 'from') vers le plancher de la salle.
     // Les marches sont visuelles ; la collision est une rampe pleine (le personnage monte sans buter sur les marches).
-    static void AddStairs(MeshBuilder mb, Transform colliders, Vector3 cellCenter, int dir, int steps, float from, float floor)
+    // Volée d'un côté ouvert d'une cellule surélevée : 'steps' marches depuis le niveau 'from' jusqu'au sol de la salle.
+    struct StairFlight { public int dir, steps; public float from; }
+
+    // Escaliers d'une cellule surélevée, en couches empilées : chaque couche recule d'une marche sur chaque côté ouvert. Deux volées
+    // qui se rencontrent en un coin forment ainsi des marches continues, qui tournent à angle droit, au lieu de se traverser.
+    // Le long d'un côté sans mur, l'escalier va jusqu'au bord de la cellule : il rejoint celui de la cellule voisine.
+    static void AddCellStairs(Maze m, MeshBuilder mb, Transform colliders, Vector2Int cell, float floor, List<StairFlight> flights, System.Action<Vector3, Vector3> addCollider)
     {
-        Vector3 outward = new Vector3(DI[dir], 0f, DJ[dir]);
-        Vector3 inward = -outward;
-        Vector3 edge = cellCenter + outward * (Cell * 0.5f);
-        float width = Cell - Wall;
-        float rise = (floor - from) / steps;
-        for (int k = 1; k <= steps; k++)
+        Vector3 c = m.Center(cell.x, cell.y);
+        var reach = new float[4];
+        for (int d = 0; d < 4; d++) reach[d] = Cell * 0.5f - (HasWall(m, cell.x, cell.y, d) ? Wall * 0.5f : 0f);
+        float xMin = c.x - reach[1], xMax = c.x + reach[0], zMin = c.z - reach[3], zMax = c.z + reach[2];
+
+        int top = 0;
+        float low = floor;
+        foreach (StairFlight f in flights)
         {
-            float h = from + k * rise;
-            Vector3 center = edge + inward * ((k - 0.5f) * StepDepth) + Vector3.up * (h * 0.5f);
-            Vector3 size = dir < 2 ? new Vector3(StepDepth, h, width) : new Vector3(width, h, StepDepth);
-            mb.Box(center, size, 0.5f, 0b0011_0111);
+            top = Mathf.Max(top, f.steps);
+            low = Mathf.Min(low, f.from);
+        }
+        float rise = (floor - low) / top;
+        for (int layer = 1; layer <= top; layer++)
+        {
+            float x0 = xMin, x1 = xMax, z0 = zMin, z1 = zMax;
+            foreach (StairFlight f in flights)
+            {
+                // Numéro de la marche de cette volée à cette hauteur (une volée plus courte commence plus haut).
+                float inset = Mathf.Max(0, layer - (top - f.steps) - 1) * StepDepth;
+                switch (f.dir)
+                {
+                    case 0: x1 -= inset; break;
+                    case 1: x0 += inset; break;
+                    case 2: z1 -= inset; break;
+                    default: z0 += inset; break;
+                }
+            }
+            if (x1 - x0 < 0.02f || z1 - z0 < 0.02f) break;
+            float bottom = low + (layer - 1) * rise, height = rise;
+            mb.Box(new Vector3((x0 + x1) * 0.5f, bottom + height * 0.5f, (z0 + z1) * 0.5f), new Vector3(x1 - x0, height, z1 - z0), 0.5f, 0b0011_0111);
         }
 
-        AddRamp(colliders, edge + Vector3.up * from, edge + inward * (steps * StepDepth) + Vector3.up * floor, width);
+        // Plateau (là où toutes les volées sont terminées) ; si deux volées opposées se rejoignent, il se réduit à une ligne.
+        float Depth(int dir)
+        {
+            foreach (StairFlight f in flights) if (f.dir == dir) return f.steps * StepDepth;
+            return 0f;
+        }
+        float plateauX0 = xMin + Depth(1), plateauX1 = xMax - Depth(0), plateauZ0 = zMin + Depth(3), plateauZ1 = zMax - Depth(2);
+        if (plateauX0 > plateauX1) plateauX0 = plateauX1 = (plateauX0 + plateauX1) * 0.5f;
+        if (plateauZ0 > plateauZ1) plateauZ0 = plateauZ1 = (plateauZ0 + plateauZ1) * 0.5f;
+        if (plateauX1 - plateauX0 > 0.05f && plateauZ1 - plateauZ0 > 0.05f)
+        {
+            addCollider(new Vector3((plateauX0 + plateauX1) * 0.5f, floor * 0.5f, (plateauZ0 + plateauZ1) * 0.5f), new Vector3(plateauX1 - plateauX0, floor, plateauZ1 - plateauZ0));
+            // Un monticule peut s'y poser, s'il reste à l'écart des marches.
+            float px0 = plateauX0 + (Depth(1) > 0f ? MoundClearance : 0f), px1 = plateauX1 - (Depth(0) > 0f ? MoundClearance : 0f);
+            float pz0 = plateauZ0 + (Depth(3) > 0f ? MoundClearance : 0f), pz1 = plateauZ1 - (Depth(2) > 0f ? MoundClearance : 0f);
+            if (px0 < px1 && pz0 < pz1) m.stairPlateaus.Add(Rect.MinMaxRect(px0, pz0, px1, pz1));
+        }
+
+        // Collision : la pente de chaque volée, la plus basse l'emporte (l'ensemble reste convexe, d'un seul tenant).
+        float HeightAt(float x, float z)
+        {
+            float h = floor;
+            foreach (StairFlight f in flights)
+            {
+                float distance = f.dir == 0 ? xMax - x : f.dir == 1 ? x - xMin : f.dir == 2 ? zMax - z : z - zMin;
+                h = Mathf.Min(h, f.from + distance * StepHeight / StepDepth);
+            }
+            return h;
+        }
+        var points = new HashSet<Vector3>();
+        var xs = new[] { xMin, plateauX0, plateauX1, xMax };
+        var zs = new[] { zMin, plateauZ0, plateauZ1, zMax };
+        foreach (float x in xs)
+            foreach (float z in zs)
+                points.Add(new Vector3(x, HeightAt(x, z), z));
+        foreach (float x in new[] { xMin, xMax })
+            foreach (float z in new[] { zMin, zMax })
+                points.Add(new Vector3(x, low, z));
+        var vertices = new List<Vector3>(points);
+        var triangles = new List<int>();
+        for (int k = 1; k + 1 < vertices.Count; k++) triangles.AddRange(new[] { 0, k, k + 1 });
+        var mesh = new Mesh { name = "Rampe", vertices = vertices.ToArray(), triangles = triangles.ToArray() };
+        mesh.RecalculateBounds();
+        var ramp = new GameObject("Rampe");
+        ramp.transform.SetParent(colliders, false);
+        var collider = ramp.AddComponent<MeshCollider>();
+        collider.sharedMesh = mesh;
+        collider.convex = true;
     }
 
     // Collision d'un escalier : coin plein (prisme convexe) du pied 'foot' (au sol du bas) au haut 'head' (au niveau du
@@ -1944,7 +2084,7 @@ public static class WorldBuilder
 
     static readonly string[] ChessPieces = { "Pawn", "Rook", "Knight", "Bishop", "Queen", "King" };
 
-    static void Decorate(Maze m, Transform root, Transform structure, System.Random rnd, List<Vector3> spots)
+    static IEnumerator Decorate(Maze m, Transform root, Transform structure, System.Random rnd, List<Vector3> spots)
     {
         var props = new GameObject("Decor_Z" + m.zone).transform;
         props.SetParent(root, false);
@@ -1963,6 +2103,7 @@ public static class WorldBuilder
         for (int i = 0; i < m.N; i++)
             for (int j = 0; j < m.N; j++)
             {
+                if (j == 0) yield return null;
                 if (m.Reserved(i, j)) continue;
                 Vector3 c = m.Center(i, j);
                 Room room = m.RoomAt(i, j);
@@ -2044,6 +2185,7 @@ public static class WorldBuilder
 
         foreach (Room room in m.rooms)
         {
+            yield return null;
             Vector3 center = Vector3.zero;
             foreach (var c in room.cells) center += m.Center(c.x, c.y);
             center /= room.cells.Count;
@@ -2127,8 +2269,17 @@ public static class WorldBuilder
         spots.RemoveAll(s => lasers.Exists(l => Laser.DistancePointSegment(s, l.a, l.b) <= GameRules.LaserTriggerDistance));
         // Ni sur un escalier, ni sous une plateforme (décor tout juste posé : on synchronise la physique avant de sonder).
         Physics.SyncTransforms();
-        spots.RemoveAll(s => OnStairs(s) || UnderPlatform(s));
+        yield return null;
+        // De la fin vers le début : l'ordre des emplacements restants ne change pas.
+        for (int k = spots.Count - 1; k >= 0; k--)
+        {
+            if (k % SpotChecksPerStep == 0) yield return null;
+            Vector2 flat = new Vector2(spots[k].x, spots[k].z);
+            if (OnStairs(spots[k]) && !m.stairPlateaus.Exists(r => r.Contains(flat)) || UnderPlatform(spots[k])) spots.RemoveAt(k);
+        }
     }
+
+    const int SpotChecksPerStep = 64;
 
     // Emprise d'un monticule (1,1 x 0,9 m) : un peu plus large, pour qu'il ne déborde pas sur l'obstacle.
     const float MoundClearance = 0.6f;
@@ -2553,7 +2704,7 @@ public static class WorldBuilder
         return false;
     }
 
-    static void BuildTemplates(Maze m, Transform root, Transform colliders, List<Glyph> glyphs, System.Random rnd)
+    static IEnumerator BuildTemplates(Maze m, Transform root, Transform colliders, List<Glyph> glyphs, System.Random rnd)
     {
         var props = new GameObject("Architectures").transform;
         props.SetParent(root, false);
@@ -2562,6 +2713,7 @@ public static class WorldBuilder
         Physics.SyncTransforms();
         foreach (Room room in m.rooms)
         {
+            yield return null;
             if (CanHoldGallery(m, room, glyphs)) BuildGallery(m, room, props, rnd);
             if (room.style == RoomStyle.Template) BuildTemplateRoom(m, room, props, colliders, rnd);
         }
@@ -2840,8 +2992,11 @@ public static class WorldBuilder
         {
             mb.WorldQuad(At(points[0], top), At(points[i], top), At(points[i + 1], top), At(points[i + 1], top), Vector3.up, texScale);
             mb.WorldQuad(At(points[0], bottom), At(points[i], bottom), At(points[i + 1], bottom), At(points[i + 1], bottom), Vector3.down, texScale);
-            // Tranches libres : les deux bords collés aux murs (ceux qui partent du coin) restent sans face.
-            Vector3 a = points[i], b = points[i + 1], d = (b - a).normalized;
+        }
+        // Toutes les tranches, y compris les deux bords le long des murs : à cette hauteur, le mur peut ne plus exister.
+        for (int i = 0; i < points.Count; i++)
+        {
+            Vector3 a = points[i], b = points[(i + 1) % points.Count], d = (b - a).normalized;
             Vector3 n = new Vector3(d.z, 0f, -d.x);
             if (Vector3.Dot(n, a - middle) < 0f) n = -n;
             mb.WorldQuad(At(a, bottom), At(b, bottom), At(b, top), At(a, top), n, texScale);
@@ -2950,17 +3105,16 @@ public static class WorldBuilder
             Vector3 foot = (k == 0 ? b - dir * (reachB + GalleryMinBridge + length) : a + dir * reachA) + n * (GalleryWidth * 0.5f);
             bool alongX = Mathf.Abs(dir.x) > 0.5f;
             Vector3 Oriented(float along, float height, float across) => alongX ? new Vector3(along, height, across) : new Vector3(across, height, along);
-            // Toutes les faces sauf celle qui touche le mur.
-            int faces = 63 & ~(1 << (Mathf.Abs(n.x) > 0.5f ? (n.x > 0f ? 1 : 0) : (n.z > 0f ? 5 : 4)));
+            // Toutes les faces, même côté mur : à cette hauteur, le mur peut ne plus exister.
             for (int s = 1; s < steps; s++)
-                mb.Box(foot + dir * ((s + 0.5f) * StepDepth) + Vector3.up * (level + s * GalleryRise - GalleryTreadDepth * 0.5f), Oriented(StepDepth, GalleryTreadDepth, GalleryWidth), 0.5f, faces);
+                mb.Box(foot + dir * ((s + 0.5f) * StepDepth) + Vector3.up * (level + s * GalleryRise - GalleryTreadDepth * 0.5f), Oriented(StepDepth, GalleryTreadDepth, GalleryWidth), 0.5f);
             AddFlyingRamp(props, foot + Vector3.up * level, foot + dir * length + Vector3.up * arrival, GalleryWidth);
 
             // Le pont finit à la plateforme ; un peu sous son sommet, pour ne pas se confondre avec lui.
             Vector3 deck = foot + dir * length;
             float bridge = Vector3.Dot(b - dir * reachB - deck, dir);
             if (bridge > 0.01f)
-                AddSolid(mb, props, deck + dir * (bridge * 0.5f) + Vector3.up * (arrival - GalleryBridgeInset - BridgeDepth * 0.5f), Oriented(bridge, BridgeDepth, GalleryWidth), faces);
+                AddSolid(mb, props, deck + dir * (bridge * 0.5f) + Vector3.up * (arrival - GalleryBridgeInset - BridgeDepth * 0.5f), Oriented(bridge, BridgeDepth, GalleryWidth));
             AddCornerPlatform(mb, props, b, -dir, n, outlineB, arrival);
 
             Vector3 approach = k == 0 ? dir * GalleryApproach : Vector3.zero;

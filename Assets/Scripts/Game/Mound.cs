@@ -26,6 +26,8 @@ public class Mound : Interactable
         mound.Id = id;
         mound.Loot = loot;
         mound.FitTrigger(new Vector3(0.9f, 0.5f, 0.9f));
+        // Aucune mise à jour tant que personne ne le creuse (StartDigging).
+        mound.enabled = false;
         return mound;
     }
 
@@ -38,6 +40,7 @@ public class Mound : Interactable
     {
         if (Digging) return;
         Digging = true;
+        enabled = true;
         debrisTimer = 0f;
         GameAudio.Play3D("dig", transform.position, 0.8f, 18f, 0.1f);
     }

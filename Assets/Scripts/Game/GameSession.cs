@@ -227,8 +227,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     static void ConfigureRendering()
     {
-        // Assez pour presque tous les morceaux de murs (jusqu'à 8 lampes) : pas de ruptures de lumière entre eux.
-        QualitySettings.pixelLightCount = 6;
+        // Réglage "Éclairage" du menu pause. À 6 (Haut), assez pour presque tous les morceaux de murs (jusqu'à 8 lampes).
+        LightQuality.Apply();
         QualitySettings.shadows = ShadowQuality.Disable;
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
@@ -391,7 +391,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             itemsRound = -1;
             rebuilt = true;
         }
-        while (zones.Count < zoneCount) GenerateNextZone();
+        // Nouvelle graine : tout de suite. Sinon, la zone suivante se génère sur plusieurs images (AdvanceZoneBuild).
+        if (rebuilt) GenerateZonesNow();
         if (itemsRound != round || itemsBoost != valueBoost) SpawnItems();
         hub.door.SetOpen(phase != Phase.Waiting);
         bool animate = !rebuilt && Time.unscaledTime > audioMuteUntil;
@@ -652,6 +653,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateDespair();
         UpdateGlyphOrders();
         UpdateSealedZones();
+        AdvanceZoneBuild();
+        UpdateZoneVisibility();
         UpdateArcades();
         UpdateWatching();
         UpdateDread();
@@ -2133,6 +2136,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 ApplyWorld();
                 BroadcastState();
             }
+            GenerateZonesNow();
+            UpdateDoors(true);
             Vector3 at = zones[zoneNumber - 1].entrance;
             player.Teleport(new Vector3(at.x, GroundBelow(at) + 0.95f, at.z), 0f);
             return Loc.F("Téléporté dans la Zone {0}.", zoneNumber.ToString());

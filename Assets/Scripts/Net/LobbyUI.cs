@@ -29,6 +29,7 @@ public class LobbyUI : MonoBehaviour
     readonly System.Collections.Generic.List<Text> sfxLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> brightLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> grainLabels = new System.Collections.Generic.List<Text>();
+    readonly System.Collections.Generic.List<Text> lightLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> sensitivityLabels = new System.Collections.Generic.List<Text>();
     float copyFeedbackTimer;
     Text versionText;
@@ -68,6 +69,7 @@ public class LobbyUI : MonoBehaviour
 
     void OnLanguageChanged()
     {
+        RefreshVolumes();
         foreach (var kv in flags) kv.Value.Selected = kv.Key == Loc.Current;
         RefreshRoom();
         SetPlayerCount(playerCount);
@@ -444,6 +446,8 @@ public class LobbyUI : MonoBehaviour
         if (brightness) sensitivityLabels.Add(VolumeRow(p, "Sensibilité", height, seed + 6, step => MouseSensitivity.Value = Step(MouseSensitivity.Value, step)));
         // Grain d'écran, dans le menu pause seulement.
         if (brightness) grainLabels.Add(VolumeRow(p, "Grain", height, seed + 8, step => FilmGrain.Value = Step(FilmGrain.Value, step)));
+        // Nombre de lampes par objet (Bas, Standard, Haut).
+        if (brightness) lightLabels.Add(VolumeRow(p, "Éclairage", height, seed + 10, step => LightQuality.Value += step));
         RefreshVolumes();
     }
 
@@ -477,6 +481,7 @@ public class LobbyUI : MonoBehaviour
         foreach (var t in brightLabels) t.text = Mathf.RoundToInt(Brightness.Value * 100f) + " %";
         foreach (var t in sensitivityLabels) t.text = Mathf.RoundToInt(MouseSensitivity.Value * 100f) + " %";
         foreach (var t in grainLabels) t.text = Mathf.RoundToInt(FilmGrain.Value * 100f) + " %";
+        foreach (var t in lightLabels) t.text = LightQuality.Label;
     }
 
     // Boutons "<" et ">" d'un sélecteur, en coups de pinceau.
@@ -489,7 +494,7 @@ public class LobbyUI : MonoBehaviour
     void BuildPause(Transform root)
     {
         // À gauche : partie, skin, volumes, quitter.
-        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 602));
+        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 646));
         UiKit.Paint(pausePanel, PanelBlack, 11);
         UiKit.Place(pausePanel, new Vector2(0f, 1f), new Vector2(16, -16));
         UiKit.Column(pausePanel, 34, 8);
