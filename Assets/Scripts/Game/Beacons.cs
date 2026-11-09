@@ -558,6 +558,18 @@ public class BeaconNetwork : MonoBehaviour
 
     public Beacon GetHub(int index) => hubs.TryGetValue(index, out var b) ? b : null;
 
+    // Chapitre 9.2 (V0.6.5) : les Balises principales des Hubs fermés (jusqu'à 'upTo' compris) cessent de charger le réseau.
+    public void SealHubs(int upTo)
+    {
+        foreach (var kv in hubs)
+        {
+            bool on = kv.Key > upTo;
+            if (kv.Value != null) kv.Value.gameObject.SetActive(on);
+            if (gaugeRoots.TryGetValue(kv.Key, out var g) && g != null) g.SetActive(on);
+        }
+        dirty = true;
+    }
+
     // Balise principale la plus proche d'un point (à l'horizontale).
     public Beacon NearestHub(Vector3 p)
     {
@@ -565,7 +577,7 @@ public class BeaconNetwork : MonoBehaviour
         float bestDist = float.MaxValue;
         foreach (var h in hubs.Values)
         {
-            if (h == null) continue;
+            if (h == null || !h.gameObject.activeSelf) continue;
             Vector3 d = h.transform.position - p;
             float dist = new Vector2(d.x, d.z).sqrMagnitude;
             if (dist < bestDist) { bestDist = dist; best = h; }
@@ -645,7 +657,7 @@ public class BeaconNetwork : MonoBehaviour
         roots.Reverse();
         foreach (var root in roots)
         {
-            if (root == null || !HubCharged) continue;
+            if (root == null || !root.gameObject.activeSelf || !HubCharged) continue;
             int head = charged.Count;
             charged.Add(root);
             for (; head < charged.Count; head++)
@@ -681,7 +693,7 @@ public class BeaconNetwork : MonoBehaviour
     public bool SeesHub(Beacon b)
     {
         if (b == null) return false;
-        foreach (var h in hubs.Values) if (h != null && InSight(h, b)) return true;
+        foreach (var h in hubs.Values) if (h != null && h.gameObject.activeSelf && InSight(h, b)) return true;
         return false;
     }
 

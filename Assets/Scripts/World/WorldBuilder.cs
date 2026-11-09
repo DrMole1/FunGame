@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // Construit les Hubs (chapiteaux circulaires) et les zones du labyrinthe procédural (V0.6) : le terrain se génère à
-// l'infini vers le nord (+Z), en suivant le schéma Hub > zone avec porte > zone avec Neutral Room et Acquisition Room >
+// l'infini vers le nord (+Z), en suivant le schéma Hub > zone avec Neutral Room et sa porte > zone avec Acquisition Room >
 // Hub suivant... Chaque zone fait 170 m x 170 m ; le Hub N est au sud de la zone 2N - 1, et la porte de son chapiteau
 // est dans l'Acquisition Room de la zone 2N - 2. Une zone dépend uniquement de la graine et de son numéro : tous les
 // clients génèrent la même, et on ne la génère qu'au moment où des joueurs s'en approchent.
@@ -59,8 +59,8 @@ public static class WorldBuilder
         public Quaternion[] kennelRotations;
     }
 
-    // Une zone générée : son bâti, ses emplacements d'objets, sa navigation, sa brume, et selon sa parité la porte à orbes
-    // (zones impaires, au nord) ou la Neutral Room, les glyphes et l'Acquisition Room (zones paires).
+    // Une zone générée : son bâti, ses emplacements d'objets, sa navigation, sa brume, et selon sa parité (V0.6.5) la Neutral
+    // Room, sa porte et les glyphes neutres (zones impaires) ou les glyphes d'acquisition et l'Acquisition Room (zones paires).
     public class ZoneRefs
     {
         public int index;
@@ -70,12 +70,10 @@ public static class WorldBuilder
         public MazeNav nav;
         public GameObject mist;      // brume du Couvre Feu
         public ZoneDoor door;        // zones impaires : porte vers la zone paire suivante
-        public ZoneOrb[] orbs;
         public int doorNumber;       // 1 : porte entre la Zone 1 et la Zone 2
         public readonly List<Glyph> neutralGlyphs = new List<Glyph>(), acquisitionGlyphs = new List<Glyph>();
         public AcquisitionDoor acquisitionDoor;   // zones paires : porte du chapiteau suivant
-        public Bounds neutralRoom;
-        public Vector3 entrance;     // point d'arrivée dans la zone (derrière la porte du Hub ou la porte à orbes)
+        public Vector3 entrance;     // point d'arrivée dans la zone (derrière la porte du Hub ou de la Neutral Room)
         public readonly List<ArcadeMachine> arcades = new List<ArcadeMachine>();   // V0.6.1 : à partir de la Zone 3
         internal Maze maze;
     }
@@ -474,8 +472,8 @@ public static class WorldBuilder
     }
 
     // Une zone du labyrinthe : grille de 40 x 40 cellules de 5 m. Coordonnées (i, j) : i le long de X, j le long de Z
-    // (vers le nord, la zone suivante). Zones impaires : le Hub au sud (5 x 5 cellules), la porte à orbes au nord.
-    // Zones paires : la Neutral Room au sud (derrière la porte à orbes), l'Acquisition Room au nord (porte du chapiteau).
+    // (vers le nord, la zone suivante). Zones impaires : le Hub au sud (5 x 5 cellules), la Neutral Room et sa porte au nord.
+    // Zones paires : on entre au sud par la porte de la Neutral Room précédente, l'Acquisition Room au nord (porte du chapiteau).
     internal class Maze
     {
         public readonly int zone, N;
@@ -489,9 +487,8 @@ public static class WorldBuilder
         public readonly List<Rect> deckBlocks = new List<Rect>();  // paliers et escaliers des liaisons aériennes
         public readonly Vector3 origin;   // coin (x et z minimaux) de la cellule (0, 0)
         public readonly bool hub;
-        public readonly Vector2Int start; // cellule d'arrivée (derrière la porte du Hub ou la porte à orbes)
-        public int doorCol = -1;          // zones impaires : colonne de la porte à orbes (mur nord)
-        public int entryCol = -1;         // zones paires : colonne de la porte à orbes de la zone précédente (mur sud)
+        public readonly Vector2Int start; // cellule d'arrivée (derrière la porte du Hub ou de la Neutral Room précédente)
+        public int doorCol = -1;          // zones impaires : colonne de la porte de la Neutral Room (mur nord)
         public RectInt neutralRoom, acquisitionRoom;
         public readonly bool[,] fixedCell; // Neutral Room et Acquisition Room : hors du labyrinthe tiré au hasard
         public readonly HashSet<Vector2Int> keepClear = new HashSet<Vector2Int>(); // cellules sans décor ni piège
@@ -570,10 +567,10 @@ public static class WorldBuilder
     }
 
     // V0.6 : chaque salle a sa propre profondeur et sa propre hauteur, tirées au hasard ; la profondeur maximale vaut
-    // nZone x 4 et la hauteur maximale nZone x 10 (par rapport au niveau du Hub). Environ 25 % de couloirs pour 75 % de salles.
+    // nZone x 4 et la hauteur maximale nZone x 10, sans excéder 50 m (par rapport au niveau du Hub). Environ 25 % de couloirs pour 75 % de salles.
     static ZoneStyle StyleFor(int zone)
     {
-        float maxHeight = 10f * zone, maxDepth = 4f * zone;
+        float maxHeight = GameRules.MaxRoomHeight(zone), maxDepth = 4f * zone;
         float H(float k) => Mathf.Max(4f, Mathf.Round(4f + (maxHeight - 4f) * k));
         bool first = zone == 1;
         return new ZoneStyle
@@ -636,7 +633,7 @@ public static class WorldBuilder
 
         // Labyrinthe parfait (exploration en profondeur) à partir de l'entrée de la zone ; la Neutral Room et l'Acquisition
         // Room n'en font pas partie (elles s'y ouvrent ensuite).
-        Vector2Int seedCell = m.Fixed(m.start.x, m.start.y) ? new Vector2Int(m.entryCol + 2, 1) : m.start;
+        Vector2Int seedCell = m.start;
         var visited = new bool[n, n];
         var stack = new Stack<Vector2Int>();
         stack.Push(seedCell);
@@ -977,11 +974,12 @@ public static class WorldBuilder
     static (Vector2Int, Vector2Int) EdgeKey(Vector2Int a, Vector2Int b) =>
         a.x < b.x || (a.x == b.x && a.y < b.y) ? (a, b) : (b, a);
 
-    // Colonne de la porte à orbes de la zone impaire 'zone' (dans son mur nord, du côté opposé à l'ouverture du Hub,
-    // note 01 du chapitre 9). Tirée d'après la graine seule : la zone paire suivante place sa Neutral Room derrière.
+    // Colonne de la porte de la zone impaire 'zone' (dans le mur nord de sa Neutral Room). Tirée d'après la graine seule : la
+    // zone paire suivante place son entrée derrière.
     static int DoorColumn(int seed, int zone) => new System.Random(seed * 7349 + zone * 104729).Next(3, ZoneCells - 3);
 
-    // Grille de la zone, avant le tirage du labyrinthe : cellule d'arrivée, porte, Neutral Room et Acquisition Room.
+    // Grille de la zone, avant le tirage du labyrinthe : cellule d'arrivée et salle du fond (V0.6.5 : la Neutral Room, au nord
+    // des zones impaires ; l'Acquisition Room, au nord des zones paires).
     static Maze CreateMaze(int seed, int zone)
     {
         bool odd = zone % 2 == 1;
@@ -989,45 +987,31 @@ public static class WorldBuilder
         var start = odd ? new Vector2Int(HubCol, HubRows) : new Vector2Int(DoorColumn(seed, zone - 1), 0);
         var m = new Maze(zone, n, ZoneOrigin(zone), odd, start);
         m.keepClear.Add(start);
+        RectInt end;
         if (odd)
         {
-            // Devant la porte à orbes : trois cellules sans salle ni décor, réunies ensuite en antichambre.
             m.doorCol = DoorColumn(seed, zone);
-            for (int di = -1; di <= 1; di++) m.keepClear.Add(new Vector2Int(m.doorCol + di, n - 1));
+            end = m.neutralRoom = new RectInt(m.doorCol - 1, n - 3, 3, 3);
         }
-        else
-        {
-            m.entryCol = start.x;
-            m.neutralRoom = new RectInt(m.entryCol - 1, 0, 3, 3);
-            m.acquisitionRoom = new RectInt(HubCol - 2, n - 3, 5, 3);
-            foreach (var r in new[] { m.neutralRoom, m.acquisitionRoom })
-                for (int i = r.xMin; i < r.xMax; i++)
-                    for (int j = r.yMin; j < r.yMax; j++)
-                    {
-                        m.fixedCell[i, j] = true;
-                        m.keepClear.Add(new Vector2Int(i, j));
-                    }
-        }
+        else end = m.acquisitionRoom = new RectInt(HubCol - 2, n - 3, 5, 3);
+        for (int i = end.xMin; i < end.xMax; i++)
+            for (int j = end.yMin; j < end.yMax; j++)
+            {
+                m.fixedCell[i, j] = true;
+                m.keepClear.Add(new Vector2Int(i, j));
+            }
         return m;
     }
 
-    // Après le labyrinthe : antichambre de la porte à orbes (zones impaires) ; Neutral Room et Acquisition Room de plain-pied
-    // (zones paires), fermées sauf leurs ouvertures vers le labyrinthe. Le mur du fond de la Neutral Room porte les glyphes.
+    // Après le labyrinthe : salle du fond de plain-pied, fermée sauf ses ouvertures vers le labyrinthe (au sud et sur ses
+    // deux côtés, schémas du chapitre 9). Sa porte est dans le mur nord.
     static void StampFixedRooms(Maze m)
     {
-        if (m.hub)
-        {
-            m.eastWall[m.doorCol - 1, m.N - 1] = m.eastWall[m.doorCol, m.N - 1] = false;
-            return;
-        }
-        AddFixedRoom(m, m.neutralRoom, 6f);
-        AddFixedRoom(m, m.acquisitionRoom, 7f);
-        SetWall(m, m.entryCol - 1, 1, 1, false);
-        SetWall(m, m.entryCol + 1, 1, 0, false);
-        RectInt ar = m.acquisitionRoom;
-        SetWall(m, HubCol, ar.yMin, 3, false);
-        SetWall(m, ar.xMin, ar.yMin + 1, 1, false);
-        SetWall(m, ar.xMax - 1, ar.yMin + 1, 0, false);
+        RectInt end = m.hub ? m.neutralRoom : m.acquisitionRoom;
+        AddFixedRoom(m, end, m.hub ? 6f : 7f);
+        SetWall(m, m.hub ? m.doorCol : HubCol, end.yMin, 3, false);
+        SetWall(m, end.xMin, end.yMin + 1, 1, false);
+        SetWall(m, end.xMax - 1, end.yMin + 1, 0, false);
     }
 
     static void AddFixedRoom(Maze m, RectInt rect, float ceil)
@@ -1072,9 +1056,10 @@ public static class WorldBuilder
         refs.entrance = m.Center(m.start.x, m.start.y);
 
         BuildGeometry(m, root, colliders);
-        if (m.hub) BuildZoneDoor(m, root, refs);
-        else BuildGlyphRooms(m, root, refs, new System.Random(seed * 59 + zone * 613));
-        BuildTemplates(m, root, colliders.transform, refs.acquisitionGlyphs, new System.Random(seed * 71 + zone * 733));
+        var glyphRnd = new System.Random(seed * 59 + zone * 613);
+        if (m.hub) BuildNeutralRoom(m, root, refs, glyphRnd);
+        else BuildAcquisitionRoom(m, root, refs, glyphRnd);
+        BuildTemplates(m, root, colliders.transform, m.hub ? refs.neutralGlyphs : refs.acquisitionGlyphs, new System.Random(seed * 71 + zone * 733));
         BuildArcades(m, root, refs, new System.Random(seed * 67 + zone * 389));
 
         // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, fosses, plateformes).
@@ -1306,7 +1291,7 @@ public static class WorldBuilder
                 else if (m.hub && i == HubCol && j == HubRows - 1)
                     Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex); // porte du Hub
                 else if (!highIn && m.hub && i == m.doorCol)
-                    Doorway(mb, new Vector3(x, 0f, z), true, h, ZoneDoorWidth, ZoneDoorHeight, tex); // porte à orbes
+                    Doorway(mb, new Vector3(x, 0f, z), true, h, ZoneDoorWidth, ZoneDoorHeight, tex); // porte de la Neutral Room
                 else if (!highIn && !m.hub && i == HubCol)
                     Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex); // porte du chapiteau suivant
                 else
@@ -1493,43 +1478,163 @@ public static class WorldBuilder
         AddRamp(colliders, topEdge + fwd * length + Vector3.up * s.bottom, topEdge + Vector3.up * s.top, width);
     }
 
-    // Zones impaires : porte massive dans le mur nord (fermée au départ), à moitié dans chaque zone, et ses orbes devant
-    // elle, côté zone impaire (3 pour la première porte, 5 ensuite).
-    static void BuildZoneDoor(Maze m, Transform root, ZoneRefs refs)
+    // Zones impaires (V0.6.5) : Neutral Room au nord, sa porte massive dans le mur du fond (à moitié dans chaque zone), et trois
+    // glyphes neutres différents, à des emplacements tirés au hasard dans la zone et reliés à la porte par un câble.
+    static void BuildNeutralRoom(Maze m, Transform root, ZoneRefs refs, System.Random rnd)
     {
-        Vector3 toOdd = Vector3.back;
         Vector3 edge = m.Center(m.doorCol, m.N - 1) + Vector3.forward * (Cell * 0.5f);
-        Quaternion facing = Quaternion.LookRotation(toOdd);
         refs.doorNumber = (m.zone + 1) / 2;
-        refs.door = ZoneDoor.Create(root, edge, facing, ZoneDoorWidth, ZoneDoorHeight);
-        int count = GameRules.OrbsOfDoor(refs.doorNumber), first = GameRules.FirstOrb(refs.doorNumber);
-        refs.orbs = new ZoneOrb[count];
-        Vector3 right = Vector3.Cross(Vector3.up, toOdd);
-        for (int k = 0; k < count; k++)
-            refs.orbs[k] = ZoneOrb.Create(root, first + k, edge + toOdd * 1.9f + right * ((k - (count - 1) * 0.5f) * 1.35f), facing);
+        refs.door = ZoneDoor.Create(root, edge, Quaternion.LookRotation(Vector3.back), ZoneDoorWidth, ZoneDoorHeight);
+
+        var props = new GameObject("Glyphes").transform;
+        props.SetParent(root, false);
+        // Enseigne non traductible au-dessus de la porte, lue depuis l'entrée.
+        NeonSign(props, "EnseigneNeutralRoom", "Neutral Room", edge + new Vector3(0f, 5.1f, -Wall * 0.5f), NeutralSignWidth);
+
+        // Dans les couloirs (rien ne les y masque), loin du Hub et de la Neutral Room, à au moins 40 m les uns des autres.
+        var cells = new List<Vector2Int>();
+        for (int i = 0; i < m.N; i++)
+            for (int j = 0; j < m.N; j++)
+                if (m.RoomAt(i, j) == null && !m.Reserved(i, j) && !m.Fixed(i, j) && !m.keepClear.Contains(new Vector2Int(i, j)) && m.Ceil(i, j) >= 3f) cells.Add(new Vector2Int(i, j));
+        Vector3 nrCenter = m.Center(m.doorCol, m.N - 2);
+        var placed = new List<Vector3>();
+        var spots = new List<(Vector2Int cell, Vector3 toWall)>();
+        foreach (float spacing in new[] { 55f, GameRules.NeutralGlyphSpacing })
+            for (int attempt = 0; attempt < 4000 && spots.Count < GameRules.GlyphTypes; attempt++)
+            {
+                Vector2Int c = cells[rnd.Next(cells.Count)];
+                int dir = rnd.Next(4);
+                if (!HasWall(m, c.x, c.y, dir)) continue;
+                Vector3 center = m.Center(c.x, c.y);
+                Vector3 toWall = new Vector3(DI[dir], 0f, DJ[dir]);
+                if (Flat(center - nrCenter) < 25f || InBlocks(m, center + toWall * 2f, 0.5f) || placed.Exists(q => Flat(q - center) < spacing)) continue;
+                placed.Add(center);
+                spots.Add((c, toWall));
+                m.keepClear.Add(c);
+            }
+
+        Physics.SyncTransforms();
+        var towardDoor = CableRoutes(m, new Vector2Int(m.doorCol, m.N - 1));
+        for (int t = 0; t < spots.Count; t++)
+        {
+            var (cell, toWall) = spots[t];
+            Vector3 p = m.Center(cell.x, cell.y) + toWall * (Cell * 0.5f - Wall * 0.5f - 0.04f) + Vector3.up * 1.7f;
+            Glyph glyph = Glyph.Create(props, GameRules.NeutralGlyphId(m.zone, t), t, true, m.zone, p, -toWall, Glyph.NeutralSize);
+            refs.neutralGlyphs.Add(glyph);
+            glyph.SetCable(BuildCable(m, props, refs.structure, cell, p, toWall, towardDoor, edge, (t - (GameRules.GlyphTypes - 1) * 0.5f) * CableSpread));
+        }
     }
 
-    // Zones paires : Neutral Room (3 glyphes neutres sur le mur du fond, face à l'entrée), glyphes d'acquisition contre des
-    // murs pris au hasard (plus grands), et Acquisition Room avec la porte du chapiteau suivant, qui porte tous ces glyphes.
-    static void BuildGlyphRooms(Maze m, Transform root, ZoneRefs refs, System.Random rnd)
+    // ---------- Câbles entre les glyphes neutres et la porte de la Neutral Room (V0.6.5) ----------
+
+    const float CableWidth = 0.05f, CableSpread = 0.14f, CableLift = 0.025f, CableStep = 1f, CableFrontOfDoor = 0.37f, CableProbeHeight = 3.2f;
+    static readonly RaycastHit[] cableHits = new RaycastHit[32];
+
+    // Sens à suivre depuis chaque cellule pour rejoindre la cellule de la porte (largeur d'abord, le même chez tous les joueurs).
+    static int[,] CableRoutes(Maze m, Vector2Int goal)
+    {
+        var next = new int[m.N, m.N];
+        for (int i = 0; i < m.N; i++)
+            for (int j = 0; j < m.N; j++) next[i, j] = -1;
+        var queue = new Queue<Vector2Int>();
+        queue.Enqueue(goal);
+        next[goal.x, goal.y] = 4;
+        while (queue.Count > 0)
+        {
+            Vector2Int c = queue.Dequeue();
+            for (int d = 0; d < 4; d++)
+            {
+                int ni = c.x + DI[d], nj = c.y + DJ[d];
+                if (!m.InGrid(ni, nj) || m.Reserved(ni, nj) || next[ni, nj] >= 0 || HasWall(m, c.x, c.y, d)) continue;
+                next[ni, nj] = d ^ 1;   // sens inverse : 0 <-> 1, 2 <-> 3
+                queue.Enqueue(new Vector2Int(ni, nj));
+            }
+        }
+        return next;
+    }
+
+    // Plus haut sol du bâti sous ce point (ni plateformes ni décor).
+    static float CableFloor(Vector3 p, Transform structure, float fallback)
+    {
+        int n = Physics.RaycastNonAlloc(new Vector3(p.x, CableProbeHeight, p.z), Vector3.down, cableHits, 80f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+        float best = float.MinValue;
+        for (int k = 0; k < n; k++)
+            if (cableHits[k].point.y > best && cableHits[k].transform.IsChildOf(structure)) best = cableHits[k].point.y;
+        return best > float.MinValue ? best : fallback;
+    }
+
+    // Ruban plat posé à même le sol : il descend du glyphe le long du mur, suit les cellules jusqu'à la porte, 'lateral'
+    // mètres à côté de l'axe pour que les trois câbles ne se confondent pas là où ils se rejoignent.
+    static Renderer BuildCable(Maze m, Transform parent, Transform structure, Vector2Int cell, Vector3 glyphPos, Vector3 toWall, int[,] towardDoor, Vector3 doorEdge, float lateral)
+    {
+        var route = new List<Vector3> { new Vector3(glyphPos.x, 0f, glyphPos.z) - toWall * 0.03f };
+        Vector2Int c = cell;
+        for (int guard = 0; guard < m.N * m.N && towardDoor[c.x, c.y] >= 0 && towardDoor[c.x, c.y] < 4; guard++)
+        {
+            route.Add(m.Center(c.x, c.y));
+            int d = towardDoor[c.x, c.y];
+            c += new Vector2Int(DI[d], DJ[d]);
+        }
+        route.Add(m.Center(c.x, c.y));
+        route.Add(new Vector3(doorEdge.x + lateral * 3f, 0f, doorEdge.z - CableFrontOfDoor));
+
+        Vector3 Side(int i)
+        {
+            Vector3 d = route[Mathf.Min(i + 1, route.Count - 1)] - route[Mathf.Max(i - 1, 0)];
+            return d.sqrMagnitude > 0.001f ? Vector3.Cross(Vector3.up, d).normalized : Vector3.Cross(Vector3.up, toWall);
+        }
+
+        var points = new List<Vector3> { glyphPos + Vector3.down * 0.8f - toWall * 0.03f };
+        for (int i = 0; i < route.Count - 1; i++)
+        {
+            Vector3 a = route[i] + Side(i) * lateral, b = route[i + 1] + Side(i + 1) * lateral;
+            int steps = Mathf.Max(1, Mathf.CeilToInt(Flat(b - a) / CableStep));
+            for (int s = 0; s < steps; s++)
+            {
+                Vector3 p = Vector3.Lerp(a, b, s / (float)steps);
+                p.y = CableFloor(p, structure, 0f) + CableLift;
+                points.Add(p);
+            }
+        }
+        Vector3 last = route[route.Count - 1];
+        last.y = CableFloor(last, structure, 0f) + CableLift;
+        points.Add(last);
+
+        var vertices = new Vector3[points.Count * 2];
+        var triangles = new int[(points.Count - 1) * 6];
+        Vector3 side = Vector3.Cross(Vector3.up, toWall).normalized;
+        for (int i = 0; i < points.Count; i++)
+        {
+            Vector3 d = points[Mathf.Min(i + 1, points.Count - 1)] - points[Mathf.Max(i - 1, 0)];
+            d.y = 0f;
+            if (d.sqrMagnitude > 0.0001f) side = Vector3.Cross(Vector3.up, d).normalized;
+            vertices[i * 2] = points[i] - side * CableWidth * 0.5f;
+            vertices[i * 2 + 1] = points[i] + side * CableWidth * 0.5f;
+        }
+        for (int i = 0; i < points.Count - 1; i++)
+        {
+            int t = i * 6, v = i * 2;
+            triangles[t] = v; triangles[t + 1] = v + 2; triangles[t + 2] = v + 1;
+            triangles[t + 3] = v + 1; triangles[t + 4] = v + 2; triangles[t + 5] = v + 3;
+        }
+        var mesh = new Mesh { name = "Cable", vertices = vertices, triangles = triangles };
+        mesh.RecalculateBounds();
+        var go = GameArt.MeshObject("Cable", parent, mesh, Glyph.CableMaterial(false));
+        var renderer = go.GetComponent<MeshRenderer>();
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        return renderer;
+    }
+
+    // Zones paires : glyphes d'acquisition contre des murs pris au hasard (plus grands), et Acquisition Room avec la porte du
+    // chapiteau suivant, qui porte tous ces glyphes.
+    static void BuildAcquisitionRoom(Maze m, Transform root, ZoneRefs refs, System.Random rnd)
     {
         var props = new GameObject("Glyphes").transform;
         props.SetParent(root, false);
 
-        RectInt nr = m.neutralRoom;
-        float back = m.Center(0, nr.yMax - 1).z + Cell * 0.5f - Wall * 0.5f;
-        for (int t = 0; t < GameRules.GlyphTypes; t++)
-        {
-            Vector3 p = new Vector3(m.Center(nr.xMin + t, 0).x, 1.7f, back - 0.03f);
-            refs.neutralGlyphs.Add(Glyph.Create(props, m.zone * 100 + 50 + t, t, true, m.zone, p, Vector3.back, Glyph.NeutralSize));
-        }
-        // Enseigne non traductible au-dessus des glyphes, lue depuis l'entrée.
-        NeonSign(props, "EnseigneNeutralRoom", "Neutral Room", new Vector3(m.Center(m.entryCol, 0).x, 3.7f, back), NeutralSignWidth);
-        Vector3 nrMin = m.origin + new Vector3(nr.xMin * Cell, -1f, nr.yMin * Cell), nrMax = m.origin + new Vector3(nr.xMax * Cell, 7f, nr.yMax * Cell);
-        refs.neutralRoom = new Bounds((nrMin + nrMax) * 0.5f, nrMax - nrMin);
-
-        // Glyphes d'acquisition : Zone 2, un de chaque ; ensuite, 2 + nZone / 2 tirés au hasard. Loin des deux salles et
-        // les uns des autres (V0.6.1 : au moins 50 m entre eux), contre le mur d'une cellule de plain-pied.
+        // Glyphes d'acquisition : Zone 2, un de chaque ; ensuite, 2 + nZone / 2 tirés au hasard (6 au plus). Loin de l'entrée,
+        // de la salle du fond et les uns des autres (V0.6.1 : au moins 50 m entre eux), contre le mur d'une cellule de plain-pied.
         int count = GameRules.AcquisitionGlyphs(m.zone);
         var types = new List<int>();
         for (int k = 0; k < count; k++) types.Add(m.zone == 2 ? k % GameRules.GlyphTypes : rnd.Next(GameRules.GlyphTypes));
@@ -1543,7 +1648,7 @@ public static class WorldBuilder
                 cells.Add(new Vector2Int(i, j));
             }
         var placed = new List<Vector3>();
-        Vector3 nrCenter = refs.neutralRoom.center, arCenter = m.Center(HubCol, m.N - 2);
+        Vector3 entry = m.Center(m.start.x, m.start.y), arCenter = m.Center(HubCol, m.N - 2);
         // Zones 4 et plus (non précisé dans le GDD) : 50 m si possible, sinon de moins en moins.
         float[] spacings = m.zone == 2 ? new[] { 60f, GlyphMinSpacing } : new[] { 60f, GlyphMinSpacing, 30f, 15f };
         foreach (float spacing in spacings)
@@ -1553,7 +1658,7 @@ public static class WorldBuilder
                 int dir = rnd.Next(4);
                 if (!HasWall(m, c.x, c.y, dir)) continue;
                 Vector3 center = m.Center(c.x, c.y);
-                if (Flat(center - nrCenter) < 25f || Flat(center - arCenter) < 25f) continue;
+                if (Flat(center - entry) < 25f || Flat(center - arCenter) < 25f) continue;
                 if (placed.Exists(q => Flat(q - center) < spacing)) continue;
                 // Pas de glyphe devant l'accès d'une liaison.
                 if (InBlocks(m, center + new Vector3(DI[dir], 0f, DJ[dir]) * 2f, 0.5f)) continue;
@@ -1591,6 +1696,7 @@ public static class WorldBuilder
         props.SetParent(root, false);
         var avoid = new List<Vector3>();
         foreach (var g in refs.acquisitionGlyphs) avoid.Add(g.transform.position);
+        foreach (var g in refs.neutralGlyphs) avoid.Add(g.transform.position);
         if (refs.acquisitionDoor != null) avoid.Add(refs.acquisitionDoor.transform.position);
         if (refs.door != null) avoid.Add(refs.door.transform.position);
         var placed = new List<Vector3>();
@@ -2785,8 +2891,10 @@ public static class WorldBuilder
 
     static void BuildGallery(Maze m, Room room, Transform props, System.Random rnd)
     {
-        bool large = room.ceil > VeryTallRoom;
-        float top = room.ceil - (large ? GalleryTopVeryTall : GalleryTopRoom);
+        bool veryTall = room.ceil > VeryTallRoom;
+        // V0.6.5 : seule la moitié des salles de plus de 21 m a les plateformes les plus grandes.
+        bool large = veryTall && rnd.NextDouble() < GameRules.LargePlatformChance;
+        float top = room.ceil - (veryTall ? GalleryTopVeryTall : GalleryTopRoom);
         int firstSteps = room.style == RoomStyle.Template ? GalleryFirstStepsTemplate : GalleryFirstSteps;
         float firstLevel = room.floor + firstSteps * GalleryRise;
         if (top < firstLevel) return;
@@ -2906,11 +3014,41 @@ public static class WorldBuilder
         return true;
     }
 
+    // Note 01 du chapitre 10.3 (V0.6.5) : un minimum de tunnels par zone. Si les salles à plateformes tirées n'en offrent pas
+    // assez, d'autres grandes salles sont converties, autant de fois qu'il faut.
+    const int LinkPasses = 12, ConvertedRoomsPerPass = 6;
+
     static void ChooseLinks(Maze m, System.Random rnd)
     {
         if (m.zone < 2) return;
+        var usedUnderground = new HashSet<Vector2Int>();
+        var endsUnderground = new HashSet<Room>();
+        var usedAerial = new HashSet<Vector2Int>();
+        var endsAerial = new HashSet<Room>();
+        int wanted = GameRules.MinTunnels(m.zone), underground = 0, aerial = 0;
+        for (int pass = 0; pass < LinkPasses; pass++)
+        {
+            var candidates = LinkCandidates(m, rnd);
+            // Premier passage : au plus 2 tunnels de chaque sorte ; ensuite, seulement ce qui manque pour atteindre le minimum.
+            foreach (var (a, b, dir, ra, rb) in candidates)
+            {
+                if (pass == 0 ? underground >= MaxLinksPerKind : m.links.Count >= wanted) break;
+                if (TryUnderground(m, a, b, dir, ra, rb, usedUnderground, endsUnderground)) underground++;
+            }
+            foreach (var (a, b, dir, ra, rb) in candidates)
+            {
+                if (pass == 0 ? aerial >= MaxLinksPerKind : m.links.Count >= wanted) break;
+                if (TryAerial(m, a, b, dir, ra, rb, usedAerial, endsAerial)) aerial++;
+            }
+            if (m.links.Count >= wanted) return;
+            ConvertRoomsToTemplate(m, rnd);
+        }
+    }
+
+    // Toutes les rangées (ou colonnes) communes à deux salles à plateformes séparées par au moins une cellule, mélangées.
+    static List<(Vector2Int a, Vector2Int b, int dir, Room ra, Room rb)> LinkCandidates(Maze m, System.Random rnd)
+    {
         var rooms = m.rooms.FindAll(r => r.style == RoomStyle.Template);
-        // Toutes les rangées (ou colonnes) communes à deux salles séparées par au moins une cellule.
         var candidates = new List<(Vector2Int a, Vector2Int b, int dir, Room ra, Room rb)>();
         foreach (Room ra in rooms)
             foreach (Room rb in rooms)
@@ -2929,22 +3067,23 @@ public static class WorldBuilder
             int other = rnd.Next(k + 1);
             (candidates[k], candidates[other]) = (candidates[other], candidates[k]);
         }
+        return candidates;
+    }
 
-        var usedUnderground = new HashSet<Vector2Int>();
-        var endsUnderground = new HashSet<Room>();
-        int count = 0;
-        foreach (var (a, b, dir, ra, rb) in candidates)
+    // Quelques grandes salles ordinaires deviennent des salles à plateformes (comme au tirage du labyrinthe).
+    static void ConvertRoomsToTemplate(Maze m, System.Random rnd)
+    {
+        var rooms = m.rooms.FindAll(r => !r.plain && r.style != RoomStyle.Template && r.style != RoomStyle.Pit && r.statueHeight <= 0f && r.rect.width >= 3 && r.rect.height >= 3);
+        float maxHeight = GameRules.MaxRoomHeight(m.zone);
+        for (int k = 0; k < ConvertedRoomsPerPass && rooms.Count > 0; k++)
         {
-            if (count >= MaxLinksPerKind) break;
-            if (TryUnderground(m, a, b, dir, ra, rb, usedUnderground, endsUnderground)) count++;
-        }
-        var usedAerial = new HashSet<Vector2Int>();
-        var endsAerial = new HashSet<Room>();
-        count = 0;
-        foreach (var (a, b, dir, ra, rb) in candidates)
-        {
-            if (count >= MaxLinksPerKind) break;
-            if (TryAerial(m, a, b, dir, ra, rb, usedAerial, endsAerial)) count++;
+            int pick = rnd.Next(rooms.Count);
+            Room room = rooms[pick];
+            rooms.RemoveAt(pick);
+            room.ceil = Mathf.Min(maxHeight, Mathf.Max(TemplateMinCeil, room.ceil - room.floor));
+            room.floor = 0f;
+            room.style = RoomStyle.Template;
+            room.chess = false;
         }
     }
 

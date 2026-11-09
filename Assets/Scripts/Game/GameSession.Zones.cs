@@ -2,11 +2,11 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // V0.6 : remaniement du terrain. Les zones se génèrent au fil de l'avancée des joueurs (la zone où ils se trouvent et les
-// zones voisines) ; un Hub toutes les deux zones ; portes à orbes ; glyphes de la Neutral Room et glyphes d'acquisition ;
+// zones voisines) ; un Hub toutes les deux zones ; glyphes neutres sous boîtier de verre (V0.6.5) et glyphes d'acquisition ;
 // Sanction (La Tête de Cloche) ; Chenil où l'on peut se réfugier.
 // Messages : GY|glyphe|balise (-1 : déchargé)                    hôte -> tous : glyphe d'acquisition chargé par cette Balise
 //            GX|type|glyphe|écoulé (glyphe -1 : fin)              hôte -> tous : ordre d'un glyphe en cours
-//            NG|zone|type -> NP|zone|type                         glyphe neutre touché (entendu dans la Neutral Room)
+//            NG|glyphe -> NP|zone|type                            glyphe neutre actionné (entendu par les joueurs de la zone)
 //            SN                                                   joueur -> hôte : ordre non respecté, Sanction
 public partial class GameSession
 {
@@ -18,6 +18,8 @@ public partial class GameSession
     // /tp N : au-delà, la génération prendrait trop longtemps.
     const int MaxTeleportZone = 30;
     float zoneTimer;
+    // Chapitre 9.2 (V0.6.5) : dernière zone fermée pour de bon (0 : aucune) ; zones déjà désactivées.
+    int sealedZones, deactivatedZones;
     // Zones dont les entités de la manche sont apparues (Normal, Cauchemar) ; retirées si leurs entités sont supprimées.
     readonly HashSet<int> normalsSpawned = new HashSet<int>(), nightmaresSpawned = new HashSet<int>();
 
@@ -40,9 +42,14 @@ public partial class GameSession
         foreach (var z in zones)
         {
             foreach (var m in z.arcades) UnregisterArcade(m);
+            // Une porte de chapiteau scellée a quitté sa zone.
+            if (z.acquisitionDoor != null) Destroy(z.acquisitionDoor.gameObject);
             if (z.root != null) Destroy(z.root);
         }
         zones.Clear();
+        deactivatedZones = 0;
+        SetHubsActive(1, hubs.Count, true);
+        beacons.SealHubs(0);
         for (int i = hubs.Count - 1; i >= 1; i--)
         {
             if (hubs[i].root != null) Destroy(hubs[i].root.gameObject);
@@ -115,10 +122,12 @@ public partial class GameSession
         return false;
     }
 
-    // Nouvelle partie : orbes, Hubs et portes de chapiteau refermés ; la Zone 1 et la Zone 2 à générer.
+    // Nouvelle partie : boîtiers, glyphes, Hubs et portes de chapiteau refermés ; la Zone 1 et la Zone 2 à générer.
     void ClearProgress()
     {
-        brokenOrbs.Clear();
+        brokenCases.Clear();
+        activatedGlyphs.Clear();
+        sealedZones = 0;
         openedHubs.Clear();
         openedAcquisitions.Clear();
         zoneCount = 2;
@@ -127,28 +136,22 @@ public partial class GameSession
         nightmaresSpawned.Clear();
     }
 
-    // Porte numéro 'door' (entre la zone 2 x door - 1 et la zone 2 x door) dont fait partie l'orbe ; 0 si sa zone n'existe pas.
-    int DoorOfOrb(int orb)
-    {
-        if (orb < 0) return 0;
-        int door = orb < GameRules.OrbsOfDoor(1) ? 1 : 2 + (orb - GameRules.FirstOrb(2)) / GameRules.OrbsOfDoor(2);
-        return door * 2 - 1 <= zones.Count ? door : 0;
-    }
-
+    // Porte numéro 'door' (entre la zone 2 x door - 1 et la zone 2 x door) : ouverte quand ses trois glyphes neutres sont actionnés.
     bool DoorOpen(int door)
     {
-        int first = GameRules.FirstOrb(door);
-        for (int k = 0; k < GameRules.OrbsOfDoor(door); k++) if (!brokenOrbs.Contains(first + k)) return false;
+        for (int t = 0; t < GameRules.GlyphTypes; t++)
+            if (!activatedGlyphs.Contains(GameRules.NeutralGlyphId(door * 2 - 1, t))) return false;
         return true;
     }
 
-    // Zone accessible : la Zone 1, une zone paire dont la porte à orbes est ouverte, une zone impaire dont le Hub a ouvert
+    // Zone accessible : la Zone 1, une zone paire dont la porte de la Neutral Room est ouverte, une zone impaire dont le Hub a ouvert
     // sa porte.
     bool ZoneUnlocked(int zone) => zone == 1 || (zone % 2 == 0 ? DoorOpen(zone / 2) : openedHubs.Contains((zone + 1) / 2));
 
     // Zone où se trouve un joueur, ou voisine (9.2 : on ne garde d'entités que là).
     bool ZoneActive(int zone)
     {
+        if (zone <= sealedZones) return false;
         bool any = false;
         foreach (var p in PlayerPresence.All)
         {
@@ -160,22 +163,20 @@ public partial class GameSession
         return !any && zone <= 2;
     }
 
-    // Orbes (activés au début des manches, brisés par une Clé), portes à orbes, portes des chapiteaux, portes des Hubs 2+.
+    // Glyphes neutres, portes des Neutral Rooms, portes des chapiteaux (refermées si leur zone est scellée), portes des Hubs 2+.
     void UpdateDoors(bool animate)
     {
         foreach (var z in zones)
         {
+            foreach (var g in z.neutralGlyphs) g.SetNeutralState(brokenCases.Contains(g.Id), activatedGlyphs.Contains(g.Id), animate);
             if (z.door != null)
             {
-                int first = GameRules.FirstOrb(z.doorNumber);
-                for (int k = 0; k < z.orbs.Length; k++)
-                    z.orbs[k].SetState(phase != Phase.GameOver && GameRules.OrbActive(first + k, round), brokenOrbs.Contains(first + k), animate);
                 bool open = DoorOpen(z.doorNumber);
                 if (open != z.door.IsOpen || !animate) z.door.SetOpen(open, !animate);
             }
             if (z.acquisitionDoor != null)
             {
-                bool open = openedAcquisitions.Contains(z.index);
+                bool open = openedAcquisitions.Contains(z.index) && z.index > sealedZones;
                 if (open != z.acquisitionDoor.IsOpen || !animate) z.acquisitionDoor.SetOpen(open, !animate);
             }
         }
@@ -201,6 +202,7 @@ public partial class GameSession
         foreach (var p in PlayerPresence.All)
             if (p != null && p.isActiveAndEnabled) furthest = Mathf.Max(furthest, WorldBuilder.ZoneAt(p.Position));
         lastZone = Mathf.Max(lastZone, furthest);
+        UpdateSealing();
         if (furthest + 1 > zoneCount)
         {
             zoneCount = furthest + 1;
@@ -210,6 +212,128 @@ public partial class GameSession
         if (phase != Phase.Running) return;
         CullEntities();
         PopulateZones();
+    }
+
+    // ================= Fermeture des zones trop en arrière (chapitre 9.2, V0.6.5) =================
+
+    // Hôte : dès la Zone 7, chaque zone impaire X débloquée referme, une fois tous les joueurs en vie à partir de la zone X - 4,
+    // la porte d'entrée du chapiteau entre les zones X - 5 et X - 4.
+    void UpdateSealing()
+    {
+        if (phase == Phase.GameOver) return;
+        int target = sealedZones;
+        for (int x = GameRules.FirstSealingZone; x <= Mathf.Max(lastZone, zones.Count); x += 2)
+        {
+            if (!ZoneUnlocked(x) && lastZone < x) break;
+            if (AllPlayersFrom(x - 4)) target = Mathf.Max(target, x - 5);
+        }
+        if (target <= sealedZones) return;
+        sealedZones = target;
+        // Les appareils posés de l'autre côté de la porte ne servent plus (leurs liens ne doivent pas traverser le vide).
+        foreach (var b in new List<Beacon>(beacons.Placed))
+        {
+            if (b == null || b.IsHub) continue;
+            int zone = WorldBuilder.ZoneAt(b.transform.position);
+            if (zone < 1 || zone > sealedZones || !beaconMessages.Remove(b.Id)) continue;
+            tvVideos.Remove(b.Id);
+            net.ToAll("BZ|" + b.Id);
+        }
+        UpdateDoors(true);
+        BroadcastState();
+    }
+
+    bool AllPlayersFrom(int zone)
+    {
+        bool any = false;
+        foreach (var p in PlayerPresence.All)
+        {
+            if (p == null || !p.isActiveAndEnabled || !p.Alive) continue;
+            any = true;
+            if (WorldBuilder.ZoneAt(p.Position) < zone) return false;
+        }
+        return any;
+    }
+
+    // Tous : une fois la porte refermée, les zones et Hubs inaccessibles sont désactivés. La porte, seule à rester visible
+    // depuis le chapiteau, sort de sa zone. Nouvelle partie sur la même graine : tout est réactivé.
+    void UpdateSealedZones()
+    {
+        // Un joueur arrivé en cours de partie ne reste pas derrière une porte scellée.
+        int here = WorldBuilder.ZoneAt(player.transform.position);
+        if (here >= 1 && here <= sealedZones && !status.Dead) RespawnInHub();
+
+        if (sealedZones < deactivatedZones) { RestoreSealedZones(); return; }
+        if (sealedZones == deactivatedZones || sealedZones > zones.Count) return;
+        var door = zones[sealedZones - 1].acquisitionDoor;
+        if (door != null && !door.FullyClosed) return;
+
+        foreach (var z in zones)
+        {
+            if (z.index > sealedZones || !z.root.activeSelf) continue;
+            foreach (var m in z.arcades) UnregisterArcade(m);
+            if (z.acquisitionDoor != null)
+            {
+                z.acquisitionDoor.transform.SetParent(worldRoot, true);
+                z.acquisitionDoor.gameObject.SetActive(z.index == sealedZones);
+            }
+            z.root.SetActive(false);
+        }
+        // Seule la dernière porte scellée reste visible, depuis le chapiteau.
+        foreach (var z in zones)
+            if (z.index < sealedZones && z.acquisitionDoor != null) z.acquisitionDoor.gameObject.SetActive(false);
+        deactivatedZones = sealedZones;
+        SetHubsActive(1, sealedZones / 2, false);
+        beacons.SealHubs(sealedZones / 2);
+        RemoveSealedItems();
+    }
+
+    void RestoreSealedZones()
+    {
+        foreach (var z in zones)
+        {
+            if (z.index <= sealedZones || z.root.activeSelf) continue;
+            z.root.SetActive(true);
+            if (z.acquisitionDoor != null)
+            {
+                z.acquisitionDoor.transform.SetParent(z.root.transform, true);
+                z.acquisitionDoor.gameObject.SetActive(true);
+            }
+            RegisterArcades(z.arcades);
+        }
+        SetHubsActive(sealedZones / 2 + 1, hubs.Count, true);
+        beacons.SealHubs(sealedZones / 2);
+        deactivatedZones = sealedZones;
+    }
+
+    // Hubs (numéros 'from' à 'to') et Chenils correspondants.
+    void SetHubsActive(int from, int to, bool active)
+    {
+        for (int h = from; h <= to && h <= hubs.Count; h++)
+        {
+            if (hubs[h - 1].root != null) hubs[h - 1].root.gameObject.SetActive(active);
+            foreach (var list in kennels.Values)
+                if (h <= list.Count && list[h - 1] != null) list[h - 1].gameObject.SetActive(active);
+        }
+    }
+
+    // Monticules et objets à terre des zones scellées.
+    void RemoveSealedItems()
+    {
+        foreach (var kv in new List<KeyValuePair<int, Mound>>(mounds))
+        {
+            if (kv.Key / MoundIdsPerZone > sealedZones) continue;
+            if (kv.Value != null) Destroy(kv.Value.gameObject);
+            mounds.Remove(kv.Key);
+        }
+        foreach (var kv in new List<KeyValuePair<int, ItemPickup>>(items))
+        {
+            if (kv.Value == null) continue;
+            int zone = WorldBuilder.ZoneAt(kv.Value.transform.position);
+            if (zone < 1 || zone > sealedZones) continue;
+            Destroy(kv.Value.gameObject);
+            items.Remove(kv.Key);
+            dropped.Remove(kv.Key);
+        }
     }
 
     // Début de manche : les entités de la manche précédente disparaissent pour laisser place à d'autres.
@@ -363,12 +487,12 @@ public partial class GameSession
         if (order?.sound != null) GameAudio.ReleaseLoop(order.sound);
     }
 
-    // Glyphe neutre touché : son seul, entendu de tous les joueurs présents dans la Neutral Room.
+    // Glyphe neutre actionné (une seule fois, boîtier brisé) : son entendu de tous les joueurs présents dans la zone.
     public void TouchGlyph(Glyph g)
     {
         if (!g.Neutral) return;
         Gesture(PlayerGesture.Use);
-        net.ToHost("NG|" + g.Zone + "|" + g.Type);
+        net.ToHost("NG|" + g.Id);
     }
 
     void ResetGlyphs()
@@ -589,14 +713,23 @@ public partial class GameSession
                 orders[type] = order;
                 return true;
             }
-            case "NG" when host && f.Length >= 3:
-                net.ToAll("NP|" + f[1] + "|" + f[2]);
+            case "NG" when host && f.Length >= 2:
+            {
+                int id = NetworkGame.I(f[1]);
+                Glyph g = FindGlyph(id);
+                if (g == null || !g.Neutral || phase == Phase.GameOver || !brokenCases.Contains(id) || !activatedGlyphs.Add(id)) return true;
+                net.ToAll("NP|" + g.Zone + "|" + g.Type);
+                int door = (g.Zone + 1) / 2;
+                if (DoorOpen(door)) Log("Les trois glyphes sont actionnés : la porte de la Zone {0} s'ouvre !", (door * 2).ToString());
+                UpdateDoors(true);
+                BroadcastState();
                 return true;
+            }
             case "NP" when f.Length >= 3:
             {
                 int zone = NetworkGame.I(f[1]), type = NetworkGame.I(f[2]);
                 if (zone < 1 || zone > zones.Count || type < 0 || type >= Glyph.Sounds.Length) return true;
-                if (zones[zone - 1].neutralRoom.Contains(player.transform.position)) GameAudio.Play2D(Glyph.Sounds[type], 0.9f * GlyphVolume);
+                if (WorldBuilder.ZoneAt(player.transform.position) == zone) GameAudio.Play2D(Glyph.Sounds[type], 0.9f * GlyphVolume);
                 return true;
             }
             case "SN" when host:

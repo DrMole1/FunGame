@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6.4";
+    public const string Version = "V0.6.5";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -225,6 +225,8 @@ public static class GameRules
 
     // ---------- L'Araignée (entité ID 6, Couvre Feu) ----------
 
+    // Ajout V0.6.5 (règle prédominante) : aucune Araignée lors du Couvre-Feu, jusqu'à une prochaine version qui le mentionnera.
+    public const bool SpidersEnabled = false;
     public const int SpiderDamage = 50;
     // V0.5 : Araignées par zone déverrouillée selon le nombre de joueurs (3 seul, 4 de 2 à 4 joueurs, 5 de 5 à 8).
     public static int SpidersPerZone(int players) => players <= 1 ? 3 : players <= 4 ? 4 : 5;
@@ -261,31 +263,39 @@ public static class GameRules
     public static float TeteRingDelay(float distance) =>
         Mathf.Lerp(TeteRingFast, TeteRingSlow, Mathf.InverseLerp(TeteRingNear, TeteSpawnDistance, distance));
 
-    // ---------- Portes et orbes (chapitre 9, V0.6) ----------
+    // ---------- Terrain (chapitre 9, V0.6.5) ----------
 
-    // Chaque porte (entre une zone impaire et la zone paire suivante) a 5 orbes, sauf la première (3). Les orbes s'activent
-    // un par un au début des manches : manches 1 à 3 pour la première porte, manches 4 à 8 pour la deuxième, etc.
-    public static int OrbsOfDoor(int door) => door <= 1 ? 3 : 5;
-    public static int FirstOrb(int door) => door <= 1 ? 0 : 3 + (door - 2) * 5;
-    public static bool OrbActive(int globalOrb, int round) => round >= globalOrb + 1;
+    // Hauteur maximale d'une salle : nZone x 10, sans excéder 50 mètres.
+    public static float MaxRoomHeight(int zone) => Mathf.Min(10f * zone, 50f);
+    // Note 01 du chapitre 10.3 : au moins 2 tunnels en Zone 2, 3 en Zone 3, 4 à partir de la Zone 4.
+    public static int MinTunnels(int zone) => zone < 2 ? 0 : Mathf.Min(zone, 4);
+    // Salles de plus de 21 m : la moitié seulement ont les grandes plateformes (au moins 10 m²).
+    public const float LargePlatformChance = 0.5f;
+    // Chapitre 9.2 : à partir de cette zone impaire débloquée, les zones trop en arrière sont fermées puis désactivées.
+    public const int FirstSealingZone = 7;
 
     // ---------- Glyphes (chapitre 9, V0.6) ----------
 
     public const int GlyphTypes = 3;
+    // Glyphes neutres d'une zone impaire : un de chaque type, à au moins 40 m les uns des autres.
+    public const float NeutralGlyphSpacing = 40f;
+    public static int NeutralGlyphId(int zone, int type) => zone * 100 + 50 + type;
     // Durée de l'ordre de chaque glyphe (immobile et accroupi, aller à la niche, aboyer).
     public static readonly float[] GlyphDuration = { 10f, 30f, 10f };
     public const float GlyphSitGrace = 2.5f;     // "Assis !" : au plus 2,5 secondes de suite sans être immobile et accroupi (V0.6.3)
     public const float GlyphBarkGap = 1.5f;      // "Aboie !" : au plus 1,5 seconde sans aboyer
-    // Glyphes d'acquisition d'une zone paire : 3 dans la Zone 2 (un de chaque), puis 2 + nZone / 2.
-    public static int AcquisitionGlyphs(int zone) => zone <= 2 ? 3 : 2 + zone / 2;
+    // Glyphes d'acquisition d'une zone paire : 3 dans la Zone 2 (un de chaque), puis 2 + nZone / 2, 6 au plus (V0.6.5).
+    public const int MaxAcquisitionGlyphs = 6;
+    public static int AcquisitionGlyphs(int zone) => zone <= 2 ? 3 : Mathf.Min(MaxAcquisitionGlyphs, 2 + zone / 2);
 
     // ---------- Arcades (chapitre 10.2, V0.6.1) ----------
 
     // Dès que la Zone 3 est accessible, vendre à Pogo un objet des monticules peut rapporter un Jeton WOOF
     // (V0.6.3 : chance = zone la plus lointaine atteinte au cours de la partie x 3 %).
     public static float TokenChance(int lastZone) => lastZone * 0.03f;
-    // Bornes d'arcade : à partir de la Zone 3, nZone - 1 par zone (aucune dans les zones 1 et 2).
-    public static int ArcadesInZone(int zone) => zone < 3 ? 0 : zone - 1;
+    // Bornes d'arcade : à partir de la Zone 3, nZone - 1 par zone, 6 au plus (V0.6.5) ; aucune dans les zones 1 et 2.
+    public const int MaxArcadesPerZone = 6;
+    public static int ArcadesInZone(int zone) => zone < 3 ? 0 : Mathf.Min(MaxArcadesPerZone, zone - 1);
     public const float ArcadeMusicRange = 10f;    // petite musique de foire d'une borne chargée
     public const float DiscoMusicRange = 10f;     // musique disco d'une boule à facettes posée
     // Roulette : 20 sections égales ; 9 tickets 50, 5 tickets 100, 3 tickets 200, 1 ticket 500 et 2 Réveils.

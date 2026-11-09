@@ -23,6 +23,14 @@ public abstract class Interactable : MonoBehaviour
         UpdateOutline();
     }
 
+    // À rappeler quand les renderers qui portent le contour changent pendant que l'objet est visé.
+    protected void RefreshOutline()
+    {
+        bool was = highlighted;
+        SetHighlight(false);
+        SetHighlight(was);
+    }
+
     // À rappeler quand OutlineVisible change pendant que l'objet est visé.
     protected void UpdateOutline()
     {
@@ -357,125 +365,6 @@ public class Kennel : Interactable
         if (Own) GameSession.Instance.EnterKennel(this);
         else GameSession.Instance.RequestRevive(PlayerId, Hub);
     }
-}
-
-// Orbe globuleux devant une porte à orbes : terne au départ, il s'active au début d'une manche (lumière bleue, aura
-// fantomatique, serrure visible) et se brise si un joueur y utilise une Clé. 'Index' : numéro global de l'orbe (V0.6 :
-// 3 orbes devant la première porte, 5 devant les suivantes). En godmod, l'hôte le brise d'un clic, même éteint.
-public class ZoneOrb : Interactable
-{
-    public int Index { get; private set; }
-    bool active, broken;
-    GameObject model, aura, keyhole;
-    Collider solid;
-    Light glow;
-    float pulse;
-
-    public static ZoneOrb Create(Transform parent, int index, Vector3 pos, Quaternion rot)
-    {
-        var go = new GameObject("Orbe_" + (index + 1));
-        go.transform.SetParent(parent, false);
-        go.transform.SetPositionAndRotation(pos, rot);
-        var orb = go.AddComponent<ZoneOrb>();
-        orb.Index = index;
-
-        // La serrure du modèle Meshy est vers son +Z, comme l'orbe qui tourne le dos à la porte.
-        orb.model = GameArt.SpawnModel("Orb", go.transform, 1.35f);
-        if (orb.model == null)
-        {
-            orb.model = new GameObject("Orbe");
-            orb.model.transform.SetParent(go.transform, false);
-            Material stone = GameArt.Lit("OrbStone", new Color(0.25f, 0.25f, 0.26f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.05f);
-            Material tar = GameArt.Lit("OrbTar", new Color(0.06f, 0.06f, 0.07f), null, 0.7f);
-            GameArt.Prim(PrimitiveType.Cylinder, orb.model.transform, new Vector3(0f, 0.3f, 0f), new Vector3(0.35f, 0.3f, 0.35f), stone);
-            var rnd = new System.Random(index + 7);
-            for (int k = 0; k < 9; k++)
-            {
-                Vector3 d = new Vector3((float)rnd.NextDouble() - 0.5f, (float)rnd.NextDouble() - 0.5f, (float)rnd.NextDouble() - 0.5f).normalized * 0.2f;
-                GameArt.Prim(PrimitiveType.Sphere, orb.model.transform, new Vector3(0f, 0.95f, 0f) + d, Vector3.one * (0.3f + (float)rnd.NextDouble() * 0.12f), tar);
-            }
-        }
-        Bounds b = GameArt.LocalBounds(go.transform);
-        Vector3 orbCenter = new Vector3(0f, b.max.y - b.size.x * 0.45f, 0f);
-
-        orb.aura = GameArt.Prim(PrimitiveType.Sphere, go.transform, orbCenter, Vector3.one * b.size.x * 1.25f, GameArt.GhostAura);
-        orb.aura.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        orb.aura.SetActive(false);
-
-        // Serrure lumineuse sur l'avant, visible une fois l'orbe activé.
-        orb.keyhole = new GameObject("Serrure");
-        orb.keyhole.transform.SetParent(go.transform, false);
-        orb.keyhole.transform.localPosition = orbCenter + Vector3.forward * (b.size.z * 0.5f + 0.02f);
-        Material lockMat = GameArt.Emissive("OrbLock", new Color(0.1f, 0.2f, 0.35f), new Color(0.4f, 0.85f, 1.6f));
-        GameArt.Prim(PrimitiveType.Cylinder, orb.keyhole.transform, new Vector3(0f, 0.04f, 0f), new Vector3(0.09f, 0.01f, 0.09f), lockMat).transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        GameArt.Prim(PrimitiveType.Cube, orb.keyhole.transform, new Vector3(0f, -0.04f, 0f), new Vector3(0.045f, 0.1f, 0.02f), lockMat);
-        orb.keyhole.SetActive(false);
-
-        orb.glow = new GameObject("Lueur").AddComponent<Light>();
-        orb.glow.transform.SetParent(go.transform, false);
-        orb.glow.transform.localPosition = orbCenter + Vector3.forward * 0.6f;
-        orb.glow.type = LightType.Point;
-        orb.glow.color = new Color(0.35f, 0.65f, 1f);
-        orb.glow.range = 7f;
-        orb.glow.intensity = 1.6f;
-        orb.glow.shadows = LightShadows.None;
-        orb.glow.enabled = false;
-
-        orb.FitTrigger(new Vector3(0.9f, 1.4f, 0.9f));
-        var solid = go.AddComponent<CapsuleCollider>();
-        solid.center = new Vector3(0f, b.center.y, 0f);
-        solid.height = b.size.y;
-        solid.radius = Mathf.Min(b.size.x, b.size.z) * 0.4f;
-        orb.solid = solid;
-        return orb;
-    }
-
-    public bool Active => active && !broken;
-
-    public void SetState(bool isActive, bool isBroken, bool animate)
-    {
-        if (isBroken && !broken && animate) Shatter();
-        if (isActive && !active && !isBroken && animate) GameAudio.Play3D("orb_on", transform.position + Vector3.up, 0.9f, 30f, 0f);
-        active = isActive;
-        broken = isBroken;
-        model.SetActive(!broken);
-        // Brisé : plus rien ne bloque le passage des joueurs.
-        solid.enabled = !broken;
-        bool lit = active && !broken;
-        aura.SetActive(lit);
-        keyhole.SetActive(lit);
-        glow.enabled = lit;
-    }
-
-    void Update()
-    {
-        if (!glow.enabled) return;
-        pulse += Time.deltaTime;
-        glow.intensity = 1.6f + Mathf.Sin(pulse * 2.3f) * 0.4f + Mathf.Sin(pulse * 7.1f) * 0.1f;
-    }
-
-    // Éclats qui retombent en s'éteignant.
-    void Shatter()
-    {
-        GameAudio.Play3D("orb_break", transform.position + Vector3.up, 1f, 35f, 0.05f);
-        Material shard = GameArt.Emissive("OrbShard", new Color(0.1f, 0.15f, 0.25f), new Color(0.3f, 0.6f, 1.2f));
-        Vector3 center = aura.transform.position;
-        for (int k = 0; k < 14; k++)
-        {
-            var piece = GameArt.Prim(PrimitiveType.Cube, null, center + Random.insideUnitSphere * 0.25f, Vector3.one * Random.Range(0.06f, 0.16f), shard, true);
-            piece.transform.rotation = Random.rotation;
-            var rb = piece.AddComponent<Rigidbody>();
-            rb.velocity = Random.insideUnitSphere * 3f + Vector3.up * 2.5f;
-            rb.angularVelocity = Random.insideUnitSphere * 10f;
-            piece.layer = 2;
-            Destroy(piece, 4f);
-        }
-    }
-
-    public override bool CanInteract => Active || !broken && GameSession.Instance != null && GameSession.Instance.Godmode;
-    // Pas de message à l'écran : viser l'orbe et cliquer avec la Clé suffit.
-    public override string Prompt => "";
-    public override void Interact() => GameSession.Instance.UseKeyOnOrb(Index);
 }
 
 // Post-It accroché à un mur par un joueur ; n'importe quel joueur peut le retirer.

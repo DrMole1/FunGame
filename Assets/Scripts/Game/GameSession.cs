@@ -3,13 +3,14 @@ using System.Text;
 using UnityEngine;
 
 // Boucle de jeu : Hubs, manches, quota, cagnotte, objets, Terminal, Chenils, logs, morts et réanimations,
-// sérénité et Couvre Feu, entités (La Dame, La Tour, Le Pion, La Cloche, L'Araignée...), orbes et portes,
+// sérénité et Couvre Feu, entités (La Dame, La Tour, Le Pion, La Cloche, L'Araignée...), portes,
 // Post-It, Boussole, Balises, Téléporteurs et Stations Curatives. Zones, glyphes et Sanction : GameSession.Zones.cs.
 // L'hôte fait autorité sur l'état de la partie ; chaque client gère les PV, la sérénité et l'inventaire de son personnage.
 // Messages (en plus de ceux de NetworkGame) :
-//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|orbes|balise|bonus|tests|zones|hubs|acquisitions
-//                                                               hôte -> tous : état de la partie (orbes brisés, Hubs ouverts et
-//                                                               portes de chapiteau ouvertes : numéros séparés par des points)
+//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|boîtiers|balise|bonus|tests|zones|hubs|acquisitions|glyphes|scellées
+//                                                               hôte -> tous : état de la partie (boîtiers brisés, Hubs ouverts,
+//                                                               portes de chapiteau ouvertes, glyphes neutres actionnés : numéros
+//                                                               séparés par des points ; zones scellées : dernière zone fermée)
 //   IL|manche|id,id...   IR|manche|id                          objets déjà ramassés / ramassé
 //   PK|id -> GV|type (0 = refusé)                              ramassage
 //   SL|type                                                     vente au Terminal
@@ -21,7 +22,7 @@ using UnityEngine;
 //   SC|manche|id,golds,morts;id,golds,morts...                  Tableau de Manche
 //   PP|x|y|z|nx|ny|nz|texte -> PA|id|x|y|z|nx|ny|nz|texte       Post-It accroché
 //   PD|id -> PX|id                                              Post-It retiré
-//   OB|orbe|case -> OU|case (-1 = refusé)                       Clé utilisée sur un orbe (case -1 : godmod, sans Clé)
+//   OB|glyphe|case -> OU|case (-2 = refusé)                     Clé utilisée sur un boîtier de verre (case -1 : godmod, sans Clé)
 //   HB|hub                                                      Bouton Rouge d'un Hub 2+ : ouvrir sa porte vers la zone suivante
 //   EN|t|id,type,x,y,z,lacet,état,cible,événements,données;...  hôte -> tous : entités, t = heure d'envoi (canal rapide)
 //   LK|id|1/0                                                   le joueur chassé regarde (ou non) La Dame
@@ -100,9 +101,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     Phase phase = Phase.Waiting;
     float timeLeft = GameRules.RoundDuration;
     bool compass;
-    // Orbes brisés (numéros globaux), Hubs dont la porte vers la zone suivante est ouverte, zones paires dont la porte du
-    // chapiteau est ouverte (V0.6).
-    readonly HashSet<int> brokenOrbs = new HashSet<int>();
+    // Glyphes neutres dont le boîtier est brisé, puis actionnés (identifiants, V0.6.5), Hubs dont la porte vers la zone suivante
+    // est ouverte, zones paires dont la porte du chapiteau est ouverte.
+    readonly HashSet<int> brokenCases = new HashSet<int>();
+    readonly HashSet<int> activatedGlyphs = new HashSet<int>();
     readonly HashSet<int> openedHubs = new HashSet<int>();
     readonly HashSet<int> openedAcquisitions = new HashSet<int>();
     readonly HashSet<int> picked = new HashSet<int>();
@@ -425,6 +427,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // la graine chez tous les joueurs. Identifiants : numéro de zone x 10000 + rang.
     void SpawnZoneItems(WorldBuilder.ZoneRefs zone)
     {
+        if (zone.index <= sealedZones) return;
         var rnd = new System.Random(seed * 31 + round * 7919 + zone.index * 104729);
         var spots = new List<Vector3>(zone.itemSpots);
         for (int i = spots.Count - 1; i > 0; i--)
@@ -648,6 +651,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateMistContact();
         UpdateDespair();
         UpdateGlyphOrders();
+        UpdateSealedZones();
         UpdateArcades();
         UpdateWatching();
         UpdateDread();
@@ -1011,10 +1015,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // ================= Joueur local =================
 
+    // Autour du centre du premier Hub encore accessible (chapitre 9.2 : les Hubs trop en arrière peuvent être fermés).
     Vector3 SpawnPoint()
     {
         Vector2 c = Random.insideUnitCircle.normalized * Random.Range(2.5f, 5f);
-        return new Vector3(c.x, 0.95f, c.y);
+        return WorldBuilder.HubCenter(sealedZones / 2 + 1) + new Vector3(c.x, 0.95f, c.y);
     }
 
     public void RespawnInHub()
@@ -1214,7 +1219,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 TryPlacePostIt(slot);
                 break;
             case ItemType.Cle:
-                hud.Toast(Loc.T("Visez un orbe activé, devant une porte à orbes, pour le briser avec la Clé."));
+                hud.Toast(Loc.T("Visez le boîtier de verre d'un glyphe neutre pour le briser avec la Clé."));
                 break;
         }
     }
@@ -1389,15 +1394,15 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         GameAudio.Play2D("sell_bell", 0.7f);
     }
 
-    // ================= Orbes et portes à orbes =================
+    // ================= Boîtiers de verre des glyphes neutres (V0.6.5) =================
 
-    // Une Clé brise l'orbe ; en godmod (hôte), un clic suffit, même sur un orbe éteint (V0.6).
-    public void UseKeyOnOrb(int orb)
+    // La Clé en main brise le boîtier et disparaît ; en godmod (hôte), un clic suffit, sans Clé.
+    public void BreakGlyphCase(Glyph g)
     {
-        int slot = status.IndexOf(ItemType.Cle);
+        int slot = SelectedItem == ItemType.Cle ? status.Selected : -1;
         if (slot < 0 && !Godmode) return;
         Gesture(PlayerGesture.Use);
-        net.ToHost("OB|" + orb + "|" + slot);
+        net.ToHost("OB|" + g.Id + "|" + slot);
     }
 
     // Geste du personnage local, joué tout de suite et relayé aux autres joueurs par l'hôte.
@@ -1478,7 +1483,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // nombre de joueurs, loin des joueurs.
     void SpawnSpiders()
     {
-        if (zones.Count == 0 || phase != Phase.Running) return;
+        if (!GameRules.SpidersEnabled || zones.Count == 0 || phase != Phase.Running) return;
         var rnd = new System.Random(seed * 41 + round * 977);
         int perZone = GameRules.SpidersPerZone(net.Roster.Count);
         foreach (var z in zones)
@@ -2121,7 +2126,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         if (int.TryParse(lower, out int zoneNumber))
         {
-            if (zoneNumber < 1 || zoneNumber > MaxTeleportZone) return null;
+            if (zoneNumber < 1 || zoneNumber > MaxTeleportZone || zoneNumber <= sealedZones) return null;
             if (zoneNumber > zoneCount)
             {
                 zoneCount = zoneNumber;
@@ -2134,7 +2139,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         if (lower == "door")
         {
-            if (zones.Count == 0 || zones[0].door == null) return null;
+            if (zones.Count == 0 || zones[0].door == null || sealedZones > 0) return null;
             Transform door = zones[0].door.transform;
             // Côté Zone 1, face à la porte.
             Vector3 p = door.position + door.forward * 3f;
@@ -2172,8 +2177,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // ================= Hôte =================
 
     string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft)
-        + "|" + (compass ? 1 : 0) + "|" + JoinIds(brokenOrbs) + "|" + NetworkGame.F(beacons.Charge) + "|" + NetworkGame.F(valueBoost) + "|" + testFlags
-        + "|" + zoneCount + "|" + JoinIds(openedHubs) + "|" + JoinIds(openedAcquisitions);
+        + "|" + (compass ? 1 : 0) + "|" + JoinIds(brokenCases) + "|" + NetworkGame.F(beacons.Charge) + "|" + NetworkGame.F(valueBoost) + "|" + testFlags
+        + "|" + zoneCount + "|" + JoinIds(openedHubs) + "|" + JoinIds(openedAcquisitions) + "|" + JoinIds(activatedGlyphs) + "|" + sealedZones;
 
     static string JoinIds(HashSet<int> ids) => string.Join(".", ids);
 
@@ -2403,13 +2408,15 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 phase = (Phase)Mathf.Clamp(NetworkGame.I(f[6]), 0, 2);
                 timeLeft = NetworkGame.P(f[7]);
                 compass = f[8] == "1";
-                ReadIds(f[9], brokenOrbs);
+                ReadIds(f[9], brokenCases);
                 if (f.Length >= 11) beacons.Charge = NetworkGame.P(f[10]);
                 if (f.Length >= 12) valueBoost = Mathf.Clamp(NetworkGame.P(f[11]), 1f, 3f);
                 if (f.Length >= 13) testFlags = NetworkGame.I(f[12]);
                 if (f.Length >= 14) zoneCount = Mathf.Max(1, NetworkGame.I(f[13]));
                 if (f.Length >= 15) ReadIds(f[14], openedHubs);
                 if (f.Length >= 16) ReadIds(f[15], openedAcquisitions);
+                if (f.Length >= 17) ReadIds(f[16], activatedGlyphs);
+                if (f.Length >= 18) sealedZones = Mathf.Max(0, NetworkGame.I(f[17]));
                 // Nouvelle partie : les critères remplis de notre côté repartent de zéro.
                 if (testFlags == 0) sentFlags = 0;
                 ApplyWorld();
@@ -2759,20 +2766,18 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 GameAudio.Play2D("error", 0.35f);
                 break;
 
-            // ---------- Orbes ----------
+            // ---------- Boîtiers de verre des glyphes neutres ----------
             case "OB" when host && f.Length >= 3:
             {
-                int orb = NetworkGame.I(f[1]);
-                int door = DoorOfOrb(orb);
-                // En godmod, l'hôte brise aussi un orbe éteint, sans Clé.
+                int glyphId = NetworkGame.I(f[1]);
+                Glyph glyph = FindGlyph(glyphId);
+                // En godmod, l'hôte brise aussi un boîtier sans Clé.
                 bool god = from == net.MyId && Godmode;
-                bool ok = door > 0 && phase != Phase.GameOver && (god || phase == Phase.Running && GameRules.OrbActive(orb, round) && NetworkGame.I(f[2]) >= 0)
-                    && !brokenOrbs.Contains(orb);
-                net.ToPeer(from, "OU|" + (ok ? f[2] : "-1"));
+                bool ok = glyph != null && glyph.Neutral && phase != Phase.GameOver && (god || NetworkGame.I(f[2]) >= 0) && !brokenCases.Contains(glyphId);
+                net.ToPeer(from, "OU|" + (ok ? f[2] : "-2"));
                 if (!ok) break;
-                brokenOrbs.Add(orb);
-                Log("Le joueur {0} a brisé l'orbe n°{1}.", NameOf(from), (orb - GameRules.FirstOrb(door) + 1).ToString());
-                if (DoorOpen(door)) Log("Les orbes sont brisés : la porte de la Zone {0} s'ouvre !", (door * 2).ToString());
+                brokenCases.Add(glyphId);
+                Log("Le joueur {0} a brisé le boîtier d'un glyphe dans la Zone {1}.", NameOf(from), glyph.Zone.ToString());
                 UpdateDoors(true);
                 BroadcastState();
                 break;
@@ -2791,7 +2796,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 int slot = NetworkGame.I(f[1]);
                 if (slot >= 0 && slot < GameRules.InventorySize && status[slot] == ItemType.Cle)
                     status.RemoveAt(slot);
-                else if (slot < 0) hud.Toast(Loc.T("Cet orbe ne peut pas être brisé."));
+                else if (slot == -2) hud.Toast(Loc.T("Ce boîtier ne peut pas être brisé."));
                 break;
             }
 
