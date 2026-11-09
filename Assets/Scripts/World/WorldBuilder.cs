@@ -2178,6 +2178,13 @@ public static class WorldBuilder
             return float.IsNegativeInfinity(best) ? 0f : best;
         }
 
+        // Aucun œil ni décoration posés sur des marches (les plateaux, en haut des escaliers, restent permis).
+        bool OnSteps(Vector3 p, float ceil)
+        {
+            Vector2 flat = new Vector2(p.x, p.z);
+            return !m.stairPlateaus.Exists(r => r.Contains(flat)) && OnStairs(new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z));
+        }
+
         for (int i = 0; i < m.N; i++)
             for (int j = 0; j < m.N; j++)
             {
@@ -2235,7 +2242,7 @@ public static class WorldBuilder
                 if (rnd.NextDouble() < 0.04)
                 {
                     Vector3 p = c + new Vector3(Rand(rnd, -1.5f, 1.5f), 0f, Rand(rnd, -1.5f, 1.5f));
-                    AddEye(props, new Vector3(p.x, FloorAt(p, ceil - 0.1f) - 0.15f, p.z), Vector3.up, Rand(rnd, 0.6f, 1f));
+                    if (!OnSteps(p, ceil)) AddEye(props, new Vector3(p.x, FloorAt(p, ceil - 0.1f) - 0.15f, p.z), Vector3.up, Rand(rnd, 0.6f, 1f));
                 }
 
                 // Note 05 de la DA (V0.6) : dans les zones 1 à 3, des têtes de chiens (d'après les skins), sans yeux, déchirées et
@@ -2256,7 +2263,7 @@ public static class WorldBuilder
                     {
                         Vector3 p = c + new Vector3(Rand(rnd, -1.2f, 1.2f), 0f, Rand(rnd, -1.2f, 1.2f));
                         // Ni dans une trémie, ni sur un escalier ou un palier de liaison.
-                        if (!InBlocks(m, p, 1f)) DogHeads.Spawn(props, new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z), Vector3.up, size, rnd, true);
+                        if (!InBlocks(m, p, 1f) && !OnSteps(p, ceil)) DogHeads.Spawn(props, new Vector3(p.x, FloorAt(p, ceil - 0.1f), p.z), Vector3.up, size, rnd, true);
                     }
                 }
             }
@@ -2323,6 +2330,7 @@ public static class WorldBuilder
                     foreach (var c in room.cells)
                     {
                         Vector3 p = m.Center(c.x, c.y) + new Vector3(Rand(rnd, -1.3f, 1.3f), room.floor, Rand(rnd, -1.3f, 1.3f));
+                        if (OnSteps(p, room.ceil)) continue;
                         if (rnd.NextDouble() >= 0.6) AddEye(props, p + Vector3.down * 0.2f, Vector3.up, Rand(rnd, 0.9f, 1.4f));
                         else if (!m.airLines.Exists(r => r.Contains(new Vector2(p.x, p.z)))) AddBlock(props, p, room.floor, room.ceil, rnd);
                     }

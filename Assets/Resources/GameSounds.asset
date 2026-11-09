@@ -91,3 +91,27 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: b7691be12dfc86742a8681ac9d4947ce, type: 3}
   - key: tete_bell
     clip: {fileID: 8300000, guid: b7691be12dfc86742a8681ac9d4947ce, type: 3}
+  - key: order_fr_01
+    clip: {fileID: 8300000, guid: bdcdca81816f07344a6cf563aa9c5480, type: 3}
+  - key: order_fr_02
+    clip: {fileID: 8300000, guid: 3052a9bf4fbcc0143a8b99629b8d01f5, type: 3}
+  - key: order_fr_03
+    clip: {fileID: 8300000, guid: 1e6019328a0180b4d8acbf1b0994dd09, type: 3}
+  - key: order_eng_01
+    clip: {fileID: 8300000, guid: d36deb87af86e0e4689ef0141c72f430, type: 3}
+  - key: order_eng_02
+    clip: {fileID: 8300000, guid: 7afaa5ac22075bc4e8146ada87e22479, type: 3}
+  - key: order_eng_03
+    clip: {fileID: 8300000, guid: 84a3c8ec005cd7e448494cb1b347c80d, type: 3}
+  - key: order_esp_01
+    clip: {fileID: 8300000, guid: 20d21d5d52786c44788e958e306bde2c, type: 3}
+  - key: order_esp_02
+    clip: {fileID: 8300000, guid: 0bc336e05fc07284f81a82db935eb4e5, type: 3}
+  - key: order_esp_03
+    clip: {fileID: 8300000, guid: 7f7021010ea6f50439aef1bfa551c247, type: 3}
+  - key: order_rus_01
+    clip: {fileID: 8300000, guid: 9f3ec6b36178b1c43b8b1f60e709603d, type: 3}
+  - key: order_rus_02
+    clip: {fileID: 8300000, guid: 9b53c3eb650bb88468f5466dfc6e5701, type: 3}
+  - key: order_rus_03
+    clip: {fileID: 8300000, guid: 2cd0d7106d4bfea4bb617ec94ef2c047, type: 3}

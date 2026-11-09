@@ -496,8 +496,6 @@ public partial class GameSession
     }
     readonly Order[] orders = new Order[GameRules.GlyphTypes];
     float glyphTimer, lastBarkAt = -100f;
-    static readonly string[] OrderTexts = { "Assis !", "A la niche !", "Aboie !" };
-    const int GlyphTextlessZone = 4;
     // Sons des glyphes (neutres et d'acquisition) un peu baissés.
     const float GlyphVolume = 0.75f;
 
@@ -652,8 +650,6 @@ public partial class GameSession
             line.SetPosition(1, g.Anchor);
         }
 
-        var texts = orderTexts;
-        texts.Clear();
         for (int t = 0; t < orders.Length; t++)
         {
             var order = orders[t];
@@ -666,8 +662,6 @@ public partial class GameSession
                 StopOrder(t);
                 continue;
             }
-            // V0.6.1 : dans les zones 4 et plus, seuls les sons sont joués (aucun texte).
-            if (order.glyph / 100 < GlyphTextlessZone) texts.Add(Loc.T(OrderTexts[t]));
             if (t == 0)
             {
                 // V0.6.3 : la Sanction tombe après plus de 2,5 secondes d'affilée sans respecter l'ordre.
@@ -678,10 +672,7 @@ public partial class GameSession
             else if (t == 2)
                 CheckOrder(order, InKennel || Time.time - Mathf.Max(lastBarkAt, order.start) <= GameRules.GlyphBarkGap);
         }
-        hud.SetOrders(texts);
     }
-
-    readonly List<string> orderTexts = new List<string>();
 
     void CheckOrder(Order order, bool obeyed)
     {
@@ -814,6 +805,8 @@ public partial class GameSession
                 var order = new Order { glyph = glyph, start = Time.time - NetworkGame.P(f[3]) };
                 // Le son du glyphe, partout, en boucle, pendant toute la durée de l'ordre.
                 order.sound = GameAudio.Loop2D(Glyph.Sounds[type], 0.85f * GlyphVolume);
+                // V0.6.7 : plus de texte, l'ordre est annoncé à voix haute, dans la langue du joueur.
+                if (NetworkGame.P(f[3]) <= 0f) GameAudio.Play2D(OrderVoice(type));
                 orders[type] = order;
                 return true;
             }

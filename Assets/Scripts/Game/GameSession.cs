@@ -191,9 +191,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Entity.Host = this;
         GameAudio.Init();
         player.gameObject.AddComponent<Footsteps>();
+        player.Landed += OnLanded;
         worldRoot = new GameObject("Monde").transform;
         hub = WorldBuilder.BuildHub(worldRoot);
         beacons = BeaconNetwork.Create(worldRoot, hub.beaconPosition, hub.beaconYaw);
+        BloodMarks.Create(worldRoot);
         AddHubFixtures(hub);
         button = buttons[0];
         pogo = pogos[0];
@@ -328,7 +330,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         if (Sliding) LeaveToboggan(false);
         worldLoading = uniquesPending = WorldStreamer.Loading = false;
+        zipperEnd = -1f;
+        loadingSounds = false;
+        GameAudio.SetLoading(false);
         LoadingScreen.Hide();
+        BloodMarks.Clear();
+        bleeds.Clear();
         terminal.Close(false);
         postItUI.Close();
         hud.Show(false);
@@ -681,6 +688,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateArcades();
         UpdateWatching();
         UpdateDread();
+        UpdateCorpseDrag();
+        UpdateBlood();
         UpdateSpectate();
 
         screenTimer -= Time.unscaledDeltaTime;
@@ -813,7 +822,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         inMist = !status.Dead && !Teleporting && !CannonFlying && !Sliding && !InKennel && CurfewActive && mistAmount > 0.5f && zones.Count > 0
             && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
         // Dans la brume, le personnage avance 20 % moins vite ; immergé jusqu'au cou (Note 03, V0.4.11), 32 % moins vite.
-        player.SpeedFactor = !inMist ? 1f : NeckHeight() < GameRules.MistTop ? GameRules.MistDeepSpeedMultiplier : GameRules.MistSpeedMultiplier;
+        player.SpeedFactor = FallSpeedFactor() * (!inMist ? 1f : NeckHeight() < GameRules.MistTop ? GameRules.MistDeepSpeedMultiplier : GameRules.MistSpeedMultiplier);
         if (!inMist || Godmode)
         {
             mistTimer = 0f;
@@ -1065,6 +1074,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         status.SetHp(hp);
         status.SetSerenity(GameRules.MaxSerenity);
         presence.Alive = true;
+        ResetCorpse();
         avatar.SetDead(false);
         player.SetFrozen(false);
         player.Teleport(position, Mathf.Atan2(-position.x, -position.z) * Mathf.Rad2Deg);
@@ -1118,6 +1128,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         // Note 03 (V0.4.3) : tué par un Cauchemar (ou par la Tête de Cloche, "horriblement"), la caméra plonge environ
         // 1,5 seconde dans ses yeux, puis le corps s'effondre.
+        if (by != null && by.Kind == EntityKind.TeteDeCloche) OrbitCamera.DeathSpot = player.transform.position;
         if (by != null && (by.Nightmare || by.Kind == EntityKind.TeteDeCloche))
         {
             float stare = by.Kind == EntityKind.TeteDeCloche ? GameRules.TeteStareDuration : GameRules.NightmareStareDuration;
@@ -1768,6 +1779,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (d < DreadSightRange && !e.MovingAwayFrom(player.transform.position) && CameraSees(cam, e, DreadSightRange + 6f))
                     dread = Mathf.Max(dread, Mathf.Lerp(0.25f, 1f, 1f - d / DreadSightRange));
             }
+        // Note 07 du chapitre 3.4 (V0.6.7) : en dessous de 15 PV, les pulsations cardiaques sont permanentes.
+        if (!status.Dead && status.Hp < GameRules.LowHealthHeartbeat) dread = Mathf.Max(dread, GameRules.LowHealthDread);
         OrbitCamera.Dread = dread;
         // À la mort, le battement de cœur s'estompe progressivement (GDD 12, Battement_Coeur).
         OrbitCamera.Dying = status.Dead;
@@ -2812,6 +2825,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 BroadcastState();
                 break;
             }
+            case "FP" when f.Length >= 5:
+                StampPaws(new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3])), NetworkGame.P(f[4]));
+                break;
             case "HB" when host && f.Length >= 2:
             {
                 int h = NetworkGame.I(f[1]);

@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6.6";
+    public const string Version = "V0.6.7";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -23,6 +23,20 @@ public static class GameRules
     public const float JumpTimeScale = 0.6f;
     public static float AirGravityMultiplier(bool falling) =>
         (falling ? FallGravityMultiplier : 1f) / (JumpTimeScale * JumpTimeScale);
+
+    // ---------- Chutes et blessures (chapitre 3.4, notes 05 à 07, V0.6.7) ----------
+
+    // Dégâts au-delà de 10 m de chute, mortels à 30 m.
+    public const float FallSafeHeight = 10f, FallDeadlyHeight = 30f;
+    public static int FallDamage(float height) => Mathf.Clamp(Mathf.RoundToInt((height - FallSafeHeight) / (FallDeadlyHeight - FallSafeHeight) * MaxHp), 1, MaxHp);
+    // À partir de 20 PV perdus, ralenti (jusqu'à 75 % pendant 4 secondes pour 99 PV), puis retour progressif à la vitesse de base.
+    public const int FallSlowMinDamage = 20, FallSlowFullDamage = 99;
+    public const float FallSlowMax = 0.75f, FallSlowDuration = 4f, FallSlowRecovery = 1f;
+    // Traînée de sang : de 1 seconde (1 PV perdu) à 5 secondes (100 PV perdus).
+    public const float BleedMin = 1f, BleedMax = 5f;
+    // En dessous de 15 PV, les pulsations cardiaques sont permanentes.
+    public const int LowHealthHeartbeat = 15;
+    public const float LowHealthDread = 0.6f;
 
     // Après un /tp, le personnage de l'hôte ne prend aucun dégât et ne peut pas être immobilisé pendant 5 secondes.
     public const float TeleportInvincibility = 5f;
@@ -187,7 +201,7 @@ public static class GameRules
     public const float CavalierSenseRadius = 6f;            // même dans son dos
     public const float CavalierGallopRange = 30f;
     public const float CavalierHitDistance = 0.8f;
-    public const float CavalierChaseDistance = 50f;         // compteur de distance : au-delà, il abandonne (V0.4.8, avant : 40)
+    public const float CavalierChaseDistance = 45f;         // compteur de distance : au-delà, il abandonne (V0.6.7, avant : 50)
     public const float CavalierFaceDistance = 3f;           // plus près, le personnage doit en plus lui faire face (V0.4.10, avant : 7)
     public const float CavalierFaceAngle = 60f;             // écart maximal entre l'orientation du personnage et le Cavalier
     public const float CavalierIgnore = 2f;                 // puis ne traque plus ce joueur pendant 2 s
@@ -291,7 +305,7 @@ public static class GameRules
     // Durée de l'ordre de chaque glyphe (immobile et accroupi, aller à la niche, aboyer).
     public static readonly float[] GlyphDuration = { 10f, 30f, 10f };
     public const float GlyphSitGrace = 2.5f;     // "Assis !" : au plus 2,5 secondes de suite sans être immobile et accroupi (V0.6.3)
-    public const float GlyphBarkGap = 1.5f;      // "Aboie !" : au plus 1,5 seconde sans aboyer
+    public const float GlyphBarkGap = 2.5f;      // "Aboie !" : au plus 2,5 secondes sans aboyer (V0.6.7)
     // Glyphes d'acquisition d'une zone paire : 3 dans la Zone 2 (un de chaque), puis 2 + nZone / 2, 6 au plus (V0.6.5).
     public const int MaxAcquisitionGlyphs = 6;
     public static int AcquisitionGlyphs(int zone) => zone <= 2 ? 3 : Mathf.Min(MaxAcquisitionGlyphs, 2 + zone / 2);

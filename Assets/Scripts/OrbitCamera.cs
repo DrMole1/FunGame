@@ -29,11 +29,16 @@ public class OrbitCamera : MonoBehaviour
     // Délai laissé au navigateur pour capturer la souris.
     const float LockGrace = 0.4f;
     static float lockMissing;
+    // Après la sortie d'une fenêtre de saisie par Échap, cette même touche ne doit pas aussi ouvrir le menu pause : le navigateur peut
+    // perdre la souris juste après l'avoir capturée (touche encore enfoncée).
+    const float ResumeGuard = 1f;
+    static float resumeGuardUntil;
 
     public static void ResumeGame()
     {
         ResumePending = true;
         resumeFrame = Time.frameCount;
+        resumeGuardUntil = Time.unscaledTime + ResumeGuard;
         LockCursor(true);
     }
 
@@ -44,6 +49,8 @@ public class OrbitCamera : MonoBehaviour
     public static Vector3? ForcedLook;
     // Mort du joueur local : la caméra quitte la tête et s'élève lentement au-dessus du corps (secondes écoulées, -1 : inactif).
     public static float DeathView = -1f;
+    // Tué par La Tête de Cloche : le corps est traîné, la caméra reste sur l'endroit de la mort.
+    public static Vector3? DeathSpot;
     public const float DeathViewDuration = 3.5f;
     public static float Yaw { get; private set; }
     // Dans le Canon (V0.4.6) : vue à la première personne depuis ce point, légèrement zoomée.
@@ -157,8 +164,9 @@ public class OrbitCamera : MonoBehaviour
         }
         else lockMissing = 0f;
         // Échap ouvre le menu pause, et le referme (GDD 6.2 : "Echap pour reprendre le jeu").
-        if (PeerNet.PointerLocked) ResumePending = false;
-        if (Input.GetKeyDown(KeyCode.Escape) && Time.frameCount != resumeFrame)
+        bool guarded = Time.unscaledTime < resumeGuardUntil;
+        if (PeerNet.PointerLocked && !guarded) ResumePending = false;
+        if (Input.GetKeyDown(KeyCode.Escape) && Time.frameCount != resumeFrame && !guarded)
         {
             // Souris restée libre après le Terminal : Échap affiche le menu pause.
             if (ResumePending) ResumePending = false;
@@ -301,7 +309,7 @@ public class OrbitCamera : MonoBehaviour
             HideTarget(null);
             FirstPerson = false;
             float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(DeathView / DeathViewDuration));
-            Vector3 corpse = target.position + Vector3.down * 0.7f;
+            Vector3 corpse = (DeathSpot ?? target.position) + Vector3.down * 0.7f;
             // Spirale lente vers le haut, le regard rivé sur le corps.
             float angle = (yaw + k * 70f) * Mathf.Deg2Rad;
             // Jamais à travers le plafond ou les murs.

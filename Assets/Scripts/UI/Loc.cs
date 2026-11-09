@@ -366,6 +366,7 @@ public static class Loc
         // Causes de mort.
         R("le Couvre Feu", "the Couvre Feu", "el Couvre Feu", "Couvre Feu"),
         R("Laser", "a Laser", "un Láser", "лазер"),
+        R("Chute", "a fall", "una caída", "падение"),
 
         // ---------- Interactions ----------
         R("Ramasser {0}", "Pick up {0}", "Recoger {0}", "Подобрать: {0}"),

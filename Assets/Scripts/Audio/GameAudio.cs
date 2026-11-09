@@ -289,6 +289,34 @@ public class GameAudio : MonoBehaviour
     }
 
     // Boucle non spatialisée (ordre d'un glyphe, entendu partout) ; ReleaseLoop l'arrête en douceur.
+    // Écran de chargement : pas de musique ni de boucle sonore, seulement le grésillement d'une télévision.
+    public static bool Loading { get; private set; }
+    AudioSource loadingStatic;
+
+    public static void SetLoading(bool on)
+    {
+        Loading = on;
+        if (instance == null) return;
+        if (!on) { StopLoadingStatic(); return; }
+        if (instance.loadingStatic != null) return;
+        var go = new GameObject("Chargement_Gresillement");
+        go.transform.SetParent(instance.transform, false);
+        var src = go.AddComponent<AudioSource>();
+        src.spatialBlend = 0f;
+        src.clip = SoundBank.Get("tv_static");
+        src.loop = true;
+        src.volume = 0.45f * sfx;
+        src.Play();
+        instance.loadingStatic = src;
+    }
+
+    public static void StopLoadingStatic()
+    {
+        if (instance == null || instance.loadingStatic == null) return;
+        Destroy(instance.loadingStatic.gameObject);
+        instance.loadingStatic = null;
+    }
+
     public static AudioSource Loop2D(string clip, float volume)
     {
         if (instance == null) return null;
@@ -490,7 +518,7 @@ public class GameAudio : MonoBehaviour
         Camera cam = Camera.main;
         bool inHub = cam == null || WorldBuilder.IsInHub(cam.transform.position);
         float k = 1f - Mathf.Exp(-1.5f * Time.unscaledDeltaTime);
-        float on = AmbienceEnabled && !silenced ? 1f : 0f;
+        float on = AmbienceEnabled && !silenced && !Loading ? 1f : 0f;
         float abj = CurfewLevel * on;
         on *= deathDuck;
         // À moins de 7 m d'une Télévision qui diffuse (du personnage, pas de la caméra placée derrière lui), les musiques
@@ -502,6 +530,7 @@ public class GameAudio : MonoBehaviour
         mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * tv * (1f - abj * 0.5f) * music, k);
         float ka = 1f - Mathf.Exp(-0.6f * Time.unscaledDeltaTime);
         curfewMusic.volume = Mathf.Lerp(curfewMusic.volume, abj * tv * 0.5f * music, ka);
+        if (Loading) hubMusic.volume = mazeDrone.volume = curfewMusic.volume = 0f;
         // Dans le Hub, les sons des entités se taisent (y compris ceux déjà commencés).
         bool hubListener = cam != null && inHub;
         for (int i = loops.Count - 1; i >= 0; i--)
@@ -512,7 +541,7 @@ public class GameAudio : MonoBehaviour
                 entitySources.RemoveWhere(src => src == null);
                 nightmareLoops.RemoveWhere(src => src == null);
             }
-            else loops[i].Key.volume = silenced || hubListener && entitySources.Contains(loops[i].Key) ? 0f : loops[i].Value * sfx;
+            else loops[i].Key.volume = silenced || Loading || hubListener && entitySources.Contains(loops[i].Key) ? 0f : loops[i].Value * sfx;
         }
         if (hubListener)
             foreach (var src in pool)

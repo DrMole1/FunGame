@@ -143,6 +143,7 @@ public class PlayerController : MonoBehaviour
         if (WantsToMove || !CanControl) chosenDance = 0;
 
         grounded = IsGrounded();
+        TrackFall();
         if (jumpPressed && !Immobilized && grounded && airborneLock <= 0f)
         {
             jumpRequested = true;
@@ -155,6 +156,31 @@ public class PlayerController : MonoBehaviour
 
         if (avatar != null && (Status == null || !Status.Dead))
             avatar.SetState(ComputeAnimState(grounded && airborneLock <= 0f));
+    }
+
+    // Hauteur tombée depuis le point le plus haut du saut ou de la chute, annoncée à l'atterrissage (V0.6.7).
+    public event System.Action<float> Landed;
+    bool airborne;
+    float fallPeak;
+
+    void TrackFall()
+    {
+        float y = transform.position.y;
+        if (rb.isKinematic)
+        {
+            airborne = false;
+            return;
+        }
+        if (!grounded)
+        {
+            fallPeak = airborne ? Mathf.Max(fallPeak, y) : y;
+            airborne = true;
+        }
+        else if (airborne)
+        {
+            airborne = false;
+            Landed?.Invoke(fallPeak - y);
+        }
     }
 
     float CurrentSpeed()
@@ -263,6 +289,9 @@ public class PlayerController : MonoBehaviour
         transform.SetPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
         rb.position = position;
         rb.rotation = transform.rotation;
+        // La chute éventuelle se compte depuis le point d'arrivée.
+        airborne = true;
+        fallPeak = position.y;
         if (!rb.isKinematic) rb.velocity = Vector3.zero;
     }
 

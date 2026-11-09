@@ -31,6 +31,8 @@ public static class SoundBank
         // Sons enregistrés seulement (GDD 12), sans équivalent synthétisé.
         "dame_kill", "tour_kill", "fou_kill", "roi_flash", "roi_kill",
         "doom",
+        // V0.6.7 : fin de l'écran de chargement.
+        "zipper",
     };
 
     // Synthèse des sons étalée sur les premières images : le jeu ne se fige pas au lancement. Un son demandé avant son tour est
@@ -140,6 +142,7 @@ public static class SoundBank
             case "roi_break": return RoiBreak(rnd);
             case "roi_slash": return RoiSlash(rnd);
             case "tv_static": return TvStatic(rnd);
+            case "zipper": return Zipper(rnd);
             case "tv_countdown": return TvCountdown(rnd);
             case "fou_poof": return FouPoof(rnd);
             case "tinnitus": return Tinnitus();
@@ -1733,6 +1736,36 @@ public static class SoundBank
     // ---------- V0.4.7 ----------
 
     // Grésillement de télévision sans signal (boucle) : souffle large bande, bourdonnement de ligne et petits craquements.
+    // Fermeture éclair qu'on ferme (1,5 seconde) : des dents qui s'enclenchent de plus en plus vite, puis le curseur qui arrive en butée.
+    static float[] Zipper(System.Random rnd)
+    {
+        var data = new float[Mathf.RoundToInt(1.5f * Rate)];
+        const float end = 1.42f;
+        float t = 0.02f;
+        while (t < end)
+        {
+            float progress = t / end;
+            float amplitude = Mathf.Lerp(0.35f, 0.75f, progress) * (0.85f + (float)rnd.NextDouble() * 0.3f);
+            int start = Mathf.RoundToInt(t * Rate), length = Mathf.RoundToInt(0.006f * Rate);
+            float low = 0f;
+            for (int k = 0; k < length && start + k < data.Length; k++)
+            {
+                float noise = (float)rnd.NextDouble() * 2f - 1f;
+                low += (noise - low) * 0.45f;
+                data[start + k] += (noise - low) * amplitude * Mathf.Exp(-k / (length * 0.3f));
+            }
+            t += Mathf.Lerp(0.03f, 0.011f, progress * progress) * (0.9f + (float)rnd.NextDouble() * 0.2f);
+        }
+        // Le curseur arrive en butée.
+        int stop = Mathf.RoundToInt(end * Rate);
+        for (int k = stop; k < data.Length; k++)
+        {
+            float time = (k - stop) / (float)Rate;
+            data[k] += ((float)rnd.NextDouble() * 2f - 1f) * Mathf.Exp(-time * 90f) + Mathf.Sin(TwoPi * 310f * time) * 0.6f * Mathf.Exp(-time * 45f);
+        }
+        return data;
+    }
+
     static float[] TvStatic(System.Random rnd)
     {
         var longer = Buffer(2.4f);

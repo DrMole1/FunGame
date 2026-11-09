@@ -94,15 +94,38 @@ public partial class GameSession
 
     // ---------- Chargement du début de partie (chapitre 9.2) ----------
 
-    bool worldLoading, uniquesPending;
+    bool worldLoading, uniquesPending, loadingSounds;
+    float zipperEnd = -1f;
+    const float ZipperDuration = 1.5f;
 
+    // Chapitre 6.3 (V0.6.7) : aucune musique pendant le chargement, seulement le grésillement de la télévision ; une fermeture éclair à la fin.
     void UpdateWorldLoading()
     {
         if (!worldLoading) return;
+        if (!loadingSounds)
+        {
+            loadingSounds = true;
+            GameAudio.SetLoading(true);
+        }
         LoadingScreen.Show((float)zones.Count / Mathf.Max(1, zoneCount));
+        if (zipperEnd >= 0f)
+        {
+            if (Time.unscaledTime >= zipperEnd) EndWorldLoading();
+            return;
+        }
         if (zones.Count < zoneCount || zoneBuild != null || WorldStreamer.Busy) return;
         // Hôte : la navigation des deux premières zones est prête dès le début.
         if (net.IsHost && (!zones[0].nav.Ready || !zones[1].nav.Ready)) return;
+        GameAudio.StopLoadingStatic();
+        GameAudio.Play2D("zipper", 1f);
+        zipperEnd = Time.unscaledTime + ZipperDuration;
+    }
+
+    void EndWorldLoading()
+    {
+        zipperEnd = -1f;
+        loadingSounds = false;
+        GameAudio.SetLoading(false);
         worldLoading = false;
         WorldStreamer.Loading = false;
         LoadingScreen.Hide();

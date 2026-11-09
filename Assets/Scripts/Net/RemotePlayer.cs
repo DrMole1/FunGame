@@ -19,7 +19,7 @@ public class RemotePlayer : MonoBehaviour
     CapsuleCollider body;
     CharacterLibrary library;
     GameObject energyBall, cannonBall;
-    bool hiddenInCannon, flyingBall;
+    bool hiddenInCannon, flyingBall, corpseGone;
     bool teleporting;
 
     public static RemotePlayer Create(string id, string playerName, Color color, CharacterLibrary library, int character, Vector3 position)
@@ -127,6 +127,13 @@ public class RemotePlayer : MonoBehaviour
             avatar.SetDead(dead);
             nameTag.Show(!dead);
             body.enabled = !dead;
+        }
+        // Son cadavre a disparu avec La Tête de Cloche.
+        bool gone = (flags & NetworkGame.FlagCorpseGone) != 0 && dead;
+        if (gone != corpseGone)
+        {
+            corpseGone = gone;
+            avatar.SetHidden(gone || hiddenInCannon || flyingBall || teleporting);
         }
         if (!dead) avatar.SetState(anim);
     }
