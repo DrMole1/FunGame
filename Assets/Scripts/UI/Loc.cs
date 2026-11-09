@@ -117,6 +117,8 @@ public static class Loc
         R("Sensibilité", "Sensitivity", "Sensibilidad", "Чувствит."),
         R("Grain", "Grain", "Grano", "Зерно"),
         R("Éclairage", "Lighting", "Iluminación", "Освещение"),
+        R("Chargement…", "Loading…", "Cargando…", "Загрузка…"),
+        R("Impossible de rejoindre. La partie a déjà commencé.", "Cannot join. The game has already started.", "No se puede unir. La partida ya ha comenzado.", "Невозможно присоединиться. Игра уже началась."),
         R("Bas", "Low", "Bajo", "Низкое"),
         R("Standard", "Standard", "Estándar", "Обычное"),
         R("Haut", "High", "Alto", "Высокое"),

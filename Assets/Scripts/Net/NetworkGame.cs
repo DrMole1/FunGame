@@ -369,6 +369,9 @@ public class NetworkGame : MonoBehaviour
             case "KK" when !isHost:
                 ReturnToLobby(Loc.T("Vous avez été expulsé de la partie par l'hôte."));
                 break;
+            case "STARTED" when !isHost:
+                ReturnToLobby(Loc.T("Impossible de rejoindre. La partie a déjà commencé."));
+                break;
             case "FULL" when !isHost:
                 ReturnToLobby(Loc.F("La partie est complète ({0} joueurs maximum).", GameRules.MaxPlayers));
                 break;
@@ -381,6 +384,13 @@ public class NetworkGame : MonoBehaviour
     void HandleJoin(string from, string[] f)
     {
         if (state != State.InGame || roster.ContainsKey(from)) return;
+        // Chapitre 9.2 (V0.6.6) : plus d'arrivée une fois le Bouton Rouge du Hub de départ enclenché.
+        if (session.RoundStarted)
+        {
+            PeerNet.Send(from, "STARTED");
+            PeerNet.Kick(from);
+            return;
+        }
         if (roster.Count >= GameRules.MaxPlayers)
         {
             PeerNet.Send(from, "FULL");

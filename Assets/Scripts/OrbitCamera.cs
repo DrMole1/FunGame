@@ -45,6 +45,8 @@ public class OrbitCamera : MonoBehaviour
     public static float Yaw { get; private set; }
     // Dans le Canon (V0.4.6) : vue à la première personne depuis ce point, légèrement zoomée.
     public static Vector3? CannonEye;
+    // Dans un toboggan (V0.6.6) : le regard suit le tube.
+    public static Vector3? SlideLook;
     // Dans sa niche (V0.6) : la caméra est à l'intérieur, tournée vers l'extérieur (cap KennelYaw) ; on peut la bouger un peu.
     public static Vector3? KennelEye;
     // Machine à pince (V0.6.1) : la caméra rejoint ce point de vue et s'y bloque jusqu'à la fin de la partie.
@@ -315,7 +317,7 @@ public class OrbitCamera : MonoBehaviour
         Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
         if (CannonEye.HasValue && fp)
         {
-            transform.SetPositionAndRotation(CannonEye.Value, rot);
+            transform.SetPositionAndRotation(CannonEye.Value, SlideLook.HasValue ? Quaternion.LookRotation(SlideLook.Value - CannonEye.Value) : rot);
             return;
         }
         if (KennelEye.HasValue && fp)

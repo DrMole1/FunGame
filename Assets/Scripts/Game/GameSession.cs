@@ -7,7 +7,7 @@ using UnityEngine;
 // Post-It, Boussole, Balises, Téléporteurs et Stations Curatives. Zones, glyphes et Sanction : GameSession.Zones.cs.
 // L'hôte fait autorité sur l'état de la partie ; chaque client gère les PV, la sérénité et l'inventaire de son personnage.
 // Messages (en plus de ceux de NetworkGame) :
-//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|boîtiers|balise|bonus|tests|zones|hubs|acquisitions|glyphes|scellées
+//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|boîtiers|balise|bonus|tests|zones|hubs|acquisitions|glyphes|scellées|ponts|zonesObjets
 //                                                               hôte -> tous : état de la partie (boîtiers brisés, Hubs ouverts,
 //                                                               portes de chapiteau ouvertes, glyphes neutres actionnés : numéros
 //                                                               séparés par des points ; zones scellées : dernière zone fermée)
@@ -105,6 +105,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // est ouverte, zones paires dont la porte du chapiteau est ouverte.
     readonly HashSet<int> brokenCases = new HashSet<int>();
     readonly HashSet<int> activatedGlyphs = new HashSet<int>();
+    // Ponts suspendus cassés (V0.6.6) ; dernière zone à monticules (les 8 zones préparées ne sont remplies qu'à l'approche des joueurs).
+    readonly HashSet<int> brokenBridges = new HashSet<int>();
+    readonly HashSet<int> filledZones = new HashSet<int>();
+    int itemZones = 2;
     readonly HashSet<int> openedHubs = new HashSet<int>();
     readonly HashSet<int> openedAcquisitions = new HashSet<int>();
     readonly HashSet<int> picked = new HashSet<int>();
@@ -272,7 +276,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         ResetHubFixtures();
         valueBoost = GameRules.ValueBoost(net.Roster.Count);
         ApplyWorld();
-        PlaceUniqueObjects();
+        PlaceUniquesWhenReady();
     }
 
     // Balises et Pogo au début d'une partie.
@@ -316,8 +320,14 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (net.IsHost) status.Add(ItemType.Balise);
     }
 
+    // Le Bouton Rouge du Hub de départ a été enclenché : plus personne ne peut rejoindre (chapitre 9.2, V0.6.6).
+    public bool RoundStarted => phase != Phase.Waiting;
+
     public void ResetSession()
     {
+        if (Sliding) LeaveToboggan(false);
+        worldLoading = uniquesPending = WorldStreamer.Loading = false;
+        LoadingScreen.Hide();
         terminal.Close(false);
         postItUI.Close();
         hud.Show(false);
@@ -391,9 +401,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             itemsRound = -1;
             rebuilt = true;
         }
-        // Nouvelle graine : tout de suite. Sinon, la zone suivante se génère sur plusieurs images (AdvanceZoneBuild).
-        if (rebuilt) GenerateZonesNow();
+        // Nouvelle graine : écran de chargement le temps de générer les premières zones (chapitre 9.2) ; AdvanceZoneBuild s'en charge.
+        if (rebuilt) worldLoading = WorldStreamer.Loading = true;
         if (itemsRound != round || itemsBoost != valueBoost) SpawnItems();
+        else foreach (var z in zones) SpawnZoneItems(z);
         hub.door.SetOpen(phase != Phase.Waiting);
         bool animate = !rebuilt && Time.unscaledTime > audioMuteUntil;
         button.SetRaised(phase == Phase.Waiting, animate);
@@ -419,6 +430,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         itemsRound = round;
         itemsBoost = valueBoost;
         moundLoot.Clear();
+        filledZones.Clear();
         foreach (var z in zones) SpawnZoneItems(z);
         // Les objets laissés à terre restent d'une manche à l'autre.
         foreach (var kv in dropped) items[kv.Key] = ItemPickup.Create(itemsRoot, kv.Key, kv.Value.type, kv.Value.pos);
@@ -428,7 +440,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // la graine chez tous les joueurs. Identifiants : numéro de zone x 10000 + rang.
     void SpawnZoneItems(WorldBuilder.ZoneRefs zone)
     {
-        if (zone.index <= sealedZones) return;
+        if (zone.index <= sealedZones || zone.index > itemZones || !filledZones.Add(zone.index)) return;
         var rnd = new System.Random(seed * 31 + round * 7919 + zone.index * 104729);
         var spots = new List<Vector3>(zone.itemSpots);
         for (int i = spots.Count - 1; i > 0; i--)
@@ -575,7 +587,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     void Update()
     {
         bool inGame = net.InGame;
-        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || ControlsUI.IsOpen || phase == Phase.GameOver || Teleporting || localDig >= 0 || CannonFlying || InKennel || ClawActive;
+        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || ControlsUI.IsOpen || phase == Phase.GameOver || Teleporting || localDig >= 0 || CannonFlying || InKennel || ClawActive || Sliding || worldLoading;
         OrbitCamera.CursorLockBlocked = TerminalUI.IsOpen || PostItUI.IsOpen || GameHud.GameOverVisible;
 
         if (phase == Phase.Running && !WipedOut)
@@ -593,6 +605,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             UpdateHostCurfew();
             UpdateHostWipeOut();
             UpdateHostZones();
+            UpdateHostBridges();
             UpdateHostGlyphs();
             UpdateHostArcades();
             SimulateEntities();
@@ -643,6 +656,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateDigs();
         UpdateKennel();
         UpdateCannon();
+        UpdateToboggans();
         UpdateTeleport();
         UpdateStations();
         player.Dancing = channelPad != null || healing;
@@ -654,6 +668,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateGlyphOrders();
         UpdateSealedZones();
         AdvanceZoneBuild();
+        UpdateWorldLoading();
         UpdateZoneVisibility();
         UpdateArcades();
         UpdateWatching();
@@ -787,7 +802,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Vector3 p = player.transform.position;
         var capsule = player.GetComponent<CapsuleCollider>();
         float feet = p.y + capsule.center.y - capsule.height * 0.5f;
-        inMist = !status.Dead && !Teleporting && !CannonFlying && !InKennel && CurfewActive && mistAmount > 0.5f && zones.Count > 0
+        inMist = !status.Dead && !Teleporting && !CannonFlying && !Sliding && !InKennel && CurfewActive && mistAmount > 0.5f && zones.Count > 0
             && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
         // Dans la brume, le personnage avance 20 % moins vite ; immergé jusqu'au cou (Note 03, V0.4.11), 32 % moins vite.
         player.SpeedFactor = !inMist ? 1f : NeckHeight() < GameRules.MistTop ? GameRules.MistDeepSpeedMultiplier : GameRules.MistSpeedMultiplier;
@@ -810,7 +825,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     void UpdateDespair()
     {
-        if (status.Dead || status.Serenity > 0 || Teleporting || CannonFlying || InKennel)
+        if (status.Dead || status.Serenity > 0 || Teleporting || CannonFlying || Sliding || InKennel)
         {
             despairTimer = 0f;
             return;
@@ -1064,7 +1079,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         return Loc.T(on ? "Godmod activé : achats gratuits, invincible, sérénité intacte, jamais immobilisé." : "Godmod désactivé.");
     }
 
-    bool Invincible => Time.time < invincibleUntil || Godmode || CannonFlying || InCannon || InKennel;
+    bool Invincible => Time.time < invincibleUntil || Godmode || CannonFlying || InCannon || InKennel || Sliding;
 
     // Dégâts reçus par le personnage local. Le Hub est un endroit sûr (sauf face au Réveil, 'inHub') ; juste après un /tp,
     // aucun dégât.
@@ -2183,7 +2198,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft)
         + "|" + (compass ? 1 : 0) + "|" + JoinIds(brokenCases) + "|" + NetworkGame.F(beacons.Charge) + "|" + NetworkGame.F(valueBoost) + "|" + testFlags
-        + "|" + zoneCount + "|" + JoinIds(openedHubs) + "|" + JoinIds(openedAcquisitions) + "|" + JoinIds(activatedGlyphs) + "|" + sealedZones;
+        + "|" + zoneCount + "|" + JoinIds(openedHubs) + "|" + JoinIds(openedAcquisitions) + "|" + JoinIds(activatedGlyphs) + "|" + sealedZones + "|" + JoinIds(brokenBridges) + "|" + itemZones;
 
     static string JoinIds(HashSet<int> ids) => string.Join(".", ids);
 
@@ -2320,7 +2335,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         ClearArcadeState();
         OnRestart();
         // Après OnRestart (qui retire les appareils posés) : les objets uniques de la nouvelle partie.
-        PlaceUniqueObjects();
+        PlaceUniquesWhenReady();
     }
 
     // Tous les joueurs connectés sont morts : fondu au noir, puis GAME OVER et retour au lobby (décidé par l'hôte, message WO).
@@ -2422,6 +2437,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (f.Length >= 16) ReadIds(f[15], openedAcquisitions);
                 if (f.Length >= 17) ReadIds(f[16], activatedGlyphs);
                 if (f.Length >= 18) sealedZones = Mathf.Max(0, NetworkGame.I(f[17]));
+                if (f.Length >= 19) ReadIds(f[18], brokenBridges);
+                if (f.Length >= 20) itemZones = Mathf.Max(2, NetworkGame.I(f[19]));
                 // Nouvelle partie : les critères remplis de notre côté repartent de zéro.
                 if (testFlags == 0) sentFlags = 0;
                 ApplyWorld();

@@ -43,6 +43,9 @@ public class WorldStreamer : MonoBehaviour
 
     // Du décor reste à poser.
     public static bool Busy => instance != null && instance.work.Count > 0;
+    // Pendant l'écran de chargement, le décor se pose beaucoup plus vite.
+    public static bool Loading;
+    const long LoadingBudgetMs = 30;
 
     // Hors du jeu (outils de l'éditeur), le travail est fait tout de suite.
     public static void Enqueue(Action action)
@@ -65,7 +68,7 @@ public class WorldStreamer : MonoBehaviour
     void Update()
     {
         watch.Restart();
-        while (work.Count > 0 && watch.ElapsedMilliseconds < BudgetMs) work.Dequeue()();
+        while (work.Count > 0 && watch.ElapsedMilliseconds < (Loading ? LoadingBudgetMs : BudgetMs)) work.Dequeue()();
         // Les reflets montrent le décor et les lampes : ils attendent que tout soit en place.
         bool captured = work.Count == 0 && probes.Count > 0 && Time.frameCount % ProbeFrameInterval == 0 && CaptureNearestProbe();
         // La capture se fait plus tard dans l'image : ses lampes doivent rester allumées jusque-là.

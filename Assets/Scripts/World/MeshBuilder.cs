@@ -48,6 +48,30 @@ public class MeshBuilder
         return new Vector2(p.x, p.y);
     }
 
+    // Triangle à facette, dans l'ordre de ses sommets.
+    public void Facet(Vector3 a, Vector3 b, Vector3 c, Vector2 ua, Vector2 ub, Vector2 uc)
+    {
+        Vector3 n = Vector3.Cross(b - a, c - a);
+        if (n.sqrMagnitude < 1e-10f) return;
+        n.Normalize();
+        int i0 = Vert(a, n, ua), i1 = Vert(b, n, ub), i2 = Vert(c, n, uc);
+        tris.Add(i0); tris.Add(i1); tris.Add(i2);
+    }
+
+    // Maillage posé par 'matrix', à facettes, avec le même plaquage de texture que les murs (damier continu d'un bloc à l'autre).
+    public void WorldMesh(Vector3[] vertices, int[] triangles, Matrix4x4 matrix, float texScale)
+    {
+        for (int k = 0; k + 2 < triangles.Length; k += 3)
+        {
+            Vector3 a = matrix.MultiplyPoint3x4(vertices[triangles[k]]), b = matrix.MultiplyPoint3x4(vertices[triangles[k + 1]]), c = matrix.MultiplyPoint3x4(vertices[triangles[k + 2]]);
+            Vector3 n = Vector3.Cross(b - a, c - a);
+            if (n.sqrMagnitude < 1e-10f) continue;
+            n.Normalize();
+            int i0 = Vert(a, n, Project(a, n) * texScale), i1 = Vert(b, n, Project(b, n) * texScale), i2 = Vert(c, n, Project(c, n) * texScale);
+            tris.Add(i0); tris.Add(i1); tris.Add(i2);
+        }
+    }
+
     // Boîte alignée sur les axes. 'faces' : masque des faces à générer (bit 0..5 : +X -X +Y -Y +Z -Z).
     public void Box(Vector3 center, Vector3 size, float texScale, int faces = 63)
     {

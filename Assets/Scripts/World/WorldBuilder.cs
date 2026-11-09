@@ -76,6 +76,8 @@ public static class WorldBuilder
         public AcquisitionDoor acquisitionDoor;   // zones paires : porte du chapiteau suivant
         public Vector3 entrance;     // point d'arrivée dans la zone (derrière la porte du Hub ou de la Neutral Room)
         public readonly List<ArcadeMachine> arcades = new List<ArcadeMachine>();   // V0.6.1 : à partir de la Zone 3
+        public readonly List<SuspendedBridge> bridges = new List<SuspendedBridge>();   // V0.6.6
+        public readonly List<Toboggan> slides = new List<Toboggan>();   // V0.6.6
         internal Maze maze;
 
         // Zone loin de la caméra : ni dessinée ni animée. Ses collisions restent, pour que les règles du jeu (lignes de vue des
@@ -93,6 +95,7 @@ public static class WorldBuilder
             hiddenRenderers = System.Array.FindAll(root.GetComponentsInChildren<Renderer>(true), r => r.enabled);
             var scripts = new List<Behaviour>(root.GetComponentsInChildren<Eye>(true));
             scripts.AddRange(root.GetComponentsInChildren<Laser>(true));
+            scripts.AddRange(root.GetComponentsInChildren<SuspendedBridge>(true));
             hiddenScripts = scripts.FindAll(s => s.enabled).ToArray();
             pausedParticles = System.Array.FindAll(root.GetComponentsInChildren<ParticleSystem>(true), p => p.isPlaying);
             foreach (var r in hiddenRenderers) r.enabled = false;
@@ -492,6 +495,7 @@ public static class WorldBuilder
         public bool gallery;       // chapitre 10.3 : plateformes fines le long des murs (salle très haute)
         public float statueHeight; // chapitre 10.3 : hauteur de la statue de Pavlov dressée au centre (0 : aucune)
         public readonly List<Vector2Int> cells = new List<Vector2Int>();
+        public readonly List<GalleryCorner> corners = new List<GalleryCorner>();   // plateformes de coin de sa galerie
 
         // Style Pit (salle à profondeurs, chapitre 9.1) : grille fine de 0,5 m sur toute la salle.
         public float[,] levels;     // hauteur du sol de chaque case (0 : pourtour au niveau du Hub)
@@ -504,6 +508,9 @@ public static class WorldBuilder
         public readonly List<(RectInt cells, bool beam)> bridges = new List<(RectInt, bool)>();
         public bool[,] bridgeCell;
     }
+
+    // Plateforme de coin d'une galerie : coin de la salle, directions le long des deux murs, niveau, portée.
+    internal class GalleryCorner { public Vector3 point, u, v; public float level, reach; public bool used; }
 
     // Escalier d'une profondeur : bande de cases de la grille fine, descendue dans le sens 'dir' (0 = +X, 1 = -X, 2 = +Z, 3 = -Z).
     internal class Stair
@@ -629,6 +636,8 @@ public static class WorldBuilder
     }
 
     const float ZoneDoorWidth = 3.4f, ZoneDoorHeight = 3.6f;
+    // Arche (modèle Meshy) : part de la largeur prise par l'ouverture, hauteur relative du haut de l'ouverture, épaisseur.
+    const float ArchHoleWidth = 0.5f, ArchHoleTop = 0.82f, ArchDepth = 0.45f;
 
     // Profondeurs (chapitre 9.1) : grille fine de 0,5 m, pourtour praticable de 1,5 m le long des murs de la salle,
     // escaliers un peu plus raides que ceux des salles surélevées.
@@ -1116,13 +1125,13 @@ public static class WorldBuilder
         refs.structure = colliders.transform;
         refs.entrance = m.Center(m.start.x, m.start.y);
 
-        var geometry = BuildGeometry(m, root, colliders);
+        var geometry = BuildGeometry(m, root, colliders, new System.Random(seed * 97 + zone * 173));
         while (geometry.MoveNext()) yield return null;
         var glyphRnd = new System.Random(seed * 59 + zone * 613);
         if (m.hub) BuildNeutralRoom(m, root, refs, glyphRnd);
         else BuildAcquisitionRoom(m, root, refs, glyphRnd);
         yield return null;
-        var templates = BuildTemplates(m, root, colliders.transform, m.hub ? refs.neutralGlyphs : refs.acquisitionGlyphs, new System.Random(seed * 71 + zone * 733));
+        var templates = BuildTemplates(m, root, colliders.transform, m.hub ? refs.neutralGlyphs : refs.acquisitionGlyphs, refs, new System.Random(seed * 71 + zone * 733));
         while (templates.MoveNext()) yield return null;
         BuildArcades(m, root, refs, new System.Random(seed * 67 + zone * 389));
         yield return null;
@@ -1141,7 +1150,7 @@ public static class WorldBuilder
         AddReflectionProbes(m, root);
     }
 
-    static IEnumerator BuildGeometry(Maze m, Transform root, GameObject colliders)
+    static IEnumerator BuildGeometry(Maze m, Transform root, GameObject colliders, System.Random archRnd)
     {
         int n = m.N;
         int chunks = (n + ChunkSize - 1) / ChunkSize;
@@ -1414,6 +1423,42 @@ public static class WorldBuilder
                 ch.floor.Box(slab, size, 0.5f, 0b0011_0111);
                 AddCollider(slab, size);
             }
+        }
+
+        // Arches (GDD 10.3, V0.6.6) : une ouverture sur quatre entre une salle et un couloir. Le modèle prend place dans le bloc de
+        // murs (même damier, aucun objet de plus à dessiner) ; ses piliers sont dans le bâti, les entités passent par l'ouverture.
+        Mesh arch = Resources.Load<Mesh>("Art/Decor/Arche");
+        if (arch != null)
+        {
+            Vector3[] archVertices = arch.vertices;
+            int[] archTriangles = arch.triangles;
+            void TryArch(int i, int j, bool north)
+            {
+                int ni = north ? i : i + 1, nj = north ? j + 1 : j;
+                if (!m.InGrid(i, j) || !m.InGrid(ni, nj) || m.Reserved(i, j) || m.Reserved(ni, nj) || m.Fixed(i, j) || m.Fixed(ni, nj)) return;
+                if (north ? m.northWall[i, j] : m.eastWall[i, j]) return;
+                Room a = m.RoomAt(i, j), b = m.RoomAt(ni, nj);
+                if ((a == null) == (b == null)) return;
+                Room room = a ?? b;
+                if (room.plain || room.floor > 0f || m.NoPlainFloor(i, j) || m.NoPlainFloor(ni, nj) || m.HasWallHole(i, j, north ? 2 : 0)) return;
+                if (archRnd.NextDouble() >= GameRules.ArchChance) return;
+                float height = Mathf.Min(m.Ceil(i, j), m.Ceil(ni, nj));
+                Vector3 center = (m.Center(i, j) + m.Center(ni, nj)) * 0.5f;
+                Quaternion turn = north ? Quaternion.identity : Quaternion.Euler(0f, 90f, 0f);
+                WallsOf(i, j).WorldMesh(archVertices, archTriangles, Matrix4x4.TRS(center, turn, new Vector3(Cell, height, ArchDepth)), 0.5f);
+                float pillar = Cell * (1f - ArchHoleWidth) * 0.5f, offset = Cell * 0.5f - pillar * 0.5f;
+                foreach (float s in new[] { -1f, 1f })
+                    AddCollider(center + turn * Vector3.right * (s * offset) + Vector3.up * (height * 0.5f), north ? new Vector3(pillar, height, ArchDepth) : new Vector3(ArchDepth, height, pillar));
+                float top = height * ArchHoleTop;
+                AddCollider(center + Vector3.up * ((top + height) * 0.5f), north ? new Vector3(Cell, height - top, ArchDepth) : new Vector3(ArchDepth, height - top, Cell));
+            }
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                {
+                    TryArch(i, j, false);
+                    TryArch(i, j, true);
+                }
+            yield return null;
         }
 
         // Meshes par bloc de cellules (l'éclairage par objet reste local).
@@ -1769,6 +1814,29 @@ public static class WorldBuilder
         var placed = new List<Vector3>();
         // Note 01 du chapitre 10.2 (V0.6.3) : jamais plus d'une borne dans une même salle.
         var usedRooms = new HashSet<Room>();
+        // Note 02 (V0.6.6) : plus de la moitié d'abord, sur les plateformes de galerie à plus de 10 m du sol.
+        var highSpots = new List<(GalleryCorner corner, Room room)>();
+        foreach (Room room in m.rooms)
+            foreach (GalleryCorner c in room.corners)
+                if (!c.used && c.level - room.floor > GameRules.ArcadeHighLevel) highSpots.Add((c, room));
+        Shuffle(highSpots, rnd);
+        int highWanted = GameRules.HighArcades(count);
+        foreach (float spacing in new[] { ArcadeSpacing, 12f })
+            foreach (var (corner, room) in highSpots)
+            {
+                if (placed.Count >= highWanted) break;
+                if (corner.used || usedRooms.Contains(room)) continue;
+                Vector3 forward = (corner.u + corner.v).normalized, pos = corner.point + forward * 0.9f + Vector3.up * corner.level;
+                if (placed.Exists(q => Flat(q - pos) < spacing)) continue;
+                // Les plaques de l'Arcade Dance ont besoin de place devant la borne.
+                bool roomy = FlatGround(pos, forward, corner.level);
+                if (!roomy && !FlatGround(pos, forward, corner.level, 1f)) continue;
+                var kind = (ArcadeKind)rnd.Next(roomy ? 3 : 2);
+                corner.used = true;
+                usedRooms.Add(room);
+                refs.arcades.Add(ArcadeMachine.Create(props, ArcadeId(m.zone, placed.Count), kind, m.zone, pos, Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg));
+                placed.Add(pos);
+            }
         // Chapitre 10.3 : les étoiles des plateformes d'abord (celles qui restent recevront un monticule).
         for (int k = m.stars.Count - 1; k > 0; k--)
         {
@@ -1819,10 +1887,10 @@ public static class WorldBuilder
     }
 
     // Sol plat au niveau du Hub sous la borne et devant elle (jusqu'aux plaques de l'Arcade Dance).
-    static bool FlatGround(Vector3 pos, Vector3 forward, float level = 0f)
+    static bool FlatGround(Vector3 pos, Vector3 forward, float level = 0f, float reach = 2.6f)
     {
         Vector3 side = Vector3.Cross(Vector3.up, forward);
-        foreach (float ahead in new[] { 0f, 1f, 2.6f })
+        foreach (float ahead in new[] { 0f, 1f, reach })
             foreach (float across in new[] { -0.8f, 0f, 0.8f })
             {
                 Vector3 p = pos + forward * ahead + side * across + Vector3.up * 2f;
@@ -2228,7 +2296,12 @@ public static class WorldBuilder
                     break;
                 case RoomStyle.Spheres:
                     for (int k = 0; k < 2 + room.cells.Count / 2; k++)
-                        AddBigSphere(props, RandomInside(room.floor), Rand(rnd, 0.6f, Mathf.Min(1.8f, (room.ceil - room.floor) * 0.25f)), room.floor, room.ceil, rnd);
+                    {
+                        Vector3 p = RandomInside(room.floor);
+                        float radius = Rand(rnd, 0.6f, Mathf.Min(1.8f, (room.ceil - room.floor) * 0.25f));
+                        if (m.airLines.Exists(r => r.Contains(new Vector2(p.x, p.z)))) continue;
+                        AddBigSphere(props, p, radius, room.floor, room.ceil, rnd);
+                    }
                     break;
                 case RoomStyle.Chaotic:
                     AddPlatforms(props, room, minX, maxX, minZ, maxZ, rnd, spots);
@@ -2704,7 +2777,7 @@ public static class WorldBuilder
         return false;
     }
 
-    static IEnumerator BuildTemplates(Maze m, Transform root, Transform colliders, List<Glyph> glyphs, System.Random rnd)
+    static IEnumerator BuildTemplates(Maze m, Transform root, Transform colliders, List<Glyph> glyphs, ZoneRefs refs, System.Random rnd)
     {
         var props = new GameObject("Architectures").transform;
         props.SetParent(root, false);
@@ -2717,6 +2790,183 @@ public static class WorldBuilder
             if (CanHoldGallery(m, room, glyphs)) BuildGallery(m, room, props, rnd);
             if (room.style == RoomStyle.Template) BuildTemplateRoom(m, room, props, colliders, rnd);
         }
+        yield return null;
+        BuildHighFeatures(m, props, refs, rnd);
+    }
+
+    // ================= Ponts suspendus et toboggans (chapitre 10.3, V0.6.6) =================
+    // Les deux partent des plateformes de coin des galeries. Une salle ne reçoit que l'un des deux.
+
+    const float BridgeMinLevel = 6f, BridgeClearance = 4.2f, BridgeInset = 2.5f, BridgeMinLength = 6f, BridgeLineHalf = 1.3f;
+    const float SlideMinDrop = 7f, SlideSpiralRadius = 1.7f, SlideSpiralPitch = 2.8f, SlideExitLength = 1.2f;
+
+    static void Shuffle<T>(List<T> list, System.Random rnd)
+    {
+        for (int k = list.Count - 1; k > 0; k--)
+        {
+            int other = rnd.Next(k + 1);
+            (list[k], list[other]) = (list[other], list[k]);
+        }
+    }
+
+    static void BuildHighFeatures(Maze m, Transform props, ZoneRefs refs, System.Random rnd)
+    {
+        var rooms = m.rooms.FindAll(r => r.gallery && r.corners.Count > 0);
+        Shuffle(rooms, rnd);
+        var taken = new HashSet<Room>();
+
+        // Les plus hautes salles d'abord (le GDD les veut de plus de 21 m ; la Zone 2 ne dépasse pas 20 m : ses plus hautes).
+        var byHeight = new List<Room>(rooms);
+        byHeight.Sort((a, b) => b.ceil.CompareTo(a.ceil));
+        var mb = new MeshBuilder();
+        int bridges = GameRules.BridgesInZone(m.zone);
+        foreach (Room room in byHeight)
+        {
+            if (refs.bridges.Count >= bridges) break;
+            if (TryBuildBridge(m, room, props, mb, refs)) taken.Add(room);
+        }
+        if (!mb.IsEmpty) GameArt.MeshObject("Architecture", props, mb.Build("Galerie"), GameArt.CheckerFloor);
+
+        int slides = GameRules.SlidesInZone(m.zone);
+        // Si les salles dégagées ne suffisent pas, celles à plateformes basses, en contournant ces plateformes.
+        foreach (bool withTemplates in new[] { false, true })
+            foreach (Room room in rooms)
+            {
+                if (refs.slides.Count >= slides) break;
+                if (taken.Contains(room) || room.style == RoomStyle.Chaotic || room.style == RoomStyle.Template && !withTemplates) continue;
+                var corners = new List<GalleryCorner>(room.corners);
+                Shuffle(corners, rnd);
+                foreach (GalleryCorner corner in corners)
+                    if (!corner.used && corner.level - room.floor >= SlideMinDrop && TryBuildSlide(m, room, corner, props, refs, rnd))
+                    {
+                        taken.Add(room);
+                        break;
+                    }
+            }
+    }
+
+    // Une plateforme existante et une nouvelle, au même niveau, dans le coin opposé de la salle.
+    static bool TryBuildBridge(Maze m, Room room, Transform props, MeshBuilder mb, ZoneRefs refs)
+    {
+        Rect area = InnerRect(m, room);
+        var corners = new List<GalleryCorner>(room.corners);
+        corners.Sort((a, b) => b.level.CompareTo(a.level));
+        foreach (GalleryCorner corner in corners)
+        {
+            if (corner.used || corner.level - room.floor < BridgeMinLevel) continue;
+            var opposite = new Vector3(area.xMin + area.xMax - corner.point.x, 0f, area.yMin + area.yMax - corner.point.z);
+            if (room.corners.Exists(c => Flat(c.point - opposite) < 0.1f && Mathf.Abs(c.level - corner.level) < BridgeClearance)) continue;
+            Vector3 u = -corner.u, v = -corner.v;
+            int OutwardOf(Vector3 inward) => Mathf.Abs(inward.x) > 0.5f ? (inward.x > 0f ? 1 : 0) : (inward.z > 0f ? 3 : 2);
+            if (!WallBehind(m, room, opposite, u, OutwardOf(v), 0f, 2.8f, corner.level) && !WallBehind(m, room, opposite, v, OutwardOf(u), 0f, 2.8f, corner.level)) continue;
+            Vector3 diagonal = (corner.u + corner.v).normalized;
+            Vector3 a = corner.point + diagonal * BridgeInset + Vector3.up * (corner.level - 0.02f);
+            Vector3 b = opposite - diagonal * BridgeInset + Vector3.up * (corner.level - 0.02f);
+            if (Flat(b - a) < BridgeMinLength) continue;
+
+            AddCornerPlatform(mb, props, opposite, u, v, CornerOutline(false, 0, out float reach), corner.level);
+            corner.used = true;
+            room.corners.Add(new GalleryCorner { point = opposite, u = u, v = v, level = corner.level, reach = reach, used = true });
+            for (float d = 0f; d <= Flat(b - a); d += BridgeLineHalf)
+            {
+                Vector3 p = a + (b - a).normalized * d;
+                m.airLines.Add(Rect.MinMaxRect(p.x - BridgeLineHalf, p.z - BridgeLineHalf, p.x + BridgeLineHalf, p.z + BridgeLineHalf));
+            }
+            refs.bridges.Add(SuspendedBridge.Create(props, m.zone * 100 + 60 + refs.bridges.Count, a, b));
+            return true;
+        }
+        return false;
+    }
+
+    static bool TryBuildSlide(Maze m, Room room, GalleryCorner corner, Transform props, ZoneRefs refs, System.Random rnd)
+    {
+        Rect area = InnerRect(m, room);
+        float inset = Toboggan.Radius + 0.3f;
+        Rect allowed = Rect.MinMaxRect(area.xMin + inset, area.yMin + inset, area.xMax - inset, area.yMax - inset);
+        Vector3 diagonal = (corner.u + corner.v).normalized;
+        Vector3 entry = corner.point + diagonal * Mathf.Min(1.6f, corner.reach * 0.55f) + Vector3.up * (corner.level + 0.9f);
+        float bottom = room.floor + 0.55f;
+        Vector3 side = Vector3.Cross(Vector3.up, diagonal) * (rnd.NextDouble() < 0.5 ? 1f : -1f);
+        bool spiralFirst = rnd.NextDouble() < 0.5;
+        foreach (bool spiral in new[] { spiralFirst, !spiralFirst })
+        {
+            List<Vector3> path = spiral ? SpiralPath(corner, entry, bottom, side) : CurvedPath(area, entry, bottom, diagonal, side);
+            if (path == null) continue;
+            Vector3 last = path[path.Count - 1], before = path[path.Count - 2];
+            Vector3 forward = new Vector3(last.x - before.x, 0f, last.z - before.z).normalized;
+            Vector3 exit = last + forward * 1.3f;
+            exit.y = room.floor + 0.95f;
+            bool free = allowed.Contains(new Vector2(exit.x, exit.z)) && !InBlocks(m, exit, 0.6f);
+            for (int k = 0; k < path.Count && free; k++)
+            {
+                Vector2 p = new Vector2(path[k].x, path[k].z);
+                if (!area.Contains(p)) free = false;
+                else if (Flat(path[k] - corner.point) > 5f && (!allowed.Contains(p) || m.airLines.Exists(r => r.Contains(p)))) free = false;
+                else if (path[k].y < room.floor + LevelHigh + 1.5f && InBlocks(m, path[k], Toboggan.Radius)) free = false;
+            }
+            if (!free) continue;
+
+            corner.used = true;
+            for (int k = 0; k < path.Count; k += 2)
+            {
+                float h = Toboggan.Radius + 0.3f;
+                var r = Rect.MinMaxRect(path[k].x - h, path[k].z - h, path[k].x + h, path[k].z + h);
+                m.airLines.Add(r);
+                m.blocks.Add(r);
+            }
+            m.blocks.Add(Rect.MinMaxRect(exit.x - 1f, exit.z - 1f, exit.x + 1f, exit.z + 1f));
+            var slide = new Toboggan(path, exit);
+            slide.Build(props, GameArt.CheckerWall);
+            refs.slides.Add(slide);
+            return true;
+        }
+        return false;
+    }
+
+    // Colimaçon serré, autour d'un axe assez loin des murs pour ne pas toucher les escaliers de la galerie.
+    static List<Vector3> SpiralPath(GalleryCorner corner, Vector3 entry, float bottom, Vector3 side)
+    {
+        float axisDistance = Mathf.Max(corner.reach, GalleryWidth) + SlideSpiralRadius + Toboggan.Radius + 0.4f;
+        Vector3 axis = corner.point + (corner.u + corner.v) * axisDistance;
+        axis.y = 0f;
+        Vector3 toEntry = new Vector3(entry.x - axis.x, 0f, entry.z - axis.z).normalized;
+        float start = Mathf.Atan2(toEntry.z, toEntry.x);
+        float top = entry.y - 0.8f, drop = top - bottom;
+        if (drop < SlideMinDrop * 0.6f) return null;
+        int turns = Mathf.Max(1, Mathf.RoundToInt(drop / SlideSpiralPitch));
+        float sign = Vector3.Dot(side, new Vector3(-toEntry.z, 0f, toEntry.x)) >= 0f ? 1f : -1f;
+        var path = new List<Vector3> { entry, entry + (corner.u + corner.v).normalized * 0.8f + Vector3.down * 0.15f };
+        int steps = turns * 20;
+        for (int k = 0; k <= steps; k++)
+        {
+            float t = k / (float)steps, a = start + sign * t * turns * Mathf.PI * 2f;
+            path.Add(axis + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * SlideSpiralRadius + Vector3.up * Mathf.Lerp(top, bottom, t));
+        }
+        Vector3 end = path[path.Count - 1], tangent = (end - path[path.Count - 2]);
+        tangent.y = 0f;
+        path.Add(end + tangent.normalized * SlideExitLength);
+        return path;
+    }
+
+    // Légèrement courbé : une seule courbe, du haut de la plateforme au sol de la salle.
+    static List<Vector3> CurvedPath(Rect area, Vector3 entry, float bottom, Vector3 diagonal, Vector3 side)
+    {
+        float span = new Vector2(area.width, area.height).magnitude * 0.55f;
+        Vector3 end = entry + diagonal * span + side * (span * 0.2f);
+        end.y = bottom;
+        Vector3 c1 = entry + diagonal * (span * 0.35f) + side * (span * 0.25f);
+        Vector3 c2 = end - diagonal * (span * 0.3f) + side * (span * 0.1f) + Vector3.up * ((entry.y - bottom) * 0.12f);
+        var path = new List<Vector3>();
+        const int samples = 40;
+        for (int k = 0; k <= samples; k++)
+        {
+            float t = k / (float)samples, s = 1f - t;
+            path.Add(s * s * s * entry + 3f * s * s * t * c1 + 3f * s * t * t * c2 + t * t * t * end);
+        }
+        Vector3 tangent = end - path[samples - 1];
+        tangent.y = 0f;
+        path.Add(end + tangent.normalized * SlideExitLength);
+        return path;
     }
 
     static void BuildTemplateRoom(Maze m, Room room, Transform props, Transform colliders, System.Random rnd)
@@ -3116,6 +3366,7 @@ public static class WorldBuilder
             if (bridge > 0.01f)
                 AddSolid(mb, props, deck + dir * (bridge * 0.5f) + Vector3.up * (arrival - GalleryBridgeInset - BridgeDepth * 0.5f), Oriented(bridge, BridgeDepth, GalleryWidth));
             AddCornerPlatform(mb, props, b, -dir, n, outlineB, arrival);
+            room.corners.Add(new GalleryCorner { point = b, u = -dir, v = n, level = arrival, reach = reachB });
 
             Vector3 approach = k == 0 ? dir * GalleryApproach : Vector3.zero;
             Rect strip = MinMax(foot - approach - n * (GalleryWidth * 0.5f), deck + dir * bridge + n * (GalleryWidth * 0.5f));

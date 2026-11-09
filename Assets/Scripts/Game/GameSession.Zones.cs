@@ -13,7 +13,7 @@ public partial class GameSession
 {
     // Zones générées (index 0 : Zone 1) ; nombre de zones à générer (fixé par l'hôte, au moins 2 : la Zone 1 et sa voisine).
     readonly List<WorldBuilder.ZoneRefs> zones = new List<WorldBuilder.ZoneRefs>();
-    int zoneCount = 2;
+    int zoneCount = GameRules.InitialZones;
     // Zone la plus lointaine atteinte par les joueurs au cours de la partie (hôte, V0.6.3 : chance du Jeton WOOF).
     int lastZone = 1;
     // /tp N : au-delà, la génération prendrait trop longtemps.
@@ -26,8 +26,8 @@ public partial class GameSession
 
     // ================= Zones et Hubs =================
 
-    // Génération en cours, étalée sur plusieurs images : au plus ce temps par image.
-    const long ZoneBuildBudgetMs = 4;
+    // Génération en cours, étalée sur plusieurs images : au plus ce temps par image (bien plus derrière l'écran de chargement).
+    const long ZoneBuildBudgetMs = 4, ZoneLoadingBudgetMs = 33;
     WorldBuilder.ZoneBuild zoneBuild;
     readonly Stopwatch zoneBuildWatch = new Stopwatch();
 
@@ -54,7 +54,7 @@ public partial class GameSession
             UpdateDoors(true);
             return;
         }
-        while (zoneBuildWatch.ElapsedMilliseconds < ZoneBuildBudgetMs);
+        while (zoneBuildWatch.ElapsedMilliseconds < (worldLoading ? ZoneLoadingBudgetMs : ZoneBuildBudgetMs));
     }
 
     // Tout de suite (début de partie, /tp) : termine la zone en cours et génère celles qui manquent.
@@ -180,7 +180,9 @@ public partial class GameSession
         sealedZones = 0;
         openedHubs.Clear();
         openedAcquisitions.Clear();
-        zoneCount = 2;
+        brokenBridges.Clear();
+        itemZones = 2;
+        zoneCount = GameRules.InitialZones;
         lastZone = 1;
         normalsSpawned.Clear();
         nightmaresSpawned.Clear();
@@ -219,6 +221,7 @@ public partial class GameSession
         foreach (var z in zones)
         {
             foreach (var g in z.neutralGlyphs) g.SetNeutralState(brokenCases.Contains(g.Id), activatedGlyphs.Contains(g.Id), animate);
+            foreach (var b in z.bridges) b.SetBroken(brokenBridges.Contains(b.Id), animate);
             if (z.door != null)
             {
                 bool open = DoorOpen(z.doorNumber);
@@ -253,6 +256,13 @@ public partial class GameSession
             if (p != null && p.isActiveAndEnabled) furthest = Mathf.Max(furthest, WorldBuilder.ZoneAt(p.Position));
         lastZone = Mathf.Max(lastZone, furthest);
         UpdateSealing();
+        // Les monticules n'apparaissent qu'autour des zones atteintes, même si les suivantes sont déjà générées.
+        if (furthest + 1 > itemZones)
+        {
+            itemZones = furthest + 1;
+            ApplyWorld();
+            BroadcastState();
+        }
         if (furthest + 1 > zoneCount)
         {
             zoneCount = furthest + 1;
@@ -715,7 +725,7 @@ public partial class GameSession
     float kennelEnteredAt;
     public static bool InKennel => kennelInside != null;
     // Caché aux yeux des autres et des entités : dans un Canon ou dans sa niche.
-    public static bool Hidden => InCannon || InKennel;
+    public static bool Hidden => InCannon || InKennel || Sliding;
 
     public void EnterKennel(Kennel k)
     {

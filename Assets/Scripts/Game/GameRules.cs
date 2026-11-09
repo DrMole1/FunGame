@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6.5";
+    public const string Version = "V0.6.6";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -271,6 +271,14 @@ public static class GameRules
     public static int MinTunnels(int zone) => zone < 2 ? 0 : Mathf.Min(zone, 4);
     // Salles de plus de 21 m : la moitié seulement ont les grandes plateformes (au moins 10 m²).
     public const float LargePlatformChance = 0.5f;
+    // Chapitre 9.2 (V0.6.6) : les 8 premières zones sont générées à la création de la partie, derrière un écran de chargement.
+    public const int InitialZones = 8;
+    // Chapitre 10.3 (V0.6.6) : ponts suspendus (Zone 2 : 2, Zone 3 : 3, ensuite 4), arches et toboggans (Zone 3 : 1, Zone 4 : 2, ensuite 3).
+    public static int BridgesInZone(int zone) => zone < 2 ? 0 : Mathf.Min(zone, 4);
+    public const int BridgeBreakPlayers = 3;
+    public const float BridgeFallCleanup = 2f;
+    public const float ArchChance = 0.25f;
+    public static int SlidesInZone(int zone) => zone < 3 ? 0 : Mathf.Min(zone - 2, 3);
     // Chapitre 9.2 : à partir de cette zone impaire débloquée, les zones trop en arrière sont fermées puis désactivées.
     public const int FirstSealingZone = 7;
 
@@ -296,6 +304,9 @@ public static class GameRules
     // Bornes d'arcade : à partir de la Zone 3, nZone - 1 par zone, 6 au plus (V0.6.5) ; aucune dans les zones 1 et 2.
     public const int MaxArcadesPerZone = 6;
     public static int ArcadesInZone(int zone) => zone < 3 ? 0 : Mathf.Min(MaxArcadesPerZone, zone - 1);
+    // Note 02 du chapitre 10.2 (V0.6.6) : plus de la moitié des bornes d'une zone sont à plus de 10 m au-dessus du sol.
+    public const float ArcadeHighLevel = 10f;
+    public static int HighArcades(int count) => count <= 0 ? 0 : count / 2 + 1;
     public const float ArcadeMusicRange = 10f;    // petite musique de foire d'une borne chargée
     public const float DiscoMusicRange = 10f;     // musique disco d'une boule à facettes posée
     // Roulette : 20 sections égales ; 9 tickets 50, 5 tickets 100, 3 tickets 200, 1 ticket 500 et 2 Réveils.
