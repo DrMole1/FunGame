@@ -83,6 +83,8 @@ public class PostItUI : MonoBehaviour
             return;
         }
         Close();
+        // Validé avec Entrée : retour direct au jeu, sans menu pause.
+        OrbitCamera.ResumeGame();
         onWritten?.Invoke(text);
     }
 }

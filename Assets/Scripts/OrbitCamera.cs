@@ -26,6 +26,9 @@ public class OrbitCamera : MonoBehaviour
     // reverrouiller la souris tout de suite ; un clic dans le jeu le fera).
     public static bool ResumePending;
     static int resumeFrame = -1;
+    // Délai laissé au navigateur pour capturer la souris.
+    const float LockGrace = 0.4f;
+    static float lockMissing;
 
     public static void ResumeGame()
     {
@@ -145,15 +148,24 @@ public class OrbitCamera : MonoBehaviour
             if (Cursor.lockState != CursorLockMode.None && Time.frameCount - resumeFrame > 1) LockCursor(false);
             return;
         }
+        // Le navigateur peut refuser de capturer la souris juste après Échap, alors qu'Unity la croit verrouillée : au bout d'un
+        // instant, on la libère vraiment, pour que le prochain clic la reverrouille.
+        if (Cursor.lockState == CursorLockMode.Locked && !PeerNet.PointerLocked)
+        {
+            lockMissing += Time.unscaledDeltaTime;
+            if (lockMissing > LockGrace) LockCursor(false);
+        }
+        else lockMissing = 0f;
         // Échap ouvre le menu pause, et le referme (GDD 6.2 : "Echap pour reprendre le jeu").
-        if (Cursor.lockState == CursorLockMode.Locked) ResumePending = false;
+        if (PeerNet.PointerLocked) ResumePending = false;
         if (Input.GetKeyDown(KeyCode.Escape) && Time.frameCount != resumeFrame)
         {
             // Souris restée libre après le Terminal : Échap affiche le menu pause.
             if (ResumePending) ResumePending = false;
             else LockCursor(Cursor.lockState != CursorLockMode.Locked);
         }
-        else if (Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked && !IsPointerOverUI())
+        // Au retour d'une fenêtre de saisie, aucun menu n'est ouvert : un clic reprend la main, même au-dessus de l'inventaire.
+        else if (Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked && (ResumePending || !IsPointerOverUI()))
         {
             LockCursor(true);
             LockFrame = Time.frameCount;

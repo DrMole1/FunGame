@@ -148,6 +148,15 @@ var PeerNetLib = {
     setTimeout(function () { try { c.close(); } catch (e) {} }, 400);
   },
 
+  // Résolution du jeu : à 100 %, la densité de pixels du navigateur (qu'elle change ou non en cours de partie).
+  PeerNet_SetRenderScale: function (scale) {
+    Module.devicePixelRatio = scale >= 1 ? undefined : (window.devicePixelRatio || 1) * scale;
+  },
+
+  PeerNet_IsPointerLocked: function () {
+    return document.pointerLockElement ? 1 : 0;
+  },
+
   PeerNet_TimezoneOffset: function () {
     return new Date().getTimezoneOffset();
   },

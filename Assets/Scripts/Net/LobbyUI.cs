@@ -30,6 +30,7 @@ public class LobbyUI : MonoBehaviour
     readonly System.Collections.Generic.List<Text> brightLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> grainLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> lightLabels = new System.Collections.Generic.List<Text>();
+    readonly System.Collections.Generic.List<Text> resolutionLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> sensitivityLabels = new System.Collections.Generic.List<Text>();
     float copyFeedbackTimer;
     Text versionText;
@@ -447,7 +448,16 @@ public class LobbyUI : MonoBehaviour
         // Grain d'écran, dans le menu pause seulement.
         if (brightness) grainLabels.Add(VolumeRow(p, "Grain", height, seed + 8, step => FilmGrain.Value = Step(FilmGrain.Value, step)));
         // Nombre de lampes par objet (Bas, Standard, Haut).
-        if (brightness) lightLabels.Add(VolumeRow(p, "Éclairage", height, seed + 10, step => LightQuality.Value += step));
+        if (brightness)
+        {
+            Text light = VolumeRow(p, "Éclairage", height, seed + 10, step => LightQuality.Value += step);
+            // Toujours sur une seule ligne : à cette taille, "Standard" et ses traductions tiennent entre les deux flèches.
+            light.fontSize = 15;
+            light.horizontalOverflow = HorizontalWrapMode.Overflow;
+            lightLabels.Add(light);
+            // Part de la résolution de l'écran (100 % par défaut).
+            resolutionLabels.Add(VolumeRow(p, "Résolution", height, seed + 12, step => ResolutionScale.Value += step));
+        }
         RefreshVolumes();
     }
 
@@ -482,6 +492,7 @@ public class LobbyUI : MonoBehaviour
         foreach (var t in sensitivityLabels) t.text = Mathf.RoundToInt(MouseSensitivity.Value * 100f) + " %";
         foreach (var t in grainLabels) t.text = Mathf.RoundToInt(FilmGrain.Value * 100f) + " %";
         foreach (var t in lightLabels) t.text = LightQuality.Label;
+        foreach (var t in resolutionLabels) t.text = ResolutionScale.Label;
     }
 
     // Boutons "<" et ">" d'un sélecteur, en coups de pinceau.
@@ -494,7 +505,7 @@ public class LobbyUI : MonoBehaviour
     void BuildPause(Transform root)
     {
         // À gauche : partie, skin, volumes, quitter.
-        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 646));
+        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 690));
         UiKit.Paint(pausePanel, PanelBlack, 11);
         UiKit.Place(pausePanel, new Vector2(0f, 1f), new Vector2(16, -16));
         UiKit.Column(pausePanel, 34, 8);

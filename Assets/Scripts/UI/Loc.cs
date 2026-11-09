@@ -117,6 +117,7 @@ public static class Loc
         R("Sensibilité", "Sensitivity", "Sensibilidad", "Чувствит."),
         R("Grain", "Grain", "Grano", "Зерно"),
         R("Éclairage", "Lighting", "Iluminación", "Освещение"),
+        R("Résolution", "Resolution", "Resolución", "Разрешение"),
         R("Chargement…", "Loading…", "Cargando…", "Загрузка…"),
         R("Impossible de rejoindre. La partie a déjà commencé.", "Cannot join. The game has already started.", "No se puede unir. La partida ya ha comenzado.", "Невозможно присоединиться. Игра уже началась."),
         R("Bas", "Low", "Bajo", "Низкое"),
@@ -381,7 +382,7 @@ public static class Loc
         R("Retirer le Post-It", "Remove the Post-It", "Quitar el Post-It", "Снять Post-It"),
         R("Creuser le monticule", "Dig the mound", "Cavar el montículo", "Раскопать холмик"),
         R("Ouvrir la boîte de Pogo", "Open Pogo's box", "Abrir la caja de Pogo", "Открыть коробку Pogo"),
-        R("Vendre {0} à Pogo ({1})", "Sell {0} to Pogo ({1})", "Vender {0} a Pogo ({1})", "Продать «{0}» Pogo ({1})"),
+        R("Vendre", "Sell", "Vender", "Продать"),
         R("Pogo attend un objet", "Pogo is waiting for an item", "Pogo espera un objeto", "Pogo ждёт предмет"),
 
         // ---------- Objets (nom complet, puis nom court de la case d'inventaire) ----------

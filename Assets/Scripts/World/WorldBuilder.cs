@@ -87,17 +87,27 @@ public static class WorldBuilder
         Renderer[] hiddenRenderers;
         Behaviour[] hiddenScripts;
         ParticleSystem[] pausedParticles;
+        Renderer[] allRenderers;
+        Behaviour[] allScripts;
+        ParticleSystem[] allParticles;
 
         public void HideVisuals()
         {
             if (VisualsHidden) return;
             VisualsHidden = true;
-            hiddenRenderers = System.Array.FindAll(root.GetComponentsInChildren<Renderer>(true), r => r.enabled);
-            var scripts = new List<Behaviour>(root.GetComponentsInChildren<Eye>(true));
-            scripts.AddRange(root.GetComponentsInChildren<Laser>(true));
-            scripts.AddRange(root.GetComponentsInChildren<SuspendedBridge>(true));
-            hiddenScripts = scripts.FindAll(s => s.enabled).ToArray();
-            pausedParticles = System.Array.FindAll(root.GetComponentsInChildren<ParticleSystem>(true), p => p.isPlaying);
+            // Listes faites une seule fois : parcourir toute la zone à chaque bascule coûterait cher.
+            if (allRenderers == null)
+            {
+                allRenderers = root.GetComponentsInChildren<Renderer>(true);
+                var all = new List<Behaviour>(root.GetComponentsInChildren<Eye>(true));
+                all.AddRange(root.GetComponentsInChildren<Laser>(true));
+                all.AddRange(root.GetComponentsInChildren<SuspendedBridge>(true));
+                allScripts = all.ToArray();
+                allParticles = root.GetComponentsInChildren<ParticleSystem>(true);
+            }
+            hiddenRenderers = System.Array.FindAll(allRenderers, r => r != null && r.enabled);
+            hiddenScripts = System.Array.FindAll(allScripts, s => s != null && s.enabled);
+            pausedParticles = System.Array.FindAll(allParticles, p => p != null && p.isPlaying);
             foreach (var r in hiddenRenderers) r.enabled = false;
             foreach (var s in hiddenScripts) s.enabled = false;
             foreach (var p in pausedParticles) p.Pause(false);
@@ -2402,19 +2412,27 @@ public static class WorldBuilder
             return true;
         }
 
-        // Poutres d'acier (décor : les entités ne s'y engagent pas) ; un objet au milieu d'une passerelle ou d'une poutre
-        // sur deux, à aller chercher au-dessus du vide.
+        // Poutres au damier noir et blanc (décor : les entités ne s'y engagent pas) ; un objet au milieu d'une passerelle ou d'une
+        // poutre sur deux, à aller chercher au-dessus du vide.
         Vector3 o = DepthOrigin(m, room);
+        var beams = new MeshBuilder();
         foreach (var (cells, beam) in room.bridges)
         {
             var center = new Vector3(o.x + cells.center.x * Sub, 0f, o.z + cells.center.y * Sub);
             if (beam)
             {
                 var size = cells.width > cells.height ? new Vector3(cells.width * Sub, 0.4f, 0.35f) : new Vector3(0.35f, 0.4f, cells.height * Sub);
-                GameArt.Prim(PrimitiveType.Cube, parent, center + Vector3.down * 0.2f, size, GameArt.Metal, true).name = "Poutre";
+                Vector3 middle = center + Vector3.down * 0.2f;
+                beams.Box(middle, size, 0.5f);
+                var solid = new GameObject("Poutre");
+                solid.transform.SetParent(parent, false);
+                var box = solid.AddComponent<BoxCollider>();
+                box.center = middle;
+                box.size = size;
             }
             if (rnd.NextDouble() < 0.5) spots.Add(center);
         }
+        if (!beams.IsEmpty) GameArt.MeshObject("Poutres", parent, beams.Build("Poutres"), GameArt.CheckerFloor);
         foreach (var (cells, level) in room.depths)
         {
             var floor = cells.FindAll(c => Mathf.Abs(room.levels[c.x, c.y] - level) < 0.01f && !room.stairCell[c.x, c.y]);

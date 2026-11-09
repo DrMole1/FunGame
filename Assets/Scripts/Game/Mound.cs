@@ -31,6 +31,23 @@ public class Mound : Interactable
         return mound;
     }
 
+    // Manche suivante : le même objet resservira ailleurs (créer et détruire des centaines de monticules figerait le jeu).
+    public void Recycle()
+    {
+        Digging = false;
+        enabled = false;
+        gameObject.SetActive(false);
+    }
+
+    public Mound Reuse(int id, ItemType loot, Vector3 pos, float yaw)
+    {
+        Id = id;
+        Loot = loot;
+        transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
+        gameObject.SetActive(true);
+        return this;
+    }
+
     public override string Prompt => Digging ? "" : Loc.T("Creuser le monticule");
     public override bool CanInteract => !Digging;
     public override void Interact() => GameSession.Instance.RequestDig(this);

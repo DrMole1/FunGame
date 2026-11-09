@@ -17,6 +17,8 @@ public static class PeerNet
     [DllImport("__Internal")] static extern void PeerNet_CopyText(string text);
     [DllImport("__Internal")] static extern void PeerNet_Kick(string id);
     [DllImport("__Internal")] static extern int PeerNet_TimezoneOffset();
+    [DllImport("__Internal")] static extern int PeerNet_IsPointerLocked();
+    [DllImport("__Internal")] static extern void PeerNet_SetRenderScale(float scale);
 
     public const bool Available = true;
     public static void Host(string id) => PeerNet_Host(id);
@@ -29,10 +31,15 @@ public static class PeerNet
     public static void Leave() => PeerNet_Leave();
     public static void CopyText(string text) => PeerNet_CopyText(text);
     public static void Kick(string id) => PeerNet_Kick(id);
+    // La souris est réellement capturée par le navigateur (il peut refuser, alors qu'Unity la croit verrouillée).
+    public static bool PointerLocked => PeerNet_IsPointerLocked() != 0;
+    public static void SetRenderScale(float scale) => PeerNet_SetRenderScale(scale);
     // Heure locale du navigateur (DateTime.Now renvoie l'heure UTC en WebGL).
     public static System.DateTime LocalNow => System.DateTime.UtcNow.AddMinutes(-PeerNet_TimezoneOffset());
 #else
     public const bool Available = false;
+    public static bool PointerLocked => Cursor.lockState == CursorLockMode.Locked;
+    public static void SetRenderScale(float scale) { }
     public static void Host(string id)
     {
         var go = GameObject.Find(NetworkGame.ObjectName);

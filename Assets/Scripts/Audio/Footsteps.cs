@@ -17,8 +17,8 @@ public class Footsteps : MonoBehaviour
     void Update()
     {
         if (avatar == null || (presence != null && !presence.Alive)) return;
-        // En téléportation (boule d'énergie), aucun pas, ni à l'arrivée.
-        if (presence != null && presence.Teleporting)
+        // En téléportation (boule d'énergie) ou caché (toboggan, Canon, niche), aucun pas, ni à l'arrivée.
+        if (presence != null && (presence.Teleporting || presence.InCannon))
         {
             last = AnimState.Idle;
             timer = 0.12f;

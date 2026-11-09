@@ -2,12 +2,15 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // Pont suspendu (GDD 10.3, V0.6.6) entre deux plateformes d'une très haute salle : parcelles, bâtons et cordes (modèles Meshy) au
-// damier noir et blanc. Les parcelles ploient sous les pas (calcul local, sans réseau). Trois joueurs ou plus dessus : il casse
+// damier noir et blanc. Les parcelles ploient sous les pas et, dès qu'un joueur est dessus, tout le tablier se balance de gauche à
+// droite en entraînant bâtons et cordes (calcul local, sans réseau). Trois joueurs ou plus dessus : il casse
 // (décidé par l'hôte) ; parcelles et cordes tombent et disparaissent 2 secondes après l'impact. Hors du bâti : les entités
 // ne le connaissent pas.
 public class SuspendedBridge : MonoBehaviour
 {
     const float Width = 1.6f, PlankSpacing = 0.58f, PostSpacing = 3f, PostInset = 0.74f, RopeHeight = 1.15f, ColliderSegment = 1.5f;
+    // Balancement : amplitude au milieu du pont (m), inclinaison des parcelles et des bâtons (degrés), vitesse, temps de mise en route.
+    const float SwayAmplitude = 0.14f, SwayRoll = 4f, SwayLean = 5f, SwaySpeed = 2.6f, SwayFade = 0.8f;
     const float Bend = 0.13f, BendReach = 1.3f, SettleSpeed = 6f, MaxSagRatio = 0.05f, MaxSag = 1.1f, FallSafety = 10f;
 
     public int Id { get; private set; }
@@ -17,10 +20,16 @@ public class SuspendedBridge : MonoBehaviour
     float flatLength, sag;
     Transform[] planks;
     Vector3[] rest;
+    Quaternion[] restRotation;
+    readonly List<Post> posts = new List<Post>();
+    readonly List<(Transform rope, Post a, Post b)> ropes = new List<(Transform, Post, Post)>();
+    float swayAmount;
     float[] offset, targets;
     readonly List<Transform> falling = new List<Transform>();
     readonly List<GameObject> solids = new List<GameObject>();
     bool moving;
+
+    class Post { public Transform transform; public Vector3 foot; public float bow; public Vector3 Top; }
 
     static Material plankA, plankB;
 
@@ -59,6 +68,7 @@ public class SuspendedBridge : MonoBehaviour
         int count = Mathf.Max(2, Mathf.RoundToInt(flatLength / PlankSpacing));
         planks = new Transform[count];
         rest = new Vector3[count];
+        restRotation = new Quaternion[count];
         offset = new float[count];
         targets = new float[count];
         for (int k = 0; k < count; k++)
@@ -71,33 +81,34 @@ public class SuspendedBridge : MonoBehaviour
             Shadowless(plank);
             planks[k] = plank.transform;
             rest[k] = plank.transform.position;
+            restRotation[k] = plank.transform.rotation;
             falling.Add(plank.transform);
         }
 
         // Une rangée de bâtons de chaque côté, reliés par une corde. Ceux des deux extrémités, sur les plateformes, restent.
-        int posts = Mathf.Max(2, Mathf.RoundToInt(flatLength / PostSpacing) + 1);
+        int postCount = Mathf.Max(2, Mathf.RoundToInt(flatLength / PostSpacing) + 1);
         foreach (float s in new[] { -1f, 1f })
         {
-            Vector3 previous = Vector3.zero;
-            for (int k = 0; k < posts; k++)
+            Post previous = null;
+            for (int k = 0; k < postCount; k++)
             {
-                float t = k / (posts - 1f);
+                float t = k / (postCount - 1f);
                 Vector3 foot = Curve(t) + side * (s * PostInset);
-                var post = GameArt.MeshObject("Baton", transform, postMesh, plankA);
-                post.transform.position = foot;
-                Shadowless(post);
-                if (k > 0 && k < posts - 1) falling.Add(post.transform);
-                Vector3 top = foot + Vector3.up * RopeHeight;
-                if (k > 0)
+                var go = GameArt.MeshObject("Baton", transform, postMesh, plankA);
+                go.transform.position = foot;
+                Shadowless(go);
+                if (k > 0 && k < postCount - 1) falling.Add(go.transform);
+                var post = new Post { transform = go.transform, foot = foot, bow = Mathf.Sin(t * Mathf.PI), Top = foot + Vector3.up * RopeHeight };
+                posts.Add(post);
+                if (previous != null)
                 {
                     var rope = GameArt.MeshObject("Corde", transform, ropeMesh, plankA);
-                    Vector3 span = top - previous;
-                    rope.transform.SetPositionAndRotation((top + previous) * 0.5f, Quaternion.LookRotation(span));
-                    rope.transform.localScale = new Vector3(1f, 1f, span.magnitude);
                     Shadowless(rope);
                     falling.Add(rope.transform);
+                    ropes.Add((rope.transform, previous, post));
+                    PlaceRope(rope.transform, previous.Top, post.Top);
                 }
-                previous = top;
+                previous = post;
             }
         }
 
@@ -113,6 +124,13 @@ public class SuspendedBridge : MonoBehaviour
             solid.AddComponent<BoxCollider>().size = new Vector3(Width, 0.12f, along.magnitude + 0.1f);
             solids.Add(solid);
         }
+    }
+
+    static void PlaceRope(Transform rope, Vector3 from, Vector3 to)
+    {
+        Vector3 span = to - from;
+        rope.SetPositionAndRotation((to + from) * 0.5f, Quaternion.LookRotation(span));
+        rope.localScale = new Vector3(1f, 1f, span.magnitude);
     }
 
     static void Shadowless(GameObject go)
@@ -175,19 +193,30 @@ public class SuspendedBridge : MonoBehaviour
                 targets[k] = Mathf.Max(targets[k], Bend * Mathf.Exp(-(distance * distance) / (BendReach * BendReach)));
             }
         }
-        if (!anyone && !moving) return;
+        float previousSway = swayAmount;
+        swayAmount = Mathf.MoveTowards(swayAmount, anyone ? 1f : 0f, Time.deltaTime / SwayFade);
+        if (!anyone && !moving && previousSway <= 0f) return;
+
         moving = false;
         float step = SettleSpeed * Time.deltaTime * Bend;
+        float wave = Mathf.SmoothStep(0f, 1f, swayAmount) * Mathf.Sin(Time.time * SwaySpeed);
         for (int k = 0; k < planks.Length; k++)
         {
             float next = Mathf.MoveTowards(offset[k], targets[k], step);
-            if (!Mathf.Approximately(next, offset[k]))
-            {
-                offset[k] = next;
-                planks[k].position = rest[k] + Vector3.down * next;
-                moving = true;
-            }
+            if (!Mathf.Approximately(next, offset[k])) moving = true;
+            offset[k] = next;
+            float bow = Mathf.Sin((k + 0.5f) / planks.Length * Mathf.PI);
+            planks[k].SetPositionAndRotation(rest[k] + Vector3.down * next + side * (SwayAmplitude * bow * wave), restRotation[k] * Quaternion.Euler(0f, 0f, SwayRoll * bow * wave));
         }
+
+        // Les bâtons suivent le tablier en s'inclinant, les cordes restent tendues entre leurs sommets.
+        foreach (Post post in posts)
+        {
+            Quaternion lean = Quaternion.AngleAxis(SwayLean * post.bow * wave, flatDir);
+            post.transform.SetPositionAndRotation(post.foot + side * (SwayAmplitude * post.bow * wave), lean);
+            post.Top = post.transform.position + lean * Vector3.up * RopeHeight;
+        }
+        foreach (var (rope, a, b) in ropes) PlaceRope(rope, a.Top, b.Top);
     }
 }
 

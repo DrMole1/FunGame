@@ -233,6 +233,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         // Réglage "Éclairage" du menu pause. À 6 (Haut), assez pour presque tous les morceaux de murs (jusqu'à 8 lampes).
         LightQuality.Apply();
+        ResolutionScale.Apply();
         QualitySettings.shadows = ShadowQuality.Disable;
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
@@ -455,7 +456,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             ItemType loot = Items.RollMound(rnd, zone.index);
             float yaw = (float)rnd.NextDouble() * 360f;
             moundLoot[id] = (loot, spots[k]);
-            if (!dugMounds.Contains(id)) mounds[id] = Mound.Create(itemsRoot, id, loot, spots[k], yaw);
+            if (!dugMounds.Contains(id)) mounds[id] = moundPool.Count > 0 ? moundPool.Pop().Reuse(id, loot, spots[k], yaw) : Mound.Create(itemsRoot, id, loot, spots[k], yaw);
             else if (!picked.Contains(id) && loot != ItemType.Reveil) items[id] = ItemPickup.Create(itemsRoot, id, loot, spots[k]);
         }
     }
@@ -471,9 +472,16 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         items.Clear();
     }
 
+    readonly Stack<Mound> moundPool = new Stack<Mound>();
+
     void ClearMounds()
     {
-        foreach (var m in mounds.Values) if (m != null) Destroy(m.gameObject);
+        foreach (var m in mounds.Values)
+            if (m != null)
+            {
+                m.Recycle();
+                moundPool.Push(m);
+            }
         mounds.Clear();
     }
 

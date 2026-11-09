@@ -101,6 +101,8 @@ public partial class GameSession
         if (!worldLoading) return;
         LoadingScreen.Show((float)zones.Count / Mathf.Max(1, zoneCount));
         if (zones.Count < zoneCount || zoneBuild != null || WorldStreamer.Busy) return;
+        // Hôte : la navigation des deux premières zones est prête dès le début.
+        if (net.IsHost && (!zones[0].nav.Ready || !zones[1].nav.Ready)) return;
         worldLoading = false;
         WorldStreamer.Loading = false;
         LoadingScreen.Hide();

@@ -29,7 +29,9 @@ public partial class GameSession
     // Génération en cours, étalée sur plusieurs images : au plus ce temps par image (bien plus derrière l'écran de chargement).
     const long ZoneBuildBudgetMs = 4, ZoneLoadingBudgetMs = 33;
     WorldBuilder.ZoneBuild zoneBuild;
-    readonly Stopwatch zoneBuildWatch = new Stopwatch();
+    readonly Stopwatch zoneBuildWatch = new Stopwatch(), navBuildWatch = new Stopwatch();
+    // Grille de navigation d'une zone (hôte) : au plus ce temps par image.
+    const long NavBuildBudgetMs = 3;
 
     void StartNextZone()
     {
@@ -247,7 +249,13 @@ public partial class GameSession
     {
         // La grille de navigation se calcule en arrière-plan, quelques colonnes par image, une zone à la fois.
         foreach (var z in zones)
-            if (!z.nav.Ready && ZoneActive(z.index)) { z.nav.BuildStep(6); break; }
+            if (!z.nav.Ready && ZoneActive(z.index))
+            {
+                navBuildWatch.Restart();
+                do z.nav.BuildStep(1);
+                while (!z.nav.Ready && navBuildWatch.ElapsedMilliseconds < (worldLoading ? ZoneLoadingBudgetMs : NavBuildBudgetMs));
+                break;
+            }
         zoneTimer -= Time.unscaledDeltaTime;
         if (zoneTimer > 0f) return;
         zoneTimer = 0.5f;
