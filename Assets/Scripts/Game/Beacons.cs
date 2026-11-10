@@ -118,9 +118,9 @@ public class Beacon : Interactable
     GameObject halo;
     Light glow, curfewNeon;
     MaterialPropertyBlock block;
-    // Couvre Feu en cours (GameSession) : les Balises Améliorées s'allument.
+    // Couvre Feu en cours (GameSession) : les Balises Améliorées chargées s'allument.
     public static bool CurfewGlow;
-    const float CurfewNeonRange = 10f, CurfewNeonIntensity = 1.8f, DistanceTextShake = 0.007f;
+    const float CurfewNeonRange = 10f, CurfewNeonIntensity = 1.8f, DistanceTextShake = 0.004f;
     TextMesh coordinates;
     ParticleSystem gas;
     Transform visualRoot;
@@ -500,7 +500,7 @@ public class Beacon : Interactable
     {
         UpdateRecoil();
         UpdatePlacedPop();
-        if (curfewNeon != null && curfewNeon.enabled != CurfewGlow) curfewNeon.enabled = CurfewGlow;
+        if (curfewNeon != null && curfewNeon.enabled != (CurfewGlow && Charged)) curfewNeon.enabled = CurfewGlow && Charged;
         if (coordinates != null && Camera.main != null)
         {
             Transform text = coordinates.transform;

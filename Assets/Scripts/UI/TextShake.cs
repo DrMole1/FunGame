@@ -6,7 +6,7 @@ using UnityEngine.UI;
 // quelques fois par seconde, et seulement pour les textes affichés.
 public class TextShake : BaseMeshEffect
 {
-    const float Rate = 14f, Amplitude = 0.65f;
+    const float Rate = 7f, Amplitude = 0.4f;
     static readonly List<UIVertex> stream = new List<UIVertex>();
 
     int shownStep = -1;

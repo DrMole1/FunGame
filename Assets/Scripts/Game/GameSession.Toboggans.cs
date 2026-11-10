@@ -10,9 +10,29 @@ public partial class GameSession
     public static bool Sliding { get; private set; }
     Toboggan slide;
     float slideDistance, slideLeftAt = -10f;
+    // Son de glissade, en fondu à l'entrée et à la sortie du tube.
+    AudioSource slideSound;
+    float slideLevel;
+    const float SlideSoundVolume = 0.75f, SlideSoundFade = 0.15f;
+
+    void UpdateSlideSound()
+    {
+        if (slideSound == null) return;
+        slideLevel = Mathf.MoveTowards(slideLevel, Sliding ? 1f : 0f, Time.deltaTime / SlideSoundFade);
+        GameAudio.SetLoopVolume(slideSound, SlideSoundVolume * slideLevel);
+        if (slideLevel <= 0f) StopSlideSound();
+    }
+
+    void StopSlideSound()
+    {
+        if (slideSound != null) GameAudio.ReleaseLoop(slideSound);
+        slideSound = null;
+        slideLevel = 0f;
+    }
 
     void UpdateToboggans()
     {
+        UpdateSlideSound();
         if (Sliding) { RideToboggan(); return; }
         if (status.Dead || PlayerController.InputLocked || InKennel || InCannon || CannonFlying || Teleporting || localDig >= 0 || Time.time - slideLeftAt < SlideReentryDelay) return;
         Vector3 me = player.transform.position;
@@ -41,6 +61,8 @@ public partial class GameSession
         avatar.SetHidden(true);
         hud.SetCannonMode(true);
         GameAudio.Play2D("pop", 0.7f);
+        StopSlideSound();
+        slideSound = GameAudio.Loop2D("slide_rub", 0f);
     }
 
     void RideToboggan()
@@ -69,6 +91,7 @@ public partial class GameSession
             player.Teleport(slide.Exit, player.transform.eulerAngles.y);
             GameAudio.Play2D("pop", 0.7f);
         }
+        else StopSlideSound();
         slide = null;
     }
 

@@ -381,6 +381,8 @@ public class GameHud : MonoBehaviour
 
         g.text = UiKit.Label(frame.transform, "", 15, FontStyle.Bold, Color.white, GaugeHeight);
         UiKit.Stretch(g.text.rectTransform);
+        // Avant le contour : celui-ci reprend les lettres déjà décalées.
+        g.text.gameObject.AddComponent<TextShake>();
         g.text.gameObject.AddComponent<Outline>().effectColor = new Color(0f, 0f, 0f, 0.85f);
         return g;
     }

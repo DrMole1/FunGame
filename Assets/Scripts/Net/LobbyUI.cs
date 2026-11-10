@@ -220,6 +220,8 @@ public class LobbyUI : MonoBehaviour
         versionText = UiKit.Label(root, GameRules.Version, 16, FontStyle.Bold, new Color(1f, 1f, 1f, 0.75f), 24, TextAnchor.LowerRight);
         var rt = UiKit.Place(versionText.gameObject, new Vector2(1f, 0f), new Vector2(-16f, 12f));
         rt.sizeDelta = new Vector2(200f, 24f);
+        // Avant l'ombre : celle-ci reprend les lettres déjà décalées.
+        versionText.gameObject.AddComponent<TextShake>();
         versionText.gameObject.AddComponent<Shadow>().effectColor = new Color(0f, 0f, 0f, 0.8f);
     }
 

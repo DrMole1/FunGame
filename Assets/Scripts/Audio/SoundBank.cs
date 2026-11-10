@@ -33,6 +33,7 @@ public static class SoundBank
         "doom",
         // V0.6.7 : fin de l'écran de chargement.
         "zipper",
+        "slide_rub",
     };
 
     // Synthèse des sons étalée sur les premières images : le jeu ne se fige pas au lancement. Un son demandé avant son tour est
@@ -142,6 +143,7 @@ public static class SoundBank
             case "roi_slash": return RoiSlash(rnd);
             case "tv_static": return TvStatic(rnd);
             case "zipper": return Zipper(rnd);
+            case "slide_rub": return SlideRub(rnd);
             case "tv_countdown": return TvCountdown(rnd);
             case "fou_poof": return FouPoof(rnd);
             case "tinnitus": return Tinnitus();
@@ -1704,6 +1706,28 @@ public static class SoundBank
 
     // Grésillement de télévision sans signal (boucle) : souffle large bande, bourdonnement de ligne et petits craquements.
     // Fermeture éclair qu'on ferme (1,5 seconde) : des dents qui s'enclenchent de plus en plus vite, puis le curseur qui arrive en butée.
+    // Glissade dans un toboggan (boucle) : frottement sur le tube, souffle, grondement et petites secousses aux raccords du tube.
+    static float[] SlideRub(System.Random rnd)
+    {
+        const float loop = 2.97f, seam = 0.33f;
+        var d = Buffer(loop + 0.6f);
+        var rub = new BandPass();
+        var hiss = new BandPass();
+        var rumble = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float flutter = 0.72f + 0.2f * Sine(t * 5.3f) + 0.08f * Sine(t * 13.1f);
+            float s = rub.Process(Noise(rnd), 950f + 300f * Sine(t * 0.67f), 0.45f) * 0.75f * flutter;
+            s += hiss.Process(Noise(rnd), 3400f, 0.3f) * 0.22f;
+            s += rumble.Process(Noise(rnd), 130f) * 1.1f * (0.8f + 0.2f * Sine(t * 2.1f));
+            float sinceSeam = Mathf.Repeat(t, seam);
+            s += Sine(82f * sinceSeam) * 0.28f * Mathf.Exp(-sinceSeam * 32f);
+            d[i] = s;
+        }
+        return MakeLoop(d, loop, 0.5f);
+    }
+
     static float[] Zipper(System.Random rnd)
     {
         var data = new float[Mathf.RoundToInt(1.5f * Rate)];

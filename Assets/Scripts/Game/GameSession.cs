@@ -649,7 +649,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         else regenAcc = 0f;
         // Pendant le Couvre Feu, seulement dans un Hub ou près d'une Balise Améliorée : +10 par seconde ; sinon, +2 par seconde partout.
-        float serenityRate = CurfewActive ? (inHub || NearEnhancedBeacon(player.transform.position, GameRules.EnhancedBeaconSerenityRange) ? GameRules.CurfewRegenPerSecond : 0f)
+        float serenityRate = CurfewActive ? (inHub || InEnhancedBeaconShelter(player.transform.position) ? GameRules.CurfewRegenPerSecond : 0f)
                            : GameRules.CalmSerenityRegenPerSecond;
         if (!status.Dead && status.Serenity < GameRules.MaxSerenity && serenityRate > 0f)
         {
@@ -812,7 +812,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Vector3 p = player.transform.position;
         player.SpeedFactor = FallSpeedFactor();
         bool draining = !status.Dead && !Teleporting && !CannonFlying && !Sliding && !InKennel && CurfewActive && zones.Count > 0
-            && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && !NearEnhancedBeacon(p, GameRules.EnhancedBeaconSerenityRange);
+            && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && !InEnhancedBeaconShelter(p);
         if (!draining || Godmode)
         {
             curfewDrain = 0f;
@@ -1822,12 +1822,14 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         status.SetSerenity(status.Serenity - GameRules.BellObsessionSerenity);
     }
 
-    // ---------- Balises Améliorées : à 4 m ou moins, comme au Hub pendant le Couvre Feu ; aucune entité n'apparaît à moins de 5 m ----------
+    // ---------- Balises Améliorées : chargées, à 4 m ou moins, comme au Hub pendant le Couvre Feu ; aucune entité n'apparaît à moins de 5 m ----------
 
-    bool NearEnhancedBeacon(Vector3 p, float range = GameRules.EnhancedBeaconRadius)
+    bool InEnhancedBeaconShelter(Vector3 p) => NearEnhancedBeacon(p, GameRules.EnhancedBeaconSerenityRange, true);
+
+    bool NearEnhancedBeacon(Vector3 p, float range = GameRules.EnhancedBeaconRadius, bool chargedOnly = false)
     {
         foreach (var b in beacons.Placed)
-            if (b != null && b.Kind == DeviceKind.Enhanced && (b.transform.position - p).sqrMagnitude <= range * range) return true;
+            if (b != null && b.Kind == DeviceKind.Enhanced && (!chargedOnly || b.Charged) && (b.transform.position - p).sqrMagnitude <= range * range) return true;
         return false;
     }
 
