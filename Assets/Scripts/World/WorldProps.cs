@@ -149,16 +149,10 @@ public class Laser : MonoBehaviour
     }
 }
 
-// Gros œil encastré qui fixe le joueur le plus proche. V0.6.8 : pendant le Couvre Feu et les ordres des glyphes, sa pupille
-// projette un faisceau rouge jusqu'au premier mur, s'il est à moins de 50 m de la caméra (seuls ceux-là peuvent se voir).
+// Gros œil encastré qui fixe le joueur le plus proche (V0.6.9 : il ne projette plus de faisceau).
 public class Eye : MonoBehaviour
 {
-    public static bool BeamsOn;
-    const float BeamMaxLength = 60f, PupilWidth = 0.24f, BallRadius = 0.5f, FollowRange = 30f;
-
-    GameObject beam;
-    bool beamOn;
-    float beamLength = -1f;
+    const float FollowRange = 30f;
     const float WatchRange = 16f;
     const float MaxAngle = 65f;
 
@@ -179,7 +173,6 @@ public class Eye : MonoBehaviour
     {
         Camera cam = Camera.main;
         float cameraDistance = cam != null ? (cam.transform.position - transform.position).sqrMagnitude : 0f;
-        UpdateBeam(cameraDistance);
         if (cameraDistance > FollowRange * FollowRange) return;
 
         PlayerPresence target = null;
@@ -216,48 +209,6 @@ public class Eye : MonoBehaviour
         }
     }
 
-    void OnDisable()
-    {
-        beamOn = false;
-        if (beam != null) beam.SetActive(false);
-    }
-
-    void UpdateBeam(float cameraDistance)
-    {
-        bool on = BeamsOn && cameraDistance <= GameRules.EyeBeamRange * GameRules.EyeBeamRange;
-        if (on != beamOn)
-        {
-            beamOn = on;
-            beamLength = -1f;
-            if (on && beam == null) CreateBeam();
-            if (beam != null) beam.SetActive(on);
-        }
-        if (!on) return;
-        // Loin de la caméra, l'œil ne bouge pas : une seule mesure. De près, le faisceau suit le regard (toutes les 3 images).
-        bool follows = cameraDistance <= FollowRange * FollowRange;
-        if (beamLength < 0f || follows && (Time.frameCount + GetInstanceID()) % 3 == 0) MeasureBeam();
-    }
-
-    // Cylindre (axe Y, 2 unités de haut), enfant du globe : son axe prolonge le regard.
-    void CreateBeam()
-    {
-        beam = GameArt.Prim(PrimitiveType.Cylinder, ball, Vector3.zero, Vector3.one, GameArt.LaserBeam("EyeBeam", 1.6f, 2.5f));
-        beam.name = "Faisceau";
-        beam.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        var r = beam.GetComponent<Renderer>();
-        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        r.receiveShadows = false;
-    }
-
-    void MeasureBeam()
-    {
-        float size = transform.lossyScale.x;
-        Vector3 from = ball.position + ball.forward * (BallRadius * size + 0.02f);
-        beamLength = Physics.Raycast(from, ball.forward, out RaycastHit hit, BeamMaxLength, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) ? hit.distance : BeamMaxLength;
-        float local = beamLength / size;
-        beam.transform.localScale = new Vector3(PupilWidth, local * 0.5f, PupilWidth);
-        beam.transform.localPosition = Vector3.forward * (BallRadius + local * 0.5f);
-    }
 }
 
 // Néon du labyrinthe : suit le réglage de luminosité ; certains grésillent. V0.4.7 : à moins de 30 m d'un Roi, tous
@@ -393,6 +344,7 @@ public class HubDoor : MonoBehaviour
     public void SetOpen(bool value, bool instant = false)
     {
         if (!instant && value != open) GameAudio.Play3D("door", transform.position, 1f, 35f, 0f);
+        if (value != open) BeaconNetwork.SightChanged();
         open = value;
         if (instant) transform.localPosition = open ? openPos : closedPos;
     }
@@ -494,6 +446,7 @@ public class ZoneDoor : MonoBehaviour
     public void SetOpen(bool value, bool instant)
     {
         if (value && !open && !instant) GameAudio.Play3D("zone_door", transform.position + Vector3.up * 2f, 1f, 60f, 0f);
+        if (value != open) BeaconNetwork.SightChanged();
         open = value;
         blocker.enabled = !open;
         if (instant) Apply(open ? 1f : 0f);

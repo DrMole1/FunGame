@@ -18,7 +18,10 @@ public class TeteDeCloche : Entity
     public override float ChestHeight => 1.4f * GameRules.BigEntityScale;
     protected override float ModelScale => GameRules.BigEntityScale;
     public override Vector3 EyesLocal => new Vector3(0f, 2.45f * GameRules.BigEntityScale, 0.25f);
-    public override string KillSound => "tete_bell";
+    // Son de mise à mort (V0.6.9) : son attaque tombe à l'instant du coup mortel, quand le marteau percute le personnage.
+    public override string KillSound => "tete_kill";
+    // Ce joueur a déjà entendu le son d'obnubilation de cette entité (V0.6.9 : une seule fois).
+    public bool SightVoiced { get; set; }
     public State Current { get => (State)state; private set => state = (byte)value; }
 
     float huntTime, ringTimer, stateTimer;

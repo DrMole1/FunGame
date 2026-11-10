@@ -96,7 +96,8 @@ public partial class GameSession
 
     bool worldLoading, uniquesPending, loadingSounds;
     float zipperEnd = -1f;
-    const float ZipperDuration = 1.5f;
+    // Durée du son Zip, puis délai avant que l'interface de chargement s'enlève (GDD 12, V0.6.9).
+    const float ZipperDuration = 1.67f, LoadingHideDelay = 0.4f;
 
     // Chapitre 6.3 (V0.6.7) : aucune musique pendant le chargement, seulement le grésillement de la télévision ; une fermeture éclair à la fin.
     void UpdateWorldLoading()
@@ -118,7 +119,7 @@ public partial class GameSession
         if (net.IsHost && (!zones[0].nav.Ready || !zones[1].nav.Ready)) return;
         GameAudio.StopLoadingStatic();
         GameAudio.Play2D("zipper", 1f);
-        zipperEnd = Time.unscaledTime + ZipperDuration;
+        zipperEnd = Time.unscaledTime + ZipperDuration + LoadingHideDelay;
     }
 
     void EndWorldLoading()

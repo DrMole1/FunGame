@@ -129,6 +129,8 @@ public partial class GameSession
 
     // ================= Ordres sonores des glyphes (V0.6.7) =================
 
+    static void PlayOrderVoice(int type) => GameAudio.Play2D(OrderVoice(type), GameRules.GlyphVoiceVolume, 0f, GameRules.GlyphVoiceSpeed);
+
     static string OrderVoice(int type)
     {
         string language;

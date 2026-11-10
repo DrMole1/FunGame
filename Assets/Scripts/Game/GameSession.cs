@@ -628,6 +628,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (!inGame)
         {
             OrbitCamera.Dread = 0f;
+            FilmGrain.Obsessed = false;
             return;
         }
 
@@ -648,7 +649,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         else regenAcc = 0f;
         // Pendant le Couvre Feu, seulement dans un Hub ou près d'une Balise Améliorée : +10 par seconde ; sinon, +2 par seconde partout.
-        float serenityRate = CurfewActive ? (inHub || NearEnhancedBeacon(player.transform.position) ? GameRules.CurfewRegenPerSecond : 0f)
+        float serenityRate = CurfewActive ? (inHub || NearEnhancedBeacon(player.transform.position, GameRules.EnhancedBeaconSerenityRange) ? GameRules.CurfewRegenPerSecond : 0f)
                            : GameRules.CalmSerenityRegenPerSecond;
         if (!status.Dead && status.Serenity < GameRules.MaxSerenity && serenityRate > 0f)
         {
@@ -728,7 +729,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         FlickerLight.CurfewWarning = net.InGame && phase == Phase.Running && timeLeft > GameRules.CurfewStart && timeLeft <= GameRules.CurfewStart + GameRules.CurfewWarning;
         WorldStreamer.SetPower(Mathf.MoveTowards(FlickerLight.Power, curfew ? 0f : 1f, Time.deltaTime / (curfew ? GameRules.CurfewPowerOff : GameRules.CurfewPowerOn)));
         Beacon.CurfewGlow = curfew;
-        Eye.BeamsOn = net.InGame && (curfew || OrderActive(0) || OrderActive(1) || OrderActive(2));
         GameAudio.CurfewLevel = curfew ? 1f : 0f;
     }
 
@@ -812,7 +812,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Vector3 p = player.transform.position;
         player.SpeedFactor = FallSpeedFactor();
         bool draining = !status.Dead && !Teleporting && !CannonFlying && !Sliding && !InKennel && CurfewActive && zones.Count > 0
-            && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && !NearEnhancedBeacon(p);
+            && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && !NearEnhancedBeacon(p, GameRules.EnhancedBeaconSerenityRange);
         if (!draining || Godmode)
         {
             curfewDrain = 0f;
@@ -1739,8 +1739,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     }
 
     // Pulsations cardiaques (GDD 8, Note 02, V0.4.8) : un Cauchemar à moins de 10 m que la caméra voit (marche discrète
-    // sans effet sur la distance) et qui ne s'éloigne pas, ou un Cauchemar qui traque le personnage ; plus il est proche,
-    // plus le cœur bat vite.
+    // sans effet sur la distance) et qui ne s'éloigne pas, ou un Cauchemar ou une Sanction (V0.6.9) qui traque le personnage ;
+    // plus il est proche, plus le cœur bat vite.
     const float DreadSightRange = 10f, DreadChaseRange = 30f;
 
     void UpdateDread()
@@ -1750,12 +1750,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (!status.Dead && !Teleporting && cam != null && !WorldBuilder.IsInHub(player.transform.position))
             foreach (var e in entities.Values)
             {
-                if (e == null || !e.Nightmare) continue;
+                bool sanction = e is TeteDeCloche tete && tete.Current == TeteDeCloche.State.Hunt;
+                if (e == null || !e.Nightmare && !sanction) continue;
                 float d = Vector3.Distance(player.transform.position, e.transform.position);
                 // Traqué : la tension ne descend pas sous un plancher, même de loin.
                 if (e.TargetId == net.MyId)
                     dread = Mathf.Max(dread, Mathf.Lerp(0.35f, 1f, 1f - Mathf.Clamp01(d / DreadChaseRange)));
-                if (d < DreadSightRange && !e.MovingAwayFrom(player.transform.position) && CameraSees(cam, e, DreadSightRange + 6f))
+                if (e.Nightmare && d < DreadSightRange && !e.MovingAwayFrom(player.transform.position) && CameraSees(cam, e, DreadSightRange + 6f))
                     dread = Mathf.Max(dread, Mathf.Lerp(0.25f, 1f, 1f - d / DreadSightRange));
             }
         // Note 07 du chapitre 3.4 (V0.6.7) : en dessous de 15 PV, les pulsations cardiaques sont permanentes.
@@ -1801,11 +1802,18 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 }
         // Une Cloche qui vient de l'obnubiler (la Tête de Cloche, elle, à chacun de ses coups : voir WatchTete).
         foreach (int id in obsessedNow)
-            if (!obsessedBy.Contains(id) && entities.TryGetValue(id, out var e) && e is Cloche) LoseBellSerenity();
+            if (!obsessedBy.Contains(id) && entities.TryGetValue(id, out var e) && e is Cloche)
+            {
+                LoseBellSerenity();
+                OrbitCamera.BellStrike();
+            }
         obsessedBy.Clear();
         foreach (int id in obsessedNow) obsessedBy.Add(id);
+        // Une Tête de Cloche dont le joueur s'est libéré pourra de nouveau lui donner le zoom brusque.
+        if (teteStruck.Count > 0) teteStruck.RemoveWhere(id => !obsessedBy.Contains(id));
         Vector3? bell = BellLook();
         OrbitCamera.ForcedLook = nearest != null ? nearest.transform.position + Vector3.up * (nearest is TeteDeCloche ? nearest.EyesLocal.y : nearest.ChestHeight) : bell;
+        FilmGrain.Obsessed = OrbitCamera.ForcedLook.HasValue;
     }
 
     void LoseBellSerenity()
@@ -1814,12 +1822,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         status.SetSerenity(status.Serenity - GameRules.BellObsessionSerenity);
     }
 
-    // ---------- Balises Améliorées : à moins de 5 m, comme au Hub pendant le Couvre Feu, et aucune entité n'y apparaît ----------
+    // ---------- Balises Améliorées : à 4 m ou moins, comme au Hub pendant le Couvre Feu ; aucune entité n'apparaît à moins de 5 m ----------
 
-    bool NearEnhancedBeacon(Vector3 p)
+    bool NearEnhancedBeacon(Vector3 p, float range = GameRules.EnhancedBeaconRadius)
     {
         foreach (var b in beacons.Placed)
-            if (b != null && b.Kind == DeviceKind.Enhanced && (b.transform.position - p).sqrMagnitude < GameRules.EnhancedBeaconRadius * GameRules.EnhancedBeaconRadius) return true;
+            if (b != null && b.Kind == DeviceKind.Enhanced && (b.transform.position - p).sqrMagnitude <= range * range) return true;
         return false;
     }
 
@@ -2092,7 +2100,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     }
 
     // /tp (hôte) : téléporte le personnage à 3 mètres de l'ennemi le plus proche ("enemy"), de la porte entre la Zone 1 et la
-    // Zone 2 ("door"), d'un joueur (son pseudo), ou dans la zone N ("/tp N", V0.6 : générée d'abord si besoin). Retourne le
+    // Zone 2 ("door"), d'un joueur (son pseudo), dans la zone N ("/tp N", V0.6 : générée d'abord si besoin) ou dans le Hub N
+    // ("/tp hub N", V0.6.9 : le Hub 1 est le Hub de départ). Retourne le
     // message à afficher, ou null si la commande est invalide.
     // Le personnage est ensuite invincible pendant quelques secondes.
     public string Teleport(string target)
@@ -2122,17 +2131,19 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             TeleportNear(nearest.transform.position);
             return Loc.F("Téléporté près de {0}.", nearest.DisplayName);
         }
+        string[] words = lower.Split((char[])null, System.StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 2 && words[0] == "hub" && int.TryParse(words[1], out int hubNumber))
+        {
+            // Le Hub N se construit avec la zone 2N - 1 ; les Hubs déjà fermés ne sont plus accessibles.
+            if (hubNumber < 1 || hubNumber <= sealedZones / 2 || hubNumber > 1 && !PrepareZone(hubNumber * 2 - 1)) return null;
+            Beacon hubBeacon = beacons.GetHub(hubNumber);
+            if (hubBeacon == null) return null;
+            TeleportNear(hubBeacon.transform.position);
+            return Loc.F("Téléporté dans le Hub {0}.", hubNumber.ToString());
+        }
         if (int.TryParse(lower, out int zoneNumber))
         {
-            if (zoneNumber < 1 || zoneNumber > MaxTeleportZone || zoneNumber <= sealedZones) return null;
-            if (zoneNumber > zoneCount)
-            {
-                zoneCount = zoneNumber;
-                ApplyWorld();
-                BroadcastState();
-            }
-            GenerateZonesNow();
-            UpdateDoors(true);
+            if (!PrepareZone(zoneNumber)) return null;
             Vector3 at = zones[zoneNumber - 1].entrance;
             player.Teleport(new Vector3(at.x, GroundBelow(at) + 0.95f, at.z), 0f);
             return Loc.F("Téléporté dans la Zone {0}.", zoneNumber.ToString());
@@ -2156,6 +2167,21 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     }
 
     // Point libre à 3 m de 'target' (sans mur entre les deux), posé au sol, personnage tourné vers la cible.
+    // Génère au besoin les zones jusqu'à 'number' ; faux si cette zone n'est pas accessible.
+    bool PrepareZone(int number)
+    {
+        if (number < 1 || number > MaxTeleportZone || number <= sealedZones) return false;
+        if (number > zoneCount)
+        {
+            zoneCount = number;
+            ApplyWorld();
+            BroadcastState();
+        }
+        GenerateZonesNow();
+        UpdateDoors(true);
+        return true;
+    }
+
     void TeleportNear(Vector3 target)
     {
         Vector3 from = target + Vector3.up * 1f;

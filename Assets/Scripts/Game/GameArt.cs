@@ -227,6 +227,38 @@ public static class GameArt
         m.color = color;
         return cache["GhostAura" + key] = m;
     }
+    // Halo des Balises (Resources/Materials/BeaconHalo), sur le carré ci-dessous. Une matière par couleur.
+    public static Material BeaconHalo(string key, Color color)
+    {
+        string name = "BeaconHalo" + key;
+        if (cache.TryGetValue(name, out var m) && m != null) return m;
+        var template = Resources.Load<Material>("Materials/BeaconHalo");
+        if (template == null) return cache[name] = Unlit("HaloFallback" + key, color);
+        m = new Material(template) { name = name };
+        m.SetColor("_Color", color);
+        return cache[name] = m;
+    }
+
+    static Mesh haloQuad;
+    // Carré du halo : un peu plus grand que sa sphère (son contour ondule). Ses limites restent celles de la sphère de diamètre 1.
+    public static Mesh HaloQuad
+    {
+        get
+        {
+            if (haloQuad != null) return haloQuad;
+            const float half = 0.55f, disc = 1.1f;
+            haloQuad = new Mesh
+            {
+                name = "HaloQuad",
+                vertices = new[] { new Vector3(-half, -half, 0f), new Vector3(half, -half, 0f), new Vector3(half, half, 0f), new Vector3(-half, half, 0f) },
+                uv = new[] { new Vector2(-disc, -disc), new Vector2(disc, -disc), new Vector2(disc, disc), new Vector2(-disc, disc) },
+                triangles = new[] { 0, 2, 1, 0, 3, 2 },
+            };
+            haloQuad.bounds = new Bounds(Vector3.zero, Vector3.one);
+            return haloQuad;
+        }
+    }
+
     // Rayon d'énergie entre Balises chargées (LineRenderer).
     public static Material EnergyBeam => FromTemplate("EnergyBeam", () => Unlit("BeamFallback", new Color(0.2f, 0.5f, 1f)));
 

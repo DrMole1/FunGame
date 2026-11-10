@@ -79,6 +79,10 @@ public class OrbitCamera : MonoBehaviour
         zoomPunch = 0f;
         Shake(0.5f);
     }
+    // Obnubilation (chapitre 3.4, V0.6.9) : au son de cloche, un seul zoom avant brusque suivi du dézoom, en 0,8 seconde.
+    static float bellStrike = -1f;
+    const float BellStrikeDuration = 0.8f, BellStrikeAttack = 0.15f, BellStrikeZoom = 0.42f;
+    public static void BellStrike() => bellStrike = 0f;
     const float CannonZoom = 0.8f;
     float baseFov = -1f;
 
@@ -257,6 +261,14 @@ public class OrbitCamera : MonoBehaviour
             // Immédiat (pas de lissage) : zoom avant brutal, puis oscillations qui s'amortissent.
             cam.fieldOfView = wanted * (1f - 0.45f * Mathf.Cos(k * Mathf.PI * 5f) * (1f - k));
             if (k >= 1f) zoomPunch = -1f;
+        }
+        else if (bellStrike >= 0f)
+        {
+            bellStrike += Time.deltaTime;
+            float k = Mathf.Clamp01(bellStrike / BellStrikeDuration);
+            float strike = k < BellStrikeAttack ? k / BellStrikeAttack : 1f - Mathf.SmoothStep(0f, 1f, (k - BellStrikeAttack) / (1f - BellStrikeAttack));
+            cam.fieldOfView = wanted * (1f - BellStrikeZoom * strike);
+            if (k >= 1f) bellStrike = -1f;
         }
         UpdateHeart();
         heartFov = dread > 0.001f && ControlsEnabled && DeathView < 0f ? HeartEnvelope(Time.time - beatAt) * HeartFovPulse * dread : 0f;

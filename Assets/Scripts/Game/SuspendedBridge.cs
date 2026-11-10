@@ -3,7 +3,7 @@ using UnityEngine;
 
 // Pont suspendu (GDD 10.3, V0.6.6) entre deux plateformes d'une très haute salle : parcelles, bâtons et cordes (modèles Meshy) au
 // damier noir et blanc. Les parcelles ploient sous les pas et, dès qu'un joueur est dessus, tout le tablier se balance de gauche à
-// droite en entraînant bâtons et cordes (calcul local, sans réseau). Trois joueurs ou plus dessus : il casse
+// droite en entraînant bâtons, cordes et personnages (V0.6.9 ; calcul local, sans réseau). Trois joueurs ou plus dessus : il casse
 // (décidé par l'hôte) ; parcelles et cordes tombent et disparaissent 2 secondes après l'impact. Hors du bâti : les entités
 // ne le connaissent pas.
 public class SuspendedBridge : MonoBehaviour
@@ -162,6 +162,7 @@ public class SuspendedBridge : MonoBehaviour
     {
         if (!value || Broken) return;
         Broken = true;
+        BeaconNetwork.SightChanged();
         foreach (var solid in solids) if (solid != null) solid.SetActive(false);
         if (animate) GameAudio.Play3D("cannon_impact", (start + end) * 0.5f, 1f, 60f, 0.05f, 0.7f);
         foreach (var piece in falling)
@@ -182,11 +183,14 @@ public class SuspendedBridge : MonoBehaviour
     {
         // Les parcelles ploient autour de chaque joueur, puis reviennent en place.
         bool anyone = false;
+        float localT = -1f;
+        PlayerPresence local = GameSession.Instance != null ? GameSession.Instance.LocalPresence : null;
         System.Array.Clear(targets, 0, targets.Length);
         foreach (var p in PlayerPresence.All)
         {
             if (p == null || !p.isActiveAndEnabled || !Over(p.Position, out float t)) continue;
             anyone = true;
+            if (p == local) localT = t;
             for (int k = 0; k < planks.Length; k++)
             {
                 float distance = ((k + 0.5f) / planks.Length - t) * flatLength;
@@ -199,7 +203,14 @@ public class SuspendedBridge : MonoBehaviour
 
         moving = false;
         float step = SettleSpeed * Time.deltaTime * Bend;
-        float wave = Mathf.SmoothStep(0f, 1f, swayAmount) * Mathf.Sin(Time.time * SwaySpeed);
+        float amount = Mathf.SmoothStep(0f, 1f, swayAmount);
+        float wave = amount * Mathf.Sin(Time.time * SwaySpeed);
+        // Le personnage local suit le tablier à l'endroit où il se trouve (les autres joueurs reçoivent sa position, comme d'habitude).
+        if (localT >= 0f)
+        {
+            var rider = local.GetComponent<PlayerController>();
+            if (rider != null) rider.Carry(side * (SwayAmplitude * Mathf.Sin(localT * Mathf.PI) * amount * Mathf.Cos(Time.time * SwaySpeed) * SwaySpeed));
+        }
         for (int k = 0; k < planks.Length; k++)
         {
             float next = Mathf.MoveTowards(offset[k], targets[k], step);

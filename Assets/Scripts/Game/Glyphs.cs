@@ -353,6 +353,7 @@ public class AcquisitionDoor : MonoBehaviour
     public void SetOpen(bool value, bool instant)
     {
         if (value != open && !instant) GameAudio.Play3D("zone_door", transform.position + Vector3.up * 2f, 1f, 60f, 0f, 1.25f);
+        if (value != open) BeaconNetwork.SightChanged();
         open = value;
         blocker.enabled = !open;
         if (instant) Apply(open ? 1f : 0f);

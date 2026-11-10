@@ -33,6 +33,7 @@ public class PostItUI : MonoBehaviour
         input.caretColor = Color.black;
         input.onEndEdit.AddListener(OnEndEdit);
         footer = UiKit.Label(panel.transform, "Entrée : accrocher · Échap : annuler", 14, FontStyle.Italic, new Color(0.25f, 0.2f, 0.1f), 22);
+        TextShake.AddTo(panel);
         panel.SetActive(false);
     }
 

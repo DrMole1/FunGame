@@ -37,6 +37,12 @@ public class Beacon : Interactable
     // Couleur du cristal de la Balise principale du Hub N.
     static readonly Color[] HubColors = { new Color(0.3f, 0.6f, 1f), new Color(0.65f, 0.3f, 1f), new Color(0.3f, 1f, 0.45f), new Color(1f, 0.78f, 0.25f) };
     public static Color HubColor(int hub) => HubColors[(Mathf.Max(1, hub) - 1) % HubColors.Length];
+    public static int ColorIndex(int hub) => (Mathf.Max(1, hub) - 1) % HubColors.Length;
+    // Hub dont provient le flux qui alimente cet appareil (0 : aucun).
+    public int FluxHub { get; private set; }
+    static readonly Material[] fluxBodies = new Material[HubColors.Length];
+    Material[] restBodies;
+    Material restHalo;
     // Balises (simples ou améliorées) : elles relaient l'énergie ; Téléporteur et Station ne font que la recevoir.
     public bool Relays => Kind == DeviceKind.Beacon || Kind == DeviceKind.Enhanced;
     // Relié au réseau d'énergie (chargé s'il voit une Balise chargée) : ni le Trampoline, ni la Cloche Décorative, ni les
@@ -114,7 +120,7 @@ public class Beacon : Interactable
     MaterialPropertyBlock block;
     // Couvre Feu en cours (GameSession) : les Balises Améliorées s'allument.
     public static bool CurfewGlow;
-    const float CurfewNeonRange = 10f, CurfewNeonIntensity = 1.8f;
+    const float CurfewNeonRange = 10f, CurfewNeonIntensity = 1.8f, DistanceTextShake = 0.007f;
     TextMesh coordinates;
     ParticleSystem gas;
     Transform visualRoot;
@@ -131,6 +137,7 @@ public class Beacon : Interactable
         beacon.Id = id;
         beacon.Kind = kind;
         beacon.Hanging = hanging && IsDiscoKind(kind);
+        beacon.FluxHub = hub ? -id : 0;
         float height = beacon.VisualHeight;
         var visual = new GameObject("Visuel").transform;
         visual.SetParent(go.transform, false);
@@ -204,6 +211,7 @@ public class Beacon : Interactable
                 break;
         }
 
+        if (kind == DeviceKind.Beacon || kind == DeviceKind.Enhanced) AddFarModel(visual, height);
         beacon.bodies = visual.GetComponentsInChildren<Renderer>();
         beacon.block = new MaterialPropertyBlock();
         if (Items.Dances(beacon.Item)) DiscoDancer.Attach(visual);
@@ -212,11 +220,9 @@ public class Beacon : Interactable
         // Halo autour du cristal quand l'appareil est chargé (blanc pour la Balise Améliorée). Aucun sur le Téléporteur.
         if (kind == DeviceKind.Beacon || kind == DeviceKind.Enhanced || kind == DeviceKind.Station)
         {
-            Material aura = kind == DeviceKind.Enhanced ? GameArt.GhostAuraTinted("White", Color.white)
-                : kind == DeviceKind.Station ? GameArt.GhostAuraTinted("Green", new Color(0.3f, 1f, 0.4f)) : GameArt.GhostAura;
-            float haloSize = kind == DeviceKind.Station ? 0.55f : height * 0.26f;
-            beacon.halo = GameArt.Prim(PrimitiveType.Sphere, go.transform, beacon.Top - pos, Vector3.one * haloSize, aura);
-            Object.Destroy(beacon.halo.GetComponent<Collider>());
+            Material aura = kind == DeviceKind.Enhanced ? GameArt.BeaconHalo("White", Color.white)
+                : kind == DeviceKind.Station ? GameArt.BeaconHalo("Green", new Color(0.3f, 1f, 0.4f)) : GameArt.BeaconHalo("Blue", new Color(0.3f, 0.65f, 1f));
+            beacon.halo = NewHalo(go.transform, beacon.Top - pos, kind == DeviceKind.Station ? 0.55f : height * 0.26f, aura);
         }
         if (hub)
         {
@@ -239,9 +245,7 @@ public class Beacon : Interactable
                     crystal.name = "Cristal";
                 }
                 if (beacon.halo != null) Object.Destroy(beacon.halo);
-                beacon.halo = GameArt.Prim(PrimitiveType.Sphere, go.transform, beacon.Top - pos, Vector3.one * height * 0.26f,
-                    GameArt.GhostAuraTinted("Hub" + (-id - 1) % HubColors.Length, color));
-                Object.Destroy(beacon.halo.GetComponent<Collider>());
+                beacon.halo = NewHalo(go.transform, beacon.Top - pos, height * 0.26f, GameArt.BeaconHalo("Hub" + (-id - 1) % HubColors.Length, color));
                 beacon.bodies = visual.GetComponentsInChildren<Renderer>();
             }
             beacon.glow = new GameObject("Lueur").AddComponent<Light>();
@@ -277,6 +281,34 @@ public class Beacon : Interactable
             : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.9f, 0.9f, 0.9f) : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;
+    }
+
+    static GameObject NewHalo(Transform parent, Vector3 localPos, float size, Material material)
+    {
+        var halo = GameArt.MeshObject("Halo", parent, GameArt.HaloQuad, material);
+        halo.transform.localPosition = localPos;
+        halo.transform.localScale = Vector3.one * size;
+        return halo;
+    }
+
+    // Au-delà de cette distance, la Balise passe à son modèle simplifié (Resources/Art/BaliseLoin, menu "Préparer la Balise simplifiée").
+    const float FarModelDistance = 15f;
+    static Mesh farModel;
+
+    static void AddFarModel(Transform visual, float height)
+    {
+        if (farModel == null) farModel = Resources.Load<Mesh>("Art/BaliseLoin");
+        Transform model = visual.Find("Balise");
+        var near = model != null ? model.GetComponentInChildren<MeshRenderer>() : null;
+        if (farModel == null || near == null) return;
+        var far = GameArt.MeshObject("BaliseLoin", near.transform, farModel, near.sharedMaterial).GetComponent<MeshRenderer>();
+        float fov = Camera.main != null ? Camera.main.fieldOfView : 60f;
+        // Part de la hauteur de l'écran occupée par la Balise à cette distance.
+        float transition = height * QualitySettings.lodBias / (2f * FarModelDistance * Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad));
+        var lod = visual.gameObject.AddComponent<LODGroup>();
+        lod.localReferencePoint = Vector3.up * height * 0.5f;
+        lod.size = height;
+        lod.SetLODs(new[] { new LOD(Mathf.Clamp01(transition), new Renderer[] { near }), new LOD(0f, new Renderer[] { far }) });
     }
 
     static void BuildDuck(Transform visual, DeviceKind kind, float height)
@@ -411,6 +443,31 @@ public class Beacon : Interactable
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
     }
 
+    // Note 02 du chapitre 9.3 (V0.6.9) : une Balise simple chargée prend la couleur du flux (celle de son Hub) ; déchargée, elle
+    // retrouve sa couleur d'origine, bleue et terne.
+    public void SetFlux(int hub)
+    {
+        if (hub == FluxHub || IsHub) return;
+        int before = ColorIndex(FluxHub), after = ColorIndex(hub);
+        FluxHub = hub;
+        if (Kind != DeviceKind.Beacon || before == after) return;
+        if (restBodies == null)
+        {
+            restBodies = new Material[bodies.Length];
+            for (int i = 0; i < bodies.Length; i++) if (bodies[i] != null) restBodies[i] = bodies[i].sharedMaterial;
+            if (halo != null) restHalo = halo.GetComponent<Renderer>().sharedMaterial;
+        }
+        Material body = after > 0 && visualRoot.Find("Balise") != null ? FluxBody(after) : null;
+        for (int i = 0; i < bodies.Length; i++) if (bodies[i] != null) bodies[i].sharedMaterial = body != null ? body : restBodies[i];
+        if (halo != null) halo.GetComponent<Renderer>().sharedMaterial = after > 0 ? GameArt.BeaconHalo("Hub" + after, HubColors[after]) : restHalo;
+    }
+
+    static Material FluxBody(int colorIndex)
+    {
+        if (fluxBodies[colorIndex] == null) fluxBodies[colorIndex] = Resources.Load<Material>("Art/BaliseHub" + (colorIndex + 1));
+        return fluxBodies[colorIndex];
+    }
+
     // Balise Améliorée : distance au sol jusqu'à la Balise du Hub, arrondie au mètre (ex. "29m"), suivie de sa profondeur
     // ou de sa hauteur par rapport au niveau du Hub quand elle dépasse 2 m (ex. "29m ↓3m", "29m ↑4m").
     const float LevelShownBeyond = 2f;
@@ -445,11 +502,13 @@ public class Beacon : Interactable
         UpdatePlacedPop();
         if (curfewNeon != null && curfewNeon.enabled != CurfewGlow) curfewNeon.enabled = CurfewGlow;
         if (coordinates != null && Camera.main != null)
-            coordinates.transform.rotation = Quaternion.LookRotation(coordinates.transform.position - Camera.main.transform.position);
-        if (!Charged || halo == null) return;
-        // Le halo respire doucement.
-        float s = (Kind == DeviceKind.Station ? 0.55f : VisualHeight * 0.26f) * (1f + 0.12f * Mathf.Sin(Time.time * 2.4f + Id));
-        halo.transform.localScale = Vector3.one * s;
+        {
+            Transform text = coordinates.transform;
+            text.rotation = Quaternion.LookRotation(text.position - Camera.main.transform.position);
+            // Chapitre 6, Note 01 (V0.6.9) : le texte tremble légèrement.
+            Vector2 jitter = TextShake.Jitter(Id, TextShake.Step) * DistanceTextShake;
+            text.position = transform.position + Vector3.up * (VisualHeight + 0.45f) + text.right * jitter.x + text.up * jitter.y;
+        }
     }
 
     // Canon : le fût suit la visée (cap en degrés, dans le monde).
@@ -500,9 +559,12 @@ public class Beacon : Interactable
 // aucun mur entre deux Balises) et rayons d'énergie bleus, qui circulent des Balises éloignées vers leur Hub.
 // Téléporteurs et Stations Curatives se chargent en voyant une Balise chargée, sans relayer l'énergie.
 // V0.6 : une Balise reliée à deux Balises principales se rattache à celle du Hub le plus haut.
+// Les lignes de vue sont gardées en mémoire : les Balises ne bougent pas. Elles sont revérifiées quelques-unes par image, et bien plus
+// vite juste après un changement du décor (porte, pont cassé) ; le réseau n'est recalculé que si quelque chose a changé.
 public class BeaconNetwork : MonoBehaviour
 {
-    const float RecomputeInterval = 0.4f;
+    const int IdleSightRays = 6, UrgentSightRays = 32;
+    const float UrgentSightWindow = 3f;
     const int GaugeSegments = 120;
     const float GaugeInner = 0.55f, GaugeOuter = 0.68f;
     const float BackInner = 0.52f, BackOuter = 0.71f;
@@ -516,10 +578,27 @@ public class BeaconNetwork : MonoBehaviour
     // Pour chaque Balise chargée, la Balise vers laquelle son énergie s'écoule (plus proche de son Hub).
     readonly Dictionary<Beacon, Beacon> parentOf = new Dictionary<Beacon, Beacon>();
     readonly Dictionary<Beacon, LineRenderer> beams = new Dictionary<Beacon, LineRenderer>();
+    // Hub dont dépend chaque appareil chargé : son flux en prend la couleur (Note 01 du chapitre 9.3, V0.6.9).
+    readonly Dictionary<Beacon, int> fluxOf = new Dictionary<Beacon, int>();
+    static readonly Color[] FluxColors = { new Color(0.15f, 0.45f, 1f), new Color(0.48f, 0.12f, 1f), new Color(0.12f, 0.9f, 0.3f), new Color(1f, 0.62f, 0.08f) };
+    static readonly Color[] FluxCores = { new Color(0.75f, 0.9f, 1f), new Color(0.88f, 0.75f, 1f), new Color(0.75f, 1f, 0.82f), new Color(1f, 0.92f, 0.7f) };
+    static readonly int BeamColorId = Shader.PropertyToID("_Color"), BeamCoreId = Shader.PropertyToID("_CoreColor"), BeamLengthId = Shader.PropertyToID("_Length");
     readonly RaycastHit[] hits = new RaycastHit[16];
     MaterialPropertyBlock beamBlock;
-    float recomputeTimer;
     bool dirty = true;
+
+    struct SightPair { public long key; public int first, second; public Vector3 from, to; }
+    readonly Dictionary<long, bool> sight = new Dictionary<long, bool>();
+    readonly List<SightPair> sightPairs = new List<SightPair>();
+    int sightCursor;
+    static float urgentSightUntil;
+
+    // Le décor vient de changer (porte, pont) : les lignes de vue sont revérifiées en priorité le temps qu'il finisse de bouger.
+    public static void SightChanged() => urgentSightUntil = Time.time + UrgentSightWindow;
+
+    // Identifiants des cibles non-Balises dans les lignes de vue gardées en mémoire.
+    public static int ArcadeTarget(int id) => (1 << 29) + id;
+    public static int GlyphTarget(int id) => (1 << 30) + id;
 
     // Charge restante des Balises principales (secondes), commune à tous les Hubs.
     public float Charge { get; set; } = GameRules.BeaconCharge;
@@ -556,6 +635,7 @@ public class BeaconNetwork : MonoBehaviour
         foreach (int h in new List<int>(hubs.Keys))
         {
             if (h <= index) continue;
+            ForgetSight(-h);
             if (hubs[h] != null)
             {
                 if (beams.TryGetValue(hubs[h], out var beam) && beam != null) Destroy(beam.gameObject);
@@ -582,6 +662,7 @@ public class BeaconNetwork : MonoBehaviour
             if (gaugeRoots.TryGetValue(kv.Key, out var g) && g != null) g.SetActive(on);
         }
         dirty = true;
+        SightChanged();
     }
 
     // Balise principale la plus proche d'un point (à l'horizontale).
@@ -634,6 +715,7 @@ public class BeaconNetwork : MonoBehaviour
     {
         if (!placed.TryGetValue(id, out var b)) return;
         placed.Remove(id);
+        ForgetSight(id);
         if (b != null)
         {
             if (beams.TryGetValue(b, out var beam)) { if (beam != null) Destroy(beam.gameObject); beams.Remove(b); }
@@ -645,13 +727,15 @@ public class BeaconNetwork : MonoBehaviour
     public void Clear()
     {
         foreach (int id in new List<int>(placed.Keys)) Remove(id);
+        sight.Clear();
+        sightPairs.Clear();
         dirty = true;
     }
 
     void Update()
     {
-        recomputeTimer -= Time.deltaTime;
-        if (dirty || recomputeTimer <= 0f) Recompute();
+        RefreshSight();
+        if (dirty) Recompute();
         UpdateGauge();
         UpdateBeams();
     }
@@ -661,8 +745,8 @@ public class BeaconNetwork : MonoBehaviour
     void Recompute()
     {
         dirty = false;
-        recomputeTimer = RecomputeInterval;
         parentOf.Clear();
+        fluxOf.Clear();
         var charged = new List<Beacon>();
         var pending = new List<Beacon>();
         var leaves = new List<Beacon>();
@@ -674,6 +758,7 @@ public class BeaconNetwork : MonoBehaviour
             if (root == null || !root.gameObject.activeSelf || !HubCharged) continue;
             int head = charged.Count;
             charged.Add(root);
+            fluxOf[root] = root.HubIndex;
             for (; head < charged.Count; head++)
             {
                 Beacon from = charged[head];
@@ -681,6 +766,7 @@ public class BeaconNetwork : MonoBehaviour
                 {
                     if (!InSight(from, pending[i])) continue;
                     parentOf[pending[i]] = from;
+                    fluxOf[pending[i]] = root.HubIndex;
                     charged.Add(pending[i]);
                     pending.RemoveAt(i);
                 }
@@ -696,11 +782,17 @@ public class BeaconNetwork : MonoBehaviour
                 float d = (from.Top - leaf.Top).sqrMagnitude;
                 if (d < bestDist && InSight(from, leaf)) { best = from; bestDist = d; }
             }
-            if (best != null) parentOf[leaf] = best;
+            if (best == null) continue;
+            parentOf[leaf] = best;
+            fluxOf[leaf] = fluxOf[best];
         }
         foreach (var h in hubs.Values) if (h != null) h.SetCharged(HubCharged);
         foreach (var b in placed.Values)
-            if (b != null && b.Charged != parentOf.ContainsKey(b)) b.SetCharged(parentOf.ContainsKey(b));
+        {
+            if (b == null) continue;
+            if (b.Charged != parentOf.ContainsKey(b)) b.SetCharged(parentOf.ContainsKey(b));
+            b.SetFlux(fluxOf.TryGetValue(b, out int hub) ? hub : 0);
+        }
     }
 
     // Une Balise principale (chargée ou non) voit cet appareil, sans élément du décor entre eux.
@@ -728,7 +820,45 @@ public class BeaconNetwork : MonoBehaviour
         return true;
     }
 
-    bool InSight(Beacon a, Beacon b) => InSight(a.Top, b.Top);
+    bool InSight(Beacon a, Beacon b) => InSight(a, b.Id, b.Top);
+
+    // Ligne de vue entre une Balise et une cible immobile, gardée en mémoire.
+    public bool InSight(Beacon a, int target, Vector3 position)
+    {
+        long key = a.Id < target ? ((long)a.Id << 32) | (uint)target : ((long)target << 32) | (uint)a.Id;
+        if (sight.TryGetValue(key, out bool seen)) return seen;
+        Vector3 from = a.Top;
+        seen = InSight(from, position);
+        sight[key] = seen;
+        sightPairs.Add(new SightPair { key = key, first = a.Id, second = target, from = from, to = position });
+        return seen;
+    }
+
+    void ForgetSight(int id)
+    {
+        for (int i = sightPairs.Count - 1; i >= 0; i--)
+        {
+            if (sightPairs[i].first != id && sightPairs[i].second != id) continue;
+            sight.Remove(sightPairs[i].key);
+            sightPairs[i] = sightPairs[sightPairs.Count - 1];
+            sightPairs.RemoveAt(sightPairs.Count - 1);
+        }
+    }
+
+    // Revérifie quelques lignes de vue à chaque image ; le réseau n'est recalculé que si l'une d'elles a changé.
+    void RefreshSight()
+    {
+        int budget = Mathf.Min(Time.time < urgentSightUntil ? UrgentSightRays : IdleSightRays, sightPairs.Count);
+        for (int k = 0; k < budget; k++)
+        {
+            if (sightCursor >= sightPairs.Count) sightCursor = 0;
+            SightPair pair = sightPairs[sightCursor++];
+            bool seen = InSight(pair.from, pair.to);
+            if (seen == sight[pair.key]) continue;
+            sight[pair.key] = seen;
+            dirty = true;
+        }
+    }
 
     void UpdateBeams()
     {
@@ -738,15 +868,23 @@ public class BeaconNetwork : MonoBehaviour
             if (!beams.TryGetValue(kv.Key, out var line) || line == null) beams[kv.Key] = line = NewBeam();
             if (!line.gameObject.activeSelf) line.gameObject.SetActive(true);
             // De la Balise éloignée vers celle qui la relie au Hub : l'énergie circule dans ce sens.
-            Vector3 a = kv.Key.Top, b = kv.Value.Top;
-            line.SetPosition(0, a);
-            line.SetPosition(1, b);
-            beamBlock.SetFloat("_Length", Vector3.Distance(a, b));
-            line.SetPropertyBlock(beamBlock);
+            ShowBeam(line, kv.Key, kv.Key.Top, kv.Value.Top);
         }
         foreach (var kv in beams)
             if (kv.Value != null && (kv.Key == null || !parentOf.ContainsKey(kv.Key)) && kv.Value.gameObject.activeSelf)
                 kv.Value.gameObject.SetActive(false);
+    }
+
+    // Place un rayon d'énergie, à la couleur du Hub dont dépend l'appareil 'source'.
+    public void ShowBeam(LineRenderer line, Beacon source, Vector3 from, Vector3 to)
+    {
+        line.SetPosition(0, from);
+        line.SetPosition(1, to);
+        int color = Beacon.ColorIndex(source.FluxHub);
+        beamBlock.SetColor(BeamColorId, FluxColors[color]);
+        beamBlock.SetColor(BeamCoreId, FluxCores[color]);
+        beamBlock.SetFloat(BeamLengthId, Vector3.Distance(from, to));
+        line.SetPropertyBlock(beamBlock);
     }
 
     public LineRenderer NewBeam()

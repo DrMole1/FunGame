@@ -25,7 +25,7 @@ public static class SoundBank
         "tv_static", "tv_countdown", "tinnitus", "spring", "bell_deco", "dame_wail", "cavalier_gallop", "cavalier_alert", "cavalier_terror",
         "cavalier_strike", "cavalier_stomp", "reveil_alarm", "reveil_boom",
         // V0.6 : glyphes (alertes terrifiantes, moins de 2 secondes) et La Tête de Cloche.
-        "glyph_sit", "glyph_kennel", "glyph_bark", "tete_bell",
+        "glyph_sit", "glyph_kennel", "glyph_bark", "tete_bell", "tete_kill", "tete_vue",
         // V0.6.1 : arcades (musique de foire, jeton, Roulette, pince, danse) et boules à facettes (musique disco).
         "arcade_music", "disco_music", "token", "roulette_start", "roulette_stop", "claw_down", "claw_open", "dance_arrow", "dance_hit",
         // Sons enregistrés seulement (GDD 12), sans équivalent synthétisé.

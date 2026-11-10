@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6.8";
+    public const string Version = "V0.6.9";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -111,8 +111,6 @@ public static class GameRules
     public const float CurfewPowerOff = 1.2f, CurfewPowerOn = 3f, CurfewMusicReturn = 6f;
     // Les néons clignotent pendant les 2 secondes qui précèdent le Couvre Feu (non précisé dans le GDD).
     public const float CurfewWarning = 2f;
-    // Yeux du labyrinthe : pendant le Couvre Feu et les ordres des glyphes, faisceau rouge, seulement à 50 m d'un joueur.
-    public const float EyeBeamRange = 50f;
     // Note 07 du chapitre 14 (V0.6) : chaque fois qu'un joueur est obnubilé par un son de cloche, il perd 20 de sérénité.
     public const int BellObsessionSerenity = 20;
 
@@ -317,8 +315,12 @@ public static class GameRules
     public static int NeutralGlyphId(int zone, int type) => zone * 100 + 50 + type;
     // Durée de l'ordre de chaque glyphe (immobile et accroupi, aller à la niche, aboyer).
     public static readonly float[] GlyphDuration = { 10f, 30f, 10f };
-    public const float GlyphSitGrace = 2.5f;     // "Assis !" : au plus 2,5 secondes de suite sans être immobile et accroupi (V0.6.3)
-    public const float GlyphBarkGap = 2.5f;      // "Aboie !" : au plus 2,5 secondes sans aboyer (V0.6.7)
+    // Ordre annoncé à voix haute : un peu plus lent et un peu plus fort que l'enregistrement.
+    public const float GlyphVoiceSpeed = 0.92f;
+    public const float GlyphVoiceVolume = 1.25f;
+    public const float GlyphSitGrace = 3f;       // "Assis !" : au plus 3 secondes de suite sans être immobile et accroupi (V0.6.9)
+    public const float GlyphBarkGap = 3f;        // "Aboie !" : au plus 3 secondes sans aboyer (V0.6.9)
+    public const float GlyphVoiceRepeatDelay = 1.4f;   // V0.6.9 : action non effectuée au bout de 1,4 seconde : l'ordre sonore est répété pour ce joueur
     // Glyphes d'acquisition d'une zone paire : 3 dans la Zone 2 (un de chaque), puis 2 + nZone / 2, 6 au plus (V0.6.5).
     public const int MaxAcquisitionGlyphs = 6;
     public static int AcquisitionGlyphs(int zone) => zone <= 2 ? 3 : Mathf.Min(MaxAcquisitionGlyphs, 2 + zone / 2);
@@ -352,6 +354,7 @@ public static class GameRules
     public const float BeaconCharge = 10f * 60f;
     // Balise Améliorée (7.3, V0.6.8) : aucune entité n'apparaît dans ce rayon ; pendant le Couvre Feu, un joueur s'y trouve comme au Hub.
     public const float EnhancedBeaconRadius = 5f;
+    public const float EnhancedBeaconSerenityRange = 4f;   // V0.6.9 : pendant le Couvre Feu, un joueur à 4 m ou moins est comme au Hub
 
     // ---------- Téléporteur (7.2) et Station Curative (7.4) ----------
 

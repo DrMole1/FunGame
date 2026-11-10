@@ -58,6 +58,7 @@ public class LobbyUI : MonoBehaviour
         BuildLanguages(canvas.transform);
         MenuButtonHover.AddTo(lobbyPanel);
         MenuButtonHover.AddTo(pausePanel);
+        TextShake.AddTo(canvas.gameObject);
         Loc.Changed += OnLanguageChanged;
         ShowLobby(roomFromUrl.Length > 0 ? Loc.T("Invitation reçue : choisissez un pseudo puis cliquez sur Rejoindre.") : "");
     }

@@ -299,6 +299,7 @@ public static class Loc
         R("Téléporté près de {0}.", "Teleported near {0}.", "Teletransportado cerca de {0}.", "Вы телепортировались к {0}."),
         R("Téléporté devant la porte de la Zone 2.", "Teleported in front of the Zone 2 door.", "Teletransportado delante de la puerta de la Zona 2.", "Вы телепортировались к двери Зоны 2."),
         R("Téléporté dans la Zone {0}.", "Teleported to Zone {0}.", "Teletransportado a la Zona {0}.", "Вы телепортировались в Зону {0}."),
+        R("Téléporté dans le Hub {0}.", "Teleported to Hub {0}.", "Teletransportado al Hub {0}.", "Вы телепортировались в Хаб {0}."),
         R("La Tête de Cloche vous traque...", "La Tête de Cloche is hunting you...", "La Tête de Cloche te está cazando...", "La Tête de Cloche охотится на вас..."),
 
         // ---------- Partie ----------

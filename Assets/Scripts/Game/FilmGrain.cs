@@ -36,6 +36,11 @@ public class FilmGrain : MonoBehaviour
     const float DimFade = 0.5f;
     float dim;
 
+    // Obnubilation (chapitre 3.4, V0.6.9) : le grain monte en 2 secondes jusqu'à 300 % du réglage du joueur, puis redescend de même.
+    public static bool Obsessed;
+    const float ObsessedGrain = 3f, ObsessedFade = 2f;
+    float obsession;
+
     static readonly int IntensityId = Shader.PropertyToID("_Intensity");
     static readonly int BrightnessId = Shader.PropertyToID("_Brightness");
     Material material;
@@ -43,6 +48,7 @@ public class FilmGrain : MonoBehaviour
     void Update()
     {
         dim = Mathf.MoveTowards(dim, MenuHover ? 1f : 0f, Time.unscaledDeltaTime / DimFade);
+        obsession = Mathf.MoveTowards(obsession, Obsessed ? 1f : 0f, Time.deltaTime / ObsessedFade);
     }
 
     void OnPostRender()
@@ -50,7 +56,7 @@ public class FilmGrain : MonoBehaviour
         if (Value <= 0f && dim <= 0f) return;
         if (material == null) material = GameArt.FilmGrain;
         if (material == null) return;
-        material.SetFloat(IntensityId, Value * MaxIntensity);
+        material.SetFloat(IntensityId, Value * MaxIntensity * Mathf.Lerp(1f, ObsessedGrain, obsession));
         material.SetFloat(BrightnessId, Mathf.Lerp(1f, MenuBrightness, Mathf.SmoothStep(0f, 1f, dim)));
         GL.PushMatrix();
         GL.LoadOrtho();

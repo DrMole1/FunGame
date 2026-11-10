@@ -49,5 +49,6 @@ public static class LoadingScreen
         label.fontSize = 34;
         label.alignment = TextAnchor.MiddleCenter;
         label.color = Color.white;
+        TextShake.AddTo(text);
     }
 }

@@ -59,6 +59,7 @@ public static class GameSetup
         CreateMaterial("DustyLimb", "FunGame/DustyLimb", m => m.enableInstancing = true);
         CreateMaterial("Ectoplasm", "FunGame/Ectoplasm", null);
         CreateMaterial("GhostAura", "FunGame/GhostAura", null);
+        CreateMaterial("BeaconHalo", "FunGame/BeaconHalo", m => m.enableInstancing = true);
         CreateMaterial("EnergyBeam", "FunGame/EnergyBeam", null);
         CreateMaterial("Glow", "FunGame/Glow", null);
         CreateMaterial("Translucent", "FunGame/Translucent", null);
@@ -132,6 +133,10 @@ public static class GameSetup
         ("cloche_ring", "Assets/Sounds/Cloche.wav"),
         ("bell_deco", "Assets/Sounds/Cloche.wav"),
         ("tete_bell", "Assets/Sounds/Cloche.wav"),
+        // V0.6.9 : mise à mort et obnubilation par la Tête de Cloche, fermeture éclair de fin de chargement.
+        ("tete_kill", "Assets/Sounds/TeteDeCloche_Tuer.wav"),
+        ("tete_vue", "Assets/Sounds/TeteDeCloche_Vue.wav"),
+        ("zipper", "Assets/Sounds/Zip.wav"),
         // V0.6.7 : ordres vocaux des glyphes, selon la langue du joueur.
         ("order_fr_01", "Assets/Sounds/Order_FR_01.wav"), ("order_fr_02", "Assets/Sounds/Order_FR_02.wav"), ("order_fr_03", "Assets/Sounds/Order_FR_03.wav"),
         ("order_eng_01", "Assets/Sounds/Order_ENG_01.wav"), ("order_eng_02", "Assets/Sounds/Order_ENG_02.wav"), ("order_eng_03", "Assets/Sounds/Order_ENG_03.wav"),

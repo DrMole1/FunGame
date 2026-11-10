@@ -78,6 +78,7 @@ public class ControlsUI : MonoBehaviour
         Controls.Changed += Refresh;
         Loc.Changed += Refresh;
         Refresh();
+        TextShake.AddTo(panel);
         panel.SetActive(false);
     }
 

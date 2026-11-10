@@ -147,14 +147,14 @@ public partial class GameSession
             {
                 if (b == null || !b.Relays || !b.Charged) continue;
                 float d = (b.Top - m.Anchor).sqrMagnitude;
-                if (d < best && beacons.InSight(b.Top, m.Anchor)) { best = d; source = b.Id.ToString(); }
+                if (d < best && beacons.InSight(b, BeaconNetwork.ArcadeTarget(m.Id), m.Anchor)) { best = d; source = b.Id.ToString(); }
             }
             if (beacons.HubCharged)
                 foreach (var h in beacons.Hubs)
                 {
                     if (h == null) continue;
                     float d = (h.Top - m.Anchor).sqrMagnitude;
-                    if (d < best && beacons.InSight(h.Top, m.Anchor)) { best = d; source = h.Id.ToString(); }
+                    if (d < best && beacons.InSight(h, BeaconNetwork.ArcadeTarget(m.Id), m.Anchor)) { best = d; source = h.Id.ToString(); }
                 }
             arcadeSources.TryGetValue(m.Id, out string before);
             if (source == (before ?? NoSource)) continue;
@@ -324,8 +324,7 @@ public partial class GameSession
             }
             if (line == null) arcadeBeams[m.Id] = line = beacons.NewBeam();
             if (!line.gameObject.activeSelf) line.gameObject.SetActive(true);
-            line.SetPosition(0, b.Top);
-            line.SetPosition(1, m.Anchor);
+            beacons.ShowBeam(line, b, b.Top, m.Anchor);
         }
         UpdateArcadePlay();
         UpdateDisco();

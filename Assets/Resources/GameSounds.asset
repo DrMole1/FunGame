@@ -91,6 +91,12 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: b7691be12dfc86742a8681ac9d4947ce, type: 3}
   - key: tete_bell
     clip: {fileID: 8300000, guid: b7691be12dfc86742a8681ac9d4947ce, type: 3}
+  - key: tete_kill
+    clip: {fileID: 8300000, guid: 4cd27a4de7d9fa448b6b4db50a4ce0cd, type: 3}
+  - key: tete_vue
+    clip: {fileID: 8300000, guid: 347df9f314254d343934215879620454, type: 3}
+  - key: zipper
+    clip: {fileID: 8300000, guid: 50558cb85dad7ad47b01cf331d060f82, type: 3}
   - key: order_fr_01
     clip: {fileID: 8300000, guid: bdcdca81816f07344a6cf563aa9c5480, type: 3}
   - key: order_fr_02

@@ -29,6 +29,9 @@ public static class WorldBuilder
     // faces restent dans le même plan : un poteau en saillie, même de 1 mm, dessine une ligne pointillée le long du mur.
     const float JointOverlap = 0.01f;
     const float WallRun = Cell - Wall + JointOverlap * 2f;
+    // Plafond visible un peu sous le haut des murs (collisions inchangées) : une case du damier commence à chaque mètre, et le
+    // filtrage de la texture la laisserait déborder en pointillé sur la dernière rangée de pixels d'un mur.
+    const float CeilingDrop = 0.02f;
     const float StepHeight = 0.2f, StepDepth = 0.3f;
 
     // Coin sud-ouest des zones : le centre de la colonne du Hub est en x = 0, le centre du Hub 1 à l'origine.
@@ -341,8 +344,9 @@ public static class WorldBuilder
         refs.pogoAnchor.SetParent(root, false);
         refs.pogoAnchor.localPosition = Polar(PogoAngle, 9.2f, 0f);
         refs.pogoAnchor.localRotation = FacingCenter(PogoAngle);
-        GameArt.Prim(PrimitiveType.Sphere, root, Polar(-24f, 10.8f, 0.45f), Vector3.one * 0.9f, gold, true);
-        GameArt.Prim(PrimitiveType.Sphere, root, Polar(-33f, 10.7f, 0.35f), Vector3.one * 0.7f, redMat, true);
+        // Note 06 du chapitre 4 (V0.6.9) : les joueurs peuvent les pousser.
+        HubBall.Attach(GameArt.Prim(PrimitiveType.Sphere, root, Polar(-24f, 10.8f, 0.45f), Vector3.one * 0.9f, gold), (index - 1) * 2, root);
+        HubBall.Attach(GameArt.Prim(PrimitiveType.Sphere, root, Polar(-33f, 10.7f, 0.35f), Vector3.one * 0.7f, redMat), (index - 1) * 2 + 1, root);
 
         return refs;
     }
@@ -1201,7 +1205,7 @@ public static class WorldBuilder
                 Chunk ch = ChunkOf(i, j);
                 if (!m.NoPlainFloor(i, j))
                     ch.floor.WorldQuad(c + new Vector3(-e, 0, -e), c + new Vector3(e, 0, -e), c + new Vector3(e, 0, e), c + new Vector3(-e, 0, e), Vector3.up, 0.5f);
-                Vector3 top = c + Vector3.up * m.Ceil(i, j);
+                Vector3 top = c + Vector3.up * (m.Ceil(i, j) - CeilingDrop);
                 ch.ceiling.WorldQuad(top + new Vector3(-e, 0, -e), top + new Vector3(e, 0, -e), top + new Vector3(e, 0, e), top + new Vector3(-e, 0, e), Vector3.down, 0.25f);
             }
         // Sol : une collision par suite de cellules sans fosse sur chaque rangée.
@@ -1262,23 +1266,52 @@ public static class WorldBuilder
             AddCollider(header, Size(width, h - height));
         }
 
-        // Linteau d'une arête ouverte, percé pour laisser passer un tube aérien.
-        void PiercedLintel(MeshBuilder mb, float x, float z, bool alongX, float low, float h, (float low, float high) hole, float tex)
+        // Dessous d'un linteau, posé à la hauteur du plafond bas : seule la moitié côté plafond haut est dessinée. L'autre moitié se
+        // superposerait au plafond bas, qui s'étend jusqu'au milieu du mur, et scintillerait avec lui.
+        void LintelUnderside(MeshBuilder mb, Vector3 center, bool alongX, float length, float highSide, float tex)
         {
+            Vector3 across = alongX ? Vector3.forward : Vector3.right;
+            Vector3 size = alongX ? new Vector3(length, 0f, Wall * 0.5f) : new Vector3(Wall * 0.5f, 0f, length);
+            mb.Box(center + across * (highSide * Wall * 0.25f), size, tex, 0b0000_1000);
+        }
+
+        // Rebord du plafond bas sous un linteau : ferme les quelques centimètres entre ce plafond et le dessous du linteau.
+        void CeilingEdge(int lowI, int lowJ, float x, float z, bool alongX, float low, float highSide)
+        {
+            Vector3 size = alongX ? new Vector3(Cell, CeilingDrop, 0f) : new Vector3(0f, CeilingDrop, Cell);
+            int face = alongX ? (highSide > 0f ? 0b0001_0000 : 0b0010_0000) : (highSide > 0f ? 0b0000_0001 : 0b0000_0010);
+            ChunkOf(lowI, lowJ).ceiling.Box(new Vector3(x, low - CeilingDrop * 0.5f, z), size, 0.25f, face);
+        }
+
+        // Linteau d'une arête ouverte, percé pour laisser passer un tube aérien.
+        void PiercedLintel(MeshBuilder mb, float x, float z, bool alongX, float low, float h, (float low, float high) hole, float highSide, float tex)
+        {
+            const int noUnderside = 0b0011_0111;
             // Longueur visible limitée à celle d'un pan de mur (au-delà, elle se confondrait avec le pan voisin) ; collisions complètes.
             float side = (WallRun - AerialHoleWidth) * 0.5f, solidSide = (Cell + Wall - AerialHoleWidth) * 0.5f;
             Vector3 axis = alongX ? Vector3.right : Vector3.forward;
             Vector3 Size(float length, float height) => alongX ? new Vector3(length, height, Wall) : new Vector3(Wall, height, length);
+            void Visible(Vector3 center, float length, float height)
+            {
+                float bottom = center.y - height * 0.5f;
+                if (bottom > low + 0.001f)
+                {
+                    mb.Box(center, Size(length, height), tex);
+                    return;
+                }
+                mb.Box(center, Size(length, height), tex, noUnderside);
+                LintelUnderside(mb, new Vector3(center.x, bottom, center.z), alongX, length, highSide, tex);
+            }
             void Piece(Vector3 center, float length, float height)
             {
                 if (height <= 0.001f) return;
-                mb.Box(center, Size(length, height), tex);
+                Visible(center, length, height);
                 AddCollider(center, Size(length, height));
             }
             foreach (float s in new[] { -1f, 1f })
             {
                 Vector3 mid = new Vector3(x, (low + h) * 0.5f, z);
-                mb.Box(mid + axis * (s * (AerialHoleWidth * 0.5f + side * 0.5f)), Size(side, h - low), tex);
+                Visible(mid + axis * (s * (AerialHoleWidth * 0.5f + side * 0.5f)), side, h - low);
                 AddCollider(mid + axis * (s * (AerialHoleWidth * 0.5f + solidSide * 0.5f)), Size(solidSide, h - low));
             }
             float y0 = Mathf.Clamp(hole.low, low, h), y1 = Mathf.Clamp(hole.high, low, h);
@@ -1289,6 +1322,9 @@ public static class WorldBuilder
         // Murs : un segment par arête, entre deux poteaux, aussi haut que le plus haut des deux côtés.
         // Entre une salle haute et un couloir ouvert, un linteau ferme le haut de l'ouverture.
         var posts = new HashSet<Vector2Int>();
+        // Extrémités des linteaux, avec le bas du plus bas d'entre eux : là où aucun mur n'arrive, un poteau suspendu ferme la jonction.
+        var lintelEnds = new Dictionary<Vector2Int, float>();
+        void NoteLintelEnd(Vector2Int p, float low) => lintelEnds[p] = lintelEnds.TryGetValue(p, out float known) ? Mathf.Min(known, low) : low;
         for (int i = -1; i < n; i++)
             for (int j = 0; j < n; j++)
             {
@@ -1319,13 +1355,17 @@ public static class WorldBuilder
                 {
                     float low = Mathf.Min(m.Ceil(i, j), m.Ceil(i + 1, j));
                     if (h - low < 0.01f) continue;
+                    float highSide = m.Ceil(i + 1, j) > m.Ceil(i, j) ? 1f : -1f;
+                    NoteLintelEnd(new Vector2Int(i + 1, j), low); NoteLintelEnd(new Vector2Int(i + 1, j + 1), low);
+                    CeilingEdge(highSide > 0f ? i : i + 1, j, x, z, false, low, highSide);
                     if (m.wallHoles.TryGetValue((i, j, false), out var eastLintelHole))
                     {
-                        PiercedLintel(mb, x, z, false, low, h, eastLintelHole, tex);
+                        PiercedLintel(mb, x, z, false, low, h, eastLintelHole, highSide, tex);
                         continue;
                     }
                     var lintel = new Vector3(x, (low + h) * 0.5f, z);
-                    mb.Box(lintel, new Vector3(Wall, h - low, WallRun), tex, 0b0000_1011);
+                    mb.Box(lintel, new Vector3(Wall, h - low, WallRun), tex, 0b0000_0011);
+                    LintelUnderside(mb, new Vector3(x, low, z), false, WallRun, highSide, tex);
                     AddCollider(lintel, new Vector3(Wall, h - low, Cell + Wall));
                     continue;
                 }
@@ -1351,8 +1391,9 @@ public static class WorldBuilder
                     // plus haut que lui.
                     float built = m.southHeights[i];
                     if (h - built < 0.01f) continue;
+                    // Posé sur le mur de la zone précédente : rien à dessiner dessous.
                     var lintel = new Vector3(x, (built + h) * 0.5f, z);
-                    mb.Box(lintel, new Vector3(Cell + Wall, h - built, Wall), tex, 0b0011_1000);
+                    mb.Box(lintel, new Vector3(Cell + Wall, h - built, Wall), tex, 0b0011_0000);
                     AddCollider(lintel, new Vector3(Cell + Wall, h - built, Wall));
                     continue;
                 }
@@ -1366,13 +1407,17 @@ public static class WorldBuilder
                 {
                     float low = Mathf.Min(m.Ceil(i, j), m.Ceil(i, j + 1));
                     if (h - low < 0.01f) continue;
+                    float highSide = m.Ceil(i, j + 1) > m.Ceil(i, j) ? 1f : -1f;
+                    NoteLintelEnd(new Vector2Int(i, j + 1), low); NoteLintelEnd(new Vector2Int(i + 1, j + 1), low);
+                    CeilingEdge(i, highSide > 0f ? j : j + 1, x, z, true, low, highSide);
                     if (m.wallHoles.TryGetValue((i, j, true), out var northLintelHole))
                     {
-                        PiercedLintel(mb, x, z, true, low, h, northLintelHole, tex);
+                        PiercedLintel(mb, x, z, true, low, h, northLintelHole, highSide, tex);
                         continue;
                     }
                     var lintel = new Vector3(x, (low + h) * 0.5f, z);
-                    mb.Box(lintel, new Vector3(WallRun, h - low, Wall), tex, 0b0011_1000);
+                    mb.Box(lintel, new Vector3(WallRun, h - low, Wall), tex, 0b0011_0000);
+                    LintelUnderside(mb, new Vector3(x, low, z), true, WallRun, highSide, tex);
                     AddCollider(lintel, new Vector3(Cell + Wall, h - low, Wall));
                     continue;
                 }
@@ -1404,6 +1449,21 @@ public static class WorldBuilder
             float h = Mathf.Max(Mathf.Max(m.Ceil(p.x - 1, p.y - 1), m.Ceil(p.x, p.y - 1)), Mathf.Max(m.Ceil(p.x - 1, p.y), m.Ceil(p.x, p.y)));
             var c = new Vector3(x0 + p.x * Cell, h * 0.5f, z0 + p.y * Cell);
             WallsOf(p.x, p.y).Box(c, new Vector3(Wall, h, Wall), 0.5f, 0b0011_0011);
+        }
+        foreach (var end in lintelEnds)
+        {
+            Vector2Int p = end.Key;
+            if (posts.Contains(p) || p.y == 0 && m.southHeights != null) continue;
+            float low = end.Value;
+            float h = Mathf.Max(Mathf.Max(m.Ceil(p.x - 1, p.y - 1), m.Ceil(p.x, p.y - 1)), Mathf.Max(m.Ceil(p.x - 1, p.y), m.Ceil(p.x, p.y)));
+            Vector3 c = new Vector3(x0 + p.x * Cell, 0f, z0 + p.y * Cell);
+            MeshBuilder mb = WallsOf(p.x, p.y);
+            mb.Box(c + Vector3.up * ((low + h) * 0.5f), new Vector3(Wall, h - low, Wall), 0.5f, 0b0011_0011);
+            // Dessous : seulement sous les quarts qu'aucun plafond bas ne recouvre déjà (voir LintelUnderside).
+            for (int sx = 0; sx < 2; sx++)
+                for (int sz = 0; sz < 2; sz++)
+                    if (m.Ceil(p.x - 1 + sx, p.y - 1 + sz) > low + 0.01f)
+                        mb.Box(c + new Vector3((sx - 0.5f) * Wall * 0.5f, low, (sz - 0.5f) * Wall * 0.5f), new Vector3(Wall * 0.5f, 0f, Wall * 0.5f), 0.5f, 0b0000_1000);
         }
 
         foreach (Room room in m.rooms)
@@ -1666,7 +1726,10 @@ public static class WorldBuilder
 
     // ---------- Câbles entre les glyphes neutres et la porte de la Neutral Room (V0.6.5) ----------
 
-    const float CableWidth = 0.05f, CableSpread = 0.14f, CableLift = 0.025f, CableStep = 1f, CableFrontOfDoor = 0.37f, CableProbeHeight = 3.2f;
+    const float CableWidth = 0.05f, CableSpread = 0.14f, CableLift = 0.025f, CableStep = 1f, CableFrontOfDoor = 0.12f, CableProbeHeight = 3.2f;
+    // Devant la porte, le câble s'enfonce peu à peu dans le sol en s'affinant, et y disparaît au pied du seuil : sa dernière longueur,
+    // tracée plus finement, finit sous le sol et la coupure ne se voit pas.
+    const float CableSinkLength = 1.2f, CableSinkStep = 0.2f, CableSinkDepth = 0.015f, CableEndWidth = 0.1f;
     static readonly RaycastHit[] cableHits = new RaycastHit[32];
 
     // Sens à suivre depuis chaque cellule pour rejoindre la cellule de la porte (largeur d'abord, le même chez tous les joueurs).
@@ -1727,7 +1790,7 @@ public static class WorldBuilder
         for (int i = 0; i < route.Count - 1; i++)
         {
             Vector3 a = route[i] + Side(i) * lateral, b = route[i + 1] + Side(i + 1) * lateral;
-            int steps = Mathf.Max(1, Mathf.CeilToInt(Flat(b - a) / CableStep));
+            int steps = Mathf.Max(1, Mathf.CeilToInt(Flat(b - a) / (i == route.Count - 2 ? CableSinkStep : CableStep)));
             for (int s = 0; s < steps; s++)
             {
                 Vector3 p = Vector3.Lerp(a, b, s / (float)steps);
@@ -1739,6 +1802,18 @@ public static class WorldBuilder
         last.y = CableFloor(last, structure, 0f) + CableLift;
         points.Add(last);
 
+        // Enfoncement : 0 sur le sol, 1 au bout du câble.
+        var sink = new float[points.Count];
+        float run = 0f;
+        for (int i = points.Count - 1; i > 0 && run < CableSinkLength; i--)
+        {
+            sink[i] = 1f - run / CableSinkLength;
+            Vector3 p = points[i];
+            p.y -= (CableLift + CableSinkDepth) * sink[i] * sink[i];
+            points[i] = p;
+            run += Flat(points[i] - points[i - 1]);
+        }
+
         var vertices = new Vector3[points.Count * 2];
         var triangles = new int[(points.Count - 1) * 6];
         Vector3 side = Vector3.Cross(Vector3.up, toWall).normalized;
@@ -1747,8 +1822,9 @@ public static class WorldBuilder
             Vector3 d = points[Mathf.Min(i + 1, points.Count - 1)] - points[Mathf.Max(i - 1, 0)];
             d.y = 0f;
             if (d.sqrMagnitude > 0.0001f) side = Vector3.Cross(Vector3.up, d).normalized;
-            vertices[i * 2] = points[i] - side * CableWidth * 0.5f;
-            vertices[i * 2 + 1] = points[i] + side * CableWidth * 0.5f;
+            float halfWidth = CableWidth * 0.5f * Mathf.Lerp(1f, CableEndWidth, sink[i]);
+            vertices[i * 2] = points[i] - side * halfWidth;
+            vertices[i * 2 + 1] = points[i] + side * halfWidth;
         }
         for (int i = 0; i < points.Count - 1; i++)
         {

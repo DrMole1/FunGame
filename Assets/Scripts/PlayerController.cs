@@ -58,6 +58,14 @@ public class PlayerController : MonoBehaviour
     public bool RunBlocked { get; set; }
     // Chaîne du Roi : vitesse horizontale imposée (le personnage est traîné), null sinon.
     public Vector3? Pull { get; set; }
+    // Pont suspendu qui se balance (V0.6.9) : vitesse transmise au personnage posé dessus, renouvelée à chaque image.
+    Vector3 carry;
+    int carryFrame = -10;
+    public void Carry(Vector3 velocity)
+    {
+        carry = velocity;
+        carryFrame = Time.frameCount;
+    }
 
     public AnimState CurrentAnimState => avatar != null ? avatar.State : AnimState.Idle;
     // Saut : action bruyante (L'Araignée repère alors même un joueur accroupi).
@@ -212,6 +220,8 @@ public class PlayerController : MonoBehaviour
             knockTimer -= Time.fixedDeltaTime;
             move = knockVelocity * Mathf.Clamp01(knockTimer / KnockDuration);
         }
+
+        if (grounded && !Pull.HasValue && Time.frameCount - carryFrame <= 1) move += carry;
 
         Vector3 vel = rb.velocity;
         vel.x = move.x;

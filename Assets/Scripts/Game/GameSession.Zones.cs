@@ -492,6 +492,7 @@ public partial class GameSession
         public float start;          // Time.time chez ce joueur
         public bool sanctioned;      // joueur local déjà sanctionné pour cet ordre
         public float sitBreach;      // "Assis !" : secondes d'affilée sans être immobile et accroupi
+        public bool voiceChecked;    // V0.6.9 : l'ordre sonore a déjà été répété, ou n'a pas à l'être
         public AudioSource sound;
     }
     readonly Order[] orders = new Order[GameRules.GlyphTypes];
@@ -528,7 +529,7 @@ public partial class GameSession
                 {
                     if (b == null || !b.Relays || !b.Charged) continue;
                     float d = (b.Top - g.Anchor).sqrMagnitude;
-                    if (d < best && beacons.InSight(b.Top, g.Anchor)) { best = d; source = b.Id; }
+                    if (d < best && beacons.InSight(b, BeaconNetwork.GlyphTarget(g.Id), g.Anchor)) { best = d; source = b.Id; }
                 }
                 glyphSources.TryGetValue(g.Id, out int before);
                 if (!glyphSources.ContainsKey(g.Id)) before = -1;
@@ -646,8 +647,7 @@ public partial class GameSession
             if (line == null) glyphBeams[kv.Key] = line = beacons.NewBeam();
             if (!line.gameObject.activeSelf) line.gameObject.SetActive(true);
             // L'énergie circule de la Balise vers le glyphe.
-            line.SetPosition(0, b.Top);
-            line.SetPosition(1, g.Anchor);
+            beacons.ShowBeam(line, b, b.Top, g.Anchor);
         }
 
         for (int t = 0; t < orders.Length; t++)
@@ -662,16 +662,27 @@ public partial class GameSession
                 StopOrder(t);
                 continue;
             }
+            if (!order.voiceChecked && elapsed >= GameRules.GlyphVoiceRepeatDelay)
+            {
+                order.voiceChecked = true;
+                if (!status.Dead && !OrderFollowed(t, order)) PlayOrderVoice(t);
+            }
             if (t == 0)
             {
-                // V0.6.3 : la Sanction tombe après plus de 2,5 secondes d'affilée sans respecter l'ordre.
-                bool sits = InKennel || player.Crouched && presence.Still;
-                order.sitBreach = sits ? 0f : order.sitBreach + Time.deltaTime;
+                // V0.6.9 : la Sanction tombe après plus de 3 secondes d'affilée sans respecter l'ordre.
+                order.sitBreach = OrderFollowed(t, order) ? 0f : order.sitBreach + Time.deltaTime;
                 if (order.sitBreach > GameRules.GlyphSitGrace) CheckOrder(order, false);
             }
             else if (t == 2)
                 CheckOrder(order, InKennel || Time.time - Mathf.Max(lastBarkAt, order.start) <= GameRules.GlyphBarkGap);
         }
+    }
+
+    // Le joueur local effectue l'action demandée (immobile et accroupi, dans sa niche, ou il a aboyé depuis le début de l'ordre).
+    bool OrderFollowed(int type, Order order)
+    {
+        if (InKennel) return true;
+        return type == 0 ? player.Crouched && presence.Still : type == 2 && lastBarkAt >= order.start;
     }
 
     void CheckOrder(Order order, bool obeyed)
@@ -705,12 +716,21 @@ public partial class GameSession
         return true;
     }
 
-    // Chaque coup de marteau sur sa cloche coûte 20 de sérénité aux joueurs qu'elle obnubile (note 07 du chapitre 14).
+    // Chaque coup de marteau sur sa cloche coûte 20 de sérénité aux joueurs qu'elle obnubile (note 07 du chapitre 14). Le coup qui
+    // obnubile le joueur local lui donne aussi le zoom brusque (chapitre 3.4) et, une seule fois par entité, le son TeteDeCloche_Vue.
+    readonly HashSet<int> teteStruck = new HashSet<int>();
+
     TeteDeCloche WatchTete(TeteDeCloche tete)
     {
         tete.Rang += () =>
         {
-            if (tete != null && tete.Obsesses(net.MyId)) LoseBellSerenity();
+            if (tete == null || !tete.Obsesses(net.MyId)) return;
+            LoseBellSerenity();
+            if (status.Dead || Teleporting || InKennel || !teteStruck.Add(tete.Id)) return;
+            OrbitCamera.BellStrike();
+            if (tete.SightVoiced) return;
+            tete.SightVoiced = true;
+            GameAudio.Play3D("tete_vue", tete.transform.position + Vector3.up * tete.EyesLocal.y, 1f, GameRules.TeteSightRange + 20f, 0f);
         };
         return tete;
     }
@@ -806,7 +826,8 @@ public partial class GameSession
                 // Le son du glyphe, partout, en boucle, pendant toute la durée de l'ordre.
                 order.sound = GameAudio.Loop2D(Glyph.Sounds[type], 0.85f * GlyphVolume);
                 // V0.6.7 : plus de texte, l'ordre est annoncé à voix haute, dans la langue du joueur.
-                if (NetworkGame.P(f[3]) <= 0f) GameAudio.Play2D(OrderVoice(type));
+                if (NetworkGame.P(f[3]) <= 0f) PlayOrderVoice(type);
+                else order.voiceChecked = true;
                 orders[type] = order;
                 return true;
             }
@@ -829,6 +850,14 @@ public partial class GameSession
                 if (WorldBuilder.ZoneAt(player.transform.position) == zone) GameAudio.Play2D(Glyph.Sounds[type], 0.9f * GlyphVolume);
                 return true;
             }
+            // Ballons des Hubs (V0.6.9) : envoyés seulement quand un joueur en pousse un ; chacun simule ensuite le même trajet.
+            case "BK" when host && f.Length >= 6:
+                net.ToAll("BL|" + from + "|" + string.Join("|", f, 1, 5));
+                return true;
+            case "BL" when f.Length >= 7:
+                if (f[1] != net.MyId && HubBall.All.TryGetValue(NetworkGame.I(f[2]), out var kicked) && kicked != null)
+                    kicked.Apply(NetworkGame.P(f[3]), NetworkGame.P(f[4]), NetworkGame.P(f[5]), NetworkGame.P(f[6]));
+                return true;
             case "SN" when host:
                 SpawnTete(from);
                 return true;

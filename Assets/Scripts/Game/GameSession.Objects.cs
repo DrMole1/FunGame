@@ -209,6 +209,7 @@ public partial class GameSession
         if (!net.InGame || status.Dead || !BellInSight(bell)) return;
         GameAudio.Play3D("bell_deco", BellPoint(bell), 1f, GameRules.BellSightRange, 0f);
         bellObsession = bell.Id;
+        OrbitCamera.BellStrike();
         // Note 07 du chapitre 14 (V0.6) : obnubilé par un son de cloche, -20 de sérénité.
         LoseBellSerenity();
     }
@@ -418,9 +419,14 @@ public partial class GameSession
         return false;
     }
 
-    // Joueur qui arrive : vidéos en cours des Télévisions.
+    // Joueur qui arrive : vidéos en cours des Télévisions et ballons déjà poussés.
     void SendObjectSnapshot(string to)
     {
         foreach (int id in tvVideos.Keys) net.ToPeer(to, TvMsg(id));
+        foreach (var ball in HubBall.All.Values)
+            if (ball != null && ball.Moved) net.ToPeer(to, "BL|" + net.MyId + "|" + ball.State);
     }
+
+    // Le joueur local vient de pousser un ballon : l'hôte le relaie aux autres.
+    public void SendBallKick(HubBall ball) => net.ToHost("BK|" + ball.State);
 }
