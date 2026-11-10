@@ -13,7 +13,7 @@ public static class EntitySetup
     public static void Setup()
     {
         GameSetup.ImportArt();
-        CreateRedBeacon();
+        CreateWhiteBeacon();
         CreateHubBeacons();
         SetupCreature("Tour", 2.66f, new[] { ("Walk", true), ("Run", true), ("Look", true), ("Stance", true) });
         SetupCreature("Cloche", 1f, new[] { ("Walk", true), ("Run", true) });
@@ -179,23 +179,23 @@ public static class EntitySetup
 
     static float Soft(float from, float to, float value) => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(from, to, value));
 
-    // Balise Améliorée : la texture de la Balise dont le cristal bleu devient rouge.
-    static void CreateRedBeacon()
+    // Balise Améliorée (V0.6.8) : la texture de la Balise dont le cristal bleu devient blanc.
+    public static void CreateWhiteBeacon()
     {
         const string source = "Assets/Resources/Art/Balise_Textures/Balise_BaseColor.png";
-        const string texDir = "Assets/Resources/Art/BaliseRouge_Textures";
-        const string texPath = texDir + "/BaliseRouge_BaseColor.png";
+        const string texDir = "Assets/Resources/Art/BaliseBlanche_Textures";
+        const string texPath = texDir + "/BaliseBlanche_BaseColor.png";
         if (!File.Exists(source)) return;
-        if (!AssetDatabase.IsValidFolder(texDir)) AssetDatabase.CreateFolder("Assets/Resources/Art", "BaliseRouge_Textures");
+        if (!AssetDatabase.IsValidFolder(texDir)) AssetDatabase.CreateFolder("Assets/Resources/Art", "BaliseBlanche_Textures");
         var tex = new Texture2D(2, 2);
         tex.LoadImage(File.ReadAllBytes(source));
         Color[] px = tex.GetPixels();
         for (int i = 0; i < px.Length; i++)
         {
             Color c = px[i];
-            // Teintes bleues (cristal et lueurs) : le bleu passe dans le rouge.
+            // Teintes bleues (cristal et lueurs) : elles passent au blanc.
             if (c.b > c.r + 0.08f && c.b > c.g)
-                px[i] = new Color(c.b, c.g * 0.35f, c.r * 0.6f, c.a);
+                px[i] = new Color(Mathf.Min(1f, c.b * 1.15f), Mathf.Min(1f, c.b * 1.15f), Mathf.Min(1f, c.b * 1.15f), c.a);
         }
         tex.SetPixels(px);
         File.WriteAllBytes(texPath, tex.EncodeToPNG());
@@ -205,7 +205,7 @@ public static class EntitySetup
         importer.maxTextureSize = 512;
         importer.SaveAndReimport();
 
-        const string matPath = "Assets/Resources/Art/BaliseRouge.mat";
+        const string matPath = "Assets/Resources/Art/BaliseBlanche.mat";
         var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
         if (mat == null)
         {

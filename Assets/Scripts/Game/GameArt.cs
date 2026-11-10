@@ -10,18 +10,8 @@ public static class GameArt
     static Material lit, litEmissive, unlit, outline, text3D;
     static Font font;
 
-    // Patte du titre du lobby (null : le titre s'écrit en entier).
-    public static Sprite TitleIcon => Resources.Load<GameFonts>("GameFonts")?.titleIcon;
-
-    // Police du titre du lobby (repli : la police du jeu).
-    public static Font TitleFont
-    {
-        get
-        {
-            var fonts = Resources.Load<GameFonts>("GameFonts");
-            return fonts != null && fonts.title != null ? fonts.title : Font;
-        }
-    }
+    // Image du titre dans le menu du lobby.
+    public static Sprite TitleImage => Resources.Load<GameFonts>("GameFonts")?.titleImage;
 
     public static Font Font
     {
@@ -201,8 +191,10 @@ public static class GameArt
         return cache["Glow" + key] = m;
     }
 
-    // Brume du Couvre Feu (shader Mist, intensité globale _CouvreFeu).
-    public static Material Mist => FromTemplate("Mist", () => Unlit("MistFallback", new Color(0.2f, 0.4f, 0.8f)));
+    // Fenêtres brutalistes (chapitre 10.3, V0.6.8) : vitre noire, ou allumée (s'éteint avec les néons pendant le Couvre Feu).
+    public static Material WindowDark => Unlit("FenetreNoire", new Color(0.012f, 0.012f, 0.015f));
+    public static Material WindowLit => Unlit("FenetreAllumee", Color.white);
+    public static Material WindowStone => Lit("FenetrePierre", new Color(0.5f, 0.5f, 0.49f), Noise("concrete", 128, 0.75f, 0.2f, 11), 0.05f);
 
     // Grain d'écran (shader FilmGrain) ; sans lui, pas de grain.
     public static Material FilmGrain => FromTemplate("FilmGrain", () =>

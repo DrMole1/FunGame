@@ -50,7 +50,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     static readonly Color HubAmbient = new Color(0.42f, 0.36f, 0.32f);
     // Hors du Hub : presque le noir complet (plus terrifiant).
     static readonly Color MazeAmbient = new Color(0.016f, 0.016f, 0.02f);
-    static readonly Color MistFog = new Color(0.02f, 0.05f, 0.12f);
     // Voile lointain hors du Hub (rendu local) : les couloirs éloignés se fondent dans un gris à peine visible.
     static readonly Color FarFog = new Color(0.03f, 0.032f, 0.038f);
     const float HubFog = 0.01f, MazeFog = 0.11f;
@@ -142,10 +141,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     int pogoKills;
     bool hostCurfew;
 
-    float syncTimer, regenAcc, serenityRegenAcc, mistTimer, screenTimer, entityTimer;
+    float syncTimer, regenAcc, serenityRegenAcc, curfewDrain, screenTimer, entityTimer;
     int pendingPickups;
     string spectateId;
-    float mistAmount;
     float invincibleUntil; // fin de l'invincibilité qui suit un /tp
     float deathAt = -100f;  // mort du joueur local : la caméra s'élève au-dessus du corps avant de suivre un autre joueur
     readonly Queue<float> barkTimes = new Queue<float>();
@@ -224,7 +222,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         postItUI = gameObject.AddComponent<PostItUI>();
         postItUI.Init(OnPostItWritten);
         Loc.Changed += OnLanguageChanged;
-        Shader.SetGlobalFloat("_CouvreFeu", 0f);
         // V0.4.7 : plus de brume autour du Roi.
         Shader.SetGlobalVectorArray("_RoiMist", new Vector4[4]);
         PasteReceiver.Ensure();
@@ -393,7 +390,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             p.SetState(Pogo.Mood.Closed, false, "");
             p.SetKills(0);
         }
-        mistAmount = 0f;
         UpdateScreens();
     }
 
@@ -651,8 +647,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             }
         }
         else regenAcc = 0f;
-        // Pendant le Couvre Feu, hors de la brume (Hub compris) : +10 par seconde ; sinon, +2 par seconde partout.
-        float serenityRate = CurfewActive ? (inMist ? 0f : GameRules.CurfewRegenPerSecond)
+        // Pendant le Couvre Feu, seulement dans un Hub ou près d'une Balise Améliorée : +10 par seconde ; sinon, +2 par seconde partout.
+        float serenityRate = CurfewActive ? (inHub || NearEnhancedBeacon(player.transform.position) ? GameRules.CurfewRegenPerSecond : 0f)
                            : GameRules.CalmSerenityRegenPerSecond;
         if (!status.Dead && status.Serenity < GameRules.MaxSerenity && serenityRate > 0f)
         {
@@ -678,7 +674,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateObjects();
         UpdateCloches();
         UpdateRoi();
-        UpdateMistContact();
+        UpdateCurfewDrain();
         UpdateDespair();
         UpdateGlyphOrders();
         UpdateSealedZones();
@@ -724,21 +720,20 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         float lamp = PlayerLightIntensity * bright;
         playerLight.intensity = dying ? lamp * (1f - Mathf.Clamp01(OrbitCamera.DeathView / OrbitCamera.DeathViewDuration)) : lamp;
 
-        // Brume du Couvre Feu : apparaît et se dissipe en douceur ; le brouillard bleuit quand on y est plongé.
-        bool curfew = net.InGame && CurfewActive;
-        mistAmount = Mathf.MoveTowards(mistAmount, curfew ? 1f : 0f, Time.deltaTime / 4f);
-        Shader.SetGlobalFloat("_CouvreFeu", mistAmount);
-        UpdateMistHoles();
-        bool mistShown = mistAmount > 0.001f;
-        foreach (var z in zones) if (z.mist.activeSelf != mistShown) z.mist.SetActive(mistShown);
-        float low = cam != null && !inHub ? Mathf.Clamp01((2.2f - cam.transform.position.y) / 1.5f) : 0f;
         farFogAmount = Mathf.Lerp(farFogAmount, inHub ? 0f : 1f, k);
-        RenderSettings.fogColor = Color.Lerp(FarFog * farFogAmount, MistFog, mistAmount * low);
+        RenderSettings.fogColor = FarFog * farFogAmount;
+
+        // Couvre Feu (chapitre 10.1, V0.6.8) : les néons s'éteignent et la musique du labyrinthe se coupe ; tout revient à la manche suivante.
+        bool curfew = net.InGame && CurfewActive;
+        FlickerLight.CurfewWarning = net.InGame && phase == Phase.Running && timeLeft > GameRules.CurfewStart && timeLeft <= GameRules.CurfewStart + GameRules.CurfewWarning;
+        WorldStreamer.SetPower(Mathf.MoveTowards(FlickerLight.Power, curfew ? 0f : 1f, Time.deltaTime / (curfew ? GameRules.CurfewPowerOff : GameRules.CurfewPowerOn)));
+        Beacon.CurfewGlow = curfew;
+        Eye.BeamsOn = net.InGame && (curfew || OrderActive(0) || OrderActive(1) || OrderActive(2));
         GameAudio.CurfewLevel = curfew ? 1f : 0f;
     }
 
     // Sons liés à l'état de la partie, détectés chez tous les clients (hôte compris) par changement d'état :
-    // Bouton Rouge, quota validé, game over, glas du Couvre Feu, tic-tac de la dernière minute.
+    // Bouton Rouge, quota validé, game over, générateur qui s'éteint (Couvre Feu), tic-tac de la dernière minute.
     Phase soundPhase;
     int soundRound = 1, lastTickSecond = -1;
     float audioMuteUntil;
@@ -755,7 +750,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 GameAudio.Play3D("button", hub.buttonAnchor.position + Vector3.up, 0.8f, 40f, 0f);
             if (phase == Phase.Running && round > soundRound) GameAudio.Play2D("fanfare", 0.8f);
             if (soundPhase != Phase.GameOver && phase == Phase.GameOver) GameAudio.Play2D("gameover", 0.9f);
-            if (curfew && !soundCurfew) GameAudio.Play2D("bell", 1f);
+            if (curfew && !soundCurfew) GameAudio.Play2D("generator_off", 1f);
         }
         soundPhase = phase;
         soundRound = round;
@@ -811,28 +806,23 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         player.ReleaseImmobilize();
     }
 
-    // Au contact de la brume du Couvre Feu : -3 de sérénité par seconde (V0.5), et le déplacement y est ralenti de 20 %.
-    bool inMist;
-
-    void UpdateMistContact()
+    // Couvre Feu (V0.6.8) : dans le labyrinthe, hors des Hubs et loin d'une Balise Améliorée, -1 de sérénité par seconde.
+    void UpdateCurfewDrain()
     {
         Vector3 p = player.transform.position;
-        var capsule = player.GetComponent<CapsuleCollider>();
-        float feet = p.y + capsule.center.y - capsule.height * 0.5f;
-        inMist = !status.Dead && !Teleporting && !CannonFlying && !Sliding && !InKennel && CurfewActive && mistAmount > 0.5f && zones.Count > 0
-            && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && feet < GameRules.MistTop && !NearEnhancedBeacon(p);
-        // Dans la brume, le personnage avance 20 % moins vite ; immergé jusqu'au cou (Note 03, V0.4.11), 32 % moins vite.
-        player.SpeedFactor = FallSpeedFactor() * (!inMist ? 1f : NeckHeight() < GameRules.MistTop ? GameRules.MistDeepSpeedMultiplier : GameRules.MistSpeedMultiplier);
-        if (!inMist || Godmode)
+        player.SpeedFactor = FallSpeedFactor();
+        bool draining = !status.Dead && !Teleporting && !CannonFlying && !Sliding && !InKennel && CurfewActive && zones.Count > 0
+            && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && !NearEnhancedBeacon(p);
+        if (!draining || Godmode)
         {
-            mistTimer = 0f;
+            curfewDrain = 0f;
             return;
         }
-        // mistTimer : points de sérénité perdus pas encore retirés (fraction).
-        mistTimer += GameRules.CurfewLossPerSecond * Time.deltaTime;
-        int loss = Mathf.FloorToInt(mistTimer);
+        // curfewDrain : points de sérénité perdus pas encore retirés (fraction).
+        curfewDrain += GameRules.CurfewLossPerSecond * Time.deltaTime;
+        int loss = Mathf.FloorToInt(curfewDrain);
         if (loss <= 0) return;
-        mistTimer -= loss;
+        curfewDrain -= loss;
         status.SetSerenity(status.Serenity - loss);
     }
 
@@ -851,17 +841,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (despairTimer < 1f) return;
         despairTimer -= 1f;
         DamageLocal(GameRules.DespairDamagePerSecond, "le Couvre Feu");
-    }
-
-    // Hauteur du cou du personnage local (os du modèle ; à défaut, 1,45 m au-dessus des pieds) : il baisse quand le
-    // personnage s'accroupit en marche discrète.
-    float NeckHeight()
-    {
-        var animator = player.GetComponentInChildren<Animator>();
-        Transform neck = animator != null && animator.isHuman ? animator.GetBoneTransform(HumanBodyBones.Neck) : null;
-        if (neck != null) return neck.position.y;
-        var capsule = player.GetComponent<CapsuleCollider>();
-        return player.transform.position.y + capsule.center.y - capsule.height * 0.5f + 1.45f;
     }
 
     // Un joueur mort voit la caméra d'un autre joueur (clic pour changer).
@@ -1835,33 +1814,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         status.SetSerenity(status.Serenity - GameRules.BellObsessionSerenity);
     }
 
-    // ---------- Balises Améliorées : pas de Couvre Feu à moins de 5 m ----------
-
-    readonly Vector4[] mistHoles = new Vector4[8];
+    // ---------- Balises Améliorées : à moins de 5 m, comme au Hub pendant le Couvre Feu, et aucune entité n'y apparaît ----------
 
     bool NearEnhancedBeacon(Vector3 p)
     {
         foreach (var b in beacons.Placed)
-            if (b != null && b.Kind == DeviceKind.Enhanced)
-            {
-                Vector3 d = b.transform.position - p;
-                d.y = 0f;
-                if (d.magnitude < GameRules.EnhancedBeaconRadius) return true;
-            }
+            if (b != null && b.Kind == DeviceKind.Enhanced && (b.transform.position - p).sqrMagnitude < GameRules.EnhancedBeaconRadius * GameRules.EnhancedBeaconRadius) return true;
         return false;
-    }
-
-    void UpdateMistHoles()
-    {
-        int n = 0;
-        foreach (var b in beacons.Placed)
-            if (b != null && b.Kind == DeviceKind.Enhanced && n < mistHoles.Length)
-            {
-                Vector3 p = b.transform.position;
-                mistHoles[n++] = new Vector4(p.x, p.y, p.z, GameRules.EnhancedBeaconRadius);
-            }
-        for (int i = n; i < mistHoles.Length; i++) mistHoles[i] = Vector4.zero;
-        Shader.SetGlobalVectorArray("_MistHoles", mistHoles);
     }
 
     // ---------- Station Curative : +10 PV par seconde à moins d'1 m ----------
@@ -2094,17 +2053,17 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     public void Toast(string message) => hud.Toast(message);
 
-    // Aboiement : son spatialisé entendu par tous les joueurs, 3 fois au plus toutes les 10 secondes.
-    // Le pitch varie au hasard entre -1 et +1 demi-ton.
-    // V0.6 : pendant l'ordre "Aboie !", plus de limite de 3 aboiements.
+    // Aboiement : son spatialisé entendu par tous les joueurs. Le pitch varie au hasard entre -1 et +1 demi-ton.
+    // Note 12 du chapitre 3.1 (V0.6.8) : 2 charges, chacune revient 1,2 seconde après avoir été consommée.
+    // Pendant l'ordre "Aboie !", les joueurs aboient autant qu'ils veulent (tableau des glyphes).
     void TryBark()
     {
-        while (barkTimes.Count > 0 && Time.time - barkTimes.Peek() > GameRules.BarkWindow) barkTimes.Dequeue();
-        if (barkTimes.Count >= GameRules.BarkLimit && !OrderActive(2)) return;
+        while (barkTimes.Count > 0 && Time.time - barkTimes.Peek() >= GameRules.BarkRecharge) barkTimes.Dequeue();
+        if (barkTimes.Count >= GameRules.BarkCharges && !OrderActive(2)) return;
         Bark();
     }
 
-    // Aboiement sans limite (il compte tout de même dans les 3 aboiements des 10 dernières secondes).
+    // Aboiement sans condition (il consomme tout de même une charge).
     void Bark()
     {
         barkTimes.Enqueue(Time.time);
@@ -2850,6 +2809,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case "BK" when host && f.Length >= 2:
             {
                 noiseAt[from] = Time.time;
+                // Note 12 du chapitre 3.1 (V0.6.8) : les Cauchemars à 15 m ou moins se tournent vers celui qui aboie.
+                foreach (var p in PlayerPresence.All)
+                    if (p != null && p.PlayerId == from)
+                        foreach (var e in entities.Values) if (e != null) e.HearBark(p);
                 float pitch = Mathf.Clamp(NetworkGame.P(f[1]), 0.9f, 1.1f);
                 PeerNet.Broadcast("BA|" + from + "|" + NetworkGame.F(pitch));
                 // L'hôte l'entend aussi (son propre aboiement est déjà joué).

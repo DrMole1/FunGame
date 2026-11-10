@@ -266,97 +266,18 @@ public class LobbyUI : MonoBehaviour
         }
     }
 
-    // Note 02 du chapitre 6.1 (V0.6.1) : "Pavlov's Theory" en police soviétique, rouge, avec un léger contour blanc, sur deux
-    // lignes en grandes lettres. Le "o" de "Theory" est la patte de chien (Assets/Sprite/DogIcon), cadrée à la taille d'une
-    // lettre ; son halo orange passe derrière les lettres voisines.
-    const int TitleSize = 58;
-    const float TitleHeight = 92f, PawWidth = 42f, PawSize = 51f, PawDrop = -5.5f, PawShift = 0.7f;
-    static readonly Color TitleRed = new Color(0.82f, 0.08f, 0.08f);
+    // Le titre du jeu est une image (Assets/Sprite/Title).
+    const float TitleHeight = 170f;
 
     void BuildTitle(Transform parent)
     {
-        var box = new GameObject("Titre", typeof(RectTransform), typeof(LayoutElement));
+        var box = new GameObject("Titre", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
         box.transform.SetParent(parent, false);
         box.GetComponent<LayoutElement>().preferredHeight = TitleHeight;
-
-        var top = TitleText(box.transform, "Pavlov's");
-        Half(top.rectTransform, true);
-        Sprite paw = GameArt.TitleIcon;
-        if (paw == null)
-        {
-            Half(TitleText(box.transform, "Theory").rectTransform, false);
-            return;
-        }
-        // La patte d'abord (dessinée sous les lettres), placée sur l'emplacement réservé dans la ligne "The_ry".
-        var pawImage = new GameObject("Patte", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
-        pawImage.transform.SetParent(box.transform, false);
-        pawImage.sprite = paw;
-        pawImage.preserveAspect = true;
-        pawImage.raycastTarget = false;
-        pawImage.rectTransform.sizeDelta = new Vector2(PawSize, PawSize);
-
-        var row = new GameObject("Theory", typeof(RectTransform), typeof(HorizontalLayoutGroup));
-        row.transform.SetParent(box.transform, false);
-        Half((RectTransform)row.transform, false);
-        var layout = row.GetComponent<HorizontalLayoutGroup>();
-        layout.childAlignment = TextAnchor.MiddleCenter;
-        layout.childControlWidth = layout.childControlHeight = true;
-        layout.childForceExpandWidth = layout.childForceExpandHeight = false;
-        layout.spacing = 0f;
-        TitleText(row.transform, "The");
-        var slot = new GameObject("O", typeof(RectTransform), typeof(LayoutElement));
-        slot.transform.SetParent(row.transform, false);
-        slot.GetComponent<LayoutElement>().preferredWidth = PawWidth;
-        slot.GetComponent<LayoutElement>().preferredHeight = TitleHeight * 0.5f;
-        TitleText(row.transform, "ry");
-        pawImage.gameObject.AddComponent<FollowRect>().Init((RectTransform)slot.transform, new Vector2(PawShift, -PawDrop));
-    }
-
-    static Text TitleText(Transform parent, string text)
-    {
-        var t = new GameObject(text, typeof(RectTransform), typeof(Text)).GetComponent<Text>();
-        t.transform.SetParent(parent, false);
-        t.font = GameArt.TitleFont;
-        t.text = text;
-        t.fontSize = TitleSize;
-        t.color = TitleRed;
-        t.alignment = TextAnchor.MiddleCenter;
-        t.horizontalOverflow = HorizontalWrapMode.Overflow;
-        t.verticalOverflow = VerticalWrapMode.Overflow;
-        t.raycastTarget = false;
-        var outline = t.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color(1f, 1f, 1f, 0.85f);
-        outline.effectDistance = new Vector2(1.5f, -1.5f);
-        return t;
-    }
-
-    // Moitié haute ou basse du titre.
-    static void Half(RectTransform rt, bool upper)
-    {
-        rt.anchorMin = new Vector2(0f, upper ? 0.5f : 0f);
-        rt.anchorMax = new Vector2(1f, upper ? 1f : 0.5f);
-        rt.offsetMin = rt.offsetMax = Vector2.zero;
-    }
-
-    // Garde un élément centré sur un autre (la patte sur l'emplacement du "o", calculé par la mise en page).
-    class FollowRect : MonoBehaviour
-    {
-        RectTransform target;
-        Vector2 offset;
-
-        public void Init(RectTransform t, Vector2 o)
-        {
-            target = t;
-            offset = o;
-        }
-
-        void LateUpdate()
-        {
-            if (target == null) return;
-            var rt = (RectTransform)transform;
-            rt.position = target.TransformPoint(target.rect.center);
-            rt.anchoredPosition += offset;
-        }
+        var image = box.GetComponent<Image>();
+        image.sprite = GameArt.TitleImage;
+        image.preserveAspect = true;
+        image.raycastTarget = false;
     }
 
     const float NameRowHeight = 44f, NameTitleGap = 10f;

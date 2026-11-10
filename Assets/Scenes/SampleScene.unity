@@ -391,7 +391,7 @@ MonoBehaviour:
   distance: 7
   height: 1
   mouseSensitivity: 3
-  minPitch: -20
+  minPitch: -45
   maxPitch: 70
   eyeHeight: 0.62
   firstPersonPitch: 80

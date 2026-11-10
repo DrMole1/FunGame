@@ -23,6 +23,7 @@ public class WorldStreamer : MonoBehaviour
     static WorldStreamer instance;
     readonly Queue<Action> work = new Queue<Action>();
     readonly List<ReflectionProbe> probes = new List<ReflectionProbe>();
+    readonly List<ReflectionProbe> allProbes = new List<ReflectionProbe>();
     readonly List<FlickerLight> lamps = new List<FlickerLight>();
     readonly Stopwatch watch = new Stopwatch();
     int nextLamp;
@@ -56,8 +57,24 @@ public class WorldStreamer : MonoBehaviour
 
     public static void EnqueueProbe(ReflectionProbe probe)
     {
-        if (Application.isPlaying) Instance.probes.Add(probe);
+        if (Application.isPlaying)
+        {
+            Instance.probes.Add(probe);
+            Instance.allProbes.Add(probe);
+        }
         else probe.RenderProbe();
+    }
+
+    // Courant du labyrinthe (1 : normal ; 0 : Couvre Feu) : néons, reflets déjà capturés (le damier ne reflète plus de lampes
+    // éteintes) et fenêtres allumées.
+    public static void SetPower(float power)
+    {
+        if (Mathf.Approximately(power, FlickerLight.Power)) return;
+        FlickerLight.Power = power;
+        GameArt.WindowLit.color = Color.Lerp(GameArt.WindowDark.color, Color.white, power);
+        if (instance == null) return;
+        instance.allProbes.RemoveAll(p => p == null);
+        foreach (var probe in instance.allProbes) probe.intensity = power;
     }
 
     public static void Register(FlickerLight lamp)
@@ -70,7 +87,8 @@ public class WorldStreamer : MonoBehaviour
         watch.Restart();
         while (work.Count > 0 && watch.ElapsedMilliseconds < (Loading ? LoadingBudgetMs : BudgetMs)) work.Dequeue()();
         // Les reflets montrent le décor et les lampes : ils attendent que tout soit en place.
-        bool captured = work.Count == 0 && probes.Count > 0 && Time.frameCount % ProbeFrameInterval == 0 && CaptureNearestProbe();
+        // (Pas pendant le Couvre Feu : le reflet garderait des lampes éteintes une fois le courant revenu.)
+        bool captured = work.Count == 0 && probes.Count > 0 && FlickerLight.Power >= 1f && Time.frameCount % ProbeFrameInterval == 0 && CaptureNearestProbe();
         // La capture se fait plus tard dans l'image : ses lampes doivent rester allumées jusque-là.
         if (!captured) CullLamps();
     }

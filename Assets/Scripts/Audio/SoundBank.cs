@@ -15,7 +15,7 @@ public static class SoundBank
         "button", "door", "tick", "tock", "fanfare", "gameover", "laser_on", "laser_hum", "laser_hit",
         "hurt", "death", "revive", "duck", "pop", "skin", "eat", "key", "beep", "error", "register", "sell_bell",
         "hub_music", "maze_drone", "neon", "blink", "step_tile", "step_dirt",
-        "bell", "curfew_music", "postit", "orb_on", "orb_break", "zone_door",
+        "generator_off", "postit", "orb_on", "orb_break", "zone_door",
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
         "tour_step", "tour_breath", "tour_charge", "tour_channel", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
         "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat", "heart_thump",
@@ -105,8 +105,7 @@ public static class SoundBank
             case "dame_step": return DameStep(rnd);
             case "cannon_fire": return CannonFire(rnd);
             case "cannon_impact": return CannonImpact(rnd);
-            case "bell": return Bell(rnd);
-            case "curfew_music": return CurfewMusic(rnd);
+            case "generator_off": return GeneratorOff(rnd);
             case "postit": return PostIt(rnd);
             case "orb_on": return OrbOn(rnd);
             case "orb_break": return OrbBreak(rnd);
@@ -1008,60 +1007,28 @@ public static class SoundBank
 
     // ---------- Couvre Feu ----------
 
-    // Glas d'une cloche funèbre (moins de 2 secondes) : partiels inharmoniques d'une grosse cloche.
-    static float[] Bell(System.Random rnd)
+    // Générateur qui s'éteint (V0.6.8) : claquement du disjoncteur, ronflement électrique qui ralentit et s'effondre, dernier à-coup.
+    static float[] GeneratorOff(System.Random rnd)
     {
-        var d = Buffer(1.95f);
-        float f = 98f;
-        (float ratio, float amp, float decay)[] partials =
-        {
-            (0.5f, 0.5f, 1.6f), (1f, 0.8f, 1.2f), (1.19f, 0.6f, 0.9f), (1.5f, 0.35f, 0.7f),
-            (2f, 0.45f, 0.6f), (2.52f, 0.25f, 0.4f), (3.01f, 0.18f, 0.3f), (4.1f, 0.1f, 0.2f),
-        };
-        var lp = new LowPass();
+        const float length = 3.2f, fall = 2.6f;
+        var d = Buffer(length);
+        var rattle = new LowPass();
+        var clack = new LowPass();
+        float phase = 0f;
         for (int i = 0; i < d.Length; i++)
         {
             float t = (float)i / Rate;
-            float s = 0f;
-            foreach (var (ratio, amp, decay) in partials)
-                s += Sine(f * ratio * t * (1f + 0.0015f * Mathf.Sin(TwoPi * 2.5f * t))) * amp * Decay(t, decay);
-            // Choc du battant.
-            s += lp.Process(Noise(rnd), 2500f) * Decay(t, 0.012f) * 1.5f;
-            d[i] = s * Mathf.Clamp01((1.95f - t) / 0.3f);
+            float run = Mathf.Clamp01(1f - t / fall);
+            float f = 8f + 92f * run * run;
+            phase += f / Rate;
+            float hum = (Saw(phase) * 0.5f + Sine(phase * 2f) * 0.3f + Sine(phase * 3f) * 0.15f) * Mathf.Sqrt(run);
+            float chatter = rattle.Process(Noise(rnd), 700f) * run * (Square(phase * 0.5f) * 0.5f + 0.5f) * 1.2f;
+            float breaker = clack.Process(Noise(rnd), 3000f) * Decay(t, 0.02f) * 2.2f;
+            float last = Sine(38f * Mathf.Max(0f, t - fall)) * AD(Mathf.Max(0f, t - fall), 0.01f, 0.12f) * (t > fall ? 0.7f : 0f);
+            d[i] = (hum + chatter) * 0.6f + breaker + last;
+            d[i] *= Mathf.Clamp01((length - t) / 0.15f);
         }
         return d;
-    }
-
-    // Petite musique horrifique au tempo lent : bourdon dissonant, boîte à musique désaccordée, souffles.
-    static float[] CurfewMusic(System.Random rnd)
-    {
-        const float beat = 60f / 48f;
-        float loop = beat * 16f;
-        var d = Buffer(loop + 2f);
-        int[] melody = { 74, 77, 76, 73, 74, 81, 80, 77, 74, 70, 69, 73, 74, 77, 73, 62 };
-        for (int n = 0; n < melody.Length; n++)
-        {
-            float f = Midi(melody[n]) * (1f + Noise(rnd) * 0.006f);
-            int i0 = Mathf.RoundToInt(n * beat * Rate);
-            for (int i = i0; i < d.Length; i++)
-            {
-                float t = (float)(i - i0) / Rate;
-                if (t > 3f) break;
-                // Lame de boîte à musique : fondamentale, partiel aigu, légère déformation du ressort.
-                float wow = 1f + 0.004f * Mathf.Sin(TwoPi * 0.8f * t);
-                d[i] += (Sine(f * wow * t) + Sine(f * 2.99f * t) * 0.25f + Sine(f * 5.4f * t) * 0.08f) * AD(t, 0.004f, 0.9f) * 0.3f;
-            }
-        }
-        var wind = new BandPass();
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate;
-            float swell = 0.5f + 0.5f * Mathf.Sin(TwoPi * t / loop * 2f);
-            float drone = Sine(73.4f * t) * 0.35f + Sine(77.8f * t) * 0.25f + Sine(110f * t) * 0.1f * swell;
-            drone += wind.Process(Noise(rnd), 500f + 300f * swell, 0.2f) * 0.12f * swell;
-            d[i] += drone;
-        }
-        return MakeLoop(d, loop, 1.5f);
     }
 
     // ---------- Post-It, orbes, porte ----------

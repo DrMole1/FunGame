@@ -19,7 +19,7 @@ public static class IconRenderer
         Render("CuisseDePoulet", ItemType.CuisseDePoulet, new Vector3(20f, -45f, -35f), 0f);
         Render("DuckSolo", ItemType.Canard, new Vector3(8f, -140f, 0f), 0f);
         Render("Balise", ItemType.Balise, new Vector3(10f, -150f, 0f), 0f);
-        Render("Balise", ItemType.BaliseAmelioree, new Vector3(10f, -150f, 0f), 0f, "BaliseRouge");
+        Render("Balise", ItemType.BaliseAmelioree, new Vector3(10f, -150f, 0f), 0f, "BaliseBlanche");
         Render("Teleporteur", ItemType.Teleporteur, new Vector3(45f, -150f, 0f), 0f);
         Render("StationCurative", ItemType.StationCurative, new Vector3(10f, -150f, 0f), 0f);
         // V0.4.6 : l'Os (monticules) et le Canon (Terminal).
@@ -43,6 +43,14 @@ public static class IconRenderer
         foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { IconDir }))
             ConfigureSprite(AssetDatabase.GUIDToAssetPath(guid));
         Debug.Log("Icônes d'inventaire générées.");
+    }
+
+    // V0.6.8 : seule l'icône de la Balise Améliorée (devenue blanche).
+    public static void RenderEnhancedBeacon()
+    {
+        Render("Balise", ItemType.BaliseAmelioree, new Vector3(10f, -150f, 0f), 0f, "BaliseBlanche");
+        AssetDatabase.Refresh();
+        ConfigureSprite(IconDir + "/" + ItemType.BaliseAmelioree + ".png");
     }
 
     static void Render(string model, ItemType type, Vector3 viewAngles, float skipBottom, string material = null, Color tint = default)

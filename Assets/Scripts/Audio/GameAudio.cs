@@ -17,11 +17,12 @@ public class GameAudio : MonoBehaviour
     // Sources (du groupe ou en boucle) qui jouent un son d'entité : muettes dans le Hub.
     readonly HashSet<AudioSource> entitySources = new HashSet<AudioSource>();
     int next;
-    AudioSource hubMusic, mazeDrone, curfewMusic;
+    AudioSource hubMusic, mazeDrone;
     const float HubMusicVolume = 0.2f;
 
-    // Couvre Feu en cours (0 ou 1) : sa musique lente remplace les autres ambiances.
+    // Couvre Feu en cours (0 ou 1, V0.6.8) : la musique du labyrinthe se coupe net (celle du Hub continue), puis revient progressivement.
     public static float CurfewLevel { get; set; }
+    float mazeReturn = 1f;
     // Ambiances actives (en jeu ou dans le menu).
     public static bool AmbienceEnabled { get; set; } = true;
     // Séquence de mort : 1 = normal, 0 = ambiances coupées.
@@ -30,7 +31,7 @@ public class GameAudio : MonoBehaviour
     static bool silenced;
 
     // Volumes réglés dans le lobby et le menu pause (0 à 1, 50 % à la première connexion) :
-    // la musique (ambiances du chapiteau, du labyrinthe et du Couvre Feu) et les effets sonores (tout le reste).
+    // la musique (ambiances du chapiteau et du labyrinthe) et les effets sonores (tout le reste).
     // 100 % correspond à 60 % du niveau brut des sons, trop fort sinon.
     const float MasterGain = 0.6f;
     static float music = 0.5f, sfx = 0.5f;
@@ -84,7 +85,6 @@ public class GameAudio : MonoBehaviour
         }
         hubMusic = AmbientLoop("hub_music");
         mazeDrone = AmbientLoop("maze_drone");
-        curfewMusic = AmbientLoop("curfew_music");
     }
 
     AudioSource AmbientLoop(string clip)
@@ -519,18 +519,17 @@ public class GameAudio : MonoBehaviour
         bool inHub = cam == null || WorldBuilder.IsInHub(cam.transform.position);
         float k = 1f - Mathf.Exp(-1.5f * Time.unscaledDeltaTime);
         float on = AmbienceEnabled && !silenced && !Loading ? 1f : 0f;
-        float abj = CurfewLevel * on;
         on *= deathDuck;
         // À moins de 7 m d'une Télévision qui diffuse (du personnage, pas de la caméra placée derrière lui), les musiques
         // d'ambiance s'effacent progressivement, et reviennent quand on s'en éloigne.
         // V0.6.1 : de même près d'une boule à facettes posée (sa musique disco remplace la musique d'ambiance).
         float tv = TvScreen.Broadcasting(ListenerBody(cam), GameRules.TvMusicDuckRange) || DiscoNear ? 0f : 1f;
         // Musique_Hub (enregistrée, en boucle) : gardée discrète, même avec la musique réglée à 50 %.
-        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? HubMusicVolume * on * tv * (1f - abj * 0.8f) * music : 0f, k);
-        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * tv * (1f - abj * 0.5f) * music, k);
-        float ka = 1f - Mathf.Exp(-0.6f * Time.unscaledDeltaTime);
-        curfewMusic.volume = Mathf.Lerp(curfewMusic.volume, abj * tv * 0.5f * music, ka);
-        if (Loading) hubMusic.volume = mazeDrone.volume = curfewMusic.volume = 0f;
+        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? HubMusicVolume * on * tv * music : 0f, k);
+        mazeReturn = CurfewLevel > 0f ? 0f : Mathf.MoveTowards(mazeReturn, 1f, Time.unscaledDeltaTime / GameRules.CurfewMusicReturn);
+        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * tv * mazeReturn * music, k);
+        if (CurfewLevel > 0f) mazeDrone.volume = 0f;
+        if (Loading) hubMusic.volume = mazeDrone.volume = 0f;
         // Dans le Hub, les sons des entités se taisent (y compris ceux déjà commencés).
         bool hubListener = cam != null && inHub;
         for (int i = loops.Count - 1; i >= 0; i--)

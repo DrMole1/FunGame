@@ -16,8 +16,8 @@ public enum DeviceKind : byte
 // elle est chargée 10 minutes au début du jeu (jauge circulaire autour d'elle) et se recharge avec un Chargeur.
 // V0.6 : chaque Hub a sa Balise principale (Hub 1 bleue, Hub 2 violette, Hub 3 verte, Hub 4 dorée, puis on recommence) ;
 // elles partagent la même charge.
-// Balise Améliorée (7.3) : cristal et aura rouges, coordonnées affichées au-dessus d'elle ; ni Couvre Feu ni apparition
-// d'entité à moins de 5 m. Téléporteur (7.2), Station Curative (7.4) et Canon (7.5) : chargés s'ils voient une Balise
+// Balise Améliorée (7.3, V0.6.8) : cristal et aura blancs, coordonnées affichées au-dessus d'elle ; aucune apparition d'entité à
+// moins de 5 m ; pendant le Couvre Feu, elle éclaire comme un néon blanc et un joueur tout près est comme au Hub. Téléporteur (7.2), Station Curative (7.4) et Canon (7.5) : chargés s'ils voient une Balise
 // chargée. Le Canon de cirque tourne avec la visée du joueur qui est dedans, et recule en crachant des confettis au tir.
 // Note 03 du chapitre 7 (V0.4.7) : un objet posé au sol joue une légère animation rapide (il s'écrase puis rebondit).
 public class Beacon : Interactable
@@ -110,8 +110,11 @@ public class Beacon : Interactable
 
     Renderer[] bodies;
     GameObject halo;
-    Light glow;
+    Light glow, curfewNeon;
     MaterialPropertyBlock block;
+    // Couvre Feu en cours (GameSession) : les Balises Améliorées s'allument.
+    public static bool CurfewGlow;
+    const float CurfewNeonRange = 10f, CurfewNeonIntensity = 1.8f;
     TextMesh coordinates;
     ParticleSystem gas;
     Transform visualRoot;
@@ -189,14 +192,14 @@ public class Beacon : Interactable
                     Material stone = GameArt.Lit("BeaconStone", new Color(0.45f, 0.43f, 0.38f), null, 0.15f);
                     GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, height * 0.35f, 0f), new Vector3(0.22f, height * 0.35f, 0.22f) * (height / Height), stone);
                     GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, height * 0.84f, 0f), new Vector3(0.3f, 0.26f, 0.3f) * (height / Height),
-                        kind == DeviceKind.Enhanced ? GameArt.Emissive("BeaconCrystalRed", new Color(1f, 0.2f, 0.15f), new Color(0.9f, 0.1f, 0.05f))
+                        kind == DeviceKind.Enhanced ? GameArt.Emissive("BeaconCrystalWhite", Color.white, new Color(0.9f, 0.9f, 0.95f))
                                                     : GameArt.Emissive("BeaconCrystal", new Color(0.2f, 0.45f, 1f), new Color(0.1f, 0.3f, 0.9f)));
                 }
                 else if (kind == DeviceKind.Enhanced)
                 {
-                    // Même modèle, cristal rouge (texture virée au rouge par "Installer les entités V0.4").
-                    var red = Resources.Load<Material>("Art/BaliseRouge");
-                    if (red != null) foreach (var r in visual.GetComponentsInChildren<Renderer>()) r.sharedMaterial = red;
+                    // Même modèle, cristal blanc (texture préparée par "Préparer les modèles V0.6.8").
+                    var white = Resources.Load<Material>("Art/BaliseBlanche");
+                    if (white != null) foreach (var r in visual.GetComponentsInChildren<Renderer>()) r.sharedMaterial = white;
                 }
                 break;
         }
@@ -206,10 +209,10 @@ public class Beacon : Interactable
         if (Items.Dances(beacon.Item)) DiscoDancer.Attach(visual);
         // Le Canard Coloré scintille, posé comme à terre.
         if (Items.IsColoredDuck(beacon.Item)) Fx.Sparkle(go.transform, Items.Get(beacon.Item).color);
-        // Halo autour du cristal quand l'appareil est chargé (rouge pour la Balise Améliorée). Aucun sur le Téléporteur.
+        // Halo autour du cristal quand l'appareil est chargé (blanc pour la Balise Améliorée). Aucun sur le Téléporteur.
         if (kind == DeviceKind.Beacon || kind == DeviceKind.Enhanced || kind == DeviceKind.Station)
         {
-            Material aura = kind == DeviceKind.Enhanced ? GameArt.GhostAuraTinted("Red", new Color(1f, 0.2f, 0.15f))
+            Material aura = kind == DeviceKind.Enhanced ? GameArt.GhostAuraTinted("White", Color.white)
                 : kind == DeviceKind.Station ? GameArt.GhostAuraTinted("Green", new Color(0.3f, 1f, 0.4f)) : GameArt.GhostAura;
             float haloSize = kind == DeviceKind.Station ? 0.55f : height * 0.26f;
             beacon.halo = GameArt.Prim(PrimitiveType.Sphere, go.transform, beacon.Top - pos, Vector3.one * haloSize, aura);
@@ -258,7 +261,17 @@ public class Beacon : Interactable
         if (kind == DeviceKind.Enhanced)
         {
             // Distance jusqu'au Hub, dans l'air au-dessus d'elle (renseignée par BeaconNetwork.Add).
-            beacon.coordinates = GameArt.CreateText(go.transform, "DistanceHub", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(1f, 0.45f, 0.4f));
+            beacon.coordinates = GameArt.CreateText(go.transform, "DistanceHub", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(0.92f, 0.92f, 0.96f));
+            // Pendant le Couvre Feu : lumière blanche, à la manière d'un néon.
+            beacon.curfewNeon = new GameObject("Neon").AddComponent<Light>();
+            beacon.curfewNeon.transform.SetParent(go.transform, false);
+            beacon.curfewNeon.transform.localPosition = new Vector3(0f, height + 0.3f, 0f);
+            beacon.curfewNeon.type = LightType.Point;
+            beacon.curfewNeon.color = new Color(0.93f, 0.95f, 1f);
+            beacon.curfewNeon.range = CurfewNeonRange;
+            beacon.curfewNeon.intensity = CurfewNeonIntensity;
+            beacon.curfewNeon.shadows = LightShadows.None;
+            beacon.curfewNeon.enabled = false;
         }
         beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.76f, CanonHeight, 1.76f)
             : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.9f, 0.9f, 0.9f) : new Vector3(0.6f, height, 0.6f));
@@ -430,6 +443,7 @@ public class Beacon : Interactable
     {
         UpdateRecoil();
         UpdatePlacedPop();
+        if (curfewNeon != null && curfewNeon.enabled != CurfewGlow) curfewNeon.enabled = CurfewGlow;
         if (coordinates != null && Camera.main != null)
             coordinates.transform.rotation = Quaternion.LookRotation(coordinates.transform.position - Camera.main.transform.position);
         if (!Charged || halo == null) return;

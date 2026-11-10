@@ -57,7 +57,6 @@ public static class GameSetup
         CreateMaterial("LaserBeam", "FunGame/LaserBeam", null);
         CreateMaterial("Spark", "FunGame/Spark", null);
         CreateMaterial("DustyLimb", "FunGame/DustyLimb", m => m.enableInstancing = true);
-        CreateMaterial("Mist", "FunGame/Mist", null);
         CreateMaterial("Ectoplasm", "FunGame/Ectoplasm", null);
         CreateMaterial("GhostAura", "FunGame/GhostAura", null);
         CreateMaterial("EnergyBeam", "FunGame/EnergyBeam", null);
@@ -166,8 +165,7 @@ public static class GameSetup
 
     // Police du jeu, à l'essai (l'ancienne : Assets/Font/PUSAB___.otf).
     const string FontPath = "Assets/Font/Nexa-Heavy.ttf";
-    const string TitleFontPath = "Assets/Font/RuslanDisplay-Regular.ttf";
-    const string TitleIconPath = "Assets/Sprite/DogIcon.png";
+    const string TitleImagePath = "Assets/Sprite/Title.png";
 
     static void CreateFonts()
     {
@@ -180,19 +178,17 @@ public static class GameSetup
         }
         fonts.main = AssetDatabase.LoadAssetAtPath<Font>(FontPath);
         if (fonts.main == null) Debug.LogError("Police introuvable : " + FontPath);
-        fonts.title = AssetDatabase.LoadAssetAtPath<Font>(TitleFontPath);
-        if (fonts.title == null) Debug.LogError("Police introuvable : " + TitleFontPath);
-        // Patte du titre, importée en sprite.
-        if (AssetImporter.GetAtPath(TitleIconPath) is TextureImporter icon && (icon.textureType != TextureImporterType.Sprite || !icon.alphaIsTransparency))
+        // Titre du lobby, importé en sprite.
+        if (AssetImporter.GetAtPath(TitleImagePath) is TextureImporter titleImporter && (titleImporter.textureType != TextureImporterType.Sprite || !titleImporter.alphaIsTransparency))
         {
-            icon.textureType = TextureImporterType.Sprite;
-            icon.spriteImportMode = SpriteImportMode.Single;
-            icon.alphaIsTransparency = true;
-            icon.mipmapEnabled = false;
-            icon.SaveAndReimport();
+            titleImporter.textureType = TextureImporterType.Sprite;
+            titleImporter.spriteImportMode = SpriteImportMode.Single;
+            titleImporter.alphaIsTransparency = true;
+            titleImporter.mipmapEnabled = false;
+            titleImporter.SaveAndReimport();
         }
-        fonts.titleIcon = AssetDatabase.LoadAssetAtPath<Sprite>(TitleIconPath);
-        if (fonts.titleIcon == null) Debug.LogError("Image introuvable : " + TitleIconPath);
+        fonts.titleImage = AssetDatabase.LoadAssetAtPath<Sprite>(TitleImagePath);
+        if (fonts.titleImage == null) Debug.LogError("Image introuvable : " + TitleImagePath);
         EditorUtility.SetDirty(fonts);
     }
 

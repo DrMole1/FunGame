@@ -149,9 +149,16 @@ public class Laser : MonoBehaviour
     }
 }
 
-// Gros œil encastré qui fixe le joueur le plus proche.
+// Gros œil encastré qui fixe le joueur le plus proche. V0.6.8 : pendant le Couvre Feu et les ordres des glyphes, sa pupille
+// projette un faisceau rouge jusqu'au premier mur, s'il est à moins de 50 m de la caméra (seuls ceux-là peuvent se voir).
 public class Eye : MonoBehaviour
 {
+    public static bool BeamsOn;
+    const float BeamMaxLength = 60f, PupilWidth = 0.24f, BallRadius = 0.5f, FollowRange = 30f;
+
+    GameObject beam;
+    bool beamOn;
+    float beamLength = -1f;
     const float WatchRange = 16f;
     const float MaxAngle = 65f;
 
@@ -171,7 +178,9 @@ public class Eye : MonoBehaviour
     void Update()
     {
         Camera cam = Camera.main;
-        if (cam != null && (cam.transform.position - transform.position).sqrMagnitude > 30f * 30f) return;
+        float cameraDistance = cam != null ? (cam.transform.position - transform.position).sqrMagnitude : 0f;
+        UpdateBeam(cameraDistance);
+        if (cameraDistance > FollowRange * FollowRange) return;
 
         PlayerPresence target = null;
         float best = WatchRange * WatchRange;
@@ -206,12 +215,59 @@ public class Eye : MonoBehaviour
             GameAudio.Play3D("blink", transform.position, 0.26f, 8f, 0.15f);
         }
     }
+
+    void OnDisable()
+    {
+        beamOn = false;
+        if (beam != null) beam.SetActive(false);
+    }
+
+    void UpdateBeam(float cameraDistance)
+    {
+        bool on = BeamsOn && cameraDistance <= GameRules.EyeBeamRange * GameRules.EyeBeamRange;
+        if (on != beamOn)
+        {
+            beamOn = on;
+            beamLength = -1f;
+            if (on && beam == null) CreateBeam();
+            if (beam != null) beam.SetActive(on);
+        }
+        if (!on) return;
+        // Loin de la caméra, l'œil ne bouge pas : une seule mesure. De près, le faisceau suit le regard (toutes les 3 images).
+        bool follows = cameraDistance <= FollowRange * FollowRange;
+        if (beamLength < 0f || follows && (Time.frameCount + GetInstanceID()) % 3 == 0) MeasureBeam();
+    }
+
+    // Cylindre (axe Y, 2 unités de haut), enfant du globe : son axe prolonge le regard.
+    void CreateBeam()
+    {
+        beam = GameArt.Prim(PrimitiveType.Cylinder, ball, Vector3.zero, Vector3.one, GameArt.LaserBeam("EyeBeam", 1.6f, 2.5f));
+        beam.name = "Faisceau";
+        beam.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        var r = beam.GetComponent<Renderer>();
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        r.receiveShadows = false;
+    }
+
+    void MeasureBeam()
+    {
+        float size = transform.lossyScale.x;
+        Vector3 from = ball.position + ball.forward * (BallRadius * size + 0.02f);
+        beamLength = Physics.Raycast(from, ball.forward, out RaycastHit hit, BeamMaxLength, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) ? hit.distance : BeamMaxLength;
+        float local = beamLength / size;
+        beam.transform.localScale = new Vector3(PupilWidth, local * 0.5f, PupilWidth);
+        beam.transform.localPosition = Vector3.forward * (BallRadius + local * 0.5f);
+    }
 }
 
 // Néon du labyrinthe : suit le réglage de luminosité ; certains grésillent. V0.4.7 : à moins de 30 m d'un Roi, tous
-// clignotent frénétiquement.
+// clignotent frénétiquement. V0.6.8 : éteints pendant le Couvre Feu.
 public class FlickerLight : MonoBehaviour
 {
+    // Courant du labyrinthe (WorldStreamer.SetPower) : 1 normal, 0 Couvre Feu.
+    public static float Power { get; set; } = 1f;
+    // Avertissement (GameSession) : pendant les 2 secondes qui précèdent le Couvre Feu, tous les néons clignotent.
+    public static bool CurfewWarning { get; set; }
     // Positions des Rois (mises à jour par GameSession chez chaque joueur).
     public static readonly System.Collections.Generic.List<Vector3> Frenzy = new System.Collections.Generic.List<Vector3>();
 
@@ -247,7 +303,7 @@ public class FlickerLight : MonoBehaviour
         }
     }
 
-    bool frantic;
+    bool frantic, blackout;
     int burstLeft;
 
     // Près du Roi : des rafales imprévisibles de 1 à 5 coupures (extinctions franches ou simples baisses, de durées
@@ -262,7 +318,7 @@ public class FlickerLight : MonoBehaviour
             // Rallumage, puis la coupure suivante de la rafale, ou une accalmie.
             off = false;
             level = Random.Range(0.7f, 1.2f);
-            timer = burstLeft > 0 ? Random.Range(0.04f, 0.25f) : Random.Range(0.25f, 1.6f);
+            timer = burstLeft > 0 ? Random.Range(0.04f, 0.25f) : CurfewWarning ? Random.Range(0.05f, 0.2f) : Random.Range(0.25f, 1.6f);
         }
         else
         {
@@ -278,9 +334,26 @@ public class FlickerLight : MonoBehaviour
 
     void Update()
     {
-        lightSource.intensity = baseIntensity * level * Brightness.Factor;
+        if (Power <= 0f)
+        {
+            lightSource.enabled = false;
+            if (bulb != null) bulb.enabled = false;
+            blackout = true;
+            return;
+        }
+        if (blackout)
+        {
+            blackout = false;
+            lightSource.enabled = true;
+            off = false;
+            level = 1f;
+            if (bulb != null) bulb.enabled = true;
+        }
+        lightSource.intensity = baseIntensity * level * Brightness.Factor * Power;
         bool wasFrantic = frantic;
-        frantic = Frenzy.Count > 0 && Frantic;
+        frantic = CurfewWarning || Frenzy.Count > 0 && Frantic;
+        // (Un néon qui grésille peut attendre 2,5 s sa prochaine coupure : l'avertissement commence tout de suite.)
+        if (CurfewWarning && !wasFrantic) timer = 0f;
         if (frantic)
         {
             FranticFlicker();

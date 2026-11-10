@@ -186,6 +186,10 @@ public class Roi : Entity
         BeginRecover();
     }
 
+    protected override bool IsHunting => Current == State.Aim || Current == State.Recover;
+    protected override bool CanBeTaunted => Current != State.Throw && Current != State.Pull && Current != State.Grab;
+    protected override void OnTaunted(PlayerPresence barker) => BeginAim(barker, true);
+
     void BeginAim(PlayerPresence p, bool first)
     {
         Current = State.Aim;

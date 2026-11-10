@@ -139,6 +139,10 @@ public class Dame : Entity
         }
     }
 
+    protected override bool IsHunting => Current == State.Chase;
+    protected override bool CanBeTaunted => Current != State.Attack;
+    protected override void OnTaunted(PlayerPresence barker) => BeginChase(barker);
+
     void BeginChase(PlayerPresence p)
     {
         Current = State.Chase;

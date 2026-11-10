@@ -129,6 +129,10 @@ public class Cavalier : Entity
         lastPos = transform.position;
     }
 
+    protected override bool IsHunting => Current == State.Chase;
+    protected override bool CanBeTaunted => Current != State.Strike && !Frozen;
+    protected override void OnTaunted(PlayerPresence barker) => BeginChase(barker);
+
     void BeginChase(PlayerPresence p)
     {
         Current = State.Chase;

@@ -11,7 +11,8 @@ using UnityEngine;
 // apparaissent sous lui). Si le joueur détourne le regard avant, le Fou danse 3 secondes : si la caméra du joueur
 // le regarde à la fin de sa danse, il attaque ; sinon il rôde à nouveau. Après un échange, il passe "en chasse"
 // 5 secondes, en courant vers le joueur, les yeux rouges, puis danse 3 secondes (même issue). À moins de 0,8 m, il
-// immobilise le joueur et le tue.
+// immobilise le joueur et le tue. V0.6.8 : "en recherche", il se dirige vers le joueur le plus proche à 30 m ou moins, pour le
+// tuer au contact, et reprend sa marche dès que plus aucun joueur n'est à portée.
 public class Fou : Entity
 {
     public enum State : byte { Walk = 0, Run = 1, Alert = 2, Dance = 3, Chase = 4, Grab = 5 }
@@ -31,7 +32,7 @@ public class Fou : Entity
     // Joueurs dont la caméra voit le Fou (signalé par chacun à l'hôte).
     readonly HashSet<string> lookers = new HashSet<string>();
     float stateTimer, runTimer, runDuration, lookTime, chaseTimer, swapCooldown;
-    bool grabHit;
+    bool grabHit, hunting;
 
     public void SetLooking(string playerId, bool looking)
     {
@@ -66,8 +67,8 @@ public class Fou : Entity
                         Current = State.Run;
                         stateTimer = 0f;
                         runDuration = Range(GameRules.FouRunMin, GameRules.FouRunMax);
-                        // 30 % : il fait demi-tour et court dans la direction inverse.
-                        if (rnd.NextDouble() < GameRules.FouTurnBackChance) PlanPath(NodeAround(-transform.forward, 15f, 45f), 0f);
+                        // 30 % : il fait demi-tour et court dans la direction inverse (sauf s'il se dirige vers un joueur).
+                        if (Prey(players) == null && rnd.NextDouble() < GameRules.FouTurnBackChance) PlanPath(NodeAround(-transform.forward, 15f, 45f), 0f);
                     }
                 }
                 else
@@ -75,7 +76,7 @@ public class Fou : Entity
                     Speed = GameRules.BaseSpeed * GameRules.FouRunMultiplier;
                     if (stateTimer >= runDuration) Search();
                 }
-                Wander(dt, 15f, 45f);
+                Roam(dt, players);
                 break;
 
             case State.Alert:
@@ -123,6 +124,55 @@ public class Fou : Entity
                 if (stateTimer >= GrabDuration) Search();
                 break;
         }
+    }
+
+    // Joueur le plus proche dans son rayon d'action (30 m), ou null.
+    PlayerPresence Prey(IReadOnlyList<PlayerPresence> players)
+    {
+        PlayerPresence best = null;
+        float closest = GameRules.FouHuntRange * GameRules.FouHuntRange;
+        foreach (var p in players)
+        {
+            if (!Valid(p)) continue;
+            float d = (p.Position - transform.position).sqrMagnitude;
+            if (d <= closest) { closest = d; best = p; }
+        }
+        return best;
+    }
+
+    // "En recherche" : droit sur le joueur à portée, sinon au hasard. Inaccessible (plateforme...) : il continue de rôder.
+    void Roam(float dt, IReadOnlyList<PlayerPresence> players)
+    {
+        PlayerPresence prey = Prey(players);
+        if (prey == null)
+        {
+            if (hunting) ClearPath();
+            hunting = false;
+            Wander(dt, 15f, 45f);
+            return;
+        }
+        if (!hunting) repathTimer = 0f;
+        hunting = true;
+        Pursue(prey, dt);
+        if (PathDone && HorizontalDistance(prey) > 1f) Wander(dt, 15f, 45f);
+        if (InReach(prey, GameRules.FouKillDistance))
+        {
+            TargetId = prey.PlayerId;
+            BeginGrab();
+        }
+    }
+
+    // Aboiement (Note 12 du chapitre 3.1) : sans effet pendant qu'il canalise son attaque (fixé ou en train de danser) ou qu'il tue.
+    protected override bool IsHunting => Current == State.Chase;
+    protected override bool CanBeTaunted => Current == State.Walk || Current == State.Run || Current == State.Chase;
+    protected override void OnTaunted(PlayerPresence barker)
+    {
+        Current = State.Chase;
+        stateTimer = 0f;
+        chaseTimer = GameRules.FouChaseDuration;
+        TargetId = barker.PlayerId;
+        ClearPath();
+        repathTimer = 0f;
     }
 
     void BeginAlert(PlayerPresence p)
@@ -176,6 +226,7 @@ public class Fou : Entity
         Current = State.Walk;
         stateTimer = 0f;
         TargetId = "";
+        hunting = false;
         runTimer = Range(GameRules.FouWalkMin, GameRules.FouWalkMax);
         ClearPath();
     }
@@ -356,7 +407,8 @@ public class Fou : Entity
             if (bellsLevel > 0f && !bells.isPlaying) bells.Play();
             else if (bellsLevel <= 0f && bells.isPlaying) bells.Stop();
             GameAudio.SetLoopVolume(bells, 0.8f * bellsLevel * bellsLevel);
-            var echo = bells.GetComponent<AudioEchoFilter>() ?? bells.gameObject.AddComponent<AudioEchoFilter>();
+            var echo = bells.GetComponent<AudioEchoFilter>();
+            if (echo == null) echo = bells.gameObject.AddComponent<AudioEchoFilter>();
             echo.delay = 180f;
             echo.decayRatio = 0.55f;
             echo.wetMix = running ? 0.2f : 0.7f;

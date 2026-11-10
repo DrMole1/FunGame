@@ -210,6 +210,10 @@ public class Tour : Entity
         BeginSurvey();
     }
 
+    protected override bool IsHunting => Current == State.Approach;
+    protected override bool CanBeTaunted => Current != State.Channel && Current != State.Charge;
+    protected override void OnTaunted(PlayerPresence barker) => Spot(barker);
+
     // Joueur repéré : trop loin, elle court vers lui ; à sa distance d'attaque, elle canalise.
     void Spot(PlayerPresence p)
     {

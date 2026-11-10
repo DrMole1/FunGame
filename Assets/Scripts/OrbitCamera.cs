@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 
 // Caméra à la troisième personne qui tourne sans limite autour de la cible avec la souris.
-// Molette : distance entre 2 et 5 unités. Elle ne passe jamais sous le personnage ni à travers les murs.
+// Molette : distance entre 2 et 5 unités. Elle ne passe jamais sous les pieds du personnage ni à travers les murs.
 // Zoomer encore à 2 unités passe à la première personne (yeux du personnage, corps masqué) ; dézoomer en revient.
 public class OrbitCamera : MonoBehaviour
 {
@@ -10,8 +10,10 @@ public class OrbitCamera : MonoBehaviour
     public float distance = 3.5f;
     public float height = 1f;
     public float mouseSensitivity = 3f;
-    public float minPitch = -15f;
+    public float minPitch = -45f;
     public float maxPitch = 75f;
+    // Regard vers le haut : la caméra peut descendre jusqu'à cette distance sous le centre de la capsule (le sol l'arrête avant).
+    const float MaxDropBelowCenter = 0.7f;
     // Première personne : hauteur des yeux au-dessus du centre de la capsule, et débattement vertical du regard.
     public float eyeHeight = 0.62f;
     public float firstPersonPitch = 80f;
@@ -379,8 +381,8 @@ public class OrbitCamera : MonoBehaviour
         currentDistance = d < currentDistance ? d : Mathf.Lerp(currentDistance, d, 1f - Mathf.Exp(-8f * Time.deltaTime));
 
         Vector3 pos = focus - rot * Vector3.forward * currentDistance;
-        // Jamais sous le personnage (le pivot est au centre de la capsule).
-        pos.y = Mathf.Max(pos.y, target.position.y);
+        // Jamais sous les pieds du personnage (le pivot est au centre de la capsule).
+        pos.y = Mathf.Max(pos.y, target.position.y - MaxDropBelowCenter);
         transform.position = pos;
         transform.rotation = Quaternion.LookRotation(focus - pos);
     }

@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6.7";
+    public const string Version = "V0.6.8";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -41,10 +41,12 @@ public static class GameRules
     // Après un /tp, le personnage de l'hôte ne prend aucun dégât et ne peut pas être immobilisé pendant 5 secondes.
     public const float TeleportInvincibility = 5f;
 
-    // Aboiement (touche A) : 3 aboiements au plus sur 10 secondes, entendus jusqu'à 50 m (décroissance douce).
-    public const int BarkLimit = 3;
-    public const float BarkWindow = 10f;
+    // Aboiement (touche A, Note 12 du chapitre 3.1, V0.6.8) : 2 charges, chacune revient 1,2 seconde après avoir été consommée ;
+    // entendu jusqu'à 50 m (décroissance douce). À 15 m ou moins d'une entité Cauchemar, il la met en chasse contre celui qui aboie.
+    public const int BarkCharges = 2;
+    public const float BarkRecharge = 1.2f;
     public const float BarkRange = 50f;
+    public const float BarkTauntRange = 15f;
 
     public const float CameraMinDistance = 2f;
     public const float CameraMaxDistance = 5f;
@@ -99,15 +101,18 @@ public static class GameRules
 
     // V0.6 : il apparaît quand le Compteur de Temps affiche 3 minutes (avant : 7), jusqu'à la manche suivante.
     public const float CurfewStart = 3f * 60f;
-    public const float CurfewLossPerSecond = 3f;   // sérénité perdue par seconde au contact de la brume (V0.5, avant : 6)
+    // V0.6.8 : plus de brume. Coupure de courant : dans le labyrinthe (hors des Hubs), -1 de sérénité par seconde (avant : 3).
+    public const float CurfewLossPerSecond = 1f;
     // Note 02 du chapitre 3.4 (V0.4.10) : à 0 de sérénité, le personnage perd 15 PV par seconde (au lieu de mourir).
     public const int DespairDamagePerSecond = 15;
-    // Note 02 (V0.4.2) : hors de la brume, Hub compris, la sérénité remonte de 10 points par seconde.
+    // V0.6.8 : dans un Hub (ou près d'une Balise Améliorée), la sérénité remonte de 10 points par seconde.
     public const float CurfewRegenPerSecond = 10f;
-    public const float MistSpeedMultiplier = 0.8f; // déplacement ralenti de 20 % dans la brume
-    public const float MistDeepSpeedMultiplier = 0.68f; // Note 03 (V0.4.11) : immergé jusqu'au cou, ralenti de 32 %
-    // Hauteur (absolue) du dessus de la brume : le ras du sol du Hub.
-    public const float MistTop = 0.5f;
+    // Non précisé dans le GDD : les néons s'éteignent en 1,2 s (avec le son du générateur) ; lumières et musique reviennent en 3 et 6 s.
+    public const float CurfewPowerOff = 1.2f, CurfewPowerOn = 3f, CurfewMusicReturn = 6f;
+    // Les néons clignotent pendant les 2 secondes qui précèdent le Couvre Feu (non précisé dans le GDD).
+    public const float CurfewWarning = 2f;
+    // Yeux du labyrinthe : pendant le Couvre Feu et les ordres des glyphes, faisceau rouge, seulement à 50 m d'un joueur.
+    public const float EyeBeamRange = 50f;
     // Note 07 du chapitre 14 (V0.6) : chaque fois qu'un joueur est obnubilé par un son de cloche, il perd 20 de sérénité.
     public const int BellObsessionSerenity = 20;
 
@@ -169,6 +174,7 @@ public static class GameRules
     public const float FouKillDistance = 0.8f;
     public const float FouDanceDuration = 3f;
     public const float FouBellsTail = 1.4f;                 // les grelots ne se coupent pas net : écho planant
+    public const float FouHuntRange = 30f;                  // V0.6.8 : "en recherche", il se dirige vers un joueur à 30 m ou moins
 
     // ---------- Le Roi (entité ID 8, Cauchemar, V0.4.4) ----------
 
@@ -292,6 +298,13 @@ public static class GameRules
     public const int BridgeBreakPlayers = 3;
     public const float BridgeFallCleanup = 2f;
     public const float ArchChance = 0.25f;
+    // Chapitre 10.3 (V0.6.8) : renfoncements en biseau des couloirs, rambardes des très hautes salles, fenêtres brutalistes, statue.
+    public const float BevelChance = 0.15f;
+    public const float RailRoomHeight = 20f, RailStairMaxWidth = 6f, RailPlatformLevel = 10f, RailChance = 0.25f;
+    public const float WindowRoomHeight = 30f, WindowMinLevel = 20f, LitWindowChance = 0.1f;
+    public const float StatueFilledRoomChance = 0.5f, StatueDogHeadChance = 0.05f;
+    // Tête de chien de la statue : base du cou (fractions de l'emprise de la statue) et taille (fraction de sa hauteur).
+    public const float StatueNeckHeight = 0.85f, StatueHeadBase = 0.805f, StatueNeckX = 0.5f, StatueNeckZ = 0.6f, StatueDogHeadSize = 0.18f;
     public static int SlidesInZone(int zone) => zone < 3 ? 0 : Mathf.Min(zone - 2, 3);
     // Chapitre 9.2 : à partir de cette zone impaire débloquée, les zones trop en arrière sont fermées puis désactivées.
     public const int FirstSealingZone = 7;
@@ -337,7 +350,7 @@ public static class GameRules
 
     // Charge de la Balise du Hub (au début du jeu, et après chaque Chargeur).
     public const float BeaconCharge = 10f * 60f;
-    // Balise Améliorée (7.3) : ni Couvre Feu ni apparition d'entité dans ce rayon.
+    // Balise Améliorée (7.3, V0.6.8) : aucune entité n'apparaît dans ce rayon ; pendant le Couvre Feu, un joueur s'y trouve comme au Hub.
     public const float EnhancedBeaconRadius = 5f;
 
     // ---------- Téléporteur (7.2) et Station Curative (7.4) ----------
@@ -430,12 +443,12 @@ public static class Items
         new ItemDef { type = ItemType.Balise, terminalId = 2, name = "Balise", shortName = "Balise", buyPrice = 30, sellPrice = 1, color = new Color(0.3f, 0.6f, 1f) },
         new ItemDef { type = ItemType.PostIt, terminalId = 3, name = "Post-It", shortName = "Post-It", buyPrice = 5, sellPrice = 1, color = new Color(1f, 0.93f, 0.35f) },
         new ItemDef { type = ItemType.Cle, terminalId = 4, name = "Clé", shortName = "Clé", buyPrice = 200, sellPrice = 1, color = new Color(0.55f, 0.8f, 1f) },
-        new ItemDef { type = ItemType.Boussole, terminalId = 5, name = "Boussole", shortName = "Boussole", buyPrice = 100, sellPrice = 0, color = new Color(0.9f, 0.9f, 0.9f), inventory = false },
-        new ItemDef { type = ItemType.Chargeur, terminalId = 6, name = "Chargeur", shortName = "Chargeur", buyPrice = 50, sellPrice = 1, color = new Color(0.35f, 0.8f, 1f) },
-        new ItemDef { type = ItemType.Teleporteur, terminalId = 7, name = "Téléporteur", shortName = "Téléport.", buyPrice = 200, sellPrice = 1, color = new Color(1f, 0.7f, 0.15f) },
-        new ItemDef { type = ItemType.BaliseAmelioree, terminalId = 8, name = "Balise Améliorée", shortName = "Balise +", buyPrice = 50, sellPrice = 1, color = new Color(1f, 0.3f, 0.3f) },
-        new ItemDef { type = ItemType.StationCurative, terminalId = 9, name = "Station Curative", shortName = "Station", buyPrice = 150, sellPrice = 1, color = new Color(0.4f, 1f, 0.45f) },
-        new ItemDef { type = ItemType.Canon, terminalId = 10, name = "Canon", shortName = "Canon", buyPrice = 200, sellPrice = 1, color = new Color(0.9f, 0.2f, 0.2f) },
+        new ItemDef { type = ItemType.Chargeur, terminalId = 5, name = "Chargeur", shortName = "Chargeur", buyPrice = 50, sellPrice = 1, color = new Color(0.35f, 0.8f, 1f) },
+        new ItemDef { type = ItemType.Teleporteur, terminalId = 6, name = "Téléporteur", shortName = "Téléport.", buyPrice = 200, sellPrice = 1, color = new Color(1f, 0.7f, 0.15f) },
+        new ItemDef { type = ItemType.BaliseAmelioree, terminalId = 7, name = "Balise Améliorée", shortName = "Balise +", buyPrice = 50, sellPrice = 1, color = new Color(0.95f, 0.95f, 1f) },
+        new ItemDef { type = ItemType.StationCurative, terminalId = 8, name = "Station Curative", shortName = "Station", buyPrice = 150, sellPrice = 1, color = new Color(0.4f, 1f, 0.45f) },
+        new ItemDef { type = ItemType.Canon, terminalId = 9, name = "Canon", shortName = "Canon", buyPrice = 200, sellPrice = 1, color = new Color(0.9f, 0.2f, 0.2f) },
+        new ItemDef { type = ItemType.Boussole, terminalId = 10, name = "Boussole", shortName = "Boussole", buyPrice = 150, sellPrice = 0, color = new Color(0.9f, 0.9f, 0.9f), inventory = false },
         // Autres objets (V0.4.6 : trouvés dans les monticules ; V0.4.7 : objets uniques posés dans la Zone 1 à la génération).
         new ItemDef { type = ItemType.Canard, otherId = "O1", name = "Canard en Plastique", shortName = "Canard", buyPrice = 0, sellPrice = 30, color = new Color(1f, 0.84f, 0.15f) },
         new ItemDef { type = ItemType.Os, otherId = "O2", name = "Os", shortName = "Os", buyPrice = 0, sellPrice = 20, color = new Color(0.93f, 0.9f, 0.8f) },

@@ -6,8 +6,6 @@ using UnityEngine;
 public class GameFonts : ScriptableObject
 {
     public Font main;
-    // Note 02 du chapitre 6.1 (V0.6.1) : titre "Pavlov's Theory" en police de style soviétique (Ruslan Display, licence OFL).
-    public Font title;
-    // Patte de chien qui remplace le "o" de "Theory" (Assets/Sprite/DogIcon).
-    public Sprite titleIcon;
+    // Titre "Pavlov's Theory" du menu du lobby (Assets/Sprite/Title).
+    public Sprite titleImage;
 }

@@ -132,6 +132,22 @@ public abstract class Entity : MonoBehaviour
     public virtual string Extra => "";
     protected virtual void ApplyExtra(string extra) { }
 
+    // Note 12 du chapitre 3.1 (V0.6.8), chez l'hôte : un joueur aboie à 15 m ou moins d'un Cauchemar. Il se retourne vers lui et le
+    // prend en chasse, même s'il en chassait un autre, sauf s'il est occupé (voir chaque entité).
+    public void HearBark(PlayerPresence barker)
+    {
+        if (!Nightmare || !Valid(barker) || barker.PlayerId == TargetId && IsHunting) return;
+        if ((barker.Position - transform.position).sqrMagnitude > GameRules.BarkTauntRange * GameRules.BarkTauntRange || !CanBeTaunted) return;
+        Vector3 d = Horizontal(barker.Position - transform.position);
+        if (d.sqrMagnitude > 0.0001f) transform.rotation = Quaternion.LookRotation(d);
+        OnTaunted(barker);
+    }
+
+    // Déjà en chasse (un aboiement de sa proie ne relance rien) ; capable de changer de proie ; mise en chasse.
+    protected virtual bool IsHunting => false;
+    protected virtual bool CanBeTaunted => false;
+    protected virtual void OnTaunted(PlayerPresence barker) { }
+
     // ================= Réseau et affichage =================
 
     public void SetNetState(double time, Vector3 pos, float yaw, byte netState, string target, int pulse, string extra)
