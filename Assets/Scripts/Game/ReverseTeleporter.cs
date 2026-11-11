@@ -8,15 +8,20 @@ using UnityEngine;
 // Visé pendant sa recharge, il affiche le temps restant (sans contour ni touche).
 public class ReverseTeleporter : Interactable
 {
-    // Le modèle du Téléporteur, 5 fois plus large, est aplati à 25 cm de haut pour qu'on marche dessus. Rayon du disque : mesuré
+    // Le modèle du Téléporteur, 5 fois plus large, est aplati à 40 cm de haut (un peu surélevé, posé au sol) pour qu'on marche dessus. Rayon du disque : mesuré
     // sur le modèle.
-    const float SurfaceHeight = Beacon.PadHeight, FlatHeight = 0.25f;
+    const float SurfaceHeight = Beacon.PadHeight, FlatHeight = 0.4f;
     public float Radius { get; private set; } = 0.45f * GameRules.ReverseTeleporterScale;
     static readonly Color Dull = new Color(0.35f, 0.35f, 0.38f);
+    // Orange vif du coeur du Téléporteur (la jauge ne prend pas la teinte terne de la recharge).
+    static readonly Color GaugeOrange = new Color(1f, 0.65f, 0.1f);
 
     public int Hub { get; private set; }
     public float CooldownEnd { get; private set; } = -1f;
     public bool CoolingDown => Time.time < CooldownEnd;
+    // La recharge vient de se terminer (une seule fois, lu par GameSession pour le son Teleporteur_Pret).
+    public bool JustReady { get; private set; }
+    bool wasCooling;
     public Vector3 Top => transform.position + Vector3.up * (SurfaceHeight + 0.6f);
 
     Renderer[] bodies;
@@ -44,7 +49,7 @@ public class ReverseTeleporter : Interactable
             GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.04f, 0f) * GameRules.ReverseTeleporterScale, new Vector3(0.9f, 0.04f, 0.9f) * GameRules.ReverseTeleporterScale, GameArt.Lit("PadBronze", new Color(0.55f, 0.42f, 0.25f), null, 0.6f));
             GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.09f, 0f) * GameRules.ReverseTeleporterScale, new Vector3(0.6f, 0.03f, 0.6f) * GameRules.ReverseTeleporterScale, GameArt.Emissive("PadCore", new Color(1f, 0.65f, 0.1f), new Color(0.8f, 0.45f, 0.05f)));
         }
-        // 5 fois plus large, mais aplati : on marche dessus comme sur un Téléporteur (aucun collider).
+        // 5 fois plus large, mais aplati ; on y monte par son bord en pente (collision en tronc de cône).
         visual.localScale = new Vector3(1f, FlatHeight / height, 1f);
         pad.bodies = visual.GetComponentsInChildren<Renderer>();
         if (pad.bodies.Length > 0)
@@ -54,6 +59,7 @@ public class ReverseTeleporter : Interactable
             pad.Radius = Mathf.Max(0.5f, Mathf.Max(b.extents.x, b.extents.z));
         }
         pad.block = new MaterialPropertyBlock();
+        pad.BuildCollision();
 
         pad.glow = new GameObject("Lueur").AddComponent<Light>();
         pad.glow.transform.SetParent(go.transform, false);
@@ -70,20 +76,50 @@ public class ReverseTeleporter : Interactable
         return pad;
     }
 
+    // Collision : tronc de cône convexe (bord en pente d'environ 34°) que le personnage gravit comme une rampe.
+    Mesh collisionMesh;
+    void BuildCollision()
+    {
+        const int Segs = 32;
+        float bottom = Radius + 0.1f, top = Radius - 0.5f;
+        var verts = new Vector3[Segs * 2];
+        var tris = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < Segs; i++)
+        {
+            float a = (float)i / Segs * Mathf.PI * 2f;
+            var dir = new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a));
+            verts[i] = dir * bottom;
+            verts[Segs + i] = dir * top + Vector3.up * FlatHeight;
+            int j = (i + 1) % Segs;
+            tris.AddRange(new[] { i, Segs + i, Segs + j, i, Segs + j, j });
+            if (i > 0 && i < Segs - 1)
+            {
+                tris.AddRange(new[] { Segs, Segs + i + 1, Segs + i });
+                tris.AddRange(new[] { 0, i, i + 1 });
+            }
+        }
+        collisionMesh = new Mesh { name = "Téléporteur Inversé (collision)", vertices = verts, triangles = tris.ToArray() };
+        var go = new GameObject("Collision");
+        go.transform.SetParent(transform, false);
+        var mc = go.AddComponent<MeshCollider>();
+        mc.convex = true;
+        mc.sharedMesh = collisionMesh;
+    }
+
     void BuildGauge()
     {
         gaugeRoot = new GameObject("Jauge");
         gaugeRoot.transform.SetParent(transform, false);
         var back = new GameObject("Jauge (fond)");
         back.transform.SetParent(gaugeRoot.transform, false);
-        back.transform.localPosition = Vector3.up * 0.015f;
+        back.transform.localPosition = Vector3.up * 0.05f;
         back.AddComponent<MeshFilter>().sharedMesh = BeaconNetwork.Ring(1f, Radius + 0.15f, Radius + 0.5f);
         back.AddComponent<MeshRenderer>().sharedMaterial = BeaconNetwork.BrushMaterial("InverseJaugeFond", new Color(0.09f, 0.09f, 0.1f), 21, 3000);
         var fill = new GameObject("Jauge (charge)");
         fill.transform.SetParent(gaugeRoot.transform, false);
-        fill.transform.localPosition = Vector3.up * 0.025f;
+        fill.transform.localPosition = Vector3.up * 0.07f;
         gaugeFill = fill.AddComponent<MeshFilter>();
-        fill.AddComponent<MeshRenderer>().sharedMaterial = BeaconNetwork.BrushMaterial("InverseJauge" + Hub, Beacon.HubColor(Hub), 22, 3001);
+        fill.AddComponent<MeshRenderer>().sharedMaterial = BeaconNetwork.BrushMaterial("InverseJauge", GaugeOrange, 22, 3001);
         gaugeRoot.SetActive(false);
     }
 
@@ -95,7 +131,7 @@ public class ReverseTeleporter : Interactable
     public override bool CanInteract => CoolingDown;
     public override bool InfoOnly => true;
     protected override bool OutlineVisible => false;
-    public override string Prompt => Loc.F("Téléporteur Inversé en recharge : {0} s", Mathf.CeilToInt(CooldownLeft));
+    public override string Prompt => Loc.F("Recharge : {0} s", Mathf.CeilToInt(CooldownLeft));
     public override void Interact() { }
 
     // Pieds du personnage sur le disque.
@@ -120,11 +156,14 @@ public class ReverseTeleporter : Interactable
         {
             if (beam == null) beam = network.NewBeam();
             if (!beam.gameObject.activeSelf) beam.gameObject.SetActive(true);
-            network.ShowBeam(beam, hubBeacon, Top, hubBeacon.Top);
+            // Le rayon touche le disque en son point le plus proche de la Balise du Hub.
+            network.ShowBeam(beam, hubBeacon, BeaconNetwork.TouchPoint(bodies, hubBeacon.Top, Top, true), hubBeacon.Top);
         }
         else if (beam != null && beam.gameObject.activeSelf) beam.gameObject.SetActive(false);
 
         bool cooling = CoolingDown;
+        JustReady = wasCooling && !cooling;
+        wasCooling = cooling;
         bool wantDull = cooling || !linked;
         if (wantDull != dull)
         {
@@ -148,6 +187,7 @@ public class ReverseTeleporter : Interactable
     void OnDestroy()
     {
         if (beam != null) Destroy(beam.gameObject);
+        if (collisionMesh != null) Destroy(collisionMesh);
         if (gaugeFill != null && gaugeFill.sharedMesh != null) Destroy(gaugeFill.sharedMesh);
     }
 }

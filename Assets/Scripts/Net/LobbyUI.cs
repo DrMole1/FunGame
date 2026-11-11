@@ -195,10 +195,13 @@ public class LobbyUI : MonoBehaviour
             && !OrbitCamera.ResumePending;
         // Fenêtre "Modifier Contrôles" ouverte : les menus pause (gauche, droite, drapeaux) s'effacent, pour la clarté,
         // et reviennent à sa fermeture.
-        bool pauseMenus = paused && !ControlsUI.IsOpen;
+        // Pendant le chargement : aucun menu (ni clic ni survol sur des boutons invisibles).
+        bool loading = LoadingScreen.Visible;
+        bool pauseMenus = paused && !ControlsUI.IsOpen && !loading;
         if (pausePanel.activeSelf != pauseMenus) pausePanel.SetActive(pauseMenus);
         if (hintPanel.activeSelf != pauseMenus) hintPanel.SetActive(pauseMenus);
-        bool flagsShown = lobbyPanel.activeSelf || pauseMenus;
+        if (loading && lobbyPanel.activeSelf) lobbyPanel.SetActive(false);
+        bool flagsShown = (lobbyPanel.activeSelf || pauseMenus) && !loading;
         if (langRow.activeSelf != flagsShown) langRow.SetActive(flagsShown);
         // Souris sur le menu du lobby ou le menu pause : la scène s'assombrit (fondu dans FilmGrain).
         FilmGrain.MenuHover = Hovered(lobbyBackdrop) || Hovered(pausePanel.transform as RectTransform) || Hovered(controlsPanel)

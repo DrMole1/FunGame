@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6.10";
+    public const string Version = "V0.6.11";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -96,6 +96,9 @@ public static class GameRules
     public const int LateSpawnRound = 1;
     public const float LateNightmareDelay = 3f * 60f;
     public const float LateNormalsDelay = 2f * 60f;
+    // V0.6.11 : aux manches suivantes, les Cauchemars apparaissent à partir de 1 minute de jeu (son Spawn_Manche, une fois
+    // par manche, pour les joueurs hors d'un Hub).
+    public const float NightmareDelay = 60f;
 
     // ---------- Le Couvre Feu (chapitre 10.1, ex-Abjuration) ----------
 
@@ -211,6 +214,8 @@ public static class GameRules
     public const float CavalierIgnore = 2f;                 // puis ne traque plus ce joueur pendant 2 s
     public const float CavalierStompMin = 6f, CavalierStompMax = 14f, CavalierStompDuration = 1.5f;
     public const float CavalierTurnBackChance = 0.2f;
+    // GDD 12 (V0.6.11) : Cavalier_Immobilise seulement s'il a parcouru plus de 4 m depuis sa dernière immobilisation.
+    public const float CavalierTerrorDistance = 4f;
 
     // ---------- Le Réveil (entité ID 10, Monticule de terre, V0.4.7) ----------
 
@@ -234,7 +239,7 @@ public static class GameRules
 
     // V0.6 : plus de dégâts toutes les 2 secondes ; arrivée à 0,4 m de sa proie, elle explose et tue les joueurs à moins de 2 m.
     public const int ClocheDamage = 80;                   // V0.6.10 (avant : 100) : l'explosion blesse, elle ne tue plus forcément
-    public const float ClocheSightRange = 25f;           // V0.4.9 (avant : 50 m)
+    public const float ClocheSightRange = 18f;           // V0.6.11 (avant : 25 m ; V0.4.9 : 50 m)
     public const float ClocheStopDistance = 0.4f;
     public const float ClocheBlastRadius = 2f;
     public const float ClocheKnockback = 8f;

@@ -259,7 +259,7 @@ public static class Loc
         R("La Boussole s'affiche désormais chez tous les joueurs.", "The Compass now appears for every player.", "La Brújula aparece ahora para todos los jugadores.", "Компас теперь виден у всех игроков."),
         R("Votre inventaire est plein ! Impossible de recevoir {0}.", "Your inventory is full! Cannot receive {0}.", "¡Tu inventario está lleno! No puedes recibir {0}.", "Инвентарь полон! Невозможно получить «{0}»."),
         R("Vous avez reçu : {0}.", "You received: {0}.", "Has recibido: {0}.", "Вы получили: {0}."),
-        R("Téléporteur Inversé en recharge : {0} s", "Reverse Teleporter recharging: {0} s", "Teletransportador Inverso recargándose: {0} s", "Обратный телепорт перезаряжается: {0} с"),
+        R("Recharge : {0} s", "Recharging: {0} s", "Recarga: {0} s", "Перезарядка: {0} с"),
         R("Le Téléporteur Inversé est apparu au centre du Hub.", "The Reverse Teleporter appeared in the middle of the Hub.",
             "El Teletransportador Inverso ha aparecido en el centro del Hub.", "Обратный телепорт появился в центре Хаба."),
         R("Aucune Balise du flux de ce Hub : le Téléporteur Inversé n'a nulle part où vous envoyer.",

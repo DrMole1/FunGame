@@ -54,7 +54,15 @@ public partial class GameSession
     // À chaque image : lien, teinte et jauge des disques ; le joueur local signale à l'hôte s'il se tient sur l'un d'eux.
     void UpdateReverseTeleporters()
     {
-        foreach (var pad in reversePads.Values) if (pad != null) pad.Refresh(beacons);
+        foreach (var kv in reversePads)
+        {
+            var pad = kv.Value;
+            if (pad == null) continue;
+            pad.Refresh(beacons);
+            // GDD 12 (V0.6.11) : Teleporteur_Pret, recharge terminée ; entendu (spatialisé) par les joueurs présents dans son Hub.
+            if (pad.JustReady && WorldBuilder.IsInHub(player.transform.position) && CurrentHub() == kv.Key)
+                GameAudio.Play3D("teleporter_ready", pad.Top, 1f, 40f, 0f);
+        }
         int on = 0;
         if (!status.Dead && !Teleporting && phase != Phase.GameOver && !InCannon && !CannonFlying && !InKennel && !Sliding)
         {

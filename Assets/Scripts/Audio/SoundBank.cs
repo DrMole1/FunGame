@@ -34,6 +34,8 @@ public static class SoundBank
         // V0.6.7 : fin de l'écran de chargement.
         "zipper",
         "slide_rub",
+        // V0.6.11 : recharge du Téléporteur Inversé terminée, apparition des Cauchemars de la manche (enregistrés seulement).
+        "teleporter_ready", "round_spawn",
     };
 
     // Synthèse des sons étalée sur les premières images : le jeu ne se fige pas au lancement. Un son demandé avant son tour est

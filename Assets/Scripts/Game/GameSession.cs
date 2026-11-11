@@ -690,6 +690,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateDread();
         UpdateCorpseDrag();
         UpdateBlood();
+        UpdateRoundSpawnSound();
         UpdateSpectate();
 
         screenTimer -= Time.unscaledDeltaTime;

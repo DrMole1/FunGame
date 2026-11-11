@@ -6,11 +6,15 @@ public static class LoadingScreen
 {
     static GameObject root;
     static Text label;
+    // Écran de chargement affiché : les menus (lobby, pause, drapeaux) sont retirés et rien n'est cliquable dessous.
+    public static bool Visible => root != null && root.activeSelf;
 
     // 'percent' : de 0 à 100 (par tranches de 2 %, V0.6.10).
     public static void Show(int percent)
     {
         if (root == null) Build();
+        if (!root.activeSelf && UnityEngine.EventSystems.EventSystem.current != null)
+            UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(null);
         root.SetActive(true);
         label.text = Loc.T("Chargement…") + "  " + Mathf.Clamp(percent, 0, 100) + " %";
     }
@@ -22,7 +26,7 @@ public static class LoadingScreen
 
     static void Build()
     {
-        root = new GameObject("EcranDeChargement", typeof(Canvas), typeof(CanvasScaler));
+        root = new GameObject("EcranDeChargement", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         Object.DontDestroyOnLoad(root);
         var canvas = root.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -38,6 +42,8 @@ public static class LoadingScreen
         rect.anchorMax = Vector2.one;
         rect.offsetMin = rect.offsetMax = Vector2.zero;
         back.GetComponent<Image>().color = Color.black;
+        // Le fond noir intercepte la souris : ni clic ni survol (et son) sur les menus cachés dessous.
+        back.GetComponent<Image>().raycastTarget = true;
 
         var text = new GameObject("Texte", typeof(RectTransform), typeof(Text));
         text.transform.SetParent(root.transform, false);

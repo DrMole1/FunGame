@@ -75,6 +75,12 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: 9012b9f35a19bb8478bf2cca277c40ec, type: 3}
   - key: cavalier_kill
     clip: {fileID: 8300000, guid: 1a11ab2526d29004189228906c172d8e, type: 3}
+  - key: cavalier_stomp
+    clip: {fileID: 8300000, guid: ef0650f937b2ed04aaf6aa6434c94420, type: 3}
+  - key: teleporter_ready
+    clip: {fileID: 8300000, guid: 4a1c4ab6997b2c24b8f53ab436ba0f5d, type: 3}
+  - key: round_spawn
+    clip: {fileID: 8300000, guid: 85c51d7a10a54b744a14621a378bf70a, type: 3}
   - key: heart_thump
     clip: {fileID: 8300000, guid: bf985b3895aa2ea41a7dd9dad3974595, type: 3}
   - key: hub_music

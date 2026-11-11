@@ -111,6 +111,9 @@ public class Beacon : Interactable
             default: return Height;
         }
     }
+    // Extrémité du rayon qui alimente cet appareil depuis 'source' : son point le plus proche (disque pour le Téléporteur).
+    public Vector3 BeamEnd(Vector3 source) => BeaconNetwork.TouchPoint(bodies, source, Top, Kind == DeviceKind.Teleporter);
+
     // Bouche du Canon, d'où part le boulet.
     public Vector3 Muzzle => transform.position + Vector3.up * CanonBarrel;
 
@@ -867,8 +870,10 @@ public class BeaconNetwork : MonoBehaviour
             if (kv.Key == null || kv.Value == null) continue;
             if (!beams.TryGetValue(kv.Key, out var line) || line == null) beams[kv.Key] = line = NewBeam();
             if (!line.gameObject.activeSelf) line.gameObject.SetActive(true);
-            // De la Balise éloignée vers celle qui la relie au Hub : l'énergie circule dans ce sens.
-            ShowBeam(line, kv.Key, kv.Key.Top, kv.Value.Top);
+            // De la Balise éloignée vers celle qui la relie au Hub : l'énergie circule dans ce sens. Un appareil (Téléporteur,
+            // Station, Canon, Télévision) : le rayon touche son point le plus proche de la Balise.
+            Vector3 from = kv.Key.Relays ? kv.Key.Top : kv.Key.BeamEnd(kv.Value.Top);
+            ShowBeam(line, kv.Key, from, kv.Value.Top);
         }
         foreach (var kv in beams)
             if (kv.Value != null && (kv.Key == null || !parentOf.ContainsKey(kv.Key)) && kv.Value.gameObject.activeSelf)
@@ -886,6 +891,41 @@ public class BeaconNetwork : MonoBehaviour
         beamBlock.SetFloat(BeamLengthId, Vector3.Distance(from, to));
         line.SetPropertyBlock(beamBlock);
     }
+
+    // Extrémité d'un rayon sur un objet (appareil, borne, Téléporteur Inversé) : le point de ses modèles le plus proche de
+    // 'from' (la Balise qui l'alimente), pris sur la boîte de chaque maillage, puis un peu enfoncé pour que le rayon touche
+    // l'objet (ses extrémités s'estompent). 'round' : objet en disque (Téléporteurs), le point reste sur le disque.
+    public static Vector3 TouchPoint(Renderer[] bodies, Vector3 from, Vector3 fallback, bool round = false)
+    {
+        if (bodies == null) return fallback;
+        Vector3 best = fallback;
+        float bestDist = float.MaxValue;
+        Bounds all = default;
+        bool any = false;
+        foreach (var r in bodies)
+        {
+            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
+            Mesh mesh = r is SkinnedMeshRenderer skinned ? skinned.sharedMesh : r.TryGetComponent(out MeshFilter mf) ? mf.sharedMesh : null;
+            if (mesh == null) continue;
+            Bounds local = mesh.bounds;
+            Vector3 p = r.transform.TransformPoint(local.ClosestPoint(r.transform.InverseTransformPoint(from)));
+            float d = (p - from).sqrMagnitude;
+            if (d < bestDist) { bestDist = d; best = p; }
+            if (any) all.Encapsulate(r.bounds); else { all = r.bounds; any = true; }
+        }
+        if (!any) return fallback;
+        if (round)
+        {
+            Vector3 c = all.center;
+            Vector2 flat = new Vector2(best.x - c.x, best.z - c.z);
+            float radius = Mathf.Min(all.extents.x, all.extents.z);
+            if (flat.magnitude > radius) { flat = flat.normalized * radius; best.x = c.x + flat.x; best.z = c.z + flat.y; }
+        }
+        Vector3 into = best - from;
+        return into.sqrMagnitude > 0.0001f ? best + into.normalized * BeamTouchDepth : best;
+    }
+
+    const float BeamTouchDepth = 0.12f;
 
     public LineRenderer NewBeam()
     {

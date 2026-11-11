@@ -33,6 +33,8 @@ public class ArcadeMachine : Interactable
     public bool Busy => User.Length > 0;
     // Point d'attache du rayon d'énergie (haut de la borne) et emplacement du lot gagné (à terre, devant elle).
     public Vector3 Anchor => transform.TransformPoint(new Vector3(0f, Height * 0.93f, 0.15f));
+    // Extrémité du rayon venu de 'source' : point de la borne le plus proche.
+    public Vector3 BeamEnd(Vector3 source) => BeaconNetwork.TouchPoint(bodies, source, Anchor);
     public Vector3 PrizeSpot => transform.TransformPoint(Kind == ArcadeKind.Dance ? new Vector3(1.05f, 0.02f, 0.75f) : new Vector3(0.35f, 0.02f, 1.05f));
     public string KindName => Kind == ArcadeKind.Roulette ? "Roulette" : Kind == ArcadeKind.Claw ? "Machine à pince" : "Arcade Dance";
 

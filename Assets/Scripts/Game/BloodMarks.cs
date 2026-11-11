@@ -5,11 +5,11 @@ using UnityEngine;
 // Les gouttes ont trois modèles (flaque éclaboussée, coulure dans le sens de la marche, éclaboussures en grappe), tirés au hasard.
 public class BloodMarks : MonoBehaviour
 {
-    const int Capacity = 600;
+    const int Capacity = 1500;
     const float Lifetime = 600f, FadeRefresh = 2f, Lift = 0.02f, GroundProbe = 4f;
-    // Empreintes : rouge sombre uni. Gouttes : sang frais plus vif, la texture l'ombre (bords séchés, centre épais).
+    // Empreintes : rouge sombre uni. Gouttes : rouge très sombre, la texture l'ombre (bords séchés, centre épais).
     static readonly Color PawBlood = new Color(0.32f, 0.015f, 0.02f, 0.92f);
-    static readonly Color DropBlood = new Color(0.5f, 0.012f, 0.02f, 0.97f);
+    static readonly Color DropBlood = new Color(0.27f, 0.008f, 0.012f, 0.98f);
     const int Cells = 4, DropVariants = 3, Cell = 256;
 
     // Pool : la flaque éclaboussée seule (mare de sang d'un personnage qui explose).

@@ -121,6 +121,10 @@ public static class GameSetup
         ("cavalier_alert", "Assets/Sounds/Cavalier_Alerte.wav"),
         ("cavalier_terror", "Assets/Sounds/Cavalier_Immobilise.wav"),
         ("cavalier_kill", "Assets/Sounds/Cavalier_Tuer.wav"),
+        // V0.6.11 : pause du Cavalier (coup de masse au sol), recharge du Téléporteur Inversé terminée, Cauchemars de la manche.
+        ("cavalier_stomp", "Assets/Sounds/Cavalier_Pause.wav"),
+        ("teleporter_ready", "Assets/Sounds/Teleporteur_Pret.wav"),
+        ("round_spawn", "Assets/Sounds/Spawn_Manche.wav"),
         // V0.4.11 : battement des pulsations cardiaques (un « poum-poum » par pulsation).
         ("heart_thump", "Assets/Sounds/Battement_Coeur.wav"),
         // Musique du chapiteau, en boucle.

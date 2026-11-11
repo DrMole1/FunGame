@@ -34,7 +34,7 @@ public class Cavalier : Entity
     // Figé par le regard du joueur traqué (transmis à tous) : son animation s'arrête net.
     public bool Frozen { get; private set; }
 
-    float stateTimer, stompTimer, chased, lastTerror = -10f;
+    float stateTimer, stompTimer, chased, sinceFreeze, lastTerror = -10f;
     bool running, struck;
     Vector3 lastPos;
     readonly Dictionary<string, float> ignoreUntil = new Dictionary<string, float>();
@@ -97,7 +97,9 @@ public class Cavalier : Entity
                 {
                     // Regardé : figé sur place, sans même se tourner vers lui. Cri de terreur s'il courait (pas à la
                     // première immobilisation, déjà marquée par le cri d'alerte ; pas plus d'un toutes les 1,5 s).
-                    if (running && Time.time - lastTerror > TerrorInterval) { lastTerror = Time.time; Pulse++; }
+                    // V0.6.11 : seulement s'il a parcouru plus de 4 m depuis sa dernière immobilisation.
+                    if (running && sinceFreeze > GameRules.CavalierTerrorDistance && Time.time - lastTerror > TerrorInterval) { lastTerror = Time.time; Pulse++; }
+                    if (running) sinceFreeze = 0f;
                     Speed = 0f;
                     running = false;
                     Frozen = true;
@@ -110,7 +112,9 @@ public class Cavalier : Entity
                 }
                 Speed = GameRules.BaseSpeed * GameRules.CavalierRunMultiplier;
                 Pursue(target, dt);
-                chased += Horizontal(transform.position - lastPos).magnitude;
+                float moved = Horizontal(transform.position - lastPos).magnitude;
+                chased += moved;
+                sinceFreeze += moved;
                 if (chased >= GameRules.CavalierChaseDistance) StopChase();
                 break;
             }
@@ -139,6 +143,7 @@ public class Cavalier : Entity
         stateTimer = 0f;
         TargetId = p.PlayerId;
         chased = 0f;
+        sinceFreeze = 0f;
         running = false;
         Watched = false;
         ClearPath();
@@ -188,7 +193,8 @@ public class Cavalier : Entity
     Light eyeLight;
     readonly GameAudio.FadedLoop steps = new GameAudio.FadedLoop("cavalier_gallop", 0.8f, GameRules.CavalierGallopRange, 0.3f);
     float walkPhase, strikeShownAt = -10f, stompShownAt = -10f;
-    bool stompPlayed, strikePlayed;
+    bool stompPlayed, stompSoundPlayed, strikePlayed;
+    const float StompSoundPeak = 0.46f;
 
     protected override void BuildVisual()
     {
@@ -314,7 +320,7 @@ public class Cavalier : Entity
         // GDD 12 (V0.5.2) : Cavalier_Alerte et Cavalier_Immobilise ne sont entendus que par le joueur traqué.
         if ((State)next == State.Chase && (State)previous <= State.Stomp && TargetIsLocal) GameAudio.Play3D("cavalier_alert", mouth, 1f, 40f, 0f);
         if ((State)next == State.Strike) { strikeShownAt = Time.time; strikePlayed = false; }
-        if ((State)next == State.Stomp) { stompShownAt = Time.time; stompPlayed = false; }
+        if ((State)next == State.Stomp) { stompShownAt = Time.time; stompPlayed = stompSoundPlayed = false; }
     }
 
     // Le joueur le regarde à nouveau : il se fige avec un cri de terreur (Cavalier_Immobilise).
@@ -381,11 +387,17 @@ public class Cavalier : Entity
 
     void PlayImpacts()
     {
+        // GDD 12 (V0.6.11) : Cavalier_Pause (clé "cavalier_stomp"), entendu de tous ; son coup de masse (à 0,46 s dans le
+        // fichier) tombe avec l'impact visible.
+        if (Current == State.Stomp && !stompSoundPlayed && Time.time - stompShownAt >= StompHitTime - StompSoundPeak)
+        {
+            stompSoundPlayed = true;
+            GameAudio.Play3D("cavalier_stomp", transform.position + transform.forward * 1.1f, 1f, 30f, 0f);
+        }
         if (Current == State.Stomp && !stompPlayed && Time.time - stompShownAt >= StompHitTime)
         {
             stompPlayed = true;
             Vector3 ground = transform.position + transform.forward * 1.1f;
-            GameAudio.Play3D("cavalier_stomp", ground, 1f, 30f, 0.05f);
             Fx.Burst(ground + Vector3.up * 0.1f, Fx.Dirt, 12, 3f, 0.08f, 0.8f);
         }
         if (Current == State.Strike && !strikePlayed && Time.time - strikeShownAt >= StrikeHitTime)

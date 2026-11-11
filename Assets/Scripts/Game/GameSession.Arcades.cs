@@ -324,7 +324,8 @@ public partial class GameSession
             }
             if (line == null) arcadeBeams[m.Id] = line = beacons.NewBeam();
             if (!line.gameObject.activeSelf) line.gameObject.SetActive(true);
-            beacons.ShowBeam(line, b, b.Top, m.Anchor);
+            // Comme pour les appareils : le rayon touche la borne en son point le plus proche, l'énergie circule vers la Balise.
+            beacons.ShowBeam(line, b, m.BeamEnd(b.Top), b.Top);
         }
         UpdateArcadePlay();
         UpdateDisco();

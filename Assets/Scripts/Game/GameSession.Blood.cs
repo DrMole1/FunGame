@@ -5,7 +5,7 @@ using UnityEngine;
 // Messages : FP|x|y|z|cap   empreintes de pattes laissées par une chute (les traînées se déduisent des PV déjà transmis).
 public partial class GameSession
 {
-    const float TrailSpacing = 0.42f, PawSpacing = 0.22f, PawSize = 0.42f, DropSizeMin = 0.3f, DropSizeMax = 0.55f;
+    const float TrailSpacing = 0.2f, PawSpacing = 0.22f, PawSize = 0.42f, DropSizeMin = 0.3f, DropSizeMax = 0.55f;
     const float DragDistance = 1.3f, DragFollowSpeed = 6f;
 
     // ================= Chutes =================

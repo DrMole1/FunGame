@@ -454,6 +454,7 @@ public partial class GameSession
 
     // V0.6 : à chaque manche, 2 entités de type Normal et 2 de type Cauchemar par zone (proche des joueurs, grille prête).
     // Manche 1 : les Normal après 2 minutes de jeu, et un seul Cauchemar, dans la Zone 1, après 3 minutes.
+    // V0.6.11 : aux manches suivantes, les Cauchemars après 1 minute de jeu.
     void PopulateZones()
     {
         float played = GameRules.RoundDuration - timeLeft;
@@ -464,10 +465,28 @@ public partial class GameSession
             var rnd = new System.Random(seed * 17 + round * 613 + z.index * 7907 + nextEntityId * 131);
             if ((!first || played >= GameRules.LateNormalsDelay) && normalsSpawned.Add(z.index))
                 for (int k = 0; k < GameRules.NormalsPerZone; k++) SpawnNormal(z.index, rnd);
-            bool nightmares = !first || z.index == 1 && played >= GameRules.LateNightmareDelay;
+            bool nightmares = first ? z.index == 1 && played >= GameRules.LateNightmareDelay : played >= GameRules.NightmareDelay;
             if (nightmares && nightmaresSpawned.Add(z.index))
                 for (int k = 0, n = first ? 1 : GameRules.NightmaresPerZone; k < n; k++) SpawnNightmare(z.index, rnd);
         }
+    }
+
+    // GDD 12 (V0.6.11) : Spawn_Manche, une seule fois par manche, quand les Cauchemars apparaissent ; entendu par chaque joueur
+    // qui n'est pas dans un Hub (à ce moment-là). Chaque joueur le détecte lui-même (première entité Cauchemar de la manche),
+    // une fois l'heure d'apparition atteinte : les Cauchemars de la manche précédente, pas encore effacés, ne comptent pas.
+    int roundSpawnHeard = -1;
+
+    void UpdateRoundSpawnSound()
+    {
+        if (phase != Phase.Running || roundSpawnHeard == round) return;
+        float played = GameRules.RoundDuration - timeLeft;
+        float delay = round <= GameRules.LateSpawnRound ? GameRules.LateNightmareDelay : GameRules.NightmareDelay;
+        if (played < delay - 1f) return;
+        bool any = false;
+        foreach (var e in entities.Values) if (e != null && e.Nightmare) { any = true; break; }
+        if (!any) return;
+        roundSpawnHeard = round;
+        if (!WorldBuilder.IsInHub(player.transform.position)) GameAudio.Play2D("round_spawn", 0.9f);
     }
 
     // Entités au-delà des zones des joueurs et de leurs voisines : supprimées (elles reviendront si des joueurs approchent).

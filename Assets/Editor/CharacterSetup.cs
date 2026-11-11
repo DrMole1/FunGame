@@ -210,14 +210,18 @@ public static class CharacterSetup
         AssetDatabase.Refresh();
         rigged.SaveAndReimport();
 
+        if (name == BrokenRig) FixBrokenRigAvatar(riggedPath);
         Avatar avatar = AssetDatabase.LoadAllAssetsAtPath(riggedPath).OfType<Avatar>().First();
         if (!avatar.isValid || !avatar.isHuman)
             Debug.LogError(name + " : avatar Humanoid invalide.");
 
         // Animations : avatar copié du modèle, mouvement de racine intégré à la pose sauf la hauteur du saut.
-        AnimationClip walk = ImportClip(dir + name + "_Walk.fbx", "Walk", avatar, true, true);
-        AnimationClip run = ImportClip(dir + name + "_Run.fbx", "Run", avatar, true, true);
-        AnimationClip jump = ImportClip(dir + name + "_Jump.fbx", "Jump", avatar, false, false);
+        // (Princess : marche, course et saut de Perso2, les mêmes animations Meshy, propres sur un squelette correct.)
+        string clipDir = name == BrokenRig ? Root + "/" + BrokenRigClips + "/" + BrokenRigClips : dir + name;
+        Avatar clipAvatar = name == BrokenRig ? AssetDatabase.LoadAllAssetsAtPath(Root + "/" + BrokenRigClips + "/" + BrokenRigClips + "_Rigged.fbx").OfType<Avatar>().First() : avatar;
+        AnimationClip walk = ImportClip(clipDir + "_Walk.fbx", "Walk", clipAvatar, true, true);
+        AnimationClip run = ImportClip(clipDir + "_Run.fbx", "Run", clipAvatar, true, true);
+        AnimationClip jump = ImportClip(clipDir + "_Jump.fbx", "Jump", clipAvatar, false, false);
 
         string controllerPath = dir + name + ".controller";
         AssetDatabase.DeleteAsset(controllerPath);
@@ -243,6 +247,55 @@ public static class CharacterSetup
             controller = controller,
             scale = TargetHeight / MeasureHeight(model),
         };
+    }
+
+    // Princess (Perso3) : l'auto-rig Meshy place mal son squelette (tête et jambes en avant, bras attachés au milieu de la
+    // robe ; Spine01 et Spine au même point, os de longueur nulle). Un nouveau rig Meshy donne le même squelette. L'avatar
+    // Humanoid généré était donc faussé (épaules et bras de travers dans toutes les animations). Correctif : la pose de
+    // référence de l'avatar est la pose de liaison du maillage (vraie T-pose), sans Chest/UpperChest (os de longueur nulle)
+    // ni Jaw (headfront n'est pas une mâchoire).
+    const string BrokenRig = "Perso3", BrokenRigClips = "Perso2";
+
+    [MenuItem("FunGame/Corriger l'avatar de Princess")]
+    public static void FixPrincess()
+    {
+        string riggedPath = Root + "/" + BrokenRig + "/" + BrokenRig + "_Rigged.fbx";
+        FixBrokenRigAvatar(riggedPath);
+        // Marche, course et saut de Perso2 dans son Animator.
+        var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(Root + "/" + BrokenRig + "/" + BrokenRig + ".controller");
+        if (controller == null) return;
+        foreach (var child in controller.layers[0].stateMachine.states)
+        {
+            string n = child.state.name;
+            if (n != "Walk" && n != "Run" && n != "Jump") continue;
+            child.state.motion = AssetDatabase.LoadAllAssetsAtPath(Root + "/" + BrokenRigClips + "/" + BrokenRigClips + "_" + n + ".fbx")
+                .OfType<AnimationClip>().First(c => c.name == n);
+        }
+        EditorUtility.SetDirty(controller);
+        AssetDatabase.SaveAssets();
+        Debug.Log("Avatar de Princess corrigé.");
+    }
+
+    static void FixBrokenRigAvatar(string riggedPath)
+    {
+        var importer = (ModelImporter)AssetImporter.GetAtPath(riggedPath);
+        var instance = Object.Instantiate(AssetDatabase.LoadAssetAtPath<GameObject>(riggedPath));
+        Transform[] all = instance.GetComponentsInChildren<Transform>(true);
+        HumanDescription hd = importer.humanDescription;
+        SkeletonBone[] skeleton = hd.skeleton;
+        for (int k = 0; k < skeleton.Length; k++)
+        {
+            Transform t = all.FirstOrDefault(x => x != instance.transform && x.name == skeleton[k].name);
+            if (t == null) continue;
+            skeleton[k].position = t.localPosition;
+            skeleton[k].rotation = t.localRotation;
+            skeleton[k].scale = t.localScale;
+        }
+        hd.skeleton = skeleton;
+        hd.human = hd.human.Where(h => h.humanName != "Chest" && h.humanName != "UpperChest" && h.humanName != "Jaw").ToArray();
+        importer.humanDescription = hd;
+        Object.DestroyImmediate(instance);
+        importer.SaveAndReimport();
     }
 
     // 'avatar' nul : le fichier crée son propre avatar (clip partagé entre plusieurs personnages).
