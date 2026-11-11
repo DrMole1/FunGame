@@ -292,7 +292,7 @@ public class NetworkGame : MonoBehaviour
         else if (peerId == hostId)
         {
             // Tous morts : l'écran de GAME OVER reste affiché, chacun revient au lobby avec le bouton.
-            if (session.WipedOut) return;
+            if (session.WipedOut || session.IsGameOver) return;
             ReturnToLobby(Loc.T("L'hôte a quitté la partie."));
         }
     }

@@ -7,14 +7,13 @@ using UnityEngine;
 // Post-It, Boussole, Balises, Téléporteurs et Stations Curatives. Zones, glyphes et Sanction : GameSession.Zones.cs.
 // L'hôte fait autorité sur l'état de la partie ; chaque client gère les PV, la sérénité et l'inventaire de son personnage.
 // Messages (en plus de ceux de NetworkGame) :
-//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|boîtiers|balise|bonus|tests|zones|hubs|acquisitions|glyphes|scellées|ponts|zonesObjets
+//   G|graine|manche|quota|progression|cagnotte|phase|temps|boussole|boîtiers|balise|bonus|(vide)|zones|hubs|acquisitions|glyphes|scellées|ponts|zonesObjets
 //                                                               hôte -> tous : état de la partie (boîtiers brisés, Hubs ouverts,
 //                                                               portes de chapiteau ouvertes, glyphes neutres actionnés : numéros
 //                                                               séparés par des points ; zones scellées : dernière zone fermée)
 //   IL|manche|id,id...   IR|manche|id                          objets déjà ramassés / ramassé
 //   PK|id -> GV|type (0 = refusé)                              ramassage
-//   SL|type                                                     vente au Terminal
-//   BY|type -> BO|ok|type|cagnotte[|raison]                     achat au Terminal
+//   BY|type|hub -> BO|ok|type|cagnotte[|raison]                 achat au Terminal (hub : celui du Terminal)
 //   TU|1/0 -> TG|1/0, TS|id                                     prise / libération du Terminal
 //   RV|cible|hub -> RA|cible|sauveteur|hub                      réanimation depuis un Chenil
 //   DE|cause                                                    mort d'un joueur
@@ -37,12 +36,12 @@ using UnityEngine;
 //   JO / JS|objet / JE                                          joueur -> hôte : ouvrir Pogo / lui vendre un objet / cliquer les mains vides
 //   JX|état|sourire|frappé|victimes / JK / JN|raison                    hôte -> tous : état de Pogo ; -> joueur : coup mortel / refus
 //   DF|durée                                                    hôte -> joueur : La Dame vous attaque, immobilisé
-//   SK|hub -> SR|bonus (-1 = refusé), SX|hub                    /skip round ou Bouton Skip (confettis à côté du bouton)
+//   SK|hub -> SX|hub                                            Bouton Skip (confettis à côté du bouton)
 //   BK|pitch -> BA|id|pitch                                     aboiement d'un joueur
 //   GE|geste -> GS|id|geste                                     geste d'un joueur (ramasser, poser, utiliser, manger)
 //   MD|monticule -> MS|manche|monticule / MN|monticule          creuser un monticule : début (tous) ou refus (joueur)
 //   MO|manche|monticule   ML|manche|id,id...                   hôte -> tous : monticule creusé (objet libéré) / déjà creusés
-//   (Télévision, sujets de test, appareils déjà posés : voir GameSession.Objects.cs)
+//   (Télévision, appareils déjà posés : voir GameSession.Objects.cs ; Téléporteur Inversé : GameSession.Reverse.cs)
 public partial class GameSession : MonoBehaviour, IEntityHost
 {
     enum Phase { Waiting = 0, Running = 1, GameOver = 2 }
@@ -124,7 +123,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // Moment où l'hôte a confié le Terminal : le temps que l'état « Terminal ouvert » du joueur lui parvienne.
     float terminalGrantedAt = -100f;
     const float TerminalGrantGrace = 1.5f;
-    // Tableau de Manche : golds gagnés et morts de chaque joueur pendant la manche en cours.
+    // Tableau de Manche : golds gagnés et morts de chaque joueur depuis le début de la partie (toutes manches confondues).
     class RoundStats { public int golds, deaths; }
     readonly Dictionary<string, RoundStats> roundStats = new Dictionary<string, RoundStats>();
     int statsRound = 1;
@@ -272,7 +271,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         nextNoteId = nextEntityId = nextBeaconId = nextDropId = 0;
         dropped.Clear();
         hostCurfew = false;
-        testFlags = 0;
         ResetHubFixtures();
         valueBoost = GameRules.ValueBoost(net.Roster.Count);
         ApplyWorld();
@@ -336,7 +334,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         terminal.Close(false);
         postItUI.Close();
         hud.Show(false);
-        WipedOut = false;
+        WipedOut = quotaFailed = false;
         allDeadSince = -1f;
         GameAudio.CancelDeathSequence();
         ClearEntities();
@@ -348,6 +346,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         digEnds.Clear();
         EndLocalDig();
         ResetCannon();
+        ResetReverseTeleporters();
         ClearNotes();
         LeaveKennel(false);
         foreach (var list in kennels.Values) foreach (var k in list) if (k != null) Destroy(k.gameObject);
@@ -370,7 +369,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         notePlacedAt.Clear();
         hostCurfew = false;
         dropped.Clear();
-        testFlags = sentFlags = 0;
         Godmode = false;
         EndTeleport(false);
         ResetHubFixtures();
@@ -406,7 +404,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             rebuilt = true;
         }
         // Nouvelle graine : écran de chargement le temps de générer les premières zones (chapitre 9.2) ; AdvanceZoneBuild s'en charge.
-        if (rebuilt) worldLoading = WorldStreamer.Loading = true;
+        if (rebuilt)
+        {
+            worldLoading = WorldStreamer.Loading = true;
+            loadingShown = 0;
+        }
         if (itemsRound != round || itemsBoost != valueBoost) SpawnItems();
         else foreach (var z in zones) SpawnZoneItems(z);
         hub.door.SetOpen(phase != Phase.Waiting);
@@ -670,8 +672,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateCannon();
         UpdateToboggans();
         UpdateTeleport();
+        UpdateReverseTeleporters();
         UpdateStations();
-        player.Dancing = channelPad != null || healing;
+        player.Dancing = channelPad != null || reverseOn != 0 || healing;
         UpdateObjects();
         UpdateCloches();
         UpdateRoi();
@@ -699,7 +702,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
         var target = player.GetComponent<PlayerInteractor>().Current;
         string prompt = target != null ? target.Prompt : "";
-        hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : "[" + Controls.Label(GameAction.Interact) + "] " + prompt);
+        hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : target.InfoOnly ? prompt : "[" + Controls.Label(GameAction.Interact) + "] " + prompt);
         // Cap de la caméra (là où le joueur regarde), pas celui du personnage.
         hud.SetCompass(compass && !status.Dead, (orbit != null ? orbit.transform : player.transform).eulerAngles.y);
     }
@@ -749,7 +752,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             if (soundPhase == Phase.Waiting && phase == Phase.Running)
                 GameAudio.Play3D("button", hub.buttonAnchor.position + Vector3.up, 0.8f, 40f, 0f);
             if (phase == Phase.Running && round > soundRound) GameAudio.Play2D("fanfare", 0.8f);
-            if (soundPhase != Phase.GameOver && phase == Phase.GameOver) GameAudio.Play2D("gameover", 0.9f);
             if (curfew && !soundCurfew) GameAudio.Play2D("generator_off", 1f);
         }
         soundPhase = phase;
@@ -853,6 +855,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             hud.SetSpectate("");
             return;
         }
+        // Quota non atteint : la caméra reste sur le personnage qu'elle suivait, qui vient d'exploser.
+        if (phase == Phase.GameOver)
+        {
+            OrbitCamera.DeathView = -1f;
+            hud.SetSpectate("");
+            return;
+        }
         // D'abord, la caméra s'élève lentement au-dessus de son propre corps.
         float sinceDeath = Time.time - deathAt;
         if (sinceDeath < OrbitCamera.DeathViewDuration && phase != Phase.GameOver)
@@ -873,11 +882,34 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             current = alive.Count > 0 ? alive[idx] : null;
             spectateId = current != null ? current.PlayerId : null;
         }
-        orbit.target = current != null ? current.transform : player.transform;
+        orbit.target = current != null ? SpectateTarget(current) : player.transform;
         string end = phase == Phase.GameOver ? "" : "\n" + Loc.T("Un autre joueur peut vous réanimer depuis votre Chenil, dans le Hub.");
         hud.SetSpectate(current != null
             ? Loc.F("Vous êtes mort. Vous regardez {0} (clic : changer de joueur).", current.PlayerName) + end
             : Loc.T("Vous êtes mort.") + end);
+    }
+
+    // Le joueur regardé se téléporte : la caméra ne suit pas la boule d'énergie à travers le labyrinthe (traverser des
+    // zones à 70 m/s fait capturer reflets, afficher zones et allumer lampes sans arrêt, et l'hôte relaie tout : chacun
+    // en pâtirait). Elle reste au point de départ, puis passe au point d'arrivée après un fondu au noir.
+    Transform spectateHold;
+    string spectateHoldId;
+
+    Transform SpectateTarget(RemotePlayer rp)
+    {
+        if (rp.Teleporting)
+        {
+            if (spectateHoldId != rp.PlayerId)
+            {
+                if (spectateHold == null) spectateHold = new GameObject("PointDeVueSpectateur").transform;
+                spectateHold.position = rp.TeleportFrom;
+                spectateHoldId = rp.PlayerId;
+            }
+            return spectateHold;
+        }
+        if (spectateHoldId == rp.PlayerId) hud.FadeFromBlack();
+        spectateHoldId = null;
+        return rp.transform;
     }
 
     // Nouvelle langue : HUD et écrans du chapiteau retraduits tout de suite.
@@ -905,7 +937,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         foreach (var b in skipButtons) if (b != null && b.gameObject.activeSelf != CanSkipRound) b.gameObject.SetActive(CanSkipRound);
     }
 
-    // Classement des joueurs connectés : croquettes gagnées pendant la manche, puis morts.
+    // Classement des joueurs connectés : croquettes gagnées depuis le début de la partie, puis morts.
     string RoundBoardText()
     {
         var rows = new List<(string name, int golds, int deaths)>();
@@ -941,9 +973,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         return sb.ToString();
     }
 
-    void ResetRoundStats(int newRound)
+    // Les croquettes et les morts se cumulent sur toute la partie : elles ne repartent de zéro qu'à une nouvelle partie
+    // ('clear'), pas à chaque nouvelle manche.
+    void ResetRoundStats(int newRound, bool clear)
     {
-        roundStats.Clear();
+        if (clear) roundStats.Clear();
         statsRound = newRound;
         net.ToAll(StatsMsg());
     }
@@ -1085,7 +1119,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (status.Dead || phase == Phase.GameOver || !net.InGame) return;
         if (WorldBuilder.IsInHub(player.transform.position) && !inHub || Invincible || Teleporting) return;
         status.SetHp(status.Hp - amount);
-        RaiseTestFlag(TestHurt);
         hud.FlashDamage();
         GameAudio.Play2D("hurt", 0.9f, 0.08f);
         // Son de l'entité qui blesse sans tuer (Pion, Araignée). GDD 12 (V0.5.2) : entendu par tous (l'hôte le relaie)
@@ -1127,23 +1160,23 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         EndTeleport(false);
         channelPad = null;
         StopChannelSound();
-        // Les objets du Terminal sont détruits ; les autres (avec un modèle 3D) restent à terre près du corps.
+        // Les objets du Terminal sont détruits, sauf la Clé, qui tombe au lieu de la mort ; les autres (avec un modèle 3D)
+        // restent à terre près du corps.
         var left = new List<ItemType>();
         var unique = new List<ItemType>();
         if (cause != null)
             for (int i = 0; i < GameRules.InventorySize; i++)
-                if (Items.DropsOnDeath(status[i])) left.Add(status[i]);
+                if (Items.LeftOnDeath(status[i])) left.Add(status[i]);
                 else if (Items.IsPlaceable(status[i])) unique.Add(status[i]);
         status.ClearInventory();
         pendingPickups = 0;
         presence.Alive = false;
         player.SetFrozen(true);
         // Capsule désactivée : les objets tombent jusqu'au sol.
-        foreach (var type in left) DropNear(type, player.transform.position);
+        foreach (var type in left) DropNear(type, player.transform.position, type == ItemType.Cle ? 0.15f : 0.9f);
         // Les objets uniques (Télévision, Trampoline, Cloche Décorative), peluches et boules à facettes se retrouvent posés
         // près du corps.
         foreach (var type in unique) PlaceNear(type, player.transform.position);
-        nearNightmareSince = -1f;
         terminal.Close();
         postItUI.Close();
         if (fxDelay > 0f)
@@ -1402,7 +1435,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             net.ToHost("JE");
             return;
         }
-        // Comme /sell : l'objet quitte l'inventaire, l'hôte crédite quota et cagnotte.
+        // L'objet quitte l'inventaire, l'hôte crédite quota et cagnotte (V0.6.10 : lots d'arcade au prorata du quota).
         status.RemoveAt(slot);
         Gesture(PlayerGesture.Use);
         net.ToHost("JS|" + (int)type);
@@ -1684,10 +1717,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         net.ToAll(DropMsg(id, new Dropped { type = type, pos = pos, stolenBy = stolenBy }));
     }
 
-    // Joueur local : l'objet tombe au sol, à moins d'un mètre du personnage.
-    void DropNear(ItemType type, Vector3 center)
+    // Joueur local : l'objet tombe au sol, à moins de 'spread' mètres du personnage.
+    void DropNear(ItemType type, Vector3 center, float spread = 0.9f)
     {
-        Vector2 o = Random.insideUnitCircle * 0.9f;
+        Vector2 o = Random.insideUnitCircle * spread;
         Vector3 probe = center + new Vector3(o.x, 0.5f, o.y);
         Vector3 pos = Physics.Raycast(probe, Vector3.down, out RaycastHit hit, 4f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
             ? hit.point : center + Vector3.down * 0.9f;
@@ -1894,7 +1927,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         channelPad = null;
         var path = beacons.PathToHub(pad);
         if (path == null) return;
-        StartTeleport(pad, path);
+        StartTeleport(pad.transform.position, path);
     }
 
     void StopChannelSound()
@@ -1904,12 +1937,15 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         channelSound = null;
     }
 
-    void StartTeleport(Beacon pad, List<Vector3> path)
+    // 'padPos' : disque du Téléporteur (ou du Téléporteur Inversé) ; 'arrival' : point d'arrivée (null : à côté de la Balise
+    // principale du Hub où mène le trajet).
+    void StartTeleport(Vector3 padPos, List<Vector3> path, Vector3? arrival = null)
     {
         Teleporting = true;
         presence.Teleporting = true;
+        teleportArrival = arrival;
         // Avalé par le Téléporteur : la boule part du disque.
-        path.Insert(0, pad.transform.position + Vector3.up * 0.9f);
+        path.Insert(0, padPos + Vector3.up * 0.9f);
         teleportPath = path;
         teleportLeg = 0;
         // Le trajet est envoyé une fois : les autres joueurs le rejouent eux-mêmes, sans dépendre des positions reçues
@@ -1923,7 +1959,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         energyBall.SetActive(true);
         terminal.Close();
         postItUI.Close();
-        GameAudio.Play3D("teleport", pad.transform.position, 1f, 25f, 0f);
+        GameAudio.Play3D("teleport", padPos, 1f, 25f, 0f);
     }
 
     void TravelStep(float dt)
@@ -1941,7 +1977,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (teleportLeg >= teleportPath.Count) EndTeleport(true, true);
     }
 
-    // Fin du voyage : à côté de la Balise du Hub (arrivée) ou là où il s'est rompu.
+    // Fin du voyage : à côté de la Balise du Hub ou de la Balise de destination du Téléporteur Inversé (arrivée), ou là où il
+    // s'est rompu.
     void EndTeleport(bool restore, bool arrived = false)
     {
         if (!Teleporting) return;
@@ -1951,7 +1988,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         avatar.SetHidden(false);
         if (!restore) return;
         Vector3 pos = player.transform.position;
-        if (arrived && teleportPath != null && teleportPath.Count > 0)
+        // Téléporteur Inversé : à côté de la Balise de destination.
+        if (arrived && teleportArrival.HasValue) pos = teleportArrival.Value;
+        else if (arrived && teleportPath != null && teleportPath.Count > 0)
         {
             // À côté de la Balise principale du Hub où mène le trajet, vers le centre de ce Hub.
             Beacon root = beacons.NearestHub(teleportPath[teleportPath.Count - 1]);
@@ -2046,18 +2085,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         net.ToHost("RV|" + playerId + "|" + hubIndex);
     }
 
-    // Vente depuis le Terminal : l'objet quitte l'inventaire, l'hôte crédite quota et cagnotte.
-    public ItemDef SellSlot(int slot)
-    {
-        ItemType type = status[slot];
-        if (type == ItemType.None) return null;
-        status.RemoveAt(slot);
-        net.ToHost("SL|" + (int)type);
-        GameAudio.Play2D("register", 0.8f);
-        return Items.Get(type);
-    }
-
-    public void Buy(ItemDef def) => net.ToHost("BY|" + (int)def.type);
+    // Le Hub du Terminal utilisé accompagne l'achat (Téléporteur Inversé).
+    public void Buy(ItemDef def) => net.ToHost("BY|" + (int)def.type + "|" + CurrentHub());
 
     public string Kick(string playerName) => net.Kick(playerName);
 
@@ -2089,11 +2118,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (who.TryGetComponent(out CharacterAvatar avatar)) avatar.PlayGesture(PlayerGesture.Bark);
     }
 
-    // /skip round : si le quota est atteint, l'hôte passe à la manche suivante. Retourne un refus, ou null si envoyé.
+    // Bouton Skip : si le quota est atteint, l'hôte passe à la manche suivante. Retourne un refus, ou null si envoyé.
     public bool CanSkipRound => phase == Phase.Running && progress >= quota;
 
-    // 'hubIndex' : Bouton Skip pressé (confettis à côté de lui), 0 depuis le Terminal.
-    public string RequestSkipRound(int hubIndex = 0)
+    // 'hubIndex' : Hub du Bouton Skip pressé (confettis à côté de lui).
+    public string RequestSkipRound(int hubIndex)
     {
         if (phase != Phase.Running) return Loc.T("Aucune manche n'est en cours.");
         if (!CanSkipRound) return Loc.T("Le quota de la manche n'est pas encore atteint.");
@@ -2205,7 +2234,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // ================= Hôte =================
 
     string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft)
-        + "|" + (compass ? 1 : 0) + "|" + JoinIds(brokenCases) + "|" + NetworkGame.F(beacons.Charge) + "|" + NetworkGame.F(valueBoost) + "|" + testFlags
+        // Le 13e champ (anciens sujets de test du Terminal, V0.6.10) reste vide pour ne pas décaler les suivants.
+        + "|" + (compass ? 1 : 0) + "|" + JoinIds(brokenCases) + "|" + NetworkGame.F(beacons.Charge) + "|" + NetworkGame.F(valueBoost) + "|0"
         + "|" + zoneCount + "|" + JoinIds(openedHubs) + "|" + JoinIds(openedAcquisitions) + "|" + JoinIds(activatedGlyphs) + "|" + sealedZones + "|" + JoinIds(brokenBridges) + "|" + itemZones;
 
     static string JoinIds(HashSet<int> ids) => string.Join(".", ids);
@@ -2239,6 +2269,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         foreach (string note in noteMessages.Values) net.ToPeer(to, note);
         // Appareils déjà posés : sans animation de pose ni tintement.
         foreach (string beacon in beaconMessages.Values) net.ToPeer(to, "BV" + beacon.Substring(2));
+        SendReverseSnapshot(to);
         SendObjectSnapshot(to);
         foreach (var kv in dropped) net.ToPeer(to, DropMsg(kv.Key, kv.Value));
         net.ToPeer(to, PogoMsg(""));
@@ -2298,7 +2329,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             Log("Le quota de la manche {0} est validé ! Nouveau quota : {1}", done.ToString(), quota.ToString());
             if (hostCurfew) Log("Le Couvre Feu se retire ... Pour le moment.");
             hostCurfew = false;
-            ResetRoundStats(round);
+            ResetRoundStats(round, false);
             ApplyWorld();
             StartRoundEntities();
             BroadcastState();
@@ -2331,9 +2362,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         noteMessages.Clear();
         notePlacedAt.Clear();
         dropped.Clear();
-        testFlags = 0;
         valueBoost = GameRules.ValueBoost(net.Roster.Count);
-        ResetRoundStats(1);
+        ResetRoundStats(1, true);
         ResetHubFixtures();
         net.ToAll("TS|");
         net.ToAll(PogoMsg(""));
@@ -2382,22 +2412,86 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         GameAudio.PlayWipeOutSequence(GameHud.WipeFadeDuration, GameHud.WipeSilence);
     }
 
-    // Quota non atteint : tous les personnages meurent.
+    // Quota non atteint : tous les personnages encore en vie explosent (membres projetés, mare de sang, explosion du
+    // Réveil), puis la même fin que lorsque plus personne n'est en vie (fondu au noir, GAME OVER en gros plan, sous-titre
+    // de fin et bouton de retour au lobby), le temps de voir l'explosion.
+    const float QuotaBlastView = 2.5f;
+    bool quotaFailed;
+
     void OnGameOver()
     {
-        if (WipedOut) return;
+        if (WipedOut || quotaFailed) return;
+        quotaFailed = true;
         terminal.Close(false);
         postItUI.Close();
         ClearEntities();
+        if (!status.Dead) LeaveHidingPlaces();
+        ExplodePlayers();
         if (!status.Dead) KillLocal(null);
-        OrbitCamera.LockCursor(false);
-        // Manche, temps, quota et cagnotte ne s'affichent que sur les écrans du chapiteau.
-        hud.ShowGameOver(Loc.T("Le quota n'a pas été atteint.") + (net.IsHost ? "" : "\n" + Loc.T("En attente de l'hôte pour une nouvelle partie…")),
-            net.IsHost);
+        StartCoroutine(WipeOutAfter(QuotaBlastView));
+    }
+
+    System.Collections.IEnumerator WipeOutAfter(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (quotaFailed && net.InGame) OnWipeOut();
+    }
+
+    // Le joueur local sort de sa niche, du Canon (ou de son vol en boulet), du toboggan (à la sortie du tube) ou de sa
+    // téléportation, pour exploser à l'air libre.
+    void LeaveHidingPlaces()
+    {
+        if (InKennel) LeaveKennel(true);
+        if (Teleporting) EndTeleport(true);
+        if (Sliding)
+        {
+            StopSlideSound();
+            LeaveToboggan(true);
+        }
+        if (InCannon) LeaveCannon(true);
+        if (CannonFlying) Land();
+    }
+
+    // Chaque client fait exploser les personnages encore en vie chez lui (purement visuel) ; un joueur distant caché
+    // (niche, Canon, toboggan, téléportation) réapparaît là où il est pour exploser. Les morts n'explosent pas.
+    void ExplodePlayers()
+    {
+        foreach (var p in new List<PlayerPresence>(PlayerPresence.All))
+        {
+            if (p == null || !p.Alive || !p.TryGetComponent(out CharacterAvatar av)) continue;
+            if (p.TryGetComponent(out RemotePlayer rp)) rp.RevealBody();
+            Vector3 center = p.transform.position;
+            if (!av.Explode(center)) continue;
+            BlowUp(center);
+        }
+    }
+
+    static void BlowUp(Vector3 at)
+    {
+        GameAudio.Play3D("reveil_boom", at, 1f, 40f, 0.05f);
+        Vector3 ground = Physics.Raycast(at, Vector3.down, out RaycastHit hit, 3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+            ? hit.point : at + Vector3.down;
+        Fx.Explosion(at, ground, Gibs.Blood);
+        Fx.Burst(at, Gibs.Blood, 45, 7f, 0.07f, 1.4f, 1.8f);
+        // La mare de sang sous le corps, et des éclaboussures autour.
+        BloodMarks.Stamp(BloodMarks.Kind.Pool, at, Random.Range(0f, 360f), 2.6f);
+        for (int k = 0; k < 6; k++)
+        {
+            Vector2 o = Random.insideUnitCircle.normalized * Random.Range(1.2f, 2.6f);
+            BloodMarks.Stamp(BloodMarks.Kind.Drop, at + new Vector3(o.x, 0f, o.y), Mathf.Atan2(o.x, o.y) * Mathf.Rad2Deg, Random.Range(0.4f, 0.8f));
+        }
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            float d = Vector3.Distance(cam.transform.position, at);
+            if (d < 12f) OrbitCamera.Shake(Mathf.Lerp(0.9f, 0.15f, d / 12f));
+        }
     }
 
     void OnRestart()
     {
+        ResetReverseTeleporters();
+        quotaFailed = false;
         hud.HideGameOver();
         dropped.Clear();
         status.ClearInventory();
@@ -2423,6 +2517,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (HandleCannonMessage(from, f, host)) return;
         if (HandleObjectMessage(from, f, host)) return;
         if (HandleArcadeMessage(from, f, host)) return;
+        if (HandleReverseMessage(from, f, host)) return;
         switch (f[0])
         {
             case "G" when !host && f.Length >= 10:
@@ -2439,7 +2534,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 ReadIds(f[9], brokenCases);
                 if (f.Length >= 11) beacons.Charge = NetworkGame.P(f[10]);
                 if (f.Length >= 12) valueBoost = Mathf.Clamp(NetworkGame.P(f[11]), 1f, 3f);
-                if (f.Length >= 13) testFlags = NetworkGame.I(f[12]);
                 if (f.Length >= 14) zoneCount = Mathf.Max(1, NetworkGame.I(f[13]));
                 if (f.Length >= 15) ReadIds(f[14], openedHubs);
                 if (f.Length >= 16) ReadIds(f[15], openedAcquisitions);
@@ -2447,8 +2541,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (f.Length >= 18) sealedZones = Mathf.Max(0, NetworkGame.I(f[17]));
                 if (f.Length >= 19) ReadIds(f[18], brokenBridges);
                 if (f.Length >= 20) itemZones = Mathf.Max(2, NetworkGame.I(f[19]));
-                // Nouvelle partie : les critères remplis de notre côté repartent de zéro.
-                if (testFlags == 0) sentFlags = 0;
                 ApplyWorld();
                 if (net.InGame)
                 {
@@ -2523,24 +2615,14 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (type != ItemType.None && !status.Dead) status.Add(type);
                 break;
             }
-            case "SL" when host && f.Length >= 2:
-            {
-                ItemDef def = Items.Get(NetworkGame.I(f[1]));
-                if (def == null) break;
-                progress += def.sellPrice;
-                cash += def.sellPrice;
-                StatsOf(from).golds += def.sellPrice;
-                net.ToAll(StatsMsg());
-                Log("Le joueur {0} a vendu {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(def.sellPrice));
-                BroadcastState();
-                break;
-            }
             case "BY" when host && f.Length >= 2:
             {
                 ItemDef def = Items.Get(NetworkGame.I(f[1]));
                 if (def == null || def.buyPrice <= 0) break;
-                // La Boussole ne s'achète qu'une fois, pour toute l'équipe.
-                if (def.type == ItemType.Boussole && compass)
+                // La Boussole ne s'achète qu'une fois, pour toute l'équipe ; le Téléporteur Inversé, une fois par Hub (celui du
+                // Terminal où il est acheté).
+                int buyHub = f.Length >= 3 ? Mathf.Max(1, NetworkGame.I(f[2])) : 1;
+                if (def.type == ItemType.Boussole && compass || def.type == ItemType.TeleporteurInverse && reversePads.ContainsKey(buyHub))
                 {
                     net.ToPeer(from, "BO|0|" + (int)def.type + "|" + cash + "|owned");
                     break;
@@ -2551,6 +2633,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 {
                     cash -= price;
                     if (def.type == ItemType.Boussole) compass = true;
+                    if (def.type == ItemType.TeleporteurInverse) net.ToAll("VN|" + buyHub);
                     Log("Le joueur {0} a acheté {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(price));
                     BroadcastState();
                     net.ToPeer(from, "BO|1|" + (int)def.type + "|" + cash);
@@ -2748,13 +2831,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             {
                 ItemDef def = Items.Get(NetworkGame.I(f[1]));
                 if (def == null) break;
-                progress += def.sellPrice;
-                cash += def.sellPrice;
-                StatsOf(from).golds += def.sellPrice;
+                // V0.6.10 : un lot d'arcade vaut une part du quota de la manche en cours.
+                int value = Items.SellValue(def.type, quota);
+                progress += value;
+                cash += value;
+                StatsOf(from).golds += value;
                 net.ToAll(StatsMsg());
-                Log("Le joueur {0} a vendu {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(def.sellPrice));
-                // Sujet de test : un objet vendu à Pogo.
-                testFlags |= TestPogoSale;
+                Log("Le joueur {0} a vendu {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(value));
                 // Dès que la Zone 3 est accessible, un objet des monticules vendu peut rapporter un Jeton WOOF (V0.6.3 : lastZone x 3 %).
                 if (Items.FromMound(def.type) && ZoneUnlocked(3) && Random.value < GameRules.TokenChance(lastZone)) net.ToPeer(from, "JT");
                 BroadcastState();
@@ -2873,11 +2956,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             // ---------- Passer la manche ----------
             case "SK" when host:
             {
-                if (phase != Phase.Running || progress < quota)
-                {
-                    net.ToPeer(from, "SR|-1");
-                    break;
-                }
+                if (phase != Phase.Running || progress < quota) break;
                 // Bouton Skip (V0.6) : des confettis explosent joyeusement à côté de lui, chez tous.
                 if (f.Length >= 2 && NetworkGame.I(f[1]) > 0) net.ToAll("SX|" + f[1]);
                 // 10 croquettes par tranche de 10 secondes restant au Compteur de Temps.
@@ -2885,13 +2964,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 cash += bonus;
                 LogN(bonus, "Le joueur {0} passe la manche {1} : {2} ajoutée à la cagnotte.|Le joueur {0} passe la manche {1} : {2} ajoutées à la cagnotte.",
                     NameOf(from), round.ToString(), Loc.Pr(bonus));
-                net.ToPeer(from, "SR|" + bonus);
                 EndRound();
                 break;
             }
-            case "SR" when f.Length >= 2:
-                terminal.OnSkipResult(NetworkGame.I(f[1]));
-                break;
             case "SX" when f.Length >= 2:
             {
                 int h = NetworkGame.I(f[1]);
@@ -3006,7 +3081,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case "DR" when host && f.Length >= 5:
             {
                 var type = (ItemType)NetworkGame.I(f[1]);
-                if (!Items.DropsOnDeath(type)) break;
+                if (!Items.LeftOnDeath(type)) break;
                 AddDropped(type, new Vector3(NetworkGame.P(f[2]), NetworkGame.P(f[3]), NetworkGame.P(f[4])), -1);
                 break;
             }

@@ -15,6 +15,8 @@ public abstract class Interactable : MonoBehaviour
 
     public abstract string Prompt { get; }
     public virtual bool CanInteract => true;
+    // Simple information (rien à actionner) : le texte s'affiche sans touche, et un clic ne fait rien de spécial.
+    public virtual bool InfoOnly => false;
     public abstract void Interact();
 
     public void SetHighlight(bool on)
@@ -92,7 +94,14 @@ public class ItemPickup : Interactable
             BuildFallback(visual, type);
         // V0.6.1 : un même modèle teinté pour les quatre tickets et les trois boules à facettes ; V0.6.3 : canards colorés.
         Items.ApplyLook(visual, type);
-        visual.gameObject.AddComponent<Bobbing>();
+        // La Clé est couchée à plat sur le sol, immobile, centrée sur le point de chute. Son orientation dépend de l'id :
+        // la même pour tous les joueurs.
+        if (type == ItemType.Cle)
+        {
+            visual.localRotation = Quaternion.Euler(0f, (id * 137) % 360, 0f) * Quaternion.Euler(90f, 0f, 0f);
+            visual.localPosition = Vector3.up * 0.02f + visual.localRotation * new Vector3(0f, -0.24f, 0f);
+        }
+        else visual.gameObject.AddComponent<Bobbing>();
         if (Items.Dances(type)) DiscoDancer.Attach(visual);
         // Lot gagné à une borne d'arcade ou Canard Coloré : il scintille de petites particules (un objet précieux).
         if (Items.IsPrize(type) || Items.IsColoredDuck(type)) Fx.Sparkle(go.transform, Items.Get(type).color);
@@ -114,6 +123,11 @@ public class ItemPickup : Interactable
     static void BuildFallback(Transform parent, ItemType type)
     {
         ItemDef def = Items.Get(type);
+        if (type == ItemType.Cle)
+        {
+            BuildKey(parent);
+            return;
+        }
         Material body = GameArt.Lit("Item" + type, def.color, null, 0.8f);
         if (Items.IsDuck(type))
         {
@@ -125,6 +139,98 @@ public class ItemPickup : Interactable
         {
             GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0f, 0.2f, 0f), new Vector3(0.3f, 0.4f, 0.15f), body);
         }
+    }
+
+    // Clé (d'après son icône) : vieille clé de fer rouillé, debout. Anneau ovale en haut, collerette, tige ronde, panneton
+    // crénelé en bas. Environ 45 cm, comme les autres objets à terre.
+    static Mesh keyRing;
+    static Texture2D rust;
+
+    // Fer rouillé de la Clé (aussi celui des serrures des boîtiers de verre).
+    public static Material KeyIron
+    {
+        get
+        {
+            Material iron = GameArt.Lit("CleRouille", Color.white, RustTexture(), 0.18f);
+            iron.SetFloat("_Metallic", 0.45f);
+            return iron;
+        }
+    }
+
+    static void BuildKey(Transform parent)
+    {
+        Material iron = KeyIron;
+        if (keyRing == null) keyRing = Torus(0.068f, 0.02f, 28, 10);
+
+        var ring = new GameObject("Anneau", typeof(MeshFilter), typeof(MeshRenderer));
+        ring.transform.SetParent(parent, false);
+        ring.transform.localPosition = new Vector3(0f, 0.355f, 0f);
+        ring.transform.localScale = new Vector3(1f, 1.2f, 1f);
+        ring.GetComponent<MeshFilter>().sharedMesh = keyRing;
+        ring.GetComponent<MeshRenderer>().sharedMaterial = iron;
+
+        // Collerette sous l'anneau, tige, bout arrondi.
+        GameArt.Prim(PrimitiveType.Cylinder, parent, new Vector3(0f, 0.262f, 0f), new Vector3(0.052f, 0.014f, 0.052f), iron);
+        GameArt.Prim(PrimitiveType.Cylinder, parent, new Vector3(0f, 0.15f, 0f), new Vector3(0.034f, 0.11f, 0.034f), iron);
+        GameArt.Prim(PrimitiveType.Sphere, parent, new Vector3(0f, 0.04f, 0f), Vector3.one * 0.036f, iron);
+        // Panneton : une plaque et ses dents.
+        GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0.042f, 0.085f, 0f), new Vector3(0.052f, 0.075f, 0.016f), iron);
+        GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0.078f, 0.06f, 0f), new Vector3(0.024f, 0.025f, 0.016f), iron);
+        GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0.078f, 0.108f, 0f), new Vector3(0.024f, 0.025f, 0.016f), iron);
+        GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0.055f, 0.038f, 0f), new Vector3(0.022f, 0.02f, 0.016f), iron);
+    }
+
+    // Tore dans le plan XY (l'anneau se voit de face, de profil quand l'objet tourne).
+    public static Mesh Torus(float radius, float tube, int segments, int sides)
+    {
+        var verts = new Vector3[(segments + 1) * (sides + 1)];
+        var normals = new Vector3[verts.Length];
+        var uvs = new Vector2[verts.Length];
+        for (int i = 0; i <= segments; i++)
+        {
+            float a = i * Mathf.PI * 2f / segments;
+            var dir = new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0f);
+            for (int j = 0; j <= sides; j++)
+            {
+                float b = j * Mathf.PI * 2f / sides;
+                Vector3 n = dir * Mathf.Cos(b) + Vector3.forward * Mathf.Sin(b);
+                int k = i * (sides + 1) + j;
+                verts[k] = dir * radius + n * tube;
+                normals[k] = n;
+                uvs[k] = new Vector2((float)i / segments * 3f, (float)j / sides);
+            }
+        }
+        var tris = new int[segments * sides * 6];
+        int t = 0;
+        for (int i = 0; i < segments; i++)
+            for (int j = 0; j < sides; j++)
+            {
+                int a0 = i * (sides + 1) + j, a1 = a0 + sides + 1;
+                tris[t++] = a0; tris[t++] = a1; tris[t++] = a0 + 1;
+                tris[t++] = a1; tris[t++] = a1 + 1; tris[t++] = a0 + 1;
+            }
+        var mesh = new Mesh { name = "AnneauCle", vertices = verts, normals = normals, uv = uvs, triangles = tris };
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    // Fer sombre taché de rouille orangée.
+    static Texture2D RustTexture()
+    {
+        if (rust != null) return rust;
+        const int size = 64;
+        rust = new Texture2D(size, size, TextureFormat.RGB24, true) { wrapMode = TextureWrapMode.Repeat, name = "Rouille" };
+        var px = new Color[size * size];
+        Color dark = new Color(0.16f, 0.14f, 0.13f), mid = new Color(0.3f, 0.2f, 0.15f), orange = new Color(0.55f, 0.28f, 0.12f);
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float n = Mathf.PerlinNoise(x * 0.11f + 7.3f, y * 0.11f + 2.1f) * 0.65f + Mathf.PerlinNoise(x * 0.37f, y * 0.37f + 9f) * 0.35f;
+                px[y * size + x] = n < 0.55f ? Color.Lerp(dark, mid, n / 0.55f) : Color.Lerp(mid, orange, Mathf.Clamp01((n - 0.55f) / 0.25f));
+            }
+        rust.SetPixels(px);
+        rust.Apply(true);
+        return rust;
     }
 
     public override string Prompt => Loc.F("Ramasser {0}", Items.Get(Type).name);
@@ -201,7 +307,7 @@ public class RedButton : Interactable
 }
 
 // Bouton Skip (V0.4.6), sous le Rendu de Quota : apparaît quand le quota est atteint et passe à la manche suivante,
-// comme la commande /skip round. V0.6 : des confettis explosent joyeusement à côté de lui.
+// avec 10 croquettes par tranche de 10 s restantes. V0.6 : des confettis explosent joyeusement à côté de lui.
 public class SkipButton : Interactable
 {
     public int Hub { get; private set; } = 1;

@@ -111,6 +111,43 @@ public class Glyph : Interactable
             GameArt.Prim(PrimitiveType.Cube, glassCase.transform, new Vector3(0f, s * w * 0.5f, CaseDepth), new Vector3(w + CaseBar, CaseBar, CaseBar), metal);
             GameArt.Prim(PrimitiveType.Cube, glassCase.transform, new Vector3(s * w * 0.5f, 0f, CaseDepth), new Vector3(CaseBar, w + CaseBar, CaseBar), metal);
         }
+        padlock = BuildPadlock(glassCase.transform, new Vector3(0f, -w * 0.5f, CaseDepth));
+    }
+
+    // Serrure : petit cadenas de fer rouillé (comme la Clé) suspendu au milieu de la barre basse, côté joueur. L'anse
+    // entoure la barre ; le corps porte un trou de serrure.
+    const float LockWidth = 0.12f, LockHeight = 0.1f, LockDepth = 0.045f, ShackleRadius = 0.038f, ShackleTube = 0.009f, LockScale = 1.5f;
+    static Mesh shackleMesh;
+    GameObject padlock;
+
+    static GameObject BuildPadlock(Transform parent, Vector3 bar)
+    {
+        Material iron = ItemPickup.KeyIron;
+        var root = new GameObject("Serrure");
+        root.transform.SetParent(parent, false);
+        root.transform.localPosition = bar;
+        root.transform.localScale = Vector3.one * LockScale;
+        // Anse : un anneau autour de la barre (dans le plan perpendiculaire à la barre), son bas pris dans le corps.
+        if (shackleMesh == null) shackleMesh = ItemPickup.Torus(ShackleRadius, ShackleTube, 24, 8);
+        var shackle = new GameObject("Anse", typeof(MeshFilter), typeof(MeshRenderer));
+        shackle.transform.SetParent(root.transform, false);
+        shackle.transform.localPosition = new Vector3(0f, -0.012f, 0f);
+        shackle.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
+        shackle.GetComponent<MeshFilter>().sharedMesh = shackleMesh;
+        shackle.GetComponent<MeshRenderer>().sharedMaterial = iron;
+        // Corps, arrondi en bas, et trou de serrure (un rond et une fente) sur la face avant.
+        float top = -0.012f - ShackleRadius + 0.012f;
+        float cy = top - LockHeight * 0.5f;
+        GameArt.Prim(PrimitiveType.Cube, root.transform, new Vector3(0f, cy + LockHeight * 0.1f, 0f), new Vector3(LockWidth, LockHeight * 0.8f, LockDepth), iron);
+        var bottom = GameArt.Prim(PrimitiveType.Cylinder, root.transform, new Vector3(0f, cy - LockHeight * 0.28f, 0f), new Vector3(LockWidth, LockDepth * 0.5f, LockWidth * 0.45f), iron);
+        bottom.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        Material hole = GameArt.Lit("TrouSerrure", new Color(0.02f, 0.015f, 0.01f), null, 0f);
+        float front = LockDepth * 0.5f + 0.001f;
+        var round = GameArt.Prim(PrimitiveType.Cylinder, root.transform, new Vector3(0f, cy + 0.008f, front), new Vector3(0.022f, 0.002f, 0.022f), hole);
+        round.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        GameArt.Prim(PrimitiveType.Cube, root.transform, new Vector3(0f, cy - 0.012f, front), new Vector3(0.009f, 0.028f, 0.004f), hole);
+        foreach (var r in root.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        return root;
     }
 
     // Câble entre le glyphe et la porte : noir et peu visible, blanc lumineux une fois le glyphe actionné.
@@ -170,6 +207,21 @@ public class Glyph : Interactable
             rb.angularVelocity = Random.insideUnitSphere * 10f;
             piece.layer = 2;
             Destroy(piece, 4f);
+        }
+        // La serrure brisée tombe avec le verre.
+        if (padlock != null)
+        {
+            var broken = Instantiate(padlock, padlock.transform.position, padlock.transform.rotation);
+            broken.transform.localScale = padlock.transform.lossyScale;
+            broken.layer = 2;
+            var box = broken.AddComponent<BoxCollider>();
+            box.center = new Vector3(0f, -0.07f, 0f);
+            box.size = new Vector3(LockWidth, 0.12f, LockDepth);
+            var rb = broken.AddComponent<Rigidbody>();
+            rb.mass = 0.4f;
+            rb.velocity = transform.forward * Random.Range(1f, 2f) + Vector3.up * Random.Range(0.5f, 1.5f);
+            rb.angularVelocity = Random.insideUnitSphere * 8f;
+            Destroy(broken, 6f);
         }
     }
 

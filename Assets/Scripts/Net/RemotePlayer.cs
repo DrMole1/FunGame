@@ -10,6 +10,9 @@ public class RemotePlayer : MonoBehaviour
     public bool Dead => presence.Alive == false;
     // Terminal ouvert chez ce joueur (dernier état reçu).
     public bool InTerminal { get; private set; }
+    // En téléportation (état reçu, ou trajet encore en cours de rejeu), et d'où il est parti.
+    public bool Teleporting => teleporting || tpPath != null;
+    public Vector3 TeleportFrom { get; private set; }
 
     readonly NetSmoother smoother = new NetSmoother();
     bool hasTarget;
@@ -98,6 +101,7 @@ public class RemotePlayer : MonoBehaviour
         bool tele = (flags & NetworkGame.FlagTeleport) != 0 && !dead;
         if (tele != teleporting)
         {
+            if (tele && tpPath == null) TeleportFrom = transform.position;
             teleporting = tele;
             presence.Teleporting = tele;
             // Fin du voyage : on garde le rejeu le temps que les positions reçues (affichées en léger retard) rattrapent.
@@ -138,6 +142,16 @@ public class RemotePlayer : MonoBehaviour
         if (!dead) avatar.SetState(anim);
     }
 
+    // Quota non atteint : le corps réapparaît (plus de boule d'énergie ni de boulet) pour exploser.
+    public void RevealBody()
+    {
+        if (Dead || corpseGone) return;
+        tpPath = null;
+        if (energyBall != null) energyBall.SetActive(false);
+        if (cannonBall != null) cannonBall.SetActive(false);
+        avatar.SetHidden(false);
+    }
+
     // Téléportation : le trajet complet est reçu au départ et rejoué ici à vitesse constante, sans dépendre des
     // positions reçues (à 70 m/s, un paquet en retard de 50 ms faisait sauter la boule de 3,5 m).
     const float TeleportRelease = 0.2f;
@@ -150,6 +164,7 @@ public class RemotePlayer : MonoBehaviour
         if (path.Count == 0) return;
         tpPath = path;
         tpLeg = 0;
+        TeleportFrom = path[0];
         transform.position = path[0];
         // Si l'état « en téléportation » n'arrive jamais, le rejeu s'arrête de lui-même.
         tpReleaseAt = teleporting ? float.MaxValue : Time.time + 1f;

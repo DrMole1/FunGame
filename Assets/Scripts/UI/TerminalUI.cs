@@ -4,19 +4,16 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 // Zone de saisie du Terminal, affichée uniquement chez le joueur qui l'utilise.
-// Commandes insensibles à la casse : /buy (ou /buy <ID>), /info (sous-menu : /hello, puis /step1 une fois débloquée),
-// /skip round, /sell (cachée depuis l'arrivée de Pogo) et les commandes secrètes /kick, /spawn, /tp, /godmod et /give
-// (hôte). Les commandes d'info vident d'abord l'écran, puis leur texte s'affiche caractère par caractère, rapidement.
+// V0.6.10 (légère refonte) : le message d'accueil s'écrit caractère par caractère, puis la liste des objets achetables
+// (ID et prix) s'affiche d'un coup ; taper un ID achète l'objet. Plus de /buy, /info, /hello, /step1, /skip round ni /sell.
+// Restent les commandes secrètes de l'hôte, insensibles à la casse : /kick, /spawn, /tp, /godmod et /give.
+// Tous les messages, hormis les commandes, sont traduits (Note 03).
 public class TerminalUI : MonoBehaviour
 {
-    // /skip round n'apparaît qu'une fois le quota de la manche atteint.
-    public static string Menu(bool canSkip) =>
-        Loc.T("Bienvenue sur le Terminal !\nTaper une commande pour continuer :") + "\n/buy\n/info" + (canSkip ? "\n/skip round" : "");
+    static string Welcome => Loc.T("Bienvenue sur le Terminal !\nQue voulez-vous acheter ?");
     static string Quit => "\n" + Loc.T("Faire ECHAP pour quitter.");
     const int MaxLines = 18;
     const float TypeSpeed = 90f; // caractères par seconde
-
-    enum Mode { Command, Sell, Buy }
 
     public static bool IsOpen { get; private set; }
 
@@ -24,11 +21,10 @@ public class TerminalUI : MonoBehaviour
     GameObject panel;
     Text output;
     InputField input;
-    Mode mode;
     readonly List<string> lines = new List<string>();
-    bool waitingBuy, waitingSkip;
-    // Texte en cours d'écriture (commandes d'info) et nombre de caractères déjà affichés.
-    string typing = "";
+    bool waitingBuy;
+    // Texte en cours d'écriture (message d'accueil), nombre de caractères déjà affichés, et ce qui s'affiche d'un coup ensuite.
+    string typing = "", afterTyping = "";
     float typed;
 
     public void Init(GameSession owner)
@@ -48,7 +44,7 @@ public class TerminalUI : MonoBehaviour
         output.verticalOverflow = VerticalWrapMode.Truncate;
         output.supportRichText = false;
 
-        input = UiKit.Field(panel.transform, "Taper une commande puis Entrée…", "", 40);
+        input = UiKit.Field(panel.transform, "Taper l'ID d'un objet puis Entrée…", "", 40);
         var irt = (RectTransform)input.transform;
         irt.anchorMin = new Vector2(0f, 0f);
         irt.anchorMax = new Vector2(1f, 0f);
@@ -67,11 +63,11 @@ public class TerminalUI : MonoBehaviour
     {
         if (IsOpen) return;
         IsOpen = true;
-        mode = Mode.Command;
-        waitingBuy = waitingSkip = false;
-        typing = "";
+        waitingBuy = false;
+        typing = afterTyping = "";
         lines.Clear();
-        Print(Menu(session.CanSkipRound));
+        output.text = "";
+        Type(Welcome, ItemList());
         panel.SetActive(true);
         OrbitCamera.LockCursor(false);
         Focus();
@@ -105,28 +101,36 @@ public class TerminalUI : MonoBehaviour
         else Show(typing.Substring(0, shown));
     }
 
-    // Écrit 'text' caractère par caractère, à la suite.
-    void Type(string text)
+    // Écrit 'text' caractère par caractère, puis affiche 'then' d'un coup.
+    void Type(string text, string then)
     {
         FlushTyping();
         typing = text;
+        afterTyping = then;
         typed = 0f;
-    }
-
-    // Commandes d'info : l'écran est d'abord vidé (texte en cours d'écriture compris), seule la commande tapée reste.
-    void ClearScreen(string command)
-    {
-        typing = "";
-        lines.Clear();
-        Print("> " + command);
     }
 
     void FlushTyping()
     {
         if (typing.Length == 0) return;
-        string done = typing;
-        typing = "";
+        string done = typing, then = afterTyping;
+        typing = afterTyping = "";
         Print(done);
+        if (then.Length > 0) Print(then);
+    }
+
+    // Objets achetables, avec leur ID et leur prix. La Boussole n'y est plus une fois achetée, ni le Téléporteur Inversé
+    // une fois présent dans le Hub de ce Terminal.
+    string ItemList()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var def in Items.Buyable())
+        {
+            if (!session.ForSale(def)) continue;
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append("  ID ").Append(def.terminalId).Append(" - ").Append(def.name).Append(" : ").Append(Items.Price(def.buyPrice));
+        }
+        return sb.ToString();
     }
 
     void Focus()
@@ -148,68 +152,19 @@ public class TerminalUI : MonoBehaviour
         Execute(text);
     }
 
+    // Un ID achète l'objet ; une commande (commençant par "/") est une commande secrète de l'hôte.
     void Execute(string text)
     {
         string lower = text.ToLowerInvariant();
-        switch (mode)
+        if (!lower.StartsWith("/"))
         {
-            case Mode.Sell:
-                mode = Mode.Command;
-                Sell(lower);
-                return;
-            case Mode.Buy:
-                mode = Mode.Command;
-                Buy(lower);
-                return;
+            Buy(lower);
+            return;
         }
-
-        if (lower == "/sell")
-        {
-            mode = Mode.Sell;
-            Print(Loc.T("Écrire le numéro de l'objet à vendre (1-2-3-4-5)."));
-        }
-        else if (lower == "/buy")
-        {
-            var sb = new System.Text.StringBuilder(Loc.T("Objets achetables :"));
-            foreach (var def in Items.Buyable())
-                // Une fois achetée, la Boussole disparaît des propositions.
-                if (def.type != ItemType.Boussole || !session.CompassUnlocked)
-                    sb.Append("\n  ID ").Append(def.terminalId).Append(" - ").Append(def.name).Append(" : ").Append(Items.Price(def.buyPrice));
-            sb.Append("\n").Append(Loc.T("Écrire l'ID de l'objet à acheter."));
-            Print(sb.ToString());
-            mode = Mode.Buy;
-        }
-        else if (lower.StartsWith("/buy "))
-        {
-            // Raccourci : /buy <ID> achète directement, sans passer par la liste.
-            Buy(lower.Substring(5).Trim());
-        }
-        else if (lower == "/info")
-        {
-            ClearScreen(text);
-            Print(session.InfoMenu() + Quit);
-        }
-        else if (lower == "/hello")
-        {
-            ClearScreen(text);
-            Type(session.HelloText() + Quit);
-        }
-        else if (lower == "/step1" && session.Step1Unlocked)
-        {
-            ClearScreen(text);
-            Type(session.Step1Text() + Quit);
-        }
-        else if (lower.StartsWith("/give ") && session.IsHost)
+        if (lower.StartsWith("/give ") && session.IsHost)
         {
             string result = session.Give(text.Substring(6).Trim());
             Print((result ?? Loc.T("Commande invalide.")) + Quit);
-        }
-        else if (System.Text.RegularExpressions.Regex.IsMatch(lower, @"^/skip\s+round$"))
-        {
-            if (waitingSkip) return;
-            string refused = session.RequestSkipRound();
-            if (refused != null) Error(refused + Quit);
-            else waitingSkip = true;
         }
         else if (lower.StartsWith("/tp ") && session.IsHost)
         {
@@ -245,33 +200,15 @@ public class TerminalUI : MonoBehaviour
         }
     }
 
-    void Sell(string arg)
-    {
-        if (arg.Length != 1 || arg[0] < '1' || arg[0] > '5')
-        {
-            Error(Loc.T("Commande invalide.") + Quit);
-            return;
-        }
-        int slot = arg[0] - '1';
-        ItemDef sold = session.SellSlot(slot);
-        if (sold == null) Error(Loc.F("Vous n'avez pas d'objet {0} en inventaire !", slot + 1) + Quit);
-        else Print(Loc.F("Vous avez vendu {0} pour {1} !", sold.name, Items.Price(sold.sellPrice)) + Quit);
-    }
-
     void Buy(string arg)
     {
         ItemDef def = int.TryParse(arg, out int id) ? Items.ByTerminalId(id) : null;
-        if (def == null || def.buyPrice <= 0)
+        if (def == null || def.buyPrice <= 0 || !session.ForSale(def))
         {
             Error(Loc.T("Commande invalide.") + Quit);
             return;
         }
         if (waitingBuy) return;
-        if (def.type == ItemType.Boussole && session.CompassUnlocked)
-        {
-            Error(Loc.T("Commande invalide.") + Quit);
-            return;
-        }
         if (def.inventory && !session.HasFreeSlot)
         {
             Error(Loc.F("Votre inventaire est plein ! Impossible d'acheter {0}.", def.name) + Quit);
@@ -293,21 +230,14 @@ public class TerminalUI : MonoBehaviour
         if (!IsOpen || def == null) return;
         if (ok && def.type == ItemType.Boussole)
             Print(Loc.F("Vous avez acheté la Boussole pour {0} !\nElle s'affiche désormais en haut de l'écran de tous les joueurs.", Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
+        else if (ok && def.type == ItemType.TeleporteurInverse)
+            Print(Loc.F("Vous avez acheté le Téléporteur Inversé pour {0} !\nIl est apparu au centre du Hub.", Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
         else if (ok)
             Print(Loc.F("Vous avez acheté {0} pour {1} !", def.name, Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
         else if (alreadyOwned)
-            Print(Loc.T("La Boussole a déjà été achetée.") + Quit);
+            Print((def.type == ItemType.TeleporteurInverse ? Loc.T("Ce Hub possède déjà un Téléporteur Inversé.") : Loc.T("La Boussole a déjà été achetée.")) + Quit);
         else
             Print(Loc.F("Cagnotte insuffisante pour acheter {0} ({1}).", def.name, Items.Price(def.buyPrice)) + Quit);
-    }
-
-    // Réponse de l'hôte à /skip round (bonus : golds ajoutés à la cagnotte, -1 si refusé).
-    public void OnSkipResult(int bonus)
-    {
-        waitingSkip = false;
-        if (!IsOpen) return;
-        if (bonus < 0) Error(Loc.T("Le quota de la manche n'est pas encore atteint.") + Quit);
-        else Print(Loc.N(bonus, "Manche passée ! {0} ajoutée à la cagnotte pour le temps restant.|Manche passée ! {0} ajoutées à la cagnotte pour le temps restant.", Items.Price(bonus)) + Quit);
     }
 
     void Error(string text)

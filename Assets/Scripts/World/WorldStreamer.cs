@@ -15,6 +15,12 @@ public class WorldStreamer : MonoBehaviour
     const int ProbeFrameInterval = 2;
     // Portée utile d'une capture : sa distance de vue (30 m) et la portée des lampes qu'elle montre.
     const float ProbeLampRange = 50f;
+    // Caméra trop rapide (téléportation, boulet de Canon, toboggan) : on ne capture plus rien en route, chaque endroit
+    // traversé coûterait 6 rendus pour un reflet aussitôt dépassé. Les captures reprennent un instant après le ralentissement.
+    const float FastCameraSpeed = 15f, FastCameraCooldown = 0.5f;
+    Vector3 lastEye;
+    bool hasEye;
+    float fastUntil;
 
     // La caméra voit à 45 m et une lampe porte à moins de 10 m : au-delà, elle n'éclaire rien de visible.
     const float LampRange = 55f;
@@ -84,13 +90,28 @@ public class WorldStreamer : MonoBehaviour
 
     void Update()
     {
+        TrackCameraSpeed();
         watch.Restart();
         while (work.Count > 0 && watch.ElapsedMilliseconds < (Loading ? LoadingBudgetMs : BudgetMs)) work.Dequeue()();
         // Les reflets montrent le décor et les lampes : ils attendent que tout soit en place.
         // (Pas pendant le Couvre Feu : le reflet garderait des lampes éteintes une fois le courant revenu.)
-        bool captured = work.Count == 0 && probes.Count > 0 && FlickerLight.Power >= 1f && Time.frameCount % ProbeFrameInterval == 0 && CaptureNearestProbe();
+        bool captured = work.Count == 0 && probes.Count > 0 && FlickerLight.Power >= 1f && Time.frameCount % ProbeFrameInterval == 0
+            && Time.unscaledTime >= fastUntil && CaptureNearestProbe();
         // La capture se fait plus tard dans l'image : ses lampes doivent rester allumées jusque-là.
         if (!captured) CullLamps();
+    }
+
+    // Un saut de caméra isolé (changement de joueur regardé, sortie de téléportation) compte aussi comme rapide : la zone
+    // d'arrivée attend son demi-seconde avant ses captures.
+    void TrackCameraSpeed()
+    {
+        Camera cam = Camera.main;
+        if (cam == null) { hasEye = false; return; }
+        Vector3 eye = cam.transform.position;
+        float dt = Mathf.Max(Time.unscaledDeltaTime, 0.001f);
+        if (hasEye && (eye - lastEye).sqrMagnitude > FastCameraSpeed * FastCameraSpeed * dt * dt) fastUntil = Time.unscaledTime + FastCameraCooldown;
+        lastEye = eye;
+        hasEye = true;
     }
 
     bool CaptureNearestProbe()

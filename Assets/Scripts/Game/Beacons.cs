@@ -925,7 +925,7 @@ public class BeaconNetwork : MonoBehaviour
         fill.AddComponent<MeshRenderer>().sharedMaterial = BrushMaterial("BeaconGauge" + index, Beacon.HubColor(index), 22, 3001);
     }
 
-    static Material BrushMaterial(string name, Color color, int seed, int queue)
+    public static Material BrushMaterial(string name, Color color, int seed, int queue)
     {
         var m = new Material(Shader.Find("Sprites/Default")) { name = name, color = color };
         m.mainTexture = UiKit.BrushTexture(2048, 96, seed);
@@ -951,7 +951,7 @@ public class BeaconNetwork : MonoBehaviour
 
     // Anneau plat (vu du dessus), rempli dans le sens horaire à partir du nord sur la fraction donnée.
     // Le coup de pinceau s'étire sur la partie remplie : il garde ses deux extrémités (poils du pinceau).
-    static Mesh Ring(float fraction, float inner, float outer)
+    public static Mesh Ring(float fraction, float inner, float outer)
     {
         int segs = Mathf.Max(1, Mathf.RoundToInt(GaugeSegments * fraction));
         var verts = new Vector3[(segs + 1) * 2];

@@ -32,7 +32,7 @@ public class PlayerInteractor : MonoBehaviour
         // Un seul contrôle (E par défaut, et toujours le clic gauche) : interagir avec ce qui est visé, sinon utiliser
         // l'objet sélectionné.
         bool click = Controls.Pressed(GameAction.Interact);
-        if (click && current != null)
+        if (click && current != null && !current.InfoOnly)
         {
             // Interagir n'utilise pas l'objet sélectionné dans l'inventaire (Pogo et la Balise du Hub le lisent au moment du clic).
             current.Interact();

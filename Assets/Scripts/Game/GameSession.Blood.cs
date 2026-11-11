@@ -5,7 +5,7 @@ using UnityEngine;
 // Messages : FP|x|y|z|cap   empreintes de pattes laissées par une chute (les traînées se déduisent des PV déjà transmis).
 public partial class GameSession
 {
-    const float TrailSpacing = 0.42f, PawSpacing = 0.22f, PawSize = 0.42f, DropSizeMin = 0.22f, DropSizeMax = 0.42f;
+    const float TrailSpacing = 0.42f, PawSpacing = 0.22f, PawSize = 0.42f, DropSizeMin = 0.3f, DropSizeMax = 0.55f;
     const float DragDistance = 1.3f, DragFollowSpeed = 6f;
 
     // ================= Chutes =================
@@ -76,7 +76,9 @@ public partial class GameSession
             if (!bleeding) { b.last = p.Position; continue; }
             if (flat.sqrMagnitude < TrailSpacing * TrailSpacing) continue;
             b.last = p.Position;
-            BloodMarks.Stamp(BloodMarks.Kind.Drop, p.Position + new Vector3(Random.Range(-0.12f, 0.12f), 0f, Random.Range(-0.12f, 0.12f)), Random.Range(0f, 360f), Random.Range(DropSizeMin, DropSizeMax));
+            // Orientée dans le sens du déplacement : la coulure s'étire vers l'avant.
+            float yaw = Mathf.Atan2(flat.x, flat.z) * Mathf.Rad2Deg + Random.Range(-25f, 25f);
+            BloodMarks.Stamp(BloodMarks.Kind.Drop, p.Position + new Vector3(Random.Range(-0.12f, 0.12f), 0f, Random.Range(-0.12f, 0.12f)), yaw, Random.Range(DropSizeMin, DropSizeMax));
         }
     }
 

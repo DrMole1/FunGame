@@ -50,7 +50,7 @@ public partial class GameSession
         zoneBuildWatch.Restart();
         do
         {
-            if (zoneBuild.Steps.MoveNext()) continue;
+            if (zoneBuild.Steps.MoveNext()) { zoneSteps++; continue; }
             CompleteZoneBuild();
             // Ce qui a été reçu pendant sa génération (boîtiers brisés, portes ouvertes).
             UpdateDoors(true);
@@ -75,6 +75,9 @@ public partial class GameSession
         WorldBuilder.ZoneRefs zone = zoneBuild.Refs;
         int index = zones.Count + 1;
         zoneBuild = null;
+        // Étapes de cette zone : estimation pour la barre de chargement de la suivante.
+        if (zoneSteps > 0) stepsPerZone = zoneSteps;
+        zoneSteps = 0;
         zones.Add(zone);
         RegisterArcades(zone.arcades);
         // Le Hub N est au sud de la zone 2N - 1.

@@ -131,7 +131,7 @@ public partial class GameSession
             loadingSounds = true;
             GameAudio.SetLoading(true);
         }
-        LoadingScreen.Show((float)zones.Count / Mathf.Max(1, zoneCount));
+        LoadingScreen.Show(LoadingPercent());
         if (zipperEnd >= 0f)
         {
             if (Time.unscaledTime >= zipperEnd) EndWorldLoading();
@@ -145,8 +145,36 @@ public partial class GameSession
         zipperEnd = Time.unscaledTime + ZipperDuration + LoadingHideDelay;
     }
 
+    // V0.6.10 : le chargement monte par tranches de 2 %, sans à-coups : la zone en cours de génération compte au prorata de
+    // ses étapes (estimées d'après la zone précédente), et l'affichage rattrape cette valeur d'une tranche toutes les 50 ms.
+    const int LoadingStep = 2;
+    const float LoadingStepInterval = 0.05f;
+    int loadingShown;
+    float loadingStepAt;
+    int zoneSteps, stepsPerZone = 600;
+
+    int LoadingPercent()
+    {
+        float done;
+        if (zipperEnd >= 0f) done = 1f;
+        else
+        {
+            float current = zoneBuild != null ? Mathf.Min(0.95f, zoneSteps / (float)stepsPerZone) : 0f;
+            done = Mathf.Min(0.98f, (zones.Count + current) / Mathf.Max(1, zoneCount));
+        }
+        int target = Mathf.FloorToInt(done * 100f / LoadingStep) * LoadingStep;
+        if (loadingShown < target && Time.unscaledTime >= loadingStepAt)
+        {
+            loadingShown += LoadingStep;
+            // Très en retard (fin de chargement) : il rattrape plus vite, toujours de 2 % en 2 %.
+            loadingStepAt = Time.unscaledTime + (target - loadingShown > 10 ? LoadingStepInterval * 0.3f : LoadingStepInterval);
+        }
+        return loadingShown;
+    }
+
     void EndWorldLoading()
     {
+        loadingShown = 0;
         zipperEnd = -1f;
         loadingSounds = false;
         GameAudio.SetLoading(false);

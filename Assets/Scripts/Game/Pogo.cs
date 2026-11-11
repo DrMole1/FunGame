@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // Pogo (GDD 4, V0.3.3) : un clown à ressort dans une grande boîte, dans le Hub. Cliquer sur la boîte l'ouvre (Bouton Rouge
-// enclenché) ; Pogo fixe alors le joueur le plus proche. Il achète l'objet sélectionné (comme /sell) et sourit 3 s ;
+// enclenché) ; Pogo fixe alors le joueur le plus proche. Il achète l'objet sélectionné et sourit 3 s ;
 // cliqué les mains vides, il se met en colère, et recommencer pendant sa colère lui vaut un coup de tête mortel.
 // L'hôte décide de son état (GameSession) ; chaque client l'anime ici.
 public class Pogo : Interactable

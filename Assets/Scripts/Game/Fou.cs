@@ -11,7 +11,7 @@ using UnityEngine;
 // apparaissent sous lui). Si le joueur détourne le regard avant, le Fou danse 3 secondes : si la caméra du joueur
 // le regarde à la fin de sa danse, il attaque ; sinon il rôde à nouveau. Après un échange, il passe "en chasse"
 // 5 secondes, en courant vers le joueur, les yeux rouges, puis danse 3 secondes (même issue). À moins de 0,8 m, il
-// immobilise le joueur et le tue. V0.6.8 : "en recherche", il se dirige vers le joueur le plus proche à 30 m ou moins, pour le
+// immobilise le joueur et le tue. V0.6.10 : yeux rouges aussi pendant l'alerte ; "en recherche", il se dirige vers le joueur le plus proche à 25 m ou moins, pour le
 // tuer au contact, et reprend sa marche dès que plus aucun joueur n'est à portée.
 public class Fou : Entity
 {
@@ -415,7 +415,8 @@ public class Fou : Entity
             echo.dryMix = 1f;
         }
 
-        bool red = Current == State.Chase || Current == State.Grab;
+        // V0.6.10 : les yeux brillent aussi pendant l'alerte (cri et tremblements).
+        bool red = Current == State.Chase || Current == State.Grab || Current == State.Alert;
         if (red != eyesRed)
         {
             eyesRed = red;

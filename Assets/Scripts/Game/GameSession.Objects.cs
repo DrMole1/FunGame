@@ -2,11 +2,10 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-// V0.4.7 : objets uniques (Télévision, Trampoline, Cloche Décorative, GDD 7.6 à 7.8), sujets de test du Terminal
-// (/info, /hello, /step1), commande /give, Le Réveil (explosion) et lumières affolées par Le Roi.
+// V0.4.7 : objets uniques (Télévision, Trampoline, Cloche Décorative, GDD 7.6 à 7.8), commande /give, Le Réveil (explosion)
+// et lumières affolées par Le Roi. (V0.6.10 : plus de sujets de test, /info, /hello et /step1 ont quitté le Terminal.)
 // Messages : TQ|télé|vidéo -> TV|télé|vidéo|écoulé (vidéo YouTube d'une Télévision, "" : aucune ; écoulé : secondes depuis
-// le début du décompte), QF|critère (joueur -> hôte : critère d'un sujet de test rempli), BV|... (comme BW, sans animation :
-// appareils déjà posés, envoyés à un joueur qui arrive).
+// le début du décompte), BV|... (comme BW, sans animation : appareils déjà posés, envoyés à un joueur qui arrive).
 public partial class GameSession
 {
     // ================= Objets uniques =================
@@ -67,14 +66,6 @@ public partial class GameSession
             if (b.Kind == DeviceKind.Bell) RingBell(b);
         }
         if (b.Kind == DeviceKind.Television && placer == net.MyId) myTvs.Add(b.Id);
-        if (!net.IsHost || !live || (b.Kind != DeviceKind.Beacon && b.Kind != DeviceKind.Enhanced)) return;
-        // Sujets de test : une Balise posée en vision directe de la Balise du Hub (hors du Hub : y poser une Balise juste à
-        // côté ne compte pas) ; 20 Balises posées.
-        if (!WorldBuilder.IsInHub(b.transform.position) && beacons.SeesHub(b)) SetTestFlag(TestBeaconInSight);
-        int count = 0;
-        foreach (var other in beacons.Placed)
-            if (other != null && (other.Kind == DeviceKind.Beacon || other.Kind == DeviceKind.Enhanced)) count++;
-        if (count >= TwentyBeacons) SetTestFlag(TestTwentyBeacons);
     }
 
     // Mort du joueur : ses objets uniques retombent au sol près du corps, posés comme avant.
@@ -92,7 +83,6 @@ public partial class GameSession
     {
         UpdateTelevisions();
         UpdateTrampolines();
-        UpdateTestSubjects();
     }
 
     // ---------- Télévision ----------
@@ -244,6 +234,11 @@ public partial class GameSession
         if (!net.IsHost) return null;
         ItemDef def = Items.ByAnyId(arg);
         if (def == null) return Loc.F("Aucun objet n'a l'ID {0}.", arg.ToUpperInvariant());
+        if (def.type == ItemType.TeleporteurInverse)
+        {
+            net.ToAll("VN|" + CurrentHub());
+            return Loc.T("Le Téléporteur Inversé est apparu au centre du Hub.");
+        }
         if (!def.inventory)
         {
             compass = true;
@@ -254,68 +249,6 @@ public partial class GameSession
         status.Add(def.type);
         return Loc.F("Vous avez reçu : {0}.", def.name);
     }
-
-    // ================= Sujets de test (/info) =================
-
-    // Critères (hôte, envoyés avec l'état de la partie) : /hello puis /step1. Non précisé dans le GDD : ils valent pour la
-    // partie en cours (remis à zéro à chaque nouvelle partie) ; "20 Balises posées" compte celles posées en même temps.
-    const int TestPogoSale = 1, TestHurt = 2, TestBeaconInSight = 4, TestTwentyBeacons = 8, TestNightmareSurvived = 16;
-    const int TwentyBeacons = 20;
-    const float NightmareApproach = 4f, NightmareSurvival = 10f;
-    const int ThirdCycleRound = 4;
-    int testFlags, sentFlags;
-    float nearNightmareSince = -1f;
-
-    public bool Step1Unlocked => (testFlags & (TestPogoSale | TestHurt | TestBeaconInSight)) == (TestPogoSale | TestHurt | TestBeaconInSight);
-
-    void SetTestFlag(int flag)
-    {
-        if ((testFlags & flag) != 0) return;
-        testFlags |= flag;
-        BroadcastState();
-    }
-
-    // Joueur local : critère rempli de son côté (une seule fois par partie).
-    void RaiseTestFlag(int flag)
-    {
-        if (((testFlags | sentFlags) & flag) != 0) return;
-        sentFlags |= flag;
-        net.ToHost("QF|" + flag);
-    }
-
-    // S'approcher à moins de 4 m d'un Cauchemar et survivre les 10 secondes suivantes.
-    void UpdateTestSubjects()
-    {
-        if (status.Dead || !net.InGame) { nearNightmareSince = -1f; return; }
-        if (((testFlags | sentFlags) & TestNightmareSurvived) != 0) return;
-        if (nearNightmareSince >= 0f)
-        {
-            if (Time.time - nearNightmareSince >= NightmareSurvival) RaiseTestFlag(TestNightmareSurvived);
-            return;
-        }
-        foreach (var e in entities.Values)
-            if (e != null && e.Nightmare && Vector3.Distance(e.transform.position + Vector3.up * 0.9f, player.transform.position) < NightmareApproach)
-            {
-                nearNightmareSince = Time.time;
-                return;
-            }
-    }
-
-    static string Status(bool ok) => Loc.T(ok ? "OK." : "En attente.");
-
-    public string InfoMenu() => Loc.T("Sous-menu /info :") + "\n/hello" + (Step1Unlocked ? "\n/step1" : "");
-
-    public string HelloText() =>
-        Loc.T("Nouveaux sujets de test. Enregistrement des comportements étudiés.") + "\n"
-        + Loc.T("Réaction au stimuli de récompense.") + " " + Status((testFlags & TestPogoSale) != 0) + "\n"
-        + Loc.T("Réaction au stimuli de dangers létals en milieu hostile.") + " " + Status((testFlags & TestHurt) != 0) + "\n"
-        + Loc.T("Compréhension du balisage neuronal.") + " " + Status((testFlags & TestBeaconInSight) != 0);
-
-    public string Step1Text() =>
-        Loc.T("Sujets de test confirmés. Démarrage de la procédure d'acquisition.") + "\n"
-        + Loc.T("Assimilation de la récompense par exploration proactive.") + " " + Status((testFlags & TestTwentyBeacons) != 0) + "\n"
-        + Loc.T("Assimilation du châtiment à l'approche du danger.") + " " + Status((testFlags & TestNightmareSurvived) != 0) + "\n"
-        + Loc.T("Survie au premier cycle ternaire.") + " " + Status(round >= ThirdCycleRound);
 
     // ================= Le Réveil =================
 
@@ -407,12 +340,6 @@ public partial class GameSession
             {
                 Beacon tv = beacons.Get(NetworkGame.I(f[1]));
                 if (tv != null && tv.Screen != null) tv.Screen.SetVideo(f[2], NetworkGame.P(f[3]));
-                return true;
-            }
-            case "QF" when host && f.Length >= 2:
-            {
-                int flag = NetworkGame.I(f[1]);
-                if (flag == TestHurt || flag == TestNightmareSurvived) SetTestFlag(flag);
                 return true;
             }
         }

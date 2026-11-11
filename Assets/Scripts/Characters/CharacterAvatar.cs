@@ -340,6 +340,20 @@ public class CharacterAvatar : MonoBehaviour
         deathRoutine = null;
     }
 
+    // Quota non atteint : le corps vole en morceaux (Gibs) et le modèle disparaît aussitôt, sans animation de mort.
+    // Rend false si le personnage n'était pas visible (déjà mort, caché, en téléportation).
+    public bool Explode(Vector3 center)
+    {
+        if (model == null || dead || hidden || !model.activeInHierarchy) return false;
+        HideDrumstick();
+        Gibs.Spawn(model, animator, center);
+        dead = true;
+        if (deathRoutine != null) StopCoroutine(deathRoutine);
+        deathRoutine = null;
+        model.SetActive(false);
+        return true;
+    }
+
     // Sans animation de mort : le personnage bascule, rétrécit et disparaît.
     IEnumerator FallbackDeath()
     {

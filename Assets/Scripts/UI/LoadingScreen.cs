@@ -7,11 +7,12 @@ public static class LoadingScreen
     static GameObject root;
     static Text label;
 
-    public static void Show(float progress)
+    // 'percent' : de 0 à 100 (par tranches de 2 %, V0.6.10).
+    public static void Show(int percent)
     {
         if (root == null) Build();
         root.SetActive(true);
-        label.text = Loc.T("Chargement…") + "  " + Mathf.RoundToInt(Mathf.Clamp01(progress) * 100f) + " %";
+        label.text = Loc.T("Chargement…") + "  " + Mathf.Clamp(percent, 0, 100) + " %";
     }
 
     public static void Hide()

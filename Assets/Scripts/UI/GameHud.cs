@@ -42,12 +42,14 @@ public class GameHud : MonoBehaviour
     // Icônes d'inventaire (Resources/Icons/<ItemType>, créées par "FunGame/Générer les icônes d'inventaire").
     readonly System.Collections.Generic.Dictionary<ItemType, Sprite> icons = new System.Collections.Generic.Dictionary<ItemType, Sprite>();
     float toastTimer;
-    RawImage damageFlash, whiteFlash, dreadVeil, dreadDim;
+    RawImage damageFlash, whiteFlash, blackFade, dreadVeil, dreadDim;
     // Pulsations cardiaques : l'écran s'assombrit nettement (bords presque noirs, centre voilé) d'autant plus que le
     // Cauchemar est proche, et fonce à chaque battement. La racine carrée de la tension rend l'effet bien visible dès que
     // les pulsations commencent.
     const float DreadDarkness = 0.92f, DreadDim = 0.3f, DreadBeatBoost = 0.25f;
-    float flashTimer, whiteTimer;
+    float flashTimer, whiteTimer, blackTimer;
+    // Fondu au noir d'un spectateur dont le joueur suivi se téléporte : le noir s'efface en 0,4 s.
+    const float BlackFadeDuration = 0.4f;
     // Aura blanche du Roi : éclair blanc (luminosité +400 %) qui retombe en 0,5 s.
     const float WhiteFlashDuration = 0.5f, WhiteFlashBoost = 4f;
     // Mort du joueur local : éclair rouge, puis l'écran s'assombrit par les bords (-1 : inactif).
@@ -185,6 +187,7 @@ public class GameHud : MonoBehaviour
         // Flash rouge des dégâts (sous le reste de l'interface).
         damageFlash = FullScreen(canvas.transform, "FlashDegats", vignette);
         whiteFlash = FullScreen(canvas.transform, "FlashBlanc", null);
+        blackFade = FullScreen(canvas.transform, "FonduNoir", null);
         deathDim = FullScreen(canvas.transform, "AssombrissementMort", null);
         deathVeil = FullScreen(canvas.transform, "VoileMort", vignette);
 
@@ -455,8 +458,8 @@ public class GameHud : MonoBehaviour
             HideGameOver();
             wipeTime = -1f;
             wipeRoot.SetActive(false);
-            flashTimer = whiteTimer = 0f;
-            damageFlash.color = whiteFlash.color = dreadVeil.color = dreadDim.color = Color.clear;
+            flashTimer = whiteTimer = blackTimer = 0f;
+            damageFlash.color = whiteFlash.color = blackFade.color = dreadVeil.color = dreadDim.color = Color.clear;
             ClearDeath();
         }
     }
@@ -525,6 +528,9 @@ public class GameHud : MonoBehaviour
     public void FlashDamage() => flashTimer = FlashDuration;
 
     public void FlashWhite() => whiteTimer = WhiteFlashDuration;
+
+    // Noir complet, qui s'efface aussitôt (changement brusque de point de vue).
+    public void FadeFromBlack() => blackTimer = BlackFadeDuration;
 
     public void PlayDeath()
     {
@@ -710,6 +716,13 @@ public class GameHud : MonoBehaviour
             whiteFlash.color = new Color(1f, 1f, 1f, WhiteFlashBoost / (1f + WhiteFlashBoost) * k * k);
         }
         else if (whiteFlash.color.a > 0f) whiteFlash.color = Color.clear;
+        if (blackTimer > 0f)
+        {
+            blackTimer = Mathf.Max(0f, blackTimer - Time.unscaledDeltaTime);
+            float k = blackTimer / BlackFadeDuration;
+            blackFade.color = new Color(0f, 0f, 0f, k * k);
+        }
+        else if (blackFade.color.a > 0f) blackFade.color = Color.clear;
         if (flashTimer > 0f)
         {
             // Montée rapide puis fondu, avec un léger battement, le tout en moins d'une seconde.
