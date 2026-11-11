@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6.11";
+    public const string Version = "V0.6.12";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -194,6 +194,7 @@ public static class GameRules
     public const float RoiChainSpeed = 26f;                 // 20 m/s x 1,3
     public const float RoiChainRadius = 0.7f;               // la pointe touche le joueur à moins de 70 cm
     public const int RoiBreakPresses = 3;                   // appuis sur Espace pour rompre la chaîne (V0.4.6, avant : 5)
+    public const int RoiBreakPressesAgain = 2;              // V0.6.12 : chaînes relancées après s'être libéré, même agression
     // V0.4.7 : "vitesse normale x 2", soit le doublement déjà appliqué (avant : 2) : quatre fois sa vitesse de marche.
     public const float RoiPullMultiplier = 4f;
     public const float RoiChaseMultiplier = 0.5f;           // en chasse, il avance lentement vers sa proie
@@ -346,7 +347,8 @@ public static class GameRules
     // Roulette : 20 sections égales ; 9 tickets 50, 5 tickets 100, 3 tickets 200, 1 ticket 500 et 2 Réveils.
     public const int RouletteSections = 20;
     public const float RouletteSpin = 7f;
-    // Machine à pince : 5 peluches à chaque nouvelle manche (lapin 50 %, pingouin 25 %, singe 15 %, chat 10 %).
+    // Machine à pince : 5 peluches à chaque nouvelle manche, chaque emplacement tiré séparément (lapin 50 %, pingouin 25 %,
+    // singe 15 %, chat 10 %) : 5 lapins dans la même machine sont possibles (V0.6.12).
     public const int ClawPlushes = 5;
     public static readonly float[] PlushChances = { 0.5f, 0.25f, 0.15f, 0.1f };
     // Arcade Dance : 8 flèches, 2 secondes pour chacune ; 0 erreur : diamant, 1 : or, 2 : argent, 3 et plus : rien.

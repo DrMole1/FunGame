@@ -770,7 +770,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // ---------- Le Roi : flash, lumières affolées (GameSession.Objects.cs), chaîne ----------
 
-    int chainedBy = -1, chainPresses;
+    int chainedBy = -1, chainPresses, chainPressesNeeded = GameRules.RoiBreakPresses;
     float chainedAt;
 
     void UpdateRoi()
@@ -778,7 +778,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateRoiEffects();
         Vector3 me = player.transform.position;
 
-        // Enchaîné : immobilisé (la caméra reste libre) et traîné vers le Roi ; 3 appuis sur Espace rompent la chaîne,
+        // Enchaîné : immobilisé (la caméra reste libre) et traîné vers le Roi ; 3 appuis sur Espace rompent la chaîne (2 pour
+        // les chaînes relancées au cours de la même agression, V0.6.12),
         // et une barre d'espace s'agite à l'écran.
         hud.SetChainPrompt(chainedBy >= 0);
         if (chainedBy < 0) return;
@@ -794,7 +795,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Vector3 to = holder.transform.position - me;
         to.y = 0f;
         player.Pull = to.magnitude > 0.4f ? to.normalized * GameRules.BaseSpeed * GameRules.RoiPullMultiplier : Vector3.zero;
-        if (!PlayerController.InputLocked && Controls.Down(GameAction.Jump) && ++chainPresses >= GameRules.RoiBreakPresses)
+        if (!PlayerController.InputLocked && Controls.Down(GameAction.Jump) && ++chainPresses >= chainPressesNeeded)
         {
             net.ToHost("RB|" + chainedBy);
             ReleaseChain();
@@ -1681,7 +1682,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     public void Alert(Entity entity, string targetId) => net.ToPeer(targetId, "TA");
 
-    public void Chain(Entity entity, string targetId, bool on) => net.ToPeer(targetId, "RC|" + entity.Id + "|" + (on ? 1 : 0));
+    // RC|roi|1|appuis : chaîne accrochée (appuis sur Espace pour la rompre : 3, puis 2 dans la même agression, V0.6.12).
+    public void Chain(Entity entity, string targetId, bool on) => net.ToPeer(targetId, "RC|" + entity.Id + "|" + (on ? 1 : 0)
+        + "|" + (entity is Roi roi ? roi.BreakPresses : GameRules.RoiBreakPresses));
 
     public IEnumerable<Vector3> BeaconPositions()
     {
@@ -2301,7 +2304,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     public void OnPlayerJoined(string id)
     {
-        if (net.Roster.TryGetValue(id, out var info)) Log("Le joueur {0} est connecté.", info.name);
+        if (net.Roster.TryGetValue(id, out var info)) Log("Le sujet {0} est connecté.", info.name);
         OnRosterChanged();
     }
 
@@ -2309,7 +2312,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         if (net.IsHost)
         {
-            Log("Le joueur {0} est déconnecté.", playerName);
+            Log("Le sujet {0} est déconnecté.", playerName);
             if (terminalUser == id) net.ToAll("TS|");
         }
         OnRosterChanged();
@@ -2635,7 +2638,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                     cash -= price;
                     if (def.type == ItemType.Boussole) compass = true;
                     if (def.type == ItemType.TeleporteurInverse) net.ToAll("VN|" + buyHub);
-                    Log("Le joueur {0} a acheté {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(price));
+                    Log("Le sujet {0} a acheté {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(price));
                     BroadcastState();
                     net.ToPeer(from, "BO|1|" + (int)def.type + "|" + cash);
                 }
@@ -2679,7 +2682,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 string target = f[1];
                 if (target == from || !net.Roster.ContainsKey(target) || IsDeadForHost(from) || !IsDeadForHost(target)) break;
                 net.ToAll("RA|" + target + "|" + from + "|" + (f.Length >= 3 ? f[2] : "1"));
-                Log("Le joueur {0} a été réanimé par {1}.", NameOf(target), NameOf(from));
+                Log("Le sujet {0} a été réanimé par {1}.", NameOf(target), NameOf(from));
                 if (net.Remotes.TryGetValue(target, out var rp)) rp.SetStatus(AnimState.Idle, 1, 0);
                 break;
             }
@@ -2697,7 +2700,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case "DE" when host && f.Length >= 2:
                 StatsOf(from).deaths++;
                 net.ToAll(StatsMsg());
-                Log("Le joueur {0} est mort par {1}.", NameOf(from), Loc.Tr(f[1]));
+                Log("Le sujet {0} est mort par {1}.", NameOf(from), Loc.Tr(f[1]));
                 break;
             case "SC" when f.Length >= 3:
                 // L'hôte tient déjà ses statistiques à jour.
@@ -2838,7 +2841,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 cash += value;
                 StatsOf(from).golds += value;
                 net.ToAll(StatsMsg());
-                Log("Le joueur {0} a vendu {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(value));
+                Log("Le sujet {0} a vendu {1} pour {2}.", NameOf(from), Loc.Tr(def.frName), Loc.Pr(value));
                 // Dès que la Zone 3 est accessible, un objet des monticules vendu peut rapporter un Jeton WOOF (V0.6.3 : lastZone x 3 %).
                 if (Items.FromMound(def.type) && ZoneUnlocked(3) && Random.value < GameRules.TokenChance(lastZone)) net.ToPeer(from, "JT");
                 BroadcastState();
@@ -2891,7 +2894,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 net.ToPeer(from, "OU|" + (ok ? f[2] : "-2"));
                 if (!ok) break;
                 brokenCases.Add(glyphId);
-                Log("Le joueur {0} a brisé le boîtier d'un glyphe dans la Zone {1}.", NameOf(from), glyph.Zone.ToString());
+                Log("Le sujet {0} a brisé le boîtier d'un glyphe dans la Zone {1}.", NameOf(from), glyph.Zone.ToString());
                 UpdateDoors(true);
                 BroadcastState();
                 break;
@@ -2963,7 +2966,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 // 10 croquettes par tranche de 10 secondes restant au Compteur de Temps.
                 int bonus = Mathf.FloorToInt(timeLeft / 10f) * 10;
                 cash += bonus;
-                LogN(bonus, "Le joueur {0} passe la manche {1} : {2} ajoutée à la cagnotte.|Le joueur {0} passe la manche {1} : {2} ajoutées à la cagnotte.",
+                LogN(bonus, "Le sujet {0} passe la manche {1} : {2} ajoutée à la cagnotte.|Le sujet {0} passe la manche {1} : {2} ajoutées à la cagnotte.",
                     NameOf(from), round.ToString(), Loc.Pr(bonus));
                 EndRound();
                 break;
@@ -2999,6 +3002,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 chainedBy = roiId;
                 chainedAt = Time.time;
                 chainPresses = 0;
+                chainPressesNeeded = f.Length >= 4 ? Mathf.Max(1, NetworkGame.I(f[3])) : GameRules.RoiBreakPresses;
                 break;
             }
             case "RB" when host && f.Length >= 2:

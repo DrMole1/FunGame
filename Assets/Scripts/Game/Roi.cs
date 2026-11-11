@@ -39,6 +39,10 @@ public class Roi : Entity
 
     float stateTimer, walkTimer, pauseDuration, aimDuration, beaconCooldown;
     bool grabHit;
+    // V0.6.12 : la cible s'est déjà libérée de la chaîne au cours de cette agression (remis à zéro quand il repart en
+    // recherche ou change de cible) ; les chaînes suivantes ne demandent alors que 2 appuis sur Espace au lieu de 3.
+    bool brokenFree;
+    public int BreakPresses => brokenFree ? GameRules.RoiBreakPressesAgain : GameRules.RoiBreakPresses;
     Vector3 buffer;
 
     protected override void Init() => walkTimer = Range(GameRules.RoiWalkMin, GameRules.RoiWalkMax);
@@ -179,10 +183,11 @@ public class Roi : Entity
         }
     }
 
-    // Le joueur chaîné a rompu la chaîne (3 appuis sur Espace).
+    // Le joueur chaîné a rompu la chaîne (3 appuis sur Espace, puis 2 pour les chaînes suivantes de la même agression).
     public void BreakFree(string playerId)
     {
         if (Current != State.Pull || playerId != TargetId) return;
+        brokenFree = true;
         BeginRecover();
     }
 
@@ -194,6 +199,7 @@ public class Roi : Entity
     {
         Current = State.Aim;
         stateTimer = 0f;
+        if (TargetId != p.PlayerId) brokenFree = false;
         TargetId = p.PlayerId;
         aimDuration = first ? GameRules.RoiAimFirst : GameRules.RoiAimAgain;
         ClearPath();
@@ -222,6 +228,7 @@ public class Roi : Entity
         Current = State.Walk;
         stateTimer = 0f;
         TargetId = "";
+        brokenFree = false;
         walkTimer = Range(GameRules.RoiWalkMin, GameRules.RoiWalkMax);
         ClearPath();
     }

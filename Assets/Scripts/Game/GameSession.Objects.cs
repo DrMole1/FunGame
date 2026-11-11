@@ -243,7 +243,7 @@ public partial class GameSession
         {
             compass = true;
             BroadcastState();
-            return Loc.T("La Boussole s'affiche désormais chez tous les joueurs.");
+            return Loc.T("La Boussole s'affiche désormais chez tous les sujets.");
         }
         if (!HasFreeSlot) return Loc.F("Votre inventaire est plein ! Impossible de recevoir {0}.", def.name);
         status.Add(def.type);

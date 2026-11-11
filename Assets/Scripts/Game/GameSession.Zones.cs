@@ -486,7 +486,7 @@ public partial class GameSession
         foreach (var e in entities.Values) if (e != null && e.Nightmare) { any = true; break; }
         if (!any) return;
         roundSpawnHeard = round;
-        if (!WorldBuilder.IsInHub(player.transform.position)) GameAudio.Play2D("round_spawn", 0.9f);
+        if (!WorldBuilder.IsInHub(player.transform.position)) GameAudio.Play2D("round_spawn", 1f);
     }
 
     // Entités au-delà des zones des joueurs et de leurs voisines : supprimées (elles reviendront si des joueurs approchent).

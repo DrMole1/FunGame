@@ -80,8 +80,8 @@ public partial class GameSession
         if (m.Kind == ArcadeKind.Claw) m.SetContents(ClawContents(m.Id));
     }
 
-    // Peluches de la Machine à pince pour la manche en cours : tirées au hasard (50 % lapin, 25 % pingouin, 15 % singe,
-    // 10 % chat), le même tirage chez tous ; l'hôte annonce celles qui ont été gagnées.
+    // Peluches de la Machine à pince pour la manche en cours : chaque emplacement tiré séparément (50 % lapin, 25 % pingouin,
+    // 15 % singe, 10 % chat ; 5 lapins possibles), le même tirage chez tous ; l'hôte annonce celles qui ont été gagnées.
     int[] ClawContents(int id)
     {
         if (clawState.TryGetValue(id, out var state) && state.round == round) return state.types;
@@ -169,12 +169,12 @@ public partial class GameSession
         if (prize == ItemType.Reveil)
         {
             SpawnReveil(spot + Vector3.up * 0.1f);
-            Log("La Roulette réveille un Réveil pour le joueur {0} !", NameOf(s.user));
+            Log("La Roulette réveille un Réveil pour le sujet {0} !", NameOf(s.user));
         }
         else
         {
             AddDropped(prize, spot, -1);
-            Log("Le joueur {0} gagne {1} à la Roulette.", NameOf(s.user), Loc.Tr(Items.Get(prize).frName));
+            Log("Le sujet {0} gagne {1} à la Roulette.", NameOf(s.user), Loc.Tr(Items.Get(prize).frName));
         }
         EndArcade(m.Id);
     }
@@ -466,7 +466,7 @@ public partial class GameSession
                     clawState[id] = (round, types);
                     net.ToAll(ClawMsg(id, types));
                     AddDropped(prize, PrizeGround(m), -1);
-                    Log("Le joueur {0} gagne {1} à la Machine à pince.", NameOf(from), Loc.Tr(Items.Get(prize).frName));
+                    Log("Le sujet {0} gagne {1} à la Machine à pince.", NameOf(from), Loc.Tr(Items.Get(prize).frName));
                 }
                 EndArcade(id);
                 return true;
@@ -499,7 +499,7 @@ public partial class GameSession
                 if (prize != ItemType.None)
                 {
                     AddDropped(prize, PrizeGround(m), -1);
-                    Log("Le joueur {0} gagne {1} à l'Arcade Dance.", NameOf(from), Loc.Tr(Items.Get(prize).frName));
+                    Log("Le sujet {0} gagne {1} à l'Arcade Dance.", NameOf(from), Loc.Tr(Items.Get(prize).frName));
                 }
                 if (errors < 99) net.ToAll("AA|" + id + "|-1|" + GameRules.DanceArrows + "|" + errors + "|-2");
                 EndArcade(id);

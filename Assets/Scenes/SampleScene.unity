@@ -259,9 +259,9 @@ MonoBehaviour:
     controller: {fileID: 9100000, guid: e757f867fb6142745a69bc3845c58342, type: 2}
     scale: 1.0000001
   - name: Perso3
-    model: {fileID: 919132149155446097, guid: 8bcd0fc4a0c69344c9e682af063fff47, type: 3}
+    model: {fileID: -927199367670048503, guid: 8bcd0fc4a0c69344c9e682af063fff47, type: 3}
     controller: {fileID: 9100000, guid: 47937fe520138fe49bf7961ccfa67691, type: 2}
-    scale: 1.0000002
+    scale: 0.010000001
   - name: Perso4
     model: {fileID: 919132149155446097, guid: 58c4ca9e4d791154f95018f937f9a4f6, type: 3}
     controller: {fileID: 9100000, guid: 4943415b86ca2c342bad50bf781b0564, type: 2}

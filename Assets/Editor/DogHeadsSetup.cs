@@ -16,7 +16,7 @@ public static class DogHeadsSetup
     {
         { "Perso1", (new Vector2(0.255f, 0.56f), new Vector2(-0.249f, 0.56f), 0.08f) },
         { "Perso2", (new Vector2(0.225f, 0.53f), new Vector2(-0.216f, 0.53f), 0.09f) },
-        { "Perso3", (new Vector2(0.225f, 0.39f), new Vector2(-0.186f, 0.39f), 0.08f) },
+        { "Perso3", (new Vector2(0.23f, 0.46f), new Vector2(-0.14f, 0.46f), 0.075f) },
         { "Perso4", (new Vector2(0.225f, 0.725f), new Vector2(-0.225f, 0.725f), 0.065f) },
         { "Perso5", (new Vector2(0.18f, 0.35f), new Vector2(-0.186f, 0.35f), 0.095f) },
         { "Perso6", (new Vector2(0.105f, 0.35f), new Vector2(-0.135f, 0.35f), 0.06f) },

@@ -181,8 +181,8 @@ public class TerminalUI : MonoBehaviour
         {
             string target = text.Substring(6).Trim();
             string kicked = session.Kick(target);
-            Print(kicked != null ? Loc.F("Le joueur {0} a été expulsé de la partie.", kicked) + Quit
-                                 : Loc.F("Aucun autre joueur nommé {0}.", target) + Quit);
+            Print(kicked != null ? Loc.F("Le sujet {0} a été expulsé de la partie.", kicked) + Quit
+                                 : Loc.F("Aucun autre sujet nommé {0}.", target) + Quit);
         }
         else if (System.Text.RegularExpressions.Regex.IsMatch(lower, @"^/godmod\s+(on|off)$") && session.IsHost)
         {
@@ -229,7 +229,7 @@ public class TerminalUI : MonoBehaviour
         waitingBuy = false;
         if (!IsOpen || def == null) return;
         if (ok && def.type == ItemType.Boussole)
-            Print(Loc.F("Vous avez acheté la Boussole pour {0} !\nElle s'affiche désormais en haut de l'écran de tous les joueurs.", Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
+            Print(Loc.F("Vous avez acheté la Boussole pour {0} !\nElle s'affiche désormais en haut de l'écran de tous les sujets.", Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
         else if (ok && def.type == ItemType.TeleporteurInverse)
             Print(Loc.F("Vous avez acheté le Téléporteur Inversé pour {0} !\nIl est apparu au centre du Hub.", Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
         else if (ok)
