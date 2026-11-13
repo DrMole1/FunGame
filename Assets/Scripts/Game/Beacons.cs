@@ -10,6 +10,10 @@ public enum DeviceKind : byte
     Lapin = 8, Pingouin = 9, Singe = 10, Chat = 11, DiscoArgent = 12, DiscoOr = 13, DiscoDiamant = 14,
     // V0.6.3 (note 06 du chapitre 7) : canards posés au sol. CanardColore : palier 1 ; les paliers suivants suivent.
     Canard = 15, CanardColore = 16,
+    // V0.6.13 (7.8) : Cloche Décorative des zones 2+ (BellZone + nZone), suspendue au plafond tant qu'on ne l'a pas récupérée.
+    BellZone = 200,
+    // V0.6.13 (7.10) : Protocole posé au sol (à plat, le texte vers le haut).
+    Protocole = 190,
 }
 
 // Balise (GDD 7.1) : petite borne posée au sol, ramassable. La Balise du Hub, plus grande, ne se ramasse pas :
@@ -26,6 +30,8 @@ public class Beacon : Interactable
     // Canon posé au sol : 0,64 fois la taille d'un personnage (1,8 m), soit environ 2,4 m de long ; fût à 80 % de sa hauteur.
     public const float CanonHeight = 0.64f * 1.8f, CanonBarrel = CanonHeight * 0.8f, CanonHalfLength = 1.2f;
     public const DeviceKind LastKind = DeviceKind.CanardColore + Items.MaxDuckTier - 1;
+    public const DeviceKind MaxKind = DeviceKind.BellZone + Items.MaxBellZone;
+    public static bool IsBellKind(DeviceKind kind) => kind == DeviceKind.Bell || kind > DeviceKind.BellZone + 1 && kind <= MaxKind;
     public const float PlushHeight = 0.9f, DuckHeight = 0.45f, DiscoHeight = 0.72f, DiscoDiamondHeight = 1.44f, DiscoChain = 0.25f, ColoredDuckHeight = 0.6f;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
@@ -50,7 +56,8 @@ public class Beacon : Interactable
     public bool Networked => Kind <= DeviceKind.Television;
     public bool IsDisco => IsDiscoKind(Kind);
     public static bool IsDiscoKind(DeviceKind kind) => kind >= DeviceKind.DiscoArgent && kind <= DeviceKind.DiscoDiamant;
-    public bool IsDuck => Kind >= DeviceKind.Canard;
+    public bool IsDuck => Kind >= DeviceKind.Canard && Kind <= LastKind;
+    public const float ProtocolHeight = 0.06f;
     // Boule à facettes suspendue au plafond (point de pose au plafond).
     public bool Hanging { get; private set; }
     // Télévision : son écran (sans signal, décompte ou vidéo).
@@ -63,7 +70,10 @@ public class Beacon : Interactable
 
     public static ItemType ItemOf(DeviceKind kind)
     {
-        if (kind >= DeviceKind.CanardColore) return ItemType.CanardColore + (kind - DeviceKind.CanardColore + 1);
+        if (kind > DeviceKind.BellZone) return Items.ZoneBellOf(kind - DeviceKind.BellZone);
+        // Avant les canards colorés : son numéro (190) est au-delà de leur plage, pas dedans.
+        if (kind == DeviceKind.Protocole) return ItemType.Protocole;
+        if (kind >= DeviceKind.CanardColore && kind <= LastKind) return ItemType.CanardColore + (kind - DeviceKind.CanardColore + 1);
         switch (kind)
         {
             case DeviceKind.Enhanced: return ItemType.BaliseAmelioree;
@@ -81,6 +91,7 @@ public class Beacon : Interactable
             case DeviceKind.DiscoOr: return ItemType.BouleOr;
             case DeviceKind.DiscoDiamant: return ItemType.BouleDiamant;
             case DeviceKind.Canard: return ItemType.Canard;
+            case DeviceKind.Protocole: return ItemType.Protocole;
             default: return ItemType.Balise;
         }
     }
@@ -89,12 +100,16 @@ public class Beacon : Interactable
     public static DeviceKind KindOf(ItemType item)
     {
         if (Items.IsColoredDuck(item)) return (DeviceKind)((int)DeviceKind.CanardColore + Items.DuckTier(item) - 1);
+        if (Items.IsZoneBell(item)) return (DeviceKind)((int)DeviceKind.BellZone + Items.BellZone(item));
+        if (item == ItemType.Protocole) return DeviceKind.Protocole;
         for (var k = DeviceKind.Beacon; k <= DeviceKind.Canard; k++) if (ItemOf(k) == item) return k;
         return DeviceKind.Beacon;
     }
 
     public static float HeightOf(DeviceKind kind)
     {
+        if (IsBellKind(kind)) return GameRules.BellHeight;
+        if (kind == DeviceKind.Protocole) return ProtocolHeight;
         if (kind >= DeviceKind.CanardColore) return ColoredDuckHeight;
         switch (kind)
         {
@@ -129,7 +144,8 @@ public class Beacon : Interactable
     Transform visualRoot;
     float recoil = -1f, placedPop = -1f;
 
-    public static Beacon Create(Transform parent, int id, Vector3 pos, float yaw, DeviceKind kind = DeviceKind.Beacon, bool hanging = false)
+    // 'chain' (Cloche Décorative des zones 2+, V0.6.13) : longueur de la chaîne qui la suspend au plafond (0 : posée au sol).
+    public static Beacon Create(Transform parent, int id, Vector3 pos, float yaw, DeviceKind kind = DeviceKind.Beacon, bool hanging = false, float chain = 0f)
     {
         // (Modèles Meshy des objets uniques, sans socle : Resources/Art/Television, Trampoline et ClocheDecorative.)
         bool hub = id < 0;
@@ -146,6 +162,23 @@ public class Beacon : Interactable
         visual.SetParent(go.transform, false);
         beacon.visualRoot = visual;
         if (beacon.IsDuck) BuildDuck(visual, kind, height);
+        else if (kind == DeviceKind.Protocole)
+        {
+            // À plat sur le sol, le texte vers le ciel, le haut de la feuille vers l'avant de l'appareil.
+            var board = ProtocolBoard.Build(visual);
+            board.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+            board.transform.localPosition = new Vector3(0f, ProtocolBoard.Thickness * 0.5f + 0.004f, ProtocolBoard.Height * 0.5f);
+        }
+        else if (IsBellKind(kind))
+        {
+            if (GameArt.SpawnModel("ClocheDecorative", visual, height) == null) BuildBell(visual, height);
+            // Suspendue : une chaîne monte du haut de la Cloche jusqu'au plafond.
+            if (chain > 0f)
+            {
+                beacon.Hanging = true;
+                GameArt.Prim(PrimitiveType.Cylinder, visual, Vector3.up * (height + chain * 0.5f), new Vector3(0.025f, chain * 0.5f, 0.025f), GameArt.Metal);
+            }
+        }
         else switch (kind)
         {
             case DeviceKind.Canon:
@@ -172,9 +205,6 @@ public class Beacon : Interactable
                 break;
             case DeviceKind.Trampoline:
                 if (GameArt.SpawnModel("Trampoline", visual, height) == null) BuildTrampoline(visual, height);
-                break;
-            case DeviceKind.Bell:
-                if (GameArt.SpawnModel("ClocheDecorative", visual, height) == null) BuildBell(visual, height);
                 break;
             case DeviceKind.Lapin:
             case DeviceKind.Pingouin:
@@ -280,10 +310,61 @@ public class Beacon : Interactable
             beacon.curfewNeon.shadows = LightShadows.None;
             beacon.curfewNeon.enabled = false;
         }
-        beacon.FitTrigger(kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.76f, CanonHeight, 1.76f)
+        beacon.FitTrigger(kind == DeviceKind.Protocole ? new Vector3(ProtocolBoard.Width + 0.1f, 0.2f, ProtocolBoard.Height + 0.1f)
+            : kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.76f, CanonHeight, 1.76f)
             : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.9f, 0.9f, 0.9f) : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;
+    }
+
+    // V0.6.13 : pendant le Couvre Feu, une Balise Améliorée (qui éclaire comme un néon) près d'un Roi clignote frénétiquement,
+    // comme les néons du labyrinthe : rafales de coupures, franches ou partielles.
+    float neonTimer, neonLevel = 1f;
+    bool neonOff;
+    int neonBurst;
+
+    void UpdateCurfewNeon()
+    {
+        bool on = CurfewGlow && Charged;
+        if (curfewNeon.enabled != on) curfewNeon.enabled = on;
+        if (!on)
+        {
+            if (halo != null && halo.activeSelf != Charged) halo.SetActive(Charged);
+            return;
+        }
+        bool frantic = false;
+        foreach (Vector3 p in FlickerLight.Frenzy)
+            if ((p - transform.position).sqrMagnitude < GameRules.RoiLightRange * GameRules.RoiLightRange) { frantic = true; break; }
+        if (!frantic)
+        {
+            neonOff = false;
+            neonBurst = 0;
+            neonLevel = 1f;
+        }
+        else
+        {
+            neonTimer -= Time.deltaTime;
+            if (neonTimer <= 0f)
+            {
+                if (neonOff)
+                {
+                    neonOff = false;
+                    neonLevel = Random.Range(0.7f, 1.2f);
+                    neonTimer = neonBurst > 0 ? Random.Range(0.04f, 0.25f) : Random.Range(0.25f, 1.6f);
+                }
+                else
+                {
+                    if (neonBurst == 0) neonBurst = Random.Range(1, 6);
+                    neonBurst--;
+                    neonOff = true;
+                    neonLevel = Random.value < 0.35f ? Random.Range(0.15f, 0.45f) : Random.Range(0.01f, 0.06f);
+                    neonTimer = Random.Range(0.03f, 0.15f);
+                    if (Random.value < 0.1f) GameAudio.Play3D("neon", transform.position, 0.25f, 14f, 0.2f);
+                }
+            }
+        }
+        curfewNeon.intensity = CurfewNeonIntensity * neonLevel;
+        if (halo != null) halo.SetActive(Charged && neonLevel > 0.2f);
     }
 
     static GameObject NewHalo(Transform parent, Vector3 localPos, float size, Material material)
@@ -503,7 +584,7 @@ public class Beacon : Interactable
     {
         UpdateRecoil();
         UpdatePlacedPop();
-        if (curfewNeon != null && curfewNeon.enabled != (CurfewGlow && Charged)) curfewNeon.enabled = CurfewGlow && Charged;
+        if (curfewNeon != null) UpdateCurfewNeon();
         if (coordinates != null && Camera.main != null)
         {
             Transform text = coordinates.transform;
@@ -683,11 +764,11 @@ public class BeaconNetwork : MonoBehaviour
         return best;
     }
 
-    public Beacon Add(int id, Vector3 pos, DeviceKind kind = DeviceKind.Beacon, float yaw = float.NaN, bool hanging = false)
+    public Beacon Add(int id, Vector3 pos, DeviceKind kind = DeviceKind.Beacon, float yaw = float.NaN, bool hanging = false, float chain = 0f)
     {
         if (placed.TryGetValue(id, out var existing) && existing != null) return existing;
         // Orientation : celle choisie à la pose (la Télévision fait face au joueur), sinon au hasard.
-        var b = Beacon.Create(transform, id, pos, float.IsNaN(yaw) ? Random.Range(0f, 360f) : yaw, kind, hanging);
+        var b = Beacon.Create(transform, id, pos, float.IsNaN(yaw) ? Random.Range(0f, 360f) : yaw, kind, hanging, chain);
         Beacon nearest = NearestHub(pos);
         if (nearest != null) b.ShowHubDistance(nearest.transform.position);
         placed[id] = b;

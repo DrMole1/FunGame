@@ -5,10 +5,11 @@ using UnityEngine;
 // à la première personne, légèrement zoomée, viseur en rond blanc, inventaire caché ; le fût suit sa visée. Sauter ou bouger
 // le fait sortir ; il y est invincible et aucune entité ne peut le prendre pour cible (V0.5). Un clic gauche le projette en boulet de canon, en légère cloche, vers son
 // curseur : il ne peut plus rien faire, la caméra fixe son point d'arrivée, il est invincible. Les joueurs percutés sont
-// repoussés sans dégâts ; les entités percutées explosent et réapparaissent ailleurs 1 min 30 plus tard (pas si la manche
-// a changé entre-temps). À l'impact, il retrouve son état normal.
+// repoussés sans dégâts ; les entités percutées meurent et réapparaissent ailleurs 1 min 30 plus tard. V0.6.13 : un Cauchemar
+// ou une Sanction percuté meurt dans une explosion, ses membres volent en éclats et disparaissent 10 secondes plus tard (sans
+// tache de sang) ; les autres entités meurent simplement. À l'impact, il retrouve son état normal.
 // Messages : CE|canon -> CI|canon / CR|canon (entrer, accepté ou refusé), CX|canon (sortir), CF|canon|cap (tir, à tous),
-// CK|entité -> EX|x|y|z (entité percutée, explosion), CP|joueur|dx|dz -> KB|dx|dz (joueur percuté, repoussé).
+// CK|entité -> EX|x|y|z|entité|éclats (entité percutée : 1 = explosion et membres en éclats, 0 = mort simple), CP|joueur|dx|dz -> KB|dx|dz (joueur percuté, repoussé).
 public partial class GameSession
 {
     const float CannonSpeed = 22f, CannonGravity = 6f, CannonRadius = 0.3f, CannonMaxFlight = 6f;
@@ -248,7 +249,8 @@ public partial class GameSession
             Vector3 away = rp.transform.position - pos;
             net.ToHost("CP|" + kv.Key + "|" + NetworkGame.F(away.x) + "|" + NetworkGame.F(away.z));
         }
-        foreach (var e in entities.Values)
+        // Copie : chez l'hôte, l'entité percutée est retirée aussitôt (CK traité sur place).
+        foreach (var e in new List<Entity>(entities.Values))
         {
             if (e == null || flightSmashed.Contains(e.Id)) continue;
             Vector3 c = e.transform.position + Vector3.up * e.ChestHeight * 0.6f;
@@ -283,8 +285,8 @@ public partial class GameSession
         for (int i = respawns.Count - 1; i >= 0; i--)
         {
             var r = respawns[i];
-            // La manche a changé : une autre entité a pris sa place.
-            if (r.round != round || phase != Phase.Running || r.zone > zones.Count) { respawns.RemoveAt(i); continue; }
+            // V0.6.13 : elle réapparaît même si la manche a changé entre-temps.
+            if (phase != Phase.Running || r.zone > zones.Count) { respawns.RemoveAt(i); continue; }
             if (Time.time < r.at) continue;
             respawns.RemoveAt(i);
             var rnd = new System.Random(seed + nextEntityId * 131 + Mathf.RoundToInt(Time.time * 10f));
@@ -294,32 +296,57 @@ public partial class GameSession
 
     void SpawnKind(EntityKind kind, int zone, System.Random rnd)
     {
-        float clearance = kind == EntityKind.Spider ? GameRules.SpiderSpawnClearance : GameRules.EntitySpawnClearance;
+        float clearance = GameRules.EntitySpawnClearance;
         switch (kind)
         {
             case EntityKind.Dame: SpawnAt<Dame>(zone, rnd, clearance); break;
             case EntityKind.Tour: SpawnAt<Tour>(zone, rnd, clearance); break;
             case EntityKind.Pion: SpawnAt<Pion>(zone, rnd, clearance); break;
             case EntityKind.Cloche: SpawnAt<Cloche>(zone, rnd, clearance); break;
-            case EntityKind.Spider: SpawnAt<Spider>(zone, rnd, clearance); break;
             case EntityKind.Fou: SpawnAt<Fou>(zone, rnd, clearance); break;
             case EntityKind.Roi: SpawnAt<Roi>(zone, rnd, clearance); break;
             case EntityKind.Cavalier: SpawnAt<Cavalier>(zone, rnd, clearance); break;
         }
     }
 
-    // Une entité percutée par un boulet explose et meurt ; elle réapparaîtra ailleurs 1 min 30 plus tard.
+    // Une entité percutée par un boulet meurt (un Cauchemar ou une Sanction en explosant) ; elle réapparaîtra ailleurs 1 min 30
+    // plus tard.
     void SmashEntity(int id)
     {
         if (!entities.TryGetValue(id, out var e) || e == null) return;
         Vector3 pos = e.transform.position;
         int zone = Mathf.Max(1, e.Zone);
+        bool shatter = e.Nightmare || e.Kind == EntityKind.TeteDeCloche;
         // Le Réveil ne sort que des monticules, la Tête de Cloche que des Sanctions : ils ne réapparaissent pas.
         if (e.Kind != EntityKind.Reveil && e.Kind != EntityKind.TeteDeCloche) respawns.Add((e.Kind, zone, Time.time + CannonRespawnDelay, round));
-        Destroy(e.gameObject);
+        // Chez tous (hôte compris, tout de suite) : effet et disparition de l'entité.
+        net.ToAll("EX|" + NetworkGame.F(pos.x) + "|" + NetworkGame.F(pos.y + 1f) + "|" + NetworkGame.F(pos.z) + "|" + id + "|" + (shatter ? 1 : 0));
+        if (entities.TryGetValue(id, out var left) && left != null) Destroy(left.gameObject);
         entities.Remove(id);
         watching.Remove(id);
-        net.ToAll("EX|" + NetworkGame.F(pos.x) + "|" + NetworkGame.F(pos.y + 1f) + "|" + NetworkGame.F(pos.z));
+    }
+
+    // Entité percutée : explosion et membres en éclats, ou simple mort (un nuage de poussière).
+    void OnEntitySmashed(Vector3 at, int id, bool shatter)
+    {
+        Entity e = null;
+        if (id >= 0 && (entities.TryGetValue(id, out e) || lingering.TryGetValue(id, out e)) && e != null)
+        {
+            if (shatter) e.Shatter();
+            Destroy(e.gameObject);
+        }
+        if (id >= 0)
+        {
+            entities.Remove(id);
+            lingering.Remove(id);
+            watching.Remove(id);
+        }
+        if (shatter || id < 0) Explode(at);
+        else
+        {
+            GameAudio.Play3D("pop", at, 0.9f, 20f, 0.1f, 0.6f);
+            Fx.Burst(at, Fx.Dirt, 16, 2.5f, 0.1f);
+        }
     }
 
     // Même explosion que Le Réveil (Fx.Explosion), avec des éclats sombres.
@@ -381,7 +408,8 @@ public partial class GameSession
                 SmashEntity(NetworkGame.I(f[1]));
                 return true;
             case "EX" when f.Length >= 4:
-                Explode(new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3])));
+                OnEntitySmashed(new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3])),
+                    f.Length >= 6 ? NetworkGame.I(f[4]) : -1, f.Length >= 6 && f[5] == "1");
                 return true;
             case "CP" when host && f.Length >= 4:
                 net.ToPeer(f[1], "KB|" + f[2] + "|" + f[3]);

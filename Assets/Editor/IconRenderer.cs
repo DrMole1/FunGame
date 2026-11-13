@@ -16,7 +16,6 @@ public static class IconRenderer
         if (!AssetDatabase.IsValidFolder(IconDir)) AssetDatabase.CreateFolder("Assets/Resources", "Icons");
         // Certains modèles Meshy ont un socle : on cadre la partie haute (l'objet lui-même).
         // V0.5.1 : la Cuisse de poulet remplace la Croquette (objet 1).
-        Render("CuisseDePoulet", ItemType.CuisseDePoulet, new Vector3(20f, -45f, -35f), 0f);
         Render("DuckSolo", ItemType.Canard, new Vector3(8f, -140f, 0f), 0f);
         Render("Balise", ItemType.Balise, new Vector3(10f, -150f, 0f), 0f);
         Render("Balise", ItemType.BaliseAmelioree, new Vector3(10f, -150f, 0f), 0f, "BaliseBlanche");

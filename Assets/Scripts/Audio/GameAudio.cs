@@ -524,10 +524,14 @@ public class GameAudio : MonoBehaviour
         // d'ambiance s'effacent progressivement, et reviennent quand on s'en éloigne.
         // V0.6.1 : de même près d'une boule à facettes posée (sa musique disco remplace la musique d'ambiance).
         float tv = TvScreen.Broadcasting(ListenerBody(cam), GameRules.TvMusicDuckRange) || DiscoNear ? 0f : 1f;
+        // V0.6.14 (15.3) : dans le tunnel derrière l'Écran des Logs, la musique du Hub s'efface progressivement ; plus aucune
+        // musique dans la Control Room. Elle revient en rentrant dans le Hub.
+        float tunnel = cam != null ? ControlWing.MusicSilence(ListenerBody(cam)) : 0f;
+        bool hubSide = inHub || tunnel > 0f;
         // Musique_Hub (enregistrée, en boucle) : gardée discrète, même avec la musique réglée à 50 %.
-        hubMusic.volume = Mathf.Lerp(hubMusic.volume, inHub ? HubMusicVolume * on * tv * music : 0f, k);
+        hubMusic.volume = Mathf.Lerp(hubMusic.volume, hubSide ? HubMusicVolume * on * tv * music * (1f - tunnel) : 0f, k);
         mazeReturn = CurfewLevel > 0f ? 0f : Mathf.MoveTowards(mazeReturn, 1f, Time.unscaledDeltaTime / GameRules.CurfewMusicReturn);
-        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, inHub ? 0f : 0.55f * on * tv * mazeReturn * music, k);
+        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, hubSide ? 0f : 0.55f * on * tv * mazeReturn * music, k);
         if (CurfewLevel > 0f) mazeDrone.volume = 0f;
         if (Loading) hubMusic.volume = mazeDrone.volume = 0f;
         // Dans le Hub, les sons des entités se taisent (y compris ceux déjà commencés).

@@ -1,8 +1,9 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Identifiants du GDD (chapitre 8) ; le Laser (ID 1) est un piège du décor, pas une entité mobile.
-public enum EntityKind : byte { Dame = 2, Tour = 3, Pion = 4, Cloche = 5, Spider = 6, Fou = 7, Roi = 8, Cavalier = 9, Reveil = 10, TeteDeCloche = 11 }
+// Identifiants du GDD (chapitre 8) ; le Laser (ID 1) est un piège du décor, pas une entité mobile. V0.6.14 : L'Araignée est
+// supprimée, les ID suivants sont décalés d'un cran.
+public enum EntityKind : byte { Dame = 2, Tour = 3, Pion = 4, Cloche = 5, Fou = 6, Roi = 7, Cavalier = 8, Reveil = 9, TeteDeCloche = 10 }
 
 // Ce que les entités demandent au jeu (implémenté par GameSession, chez l'hôte).
 public interface IEntityHost
@@ -17,6 +18,8 @@ public interface IEntityHost
     void Steal(Entity entity, string targetId, System.Action<ItemType> done);
     // Le Pion dépose l'objet volé au sol.
     void DropStolen(Entity entity, ItemType type, Vector3 position);
+    // V0.6.14 : le Pion ramasse un objet posé au sol (appareil 'deviceId') ; None s'il n'y est plus.
+    ItemType TakeDevice(Entity entity, int deviceId);
     // Le Fou échange sa position avec celle du joueur visé : celui-ci est transporté en 'position' (au sol).
     void Swap(Entity entity, string targetId, Vector3 position);
     // Le Roi a accroché (on) ou lâché (off) le joueur avec sa chaîne.
@@ -122,6 +125,14 @@ public abstract class Entity : MonoBehaviour
             }
             if (changed) r.sharedMaterials = mats;
         }
+    }
+
+    // V0.6.13 : percutée par un boulet de canon (Cauchemar ou Sanction), elle vole en éclats, sans sang.
+    public bool Shatter()
+    {
+        Transform model = transform.Find("Modele");
+        GameObject source = model != null ? model.gameObject : gameObject;
+        return Gibs.SpawnEntity(source, animator, transform.position + Vector3.up * ChestHeight * 0.6f);
     }
 
     protected abstract void BuildVisual();

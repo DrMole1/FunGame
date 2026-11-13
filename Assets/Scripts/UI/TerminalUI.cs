@@ -6,7 +6,8 @@ using UnityEngine.UI;
 // Zone de saisie du Terminal, affichée uniquement chez le joueur qui l'utilise.
 // V0.6.10 (légère refonte) : le message d'accueil s'écrit caractère par caractère, puis la liste des objets achetables
 // (ID et prix) s'affiche d'un coup ; taper un ID achète l'objet. Plus de /buy, /info, /hello, /step1, /skip round ni /sell.
-// Restent les commandes secrètes de l'hôte, insensibles à la casse : /kick, /spawn, /tp, /godmod et /give.
+// Restent les commandes secrètes de l'hôte, insensibles à la casse : /kick, /spawn, /tp, /godmod, /give,
+// /timer et /open (V0.6.13).
 // Tous les messages, hormis les commandes, sont traduits (Note 03).
 public class TerminalUI : MonoBehaviour
 {
@@ -44,7 +45,7 @@ public class TerminalUI : MonoBehaviour
         output.verticalOverflow = VerticalWrapMode.Truncate;
         output.supportRichText = false;
 
-        input = UiKit.Field(panel.transform, "Taper l'ID d'un objet puis Entrée…", "", 40);
+        input = UiKit.Field(panel.transform, "", "", 40);
         var irt = (RectTransform)input.transform;
         irt.anchorMin = new Vector2(0f, 0f);
         irt.anchorMax = new Vector2(1f, 0f);
@@ -56,8 +57,25 @@ public class TerminalUI : MonoBehaviour
         input.onEndEdit.AddListener(OnEndEdit);
         input.onValueChanged.AddListener(text => { if (IsOpen && text.Length > 0) GameAudio.Play2D("key", 0.3f, 0.2f); });
 
+        // V0.6.13 (FX6) : façon vieux moniteur (lignes de balayage, bords bombés, image fantôme du texte).
+        var crt = new GameObject("VieuxMoniteur", typeof(RectTransform), typeof(RawImage));
+        crt.transform.SetParent(panel.transform, false);
+        var crtRt = (RectTransform)crt.transform;
+        crtRt.anchorMin = Vector2.zero;
+        crtRt.anchorMax = Vector2.one;
+        crtRt.offsetMin = crtRt.offsetMax = Vector2.zero;
+        crtOverlay = crt.GetComponent<RawImage>();
+        crtOverlay.texture = PostFx.CrtTexture();
+        crtOverlay.raycastTarget = false;
+        crtGhost = output.gameObject.AddComponent<Shadow>();
+        crtGhost.effectColor = new Color(0.45f, 1f, 0.5f, 0.22f);
+        crtGhost.effectDistance = new Vector2(3f, -2f);
+
         panel.SetActive(false);
     }
+
+    RawImage crtOverlay;
+    Shadow crtGhost;
 
     public void Open()
     {
@@ -188,6 +206,16 @@ public class TerminalUI : MonoBehaviour
         {
             Print(session.SetGodmode(lower.EndsWith("on")) + Quit);
         }
+        else if (lower == "/timer" && session.IsHost)
+        {
+            Print(session.ToggleTimer() + Quit);
+        }
+        else if (lower.StartsWith("/open ") && session.IsHost)
+        {
+            string result = int.TryParse(text.Substring(6).Trim(), out int zone) ? session.OpenZoneDoors(zone) : null;
+            if (result == null) Error(Loc.T("Commande invalide.") + Quit);
+            else Print(result + Quit);
+        }
         else if (lower.StartsWith("/spawn ") && session.IsHost)
         {
             string arg = text.Substring(7).Trim();
@@ -216,7 +244,7 @@ public class TerminalUI : MonoBehaviour
         }
         if (session.Cash < def.buyPrice && !session.Godmode)
         {
-            Error(Loc.F("Cagnotte insuffisante pour acheter {0} ({1}).", def.name, Items.Price(def.buyPrice)) + Quit);
+            Error(Loc.F("Gamelle insuffisante pour acheter {0} ({1}).", def.name, Items.Price(def.buyPrice)) + Quit);
             return;
         }
         waitingBuy = true;
@@ -237,7 +265,7 @@ public class TerminalUI : MonoBehaviour
         else if (alreadyOwned)
             Print((def.type == ItemType.TeleporteurInverse ? Loc.T("Ce Hub possède déjà un Téléporteur Inversé.") : Loc.T("La Boussole a déjà été achetée.")) + Quit);
         else
-            Print(Loc.F("Cagnotte insuffisante pour acheter {0} ({1}).", def.name, Items.Price(def.buyPrice)) + Quit);
+            Print(Loc.F("Gamelle insuffisante pour acheter {0} ({1}).", def.name, Items.Price(def.buyPrice)) + Quit);
     }
 
     void Error(string text)

@@ -506,7 +506,7 @@ public class GameHud : MonoBehaviour
     Sprite Icon(ItemType type)
     {
         if (type == ItemType.None) return null;
-        if (!icons.TryGetValue(type, out var sprite)) icons[type] = sprite = Resources.Load<Sprite>("Icons/" + (Items.IsColoredDuck(type) ? "CanardGris" : type.ToString()));
+        if (!icons.TryGetValue(type, out var sprite)) icons[type] = sprite = Resources.Load<Sprite>("Icons/" + (Items.IsColoredDuck(type) ? "CanardGris" : Items.IsZoneBell(type) ? "ClocheDecorative" : type.ToString()));
         return sprite;
     }
 

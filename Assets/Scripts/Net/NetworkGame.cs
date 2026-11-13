@@ -23,6 +23,8 @@ public class NetworkGame : MonoBehaviour
     const float HostStallWarning = 3f;
     const float ConnectTimeout = 15f;
     public const int FlagDead = 1, FlagSneak = 2, FlagTeleport = 4, FlagHidden = 8, FlagCannonball = 16, FlagTerminal = 32, FlagCorpseGone = 64;
+    // V0.6.13 : Protocole en main, assis à l'arrivée dans la partie (il se relève), bras tendu vers un glyphe neutre.
+    public const int FlagProtocol = 128, FlagSitting = 256, FlagGlyphArm = 512, FlagSeated = 1024;
 
     enum State { Lobby, Hosting, Joining, InGame }
 
@@ -122,7 +124,9 @@ public class NetworkGame : MonoBehaviour
             sendTimer = Mathf.Min(sendTimer - SendInterval, SendInterval);
             Vector3 p = t.position;
             int flags = (session.LocalDead ? FlagDead : 0) | (localPlayer.Sneaking ? FlagSneak : 0) | (GameSession.Teleporting ? FlagTeleport : 0)
-                | (GameSession.Hidden ? FlagHidden : 0) | (GameSession.CannonFlying ? FlagCannonball : 0) | (TerminalUI.IsOpen ? FlagTerminal : 0) | (GameSession.CorpseGone ? FlagCorpseGone : 0);
+                | (GameSession.Hidden ? FlagHidden : 0) | (GameSession.CannonFlying ? FlagCannonball : 0) | (TerminalUI.IsOpen ? FlagTerminal : 0) | (GameSession.CorpseGone ? FlagCorpseGone : 0)
+                | (GameSession.HoldingProtocol ? FlagProtocol : 0) | (GameSession.SittingUp ? FlagSitting : 0) | (GameSession.ArmToGlyph ? FlagGlyphArm : 0)
+                | (PlayerController.SeatedOnFloor ? FlagSeated : 0);
             string msg = "S|" + myId + "|" + F(p.x) + "|" + F(p.y) + "|" + F(p.z) + "|" + F(t.eulerAngles.y)
                 + "|" + (int)localPlayer.CurrentAnimState + "|" + session.LocalHp + "|" + flags + "|" + Clock();
             if (isHost) PeerNet.BroadcastFast(msg);
@@ -195,9 +199,10 @@ public class NetworkGame : MonoBehaviour
     public void CopyInviteLink() => PeerNet.CopyText(InviteLink());
 
     // Choix du skin : dans le lobby (aperçu) ou en jeu (synchronisé).
+    // V0.6.14 (Note 07 du chapitre 3.1) : plus de changement dès que le Bouton Rouge est enclenché, jusqu'à la fin de la partie.
     public void SelectSkin(int index)
     {
-        if (library.Count == 0) return;
+        if (library.Count == 0 || state == State.InGame && session.RoundStarted) return;
         mySkin = (index % library.Count + library.Count) % library.Count;
         PlayerPrefs.SetInt("skin", mySkin);
         PlayerPrefs.Save();
@@ -337,6 +342,8 @@ public class NetworkGame : MonoBehaviour
                 break;
             }
             case "K" when isHost && f.Length >= 2:
+                // Plus de changement de skin dès que le Bouton Rouge est activé, jusqu'à la fin de la partie.
+                if (session.RoundStarted) break;
                 if (roster.TryGetValue(from, out var pi))
                 {
                     pi.character = Mathf.Clamp(I(f[1]), 0, library.Count - 1);

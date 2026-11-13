@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-// Enseignes "Neutral Room" et "Acquisition Room" (V0.6) : mots en 3D générés par Meshy (police soviétique), nettoyés ici.
+// Enseignes "Neutral Room", "Acquisition Room" (V0.6) et "Control Room" (V0.6.14) : mots en 3D générés par Meshy (police soviétique), nettoyés ici.
 // Meshy a ajouté un socle sous chaque mot (retiré, le bas des lettres aplani) et écrit "NEEUTRAL" (le E en trop est retiré). Les mots sont mis
 // bout à bout, à la hauteur de capitale 1, lisibles depuis -Z (sens de lecture +X), base en y = 0, centrés en x.
 // Résultat : Resources/Art/Decor/EnseigneNeutralRoom.asset et EnseigneAcquisitionRoom.asset. Les FBX bruts sont rangés
@@ -16,19 +16,24 @@ public static class NeonSignsSetup
     {
         public string file;
         public float baseCut, removeFrom, removeTo;
+        // Épaisseur multipliée (V0.6.14 : "CONTROL", tiré d'une image, est presque plat).
+        public float depth;
     }
 
     static readonly Word Neutral = new Word { file = "TexteNeutral", baseCut = -0.118f, removeFrom = 0.492f, removeTo = 0.706f };
     static readonly Word Room = new Word { file = "TexteRoom", baseCut = -0.275f, removeFrom = 1f, removeTo = 1f };
     static readonly Word Acquisition = new Word { file = "TexteAcquisition", baseCut = -0.004f, removeFrom = 1f, removeTo = 1f };
+    // V0.6.14 (chapitre 15.3) : "CONTROL", généré par Meshy depuis une image composée des lettres des autres enseignes (sans socle).
+    static readonly Word Control = new Word { file = "TexteControl", baseCut = -10f, removeFrom = 1f, removeTo = 1f, depth = 8f };
 
     [MenuItem("FunGame/Préparer les enseignes néon")]
     public static void Build()
     {
         Save(Combine(Neutral, Room), "EnseigneNeutralRoom");
         Save(Combine(Acquisition, Room), "EnseigneAcquisitionRoom");
+        Save(Combine(Control, Room), "EnseigneControlRoom");
         if (!AssetDatabase.IsValidFolder("Assets/Models/Meshy")) AssetDatabase.CreateFolder("Assets/Models", "Meshy");
-        foreach (var w in new[] { Neutral, Room, Acquisition })
+        foreach (var w in new[] { Neutral, Room, Acquisition, Control })
             if (AssetDatabase.LoadAssetAtPath<GameObject>(Raw + w.file + ".fbx") != null)
                 AssetDatabase.MoveAsset(Raw + w.file + ".fbx", Stored + w.file + ".fbx");
         AssetDatabase.SaveAssets();
@@ -58,6 +63,7 @@ public static class NeonSignsSetup
         for (int i = 0; i < sv.Length; i++)
         {
             p[i] = sv[i] * scale;
+            if (w.depth > 0f) p[i].z *= w.depth;
             // La lettre en trop disparaît : ce qui la suit (vers +x) recule d'autant.
             if (p[i].x > w.removeTo) p[i].x -= shift;
         }

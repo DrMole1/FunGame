@@ -149,6 +149,8 @@ public class OrbitCamera : MonoBehaviour
         yaw = transform.eulerAngles.y;
         currentDistance = distance;
         if (GetComponent<FilmGrain>() == null) gameObject.AddComponent<FilmGrain>();
+        // V0.6.13 : effets post-process du chapitre 12.
+        if (GetComponent<PostFxCamera>() == null) gameObject.AddComponent<PostFxCamera>();
     }
 
     void Update()
@@ -285,8 +287,13 @@ public class OrbitCamera : MonoBehaviour
     {
         if (target == null) return;
 
+        // V0.6.14 : dans un tunnel (TunnelZones), première personne obligatoire. À la troisième personne, la caméra s'avance
+        // progressivement jusqu'aux yeux ; en sortant, elle recule jusqu'à la distance choisie par le joueur (inchangée).
+        bool own = ControlsEnabled && target.GetComponent<PlayerController>() != null;
+        bool inTunnel = own && DeathView < 0f && TunnelZones.Contains(target.position);
+        tunnelBlend = Mathf.MoveTowards(tunnelBlend, inTunnel ? 1f : 0f, Time.deltaTime / TunnelBlendTime);
         // Première personne : seulement sur son propre personnage (pas en spectateur), hors du lobby. Forcée dans le Canon.
-        bool fp = (firstPerson || CannonEye.HasValue || KennelEye.HasValue) && ControlsEnabled && target.GetComponent<PlayerController>() != null;
+        bool fp = (firstPerson || CannonEye.HasValue || KennelEye.HasValue || tunnelBlend >= 1f) && own;
         if (!ControlsEnabled)
             yaw += 6f * Time.deltaTime;
         else if (ForcedLook.HasValue)
@@ -382,8 +389,12 @@ public class OrbitCamera : MonoBehaviour
             transform.SetPositionAndRotation(target.position + Vector3.up * eye + bob, rot * Quaternion.Euler(0f, 0f, roll));
             return;
         }
-        Vector3 focus = target.position + Vector3.up * height;
-        float wanted = ControlsEnabled ? distance : 5f;
+        // Vers un tunnel (ou en en sortant) : le point visé descend vers les yeux et la distance fond vers zéro.
+        float tunnelK = Mathf.SmoothStep(0f, 1f, tunnelBlend);
+        Vector3 focus = target.position + Vector3.up * Mathf.Lerp(height, eyeHeight, tunnelK);
+        float wanted = Mathf.Lerp(ControlsEnabled ? distance : 5f, 0.05f, tunnelK);
+        // Tout près des yeux, le corps masquerait la vue.
+        if (tunnelK > 0.7f) HideTarget(target);
 
         // Les murs rapprochent la caméra au lieu d'être traversés.
         float d = wanted;
@@ -422,6 +433,10 @@ public class OrbitCamera : MonoBehaviour
     }
 
     public float CurrentDistance => FirstPerson ? 0f : currentDistance;
+
+    // Passage progressif vers la première personne dans un tunnel (0 : hors tunnel, 1 : première personne).
+    float tunnelBlend;
+    const float TunnelBlendTime = 0.6f;
 
     // À la première personne, le corps du personnage est masqué (la caméra est dans sa tête).
     void HideTarget(Transform t)

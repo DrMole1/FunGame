@@ -4,9 +4,13 @@ using UnityEngine;
 // Quota non atteint : le personnage explose. Ses maillages animés sont figés dans la pose du moment, puis découpés selon
 // les os en six morceaux (tête, bras, jambes, torse), projetés de part et d'autre par la physique. Chaque plaie est un
 // moignon sanglant ; les morceaux pissent le sang en volant et tachent le sol là où ils retombent.
+// V0.6.13 : une entité Cauchemar ou Sanction percutée par un boulet de canon explose de la même manière, sans sang (ni moignon,
+// ni jet, ni tache), et ses morceaux disparaissent 10 secondes plus tard. Un modèle non humanoïde est découpé selon la position
+// des sommets (haut, bas gauche et droite, côtés, centre).
 public static class Gibs
 {
     const float Lifetime = 40f, LegCutBelowHip = 0.08f;
+    public const float EntityLifetime = 10f;
     enum Part { Torso, Head, LeftArm, RightArm, LeftLeg, RightLeg }
     const int PartCount = 6;
 
@@ -32,10 +36,40 @@ public static class Gibs
         public readonly List<(Vector3 at, float size)> wounds = new List<(Vector3, float)>();
     }
 
-    // 'center' : centre de l'explosion (le milieu du corps). Rend false si le modèle n'a pas pu être découpé.
-    public static bool Spawn(GameObject model, Animator animator, Vector3 center)
+    // Découpe selon la position (modèle sans squelette humanoïde) : boîte englobante et axe droit du modèle.
+    struct Spatial { public bool on; public Bounds bounds; public Vector3 right; }
+    static Spatial spatial;
+
+    static Part SpatialPart(Vector3 p)
     {
+        Vector3 rel = p - spatial.bounds.center;
+        float h = Mathf.Max(0.01f, spatial.bounds.extents.y), side = Vector3.Dot(rel, spatial.right);
+        float width = Mathf.Max(0.01f, Mathf.Max(spatial.bounds.extents.x, spatial.bounds.extents.z));
+        if (rel.y > 0.35f * h) return Part.Head;
+        if (rel.y < -0.3f * h) return side < 0f ? Part.LeftLeg : Part.RightLeg;
+        if (Mathf.Abs(side) > 0.3f * width) return side < 0f ? Part.LeftArm : Part.RightArm;
+        return Part.Torso;
+    }
+
+    // Entité (V0.6.13) : morceaux sans sang, qui disparaissent après EntityLifetime ; maillages fixes compris.
+    public static bool SpawnEntity(GameObject model, Animator animator, Vector3 center) => Spawn(model, animator, center, false);
+
+    // 'center' : centre de l'explosion (le milieu du corps). Rend false si le modèle n'a pas pu être découpé.
+    public static bool Spawn(GameObject model, Animator animator, Vector3 center, bool bloody = true)
+    {
+        float lifetime = bloody ? Lifetime : EntityLifetime;
         var groups = BoneGroups(animator);
+        spatial = new Spatial { on = !bloody && groups.Count == 0, right = model.transform.right };
+        if (spatial.on)
+        {
+            bool first = true;
+            foreach (var r in model.GetComponentsInChildren<Renderer>())
+            {
+                if (!(r is MeshRenderer || r is SkinnedMeshRenderer) || !r.enabled) continue;
+                if (first) spatial.bounds = r.bounds; else spatial.bounds.Encapsulate(r.bounds);
+                first = false;
+            }
+        }
         var pieces = new Piece[PartCount];
         for (int i = 0; i < PartCount; i++) pieces[i] = new Piece();
         // Les jambes partent sous la hanche : le bas de la chemise, pondéré sur les cuisses, reste au torse.
@@ -48,16 +82,57 @@ public static class Gibs
             }
         foreach (var smr in model.GetComponentsInChildren<SkinnedMeshRenderer>())
             if (smr.enabled && smr.sharedMesh != null) Split(smr, groups, legCut, pieces);
-        AddWounds(animator, pieces);
+        if (!bloody)
+            foreach (var mr in model.GetComponentsInChildren<MeshRenderer>())
+            {
+                var mf = mr.GetComponent<MeshFilter>();
+                if (mr.enabled && mf != null && mf.sharedMesh != null && mf.sharedMesh.isReadable) SplitStatic(mr, mf.sharedMesh, pieces);
+            }
+        if (bloody) AddWounds(animator, pieces);
 
         bool any = false;
         for (int i = 0; i < PartCount; i++)
             if (pieces[i].vertices.Count >= 3)
             {
-                Launch(pieces[i], (Part)i, center);
+                Launch(pieces[i], (Part)i, center, bloody, lifetime);
                 any = true;
             }
+        spatial.on = false;
         return any;
+    }
+
+    // Maillage fixe d'une entité (arme, tête de cloche...) : chaque triangle va au morceau de la zone où il se trouve.
+    static void SplitStatic(MeshRenderer mr, Mesh source, Piece[] pieces)
+    {
+        Vector3[] verts = source.vertices, normals = source.normals;
+        Vector2[] uv = source.uv;
+        Matrix4x4 toWorld = mr.transform.localToWorldMatrix;
+        Material[] mats = mr.sharedMaterials;
+        for (int s = 0; s < source.subMeshCount; s++)
+        {
+            int[] t = source.GetTriangles(s);
+            var lists = new List<int>[PartCount];
+            for (int k = 0; k + 2 < t.Length; k += 3)
+            {
+                Vector3 c = toWorld.MultiplyPoint3x4((verts[t[k]] + verts[t[k + 1]] + verts[t[k + 2]]) / 3f);
+                int part = spatial.on ? (int)SpatialPart(c) : (int)Part.Torso;
+                Piece piece = pieces[part];
+                if (lists[part] == null)
+                {
+                    lists[part] = new List<int>();
+                    piece.triangles.Add(lists[part]);
+                    piece.materials.Add(s < mats.Length ? mats[s] : null);
+                }
+                for (int j = 0; j < 3; j++)
+                {
+                    int v = t[k + j];
+                    lists[part].Add(piece.vertices.Count);
+                    piece.vertices.Add(toWorld.MultiplyPoint3x4(verts[v]));
+                    piece.normals.Add(toWorld.MultiplyVector(v < normals.Length ? normals[v] : Vector3.up).normalized);
+                    piece.uvs.Add(v < uv.Length ? uv[v] : Vector2.zero);
+                }
+            }
+        }
     }
 
     static Dictionary<Transform, Part> BoneGroups(Animator animator)
@@ -105,7 +180,10 @@ public static class Gibs
         var baked = new Mesh();
         smr.BakeMesh(baked, true);
         Vector3[] verts = baked.vertices, normals = baked.normals;
-        Vector2[] uv = source.uv;
+        // UV et triangles lus sur la copie cuite, toujours lisible (même si l'import n'a pas Read/Write).
+        Vector2[] uv = baked.uv;
+        var triangles = new int[baked.subMeshCount][];
+        for (int s = 0; s < triangles.Length; s++) triangles[s] = baked.GetTriangles(s);
         Object.Destroy(baked);
         Matrix4x4 toWorld = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one);
 
@@ -114,17 +192,18 @@ public static class Gibs
         for (int i = 0; i < verts.Length; i++)
         {
             int b = weights[i].boneIndex0;
-            Part part = b >= 0 && b < bones.Length && bones[b] != null && groups.TryGetValue(bones[b], out var p) ? p : Part.Torso;
+            Part part = spatial.on ? SpatialPart(toWorld.MultiplyPoint3x4(verts[i]))
+                : b >= 0 && b < bones.Length && bones[b] != null && groups.TryGetValue(bones[b], out var p) ? p : Part.Torso;
             if ((part == Part.LeftLeg || part == Part.RightLeg) && toWorld.MultiplyPoint3x4(verts[i]).y > legCut) part = Part.Torso;
             vertexPart[i] = part;
         }
 
         Material[] mats = smr.sharedMaterials;
         var remap = new Dictionary<int, int>[PartCount];
-        for (int s = 0; s < source.subMeshCount; s++)
+        for (int s = 0; s < triangles.Length; s++)
         {
             var lists = new List<int>[PartCount];
-            int[] t = source.GetTriangles(s);
+            int[] t = triangles[s];
             for (int k = 0; k + 2 < t.Length; k += 3)
             {
                 Part a = vertexPart[t[k]], b = vertexPart[t[k + 1]], c = vertexPart[t[k + 2]];
@@ -154,7 +233,7 @@ public static class Gibs
         }
     }
 
-    static void Launch(Piece piece, Part part, Vector3 center)
+    static void Launch(Piece piece, Part part, Vector3 center, bool bloody, float lifetime)
     {
         // Pivot au centre du morceau.
         var bounds = new Bounds(piece.vertices[0], Vector3.zero);
@@ -205,10 +284,13 @@ public static class Gibs
         rb.velocity = away * (torso ? Random.Range(1f, 2.5f) : Random.Range(5f, 9f)) + Vector3.up * (torso ? Random.Range(2f, 3.5f) : Random.Range(4.5f, 8f));
         rb.angularVelocity = Random.insideUnitSphere * (torso ? 6f : 18f);
 
-        go.AddComponent<Gib>();
-        foreach (var (at, _) in piece.wounds) Spurt(go.transform, at - bounds.center, torso ? 0.6f : 1f);
-        Object.Destroy(go, Lifetime);
-        Object.Destroy(mesh, Lifetime);
+        if (bloody)
+        {
+            go.AddComponent<Gib>();
+            foreach (var (at, _) in piece.wounds) Spurt(go.transform, at - bounds.center, torso ? 0.6f : 1f);
+        }
+        Object.Destroy(go, lifetime);
+        Object.Destroy(mesh, lifetime);
     }
 
     // Jet de sang qui part de la plaie et suit le morceau en vol.

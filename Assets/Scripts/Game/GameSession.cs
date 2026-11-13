@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-// Boucle de jeu : Hubs, manches, quota, cagnotte, objets, Terminal, Chenils, logs, morts et réanimations,
+// Boucle de jeu : Hubs, manches, quota, gamelle, objets, Terminal, Chenils, logs, morts et réanimations,
 // sérénité et Couvre Feu, entités (La Dame, La Tour, Le Pion, La Cloche, L'Araignée...), portes,
 // Post-It, Boussole, Balises, Téléporteurs et Stations Curatives. Zones, glyphes et Sanction : GameSession.Zones.cs.
 // L'hôte fait autorité sur l'état de la partie ; chaque client gère les PV, la sérénité et l'inventaire de son personnage.
@@ -98,6 +98,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     int round = 1, quota, progress, cash;
     Phase phase = Phase.Waiting;
     float timeLeft = GameRules.RoundDuration;
+    // /timer (V0.6.13) : le timer de la manche est arrêté (synchronisé avec l'état de la partie).
+    bool timerPaused;
     bool compass;
     // Glyphes neutres dont le boîtier est brisé, puis actionnés (identifiants, V0.6.5), Hubs dont la porte vers la zone suivante
     // est ouverte, zones paires dont la porte du chapiteau est ouverte.
@@ -281,6 +283,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     void ResetHubFixtures()
     {
         beaconMessages.Clear();
+        bellZones.Clear();
+        ClearNightmareKills();
         beacons.Clear();
         beacons.Charge = GameRules.BeaconCharge;
         tvVideos.Clear();
@@ -297,8 +301,40 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
     }
 
+    // ================= Postures du joueur local (V0.6.13) =================
+
+    // Protocole en main (7.10), assis à l'arrivée (note 06 du chapitre 3), bras tendu vers un glyphe neutre (9.3).
+    public static bool HoldingProtocol { get; private set; }
+    public static bool SittingUp { get; private set; }
+    public static bool ArmToGlyph { get; private set; }
+    ProtocolView protocolView;
+    bool sitPending;
+    float sitUntil = -10f;
+
+    void UpdateLocalPoses()
+    {
+        UpdateGlyphHold();
+        // Note 06 : à l'apparition dans le Hub de départ, assis au sol 0,3 seconde, puis il se relève ; ni déplacement, ni saut,
+        // ni danse, ni accroupissement, ni aboiement pendant ce temps (InputLocked).
+        if (sitPending && !worldLoading && !status.Dead)
+        {
+            sitPending = false;
+            sitUntil = Time.time + CharacterAvatar.SitHold + CharacterAvatar.StandUpDuration;
+            avatar.PlaySitUp();
+        }
+        int slot = status.Selected;
+        HoldingProtocol = !status.Dead && slot >= 0 && status[slot] == ItemType.Protocole && !InCannon && !CannonFlying && !Teleporting
+            && !InKennel && !Sliding && phase != Phase.GameOver;
+        avatar.SetHolding(HoldingProtocol);
+        ArmToGlyph = glyphHeld != null && !status.Dead;
+        avatar.SetArmRaised(ArmToGlyph);
+        if (protocolView == null && Camera.main != null) protocolView = ProtocolView.Create(Camera.main);
+        if (protocolView != null) protocolView.Show(HoldingProtocol && OrbitCamera.FirstPerson && !TerminalUI.IsOpen && !PostItUI.IsOpen && !GameHud.GameOverVisible);
+    }
+
     public void OnLocalEnter()
     {
+        sitPending = true;
         audioMuteUntil = Time.unscaledTime + 2f;
         presence.PlayerId = net.MyId;
         hud.Show(true);
@@ -402,6 +438,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             builtSeed = seed;
             itemsRound = -1;
             rebuilt = true;
+            // EE2 (chapitre 15.1) : nouvelle partie, nouveau tirage (2 %), propre à ce joueur.
+            EasterEggs.RollNewGame();
         }
         // Nouvelle graine : écran de chargement le temps de générer les premières zones (chapitre 9.2) ; AdvanceZoneBuild s'en charge.
         if (rebuilt)
@@ -600,10 +638,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     void Update()
     {
         bool inGame = net.InGame;
-        PlayerController.InputLocked = !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || ControlsUI.IsOpen || phase == Phase.GameOver || Teleporting || localDig >= 0 || CannonFlying || InKennel || ClawActive || Sliding || worldLoading;
+        SittingUp = inGame && Time.time < sitUntil;
+        // FX8 : bandes noires seulement pendant le Game Over (fondu au noir et écran GAME OVER), pas pendant l'explosion du quota.
+        PostFx.GameOverCinematic = inGame && WipedOut;
+        PlayerController.InputLocked = SittingUp || !inGame || TerminalUI.IsOpen || PostItUI.IsOpen || ControlsUI.IsOpen || phase == Phase.GameOver || Teleporting || localDig >= 0 || CannonFlying || InKennel || ClawActive || Sliding || worldLoading;
         OrbitCamera.CursorLockBlocked = TerminalUI.IsOpen || PostItUI.IsOpen || GameHud.GameOverVisible;
 
-        if (phase == Phase.Running && !WipedOut)
+        if (phase == Phase.Running && !WipedOut && !timerPaused)
         {
             timeLeft = Mathf.Max(0f, timeLeft - Time.deltaTime);
             if (net.IsHost && inGame && timeLeft <= 0f) EndRound();
@@ -631,8 +672,11 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         {
             OrbitCamera.Dread = 0f;
             FilmGrain.Obsessed = false;
+            HoldingProtocol = ArmToGlyph = false;
+            if (protocolView != null) protocolView.Show(false);
             return;
         }
+        UpdateLocalPoses();
 
         presence.Alive = !status.Dead;
         presence.Sneaking = player.Sneaking;
@@ -926,7 +970,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         int seconds = Mathf.CeilToInt(timeLeft);
         string time = (seconds / 60).ToString("00") + ":" + (seconds % 60).ToString("00");
-        string quotaLine = Loc.F("Quota : {0} / {1}", progress, quota), cashLine = Loc.F("Cagnotte : {0}", Items.Price(cash));
+        string quotaLine = Loc.F("Quota : {0} / {1}", progress, quota), cashLine = Loc.F("Gamelle : {0}", Items.Price(cash));
         string board = RoundBoardText();
         foreach (var h in hubs)
         {
@@ -995,6 +1039,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     public void OnRosterChanged()
     {
+        RefreshGlyphPaws();
         var present = new HashSet<string>(net.Roster.Keys);
         var toRemove = new List<string>();
         foreach (var id in kennels.Keys) if (!present.Contains(id)) toRemove.Add(id);
@@ -1098,6 +1143,47 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         RefreshHud();
     }
 
+    // /timer (hôte, V0.6.13) : arrête le timer de la manche, ou le fait repartir s'il est arrêté.
+    public string ToggleTimer()
+    {
+        if (!net.IsHost) return null;
+        timerPaused = !timerPaused;
+        BroadcastState();
+        return Loc.T(timerPaused ? "Timer arrêté." : "Le timer reprend.");
+    }
+
+    // /open N (hôte, V0.6.13) : ouvre la porte par laquelle on entre dans la zone N et celle par laquelle on en sort.
+    // Zone paire 2k : entrée = porte de la Neutral Room k (ses trois glyphes neutres sont actionnés), sortie = porte du chapiteau.
+    // Zone impaire 2k + 1 : entrée = porte du Hub k + 1, sortie = porte de la Neutral Room k + 1. La Zone 1 n'a qu'une sortie.
+    public string OpenZoneDoors(int zone)
+    {
+        if (!net.IsHost || zone < 1 || zone > MaxTeleportZone || zone <= sealedZones) return null;
+        if (zone % 2 == 0)
+        {
+            ForceNeutralDoor(zone / 2);
+            openedAcquisitions.Add(zone);
+        }
+        else
+        {
+            int hubNumber = (zone + 1) / 2;
+            if (hubNumber >= 2) openedHubs.Add(hubNumber);
+            ForceNeutralDoor(hubNumber);
+        }
+        UpdateDoors(true);
+        BroadcastState();
+        return Loc.F("Portes de la Zone {0} ouvertes.", zone.ToString());
+    }
+
+    void ForceNeutralDoor(int door)
+    {
+        for (int t = 0; t < GameRules.GlyphTypes; t++)
+        {
+            int id = GameRules.NeutralGlyphId(door * 2 - 1, t);
+            brokenCases.Add(id);
+            activatedGlyphs.Add(id);
+        }
+    }
+
     // /godmod (hôte) : achats gratuits au Terminal, aucun dégât, aucune perte de sérénité, jamais immobilisé.
     public bool Godmode { get; private set; }
 
@@ -1142,6 +1228,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         }
         // Note 03 (V0.4.3) : tué par un Cauchemar (ou par la Tête de Cloche, "horriblement"), la caméra plonge environ
         // 1,5 seconde dans ses yeux, puis le corps s'effondre.
+        killerId = by != null ? by.Id : -1;
         if (by != null && by.Kind == EntityKind.TeteDeCloche) OrbitCamera.DeathSpot = player.transform.position;
         if (by != null && (by.Nightmare || by.Kind == EntityKind.TeteDeCloche))
         {
@@ -1188,9 +1275,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             deathFxSound = cause != null;
         }
         else PlayDeathFx(cause != null);
-        if (cause != null) net.ToHost("DE|" + cause);
+        // V0.6.13 : l'entité qui a tué (pour le Cauchemar le plus meurtrier de chaque zone).
+        if (cause != null) net.ToHost("DE|" + cause + "|" + killerId);
+        killerId = -1;
         RefreshHud();
     }
+
+    int killerId = -1;
 
     float deathFxAt = -1f, zeroHpAt;
     bool deathFxSound;
@@ -1215,26 +1306,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         int slot = status.Selected;
         if (slot < 0) return;
-        if (Items.IsColoredDuck(status[slot]))
+        if (Items.IsColoredDuck(status[slot]) || Items.IsZoneBell(status[slot]))
         {
             TryPlaceBeacon(slot, Beacon.KindOf(status[slot]));
             return;
         }
         switch (status[slot])
         {
-            case ItemType.CuisseDePoulet:
-                if (status.Hp >= GameRules.MaxHp && status.Serenity >= GameRules.MaxSerenity)
-                {
-                    hud.Toast(Loc.T("Votre vie et votre sérénité sont déjà au maximum."));
-                    return;
-                }
-                status.RemoveAt(slot);
-                status.SetHp(status.Hp + Items.CuisseHeal);
-                status.SetSerenity(status.Serenity + Items.CuisseSerenity);
-                GameAudio.Play2D("eat", 0.8f, 0.1f);
-                Gesture(PlayerGesture.Eat);
-                hud.Toast(Loc.F("Miam ! +{0} PV, +{1} de sérénité", Items.CuisseHeal, Items.CuisseSerenity));
-                break;
             case ItemType.Balise:
                 TryPlaceBeacon(slot, DeviceKind.Beacon);
                 break;
@@ -1253,6 +1331,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case ItemType.Television:
             case ItemType.Trampoline:
             case ItemType.ClocheDecorative:
+            case ItemType.Protocole:
             case ItemType.Canard:
             case ItemType.PelucheLapin:
             case ItemType.PeluchePingouin:
@@ -1437,7 +1516,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             net.ToHost("JE");
             return;
         }
-        // L'objet quitte l'inventaire, l'hôte crédite quota et cagnotte (V0.6.10 : lots d'arcade au prorata du quota).
+        // V0.6.14 : les objets secrets (Carte Magnétique 1) ne se vendent pas.
+        if (Items.IsSecret(type))
+        {
+            hud.Toast(Loc.T("Pogo n'en veut pas."));
+            return;
+        }
+        // L'objet quitte l'inventaire, l'hôte crédite quota et gamelle (V0.6.10 : lots d'arcade au prorata du quota).
         status.RemoveAt(slot);
         Gesture(PlayerGesture.Use);
         net.ToHost("JS|" + (int)type);
@@ -1480,19 +1565,82 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case 3: return SpawnAt<Tour>(zone, rnd, GameRules.EntitySpawnClearance) != null ? Loc.F("La Tour arpente désormais la Zone {0}...", z) : Loc.T("Impossible pour le moment.");
             case 4: return SpawnPions(zone, rnd) > 0 ? Loc.F("Des Pions s'installent dans la Zone {0}...", z) : Loc.T("Impossible pour le moment.");
             case 5: return SpawnAt<Cloche>(zone, rnd, GameRules.EntitySpawnClearance) != null ? Loc.F("La Cloche attend dans la Zone {0}...", z) : Loc.T("Impossible pour le moment.");
-            case 6: return SpawnAt<Spider>(zone, rnd, GameRules.SpiderSpawnClearance) != null ? Loc.F("Une Araignée rôde dans la Zone {0}...", z) : Loc.T("Impossible pour le moment.");
-            case 7: return SpawnAt<Fou>(zone, rnd, GameRules.EntitySpawnClearance) != null ? Loc.F("Le Fou sourit désormais dans la Zone {0}...", z) : Loc.T("Impossible pour le moment.");
-            case 8: return SpawnAt<Roi>(zone, rnd, GameRules.EntitySpawnClearance) != null ? Loc.F("Le Roi arpente désormais la Zone {0}...", z) : Loc.T("Impossible pour le moment.");
-            case 9: return SpawnAt<Cavalier>(zone, rnd, GameRules.EntitySpawnClearance) != null ? Loc.F("Le Cavalier galope désormais dans la Zone {0}...", z) : Loc.T("Impossible pour le moment.");
-            case 10: return phase == Phase.Running ? SpawnReveilNearHost(rnd) : Loc.T("Impossible pour le moment.");
-            case 11: return SpawnTete(net.MyId) ? Loc.T("La Tête de Cloche vous traque...") : Loc.T("Impossible pour le moment.");
+            case 6: return SpawnAt<Fou>(zone, rnd, GameRules.EntitySpawnClearance) != null ? Loc.F("Le Fou sourit désormais dans la Zone {0}...", z) : Loc.T("Impossible pour le moment.");
+            case 7: return SpawnAt<Roi>(zone, rnd, GameRules.EntitySpawnClearance) != null ? Loc.F("Le Roi arpente désormais la Zone {0}...", z) : Loc.T("Impossible pour le moment.");
+            case 8: return SpawnAt<Cavalier>(zone, rnd, GameRules.EntitySpawnClearance) != null ? Loc.F("Le Cavalier galope désormais dans la Zone {0}...", z) : Loc.T("Impossible pour le moment.");
+            case 9: return phase == Phase.Running ? SpawnReveilNearHost(rnd) : Loc.T("Impossible pour le moment.");
+            case 10: return SpawnTete(net.MyId) ? Loc.T("La Tête de Cloche vous traque...") : Loc.T("Impossible pour le moment.");
             default: return Loc.F("Aucune entité n'a l'ID {0}.", id);
         }
     }
 
-    // Entités de type Cauchemar (La Dame, La Tour, Le Fou, Le Roi, Le Cavalier) : l'une d'elles, au hasard.
-    void SpawnNightmare(int zone, System.Random rnd)
+    // ================= Cauchemar le plus meurtrier (chapitre 9, V0.6.13) =================
+
+    // Hôte : à partir de la manche 3, le Cauchemar qui a tué le plus de joueurs dans une zone à la manche précédente y apparaît
+    // (à la place d'un des choix aléatoires) ; aucun mort par un Cauchemar dans cette zone : règle annulée. Le même Cauchemar
+    // le plus meurtrier 3 manches de suite : seule cette entité apparaît dans la zone, jusqu'à la fin de la partie.
+    const int TopKillerFromRound = 3, TopKillerLockStreak = 3;
+    readonly Dictionary<int, Dictionary<EntityKind, int>> nightmareKills = new Dictionary<int, Dictionary<EntityKind, int>>();
+    readonly Dictionary<int, (EntityKind kind, int streak)> topKillers = new Dictionary<int, (EntityKind, int)>();
+    readonly Dictionary<int, EntityKind> lockedNightmares = new Dictionary<int, EntityKind>();
+
+    void RecordNightmareKill(int entityId)
     {
+        // Les morts de la manche 1 ne comptent pas (la règle s'applique dès la manche 3, d'après la manche 2).
+        if (round < TopKillerFromRound - 1 || !entities.TryGetValue(entityId, out var e) || e == null || !e.Nightmare) return;
+        int zone = Mathf.Max(1, e.Zone);
+        if (!nightmareKills.TryGetValue(zone, out var kills)) nightmareKills[zone] = kills = new Dictionary<EntityKind, int>();
+        kills.TryGetValue(e.Kind, out int n);
+        kills[e.Kind] = n + 1;
+    }
+
+    // Fin de manche : Cauchemar le plus meurtrier de chaque zone (à égalité, celui de la manche d'avant s'il en fait partie).
+    void CloseNightmareRound()
+    {
+        var zonesSeen = new HashSet<int>(topKillers.Keys);
+        zonesSeen.UnionWith(nightmareKills.Keys);
+        foreach (int zone in zonesSeen)
+        {
+            if (!nightmareKills.TryGetValue(zone, out var kills) || kills.Count == 0)
+            {
+                topKillers.Remove(zone);
+                continue;
+            }
+            bool hadTop = topKillers.TryGetValue(zone, out var before);
+            int best = 0;
+            foreach (int n in kills.Values) best = Mathf.Max(best, n);
+            EntityKind top = default;
+            bool found = false;
+            if (hadTop && kills.TryGetValue(before.kind, out int beforeKills) && beforeKills == best) { top = before.kind; found = true; }
+            if (!found) foreach (var kv in kills) if (kv.Value == best) { top = kv.Key; break; }
+            int streak = hadTop && before.kind == top ? before.streak + 1 : 1;
+            topKillers[zone] = (top, streak);
+            if (streak >= TopKillerLockStreak && !lockedNightmares.ContainsKey(zone)) lockedNightmares[zone] = top;
+        }
+        nightmareKills.Clear();
+    }
+
+    void ClearNightmareKills()
+    {
+        nightmareKills.Clear();
+        topKillers.Clear();
+        lockedNightmares.Clear();
+    }
+
+    // Entités de type Cauchemar (La Dame, La Tour, Le Fou, Le Roi, Le Cavalier) : l'une d'elles, au hasard. 'index' : rang du
+    // Cauchemar dans la zone pour cette manche (le premier peut être le plus meurtrier de la manche précédente).
+    void SpawnNightmare(int zone, System.Random rnd, int index = 0)
+    {
+        if (lockedNightmares.TryGetValue(zone, out var locked))
+        {
+            SpawnKind(locked, zone, rnd);
+            return;
+        }
+        if (index == 0 && round >= TopKillerFromRound && topKillers.TryGetValue(zone, out var top))
+        {
+            SpawnKind(top.kind, zone, rnd);
+            return;
+        }
         switch (rnd.Next(5))
         {
             case 0: SpawnAt<Dame>(zone, rnd, GameRules.EntitySpawnClearance); break;
@@ -1530,21 +1678,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         return count;
     }
 
-    // Le Couvre Feu commence (hôte) : 3 à 5 Araignées par zone déverrouillée (et générée, à portée des joueurs) selon le
-    // nombre de joueurs, loin des joueurs.
-    void SpawnSpiders()
-    {
-        if (!GameRules.SpidersEnabled || zones.Count == 0 || phase != Phase.Running) return;
-        var rnd = new System.Random(seed * 41 + round * 977);
-        int perZone = GameRules.SpidersPerZone(net.Roster.Count);
-        foreach (var z in zones)
-        {
-            if (!ZoneUnlocked(z.index) || !ZoneActive(z.index)) continue;
-            for (int k = 0; k < perZone; k++)
-                SpawnAt<Spider>(z.index, rnd, GameRules.SpiderSpawnClearance);
-        }
-    }
-
     // Sur la grille de navigation de la zone (1, 2, 3...), loin du Hub, des joueurs (au moins 20 m, note 01 du chapitre 8)
     // et des Balises Améliorées ; sans emplacement valable, l'entité n'apparaît pas.
     T SpawnAt<T>(int zone, System.Random rnd, float playerClearance) where T : Entity
@@ -1580,7 +1713,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case EntityKind.Tour: return Entity.Create<Tour>(entitiesRoot, id, pos, yaw, nav);
             case EntityKind.Pion: return Entity.Create<Pion>(entitiesRoot, id, pos, yaw, nav);
             case EntityKind.Cloche: return Entity.Create<Cloche>(entitiesRoot, id, pos, yaw, nav);
-            case EntityKind.Spider: return Entity.Create<Spider>(entitiesRoot, id, pos, yaw, nav);
             case EntityKind.Fou: return Entity.Create<Fou>(entitiesRoot, id, pos, yaw, nav);
             case EntityKind.Roi: return Entity.Create<Roi>(entitiesRoot, id, pos, yaw, nav);
             case EntityKind.Cavalier: return Entity.Create<Cavalier>(entitiesRoot, id, pos, yaw, nav);
@@ -1597,7 +1729,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case EntityKind.Tour: return "La Tour";
             case EntityKind.Pion: return "Le Pion";
             case EntityKind.Cloche: return "La Cloche";
-            case EntityKind.Spider: return "L'Araignée";
             case EntityKind.Fou: return "Le Fou";
             case EntityKind.Roi: return "Le Roi";
             case EntityKind.Cavalier: return "Le Cavalier";
@@ -1799,6 +1930,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         // Note 07 du chapitre 3.4 (V0.6.7) : en dessous de 15 PV, les pulsations cardiaques sont permanentes.
         if (!status.Dead && status.Hp < GameRules.LowHealthHeartbeat) dread = Mathf.Max(dread, GameRules.LowHealthDread);
         OrbitCamera.Dread = dread;
+        // V0.6.13 (FX5) : les couleurs se séparent à l'approche d'un Cauchemar (à moins de 15 m).
+        float nearest = float.MaxValue;
+        if (!status.Dead)
+            foreach (var e in entities.Values)
+                if (e != null && e.Nightmare) nearest = Mathf.Min(nearest, Vector3.Distance(player.transform.position, e.transform.position));
+        PostFx.NightmareProximity = Mathf.Clamp01(1f - nearest / 15f);
         // À la mort, le battement de cœur s'estompe progressivement (GDD 12, Battement_Coeur).
         OrbitCamera.Dying = status.Dead;
     }
@@ -1851,6 +1988,61 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Vector3? bell = BellLook();
         OrbitCamera.ForcedLook = nearest != null ? nearest.transform.position + Vector3.up * (nearest is TeteDeCloche ? nearest.EyesLocal.y : nearest.ChestHeight) : bell;
         FilmGrain.Obsessed = OrbitCamera.ForcedLook.HasValue;
+        // Note 13 (V0.6.13) : l'attention attirée par un double aboiement passe après les Cloches.
+        if (!OrbitCamera.ForcedLook.HasValue) OrbitCamera.ForcedLook = AttentionLook();
+    }
+
+    // ================= Attirer l'attention (note 13 du chapitre 3, V0.6.13) =================
+
+    // Un joueur X qui aboie 2 fois de suite, très rapprochées : chaque autre joueur en vie qui le voit (aucun mur ni obstacle
+    // entre eux) voit sa caméra tourner vite vers X, sans pouvoir la contrôler, jusqu'à ce qu'elle pointe vers X (y compris
+    // pendant l'ordre "Aboie !").
+    const float AttentionBarkWindow = 0.6f, AttentionDoneAngle = 4f, AttentionMaxTime = 2.5f;
+    readonly Dictionary<string, float> lastBarkHeard = new Dictionary<string, float>();
+    string attentionTo;
+    float attentionSince;
+
+    void HeardBark(string barkerId)
+    {
+        bool twice = lastBarkHeard.TryGetValue(barkerId, out float last) && Time.time - last <= AttentionBarkWindow;
+        lastBarkHeard[barkerId] = twice ? -10f : Time.time;
+        if (!twice || status.Dead || Teleporting || InKennel || !net.InGame) return;
+        if (!net.Remotes.TryGetValue(barkerId, out var rp) || rp == null || rp.Dead || !InDirectSight(rp)) return;
+        attentionTo = barkerId;
+        attentionSince = Time.time;
+    }
+
+    // Ligne de vue entre les deux têtes ; le corps du joueur visé ne compte pas comme un obstacle.
+    bool InDirectSight(RemotePlayer rp)
+    {
+        Vector3 from = player.transform.position + Vector3.up * 0.6f, to = rp.transform.position + Vector3.up * 0.6f;
+        if (!Physics.Linecast(from, to, out RaycastHit hit, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return true;
+        return hit.collider.GetComponentInParent<RemotePlayer>() == rp;
+    }
+
+    Vector3? AttentionLook()
+    {
+        if (attentionTo == null) return null;
+        if (!net.Remotes.TryGetValue(attentionTo, out var rp) || rp == null || rp.Dead || status.Dead || Teleporting
+            || Time.time - attentionSince > AttentionMaxTime)
+        {
+            attentionTo = null;
+            return null;
+        }
+        Vector3 target = rp.transform.position + Vector3.up * 0.6f;
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            Vector3 to = target - cam.transform.position, fwd = cam.transform.forward;
+            float yawGap = Vector2.Angle(new Vector2(fwd.x, fwd.z), new Vector2(to.x, to.z));
+            // La caméra pointe vers X : le joueur reprend la main.
+            if (yawGap < AttentionDoneAngle && Time.time - attentionSince > 0.1f)
+            {
+                attentionTo = null;
+                return null;
+            }
+        }
+        return target;
     }
 
     void LoseBellSerenity()
@@ -2240,7 +2432,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     string StateMsg() => "G|" + seed + "|" + round + "|" + quota + "|" + progress + "|" + cash + "|" + (int)phase + "|" + NetworkGame.F(timeLeft)
         // Le 13e champ (anciens sujets de test du Terminal, V0.6.10) reste vide pour ne pas décaler les suivants.
         + "|" + (compass ? 1 : 0) + "|" + JoinIds(brokenCases) + "|" + NetworkGame.F(beacons.Charge) + "|" + NetworkGame.F(valueBoost) + "|0"
-        + "|" + zoneCount + "|" + JoinIds(openedHubs) + "|" + JoinIds(openedAcquisitions) + "|" + JoinIds(activatedGlyphs) + "|" + sealedZones + "|" + JoinIds(brokenBridges) + "|" + itemZones;
+        + "|" + zoneCount + "|" + JoinIds(openedHubs) + "|" + JoinIds(openedAcquisitions) + "|" + JoinIds(activatedGlyphs) + "|" + sealedZones + "|" + JoinIds(brokenBridges) + "|" + itemZones + "|" + (timerPaused ? 1 : 0)
+        // V0.6.14 (chapitre 15) : Carte Magnétique 1 prise, porte de la Control Room ouverte.
+        + "|" + SecretFlags;
 
     static string JoinIds(HashSet<int> ids) => string.Join(".", ids);
 
@@ -2296,8 +2490,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         bool active = CurfewActive;
         if (active && !hostCurfew)
         {
-            Log("Le Couvre Feu se répand ... Le désespoir attend les plus faibles.");
-            SpawnSpiders();
+            Log("Le Couvre Feu se déclenche.");
         }
         hostCurfew = active;
     }
@@ -2324,6 +2517,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (progress >= quota)
         {
             int done = round;
+            CloseNightmareRound();
             round++;
             quota = GameRules.QuotaForRound(round);
             progress = 0;
@@ -2331,7 +2525,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             picked.Clear();
             valueBoost = GameRules.ValueBoost(net.Roster.Count);
             Log("Le quota de la manche {0} est validé ! Nouveau quota : {1}", done.ToString(), quota.ToString());
-            if (hostCurfew) Log("Le Couvre Feu se retire ... Pour le moment.");
+            if (hostCurfew) Log("Le Couvre Feu se réinitialise. Pour le moment.");
             hostCurfew = false;
             ResetRoundStats(round, false);
             ApplyWorld();
@@ -2456,6 +2650,54 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (CannonFlying) Land();
     }
 
+    // ================= Fermeture éclair de Mirkov (GDD 3.1, V0.6.13) =================
+
+    // Un autre joueur clique sur la fermeture éclair dans le dos de Mirkov : le son Zip, puis une explosion qui tue tous les
+    // joueurs à 5 mètres ou moins (membres qui explosent et mare de sang). Messages : ZP|joueur -> ZX|joueur|x|y|z.
+    public const float ZipperBlastRadius = 5f, ZipperBlastDelay = 0.7f;
+
+    public void PullZipper(string ownerId)
+    {
+        if (status.Dead || ownerId == net.MyId) return;
+        Gesture(PlayerGesture.Use);
+        net.ToHost("ZP|" + ownerId);
+    }
+
+    void OnZipperPulled(string ownerId)
+    {
+        if (phase == Phase.GameOver || !net.Roster.TryGetValue(ownerId, out var info) || info.character != MirkovZipper.Skin) return;
+        foreach (var p in PlayerPresence.All)
+        {
+            if (p == null || p.PlayerId != ownerId || !p.Alive) continue;
+            Vector3 c = p.Position;
+            net.ToAll("ZX|" + ownerId + "|" + NetworkGame.F(c.x) + "|" + NetworkGame.F(c.y) + "|" + NetworkGame.F(c.z));
+            return;
+        }
+    }
+
+    System.Collections.IEnumerator ZipperBlast(Vector3 center)
+    {
+        GameAudio.Play3D("zipper", center + Vector3.up * 0.3f, 1f, 30f, 0f);
+        yield return new WaitForSeconds(ZipperBlastDelay);
+        if (!net.InGame || phase == Phase.GameOver) yield break;
+        bool any = false;
+        foreach (var p in new List<PlayerPresence>(PlayerPresence.All))
+        {
+            if (p == null || !p.Alive || Vector3.Distance(p.Position, center) > ZipperBlastRadius) continue;
+            bool local = p == presence;
+            if (local && (status.Dead || Godmode)) continue;
+            if (local) LeaveHidingPlaces();
+            else if (p.TryGetComponent(out RemotePlayer rp)) rp.RevealBody();
+            if (p.TryGetComponent(out CharacterAvatar av) && av.Explode(p.transform.position))
+            {
+                BlowUp(p.transform.position);
+                any = true;
+            }
+            if (local) KillLocal("une fermeture éclair");
+        }
+        if (!any) BlowUp(center);
+    }
+
     // Chaque client fait exploser les personnages encore en vie chez lui (purement visuel) ; un joueur distant caché
     // (niche, Canon, toboggan, téléportation) réapparaît là où il est pour exploser. Les morts n'explosent pas.
     void ExplodePlayers()
@@ -2522,6 +2764,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (HandleObjectMessage(from, f, host)) return;
         if (HandleArcadeMessage(from, f, host)) return;
         if (HandleReverseMessage(from, f, host)) return;
+        if (HandleSecretMessage(from, f, host)) return;
         switch (f[0])
         {
             case "G" when !host && f.Length >= 10:
@@ -2545,6 +2788,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (f.Length >= 18) sealedZones = Mathf.Max(0, NetworkGame.I(f[17]));
                 if (f.Length >= 19) ReadIds(f[18], brokenBridges);
                 if (f.Length >= 20) itemZones = Mathf.Max(2, NetworkGame.I(f[19]));
+                timerPaused = f.Length >= 21 && f[20] == "1";
+                ApplySecretFlags(f.Length >= 22 ? NetworkGame.I(f[21]) : 0);
                 ApplyWorld();
                 if (net.InGame)
                 {
@@ -2698,6 +2943,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 break;
             }
             case "DE" when host && f.Length >= 2:
+                if (f.Length >= 3) RecordNightmareKill(NetworkGame.I(f[2]));
                 StatsOf(from).deaths++;
                 net.ToAll(StatsMsg());
                 Log("Le sujet {0} est mort par {1}.", NameOf(from), Loc.Tr(f[1]));
@@ -2768,9 +3014,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case "BN" when host && f.Length >= 4:
             {
                 noiseAt[from] = Time.time;
-                var kind = f.Length >= 5 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[4]), 0, (int)Beacon.LastKind) : DeviceKind.Beacon;
+                var kind = f.Length >= 5 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[4]), 0, (int)Beacon.MaxKind) : DeviceKind.Beacon;
                 var pos = new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3]));
-                PlaceDevice(kind, pos, f.Length >= 6 ? NetworkGame.P(f[5]) : Random.Range(0f, 360f), from, f.Length >= 7 && f[6] == "1");
+                int placedId = PlaceDevice(kind, pos, f.Length >= 6 ? NetworkGame.P(f[5]) : Random.Range(0f, 360f), from, f.Length >= 7 && f[6] == "1");
+                OfferToPions(placedId, kind, pos);
                 break;
             }
             // BV : appareil déjà posé (joueur qui arrive), sans animation.
@@ -2779,11 +3026,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             {
                 bool live = f[0] == "BW";
                 var pos = new Vector3(NetworkGame.P(f[2]), NetworkGame.P(f[3]), NetworkGame.P(f[4]));
-                var kind = f.Length >= 6 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[5]), 0, (int)Beacon.LastKind) : DeviceKind.Beacon;
+                var kind = f.Length >= 6 ? (DeviceKind)Mathf.Clamp(NetworkGame.I(f[5]), 0, (int)Beacon.MaxKind) : DeviceKind.Beacon;
                 float yaw = f.Length >= 7 ? NetworkGame.P(f[6]) : float.NaN;
                 string placer = f.Length >= 8 ? f[7] : "";
-                bool hanging = f.Length >= 9 && f[8] == "1";
-                Beacon placedDevice = beacons.Add(NetworkGame.I(f[1]), pos, kind, yaw, hanging);
+                // 9e champ : 1 (boule à facettes au plafond) ou longueur de la chaîne d'une Cloche suspendue (V0.6.13).
+                float hang = f.Length >= 9 ? NetworkGame.P(f[8]) : 0f;
+                Beacon placedDevice = beacons.Add(NetworkGame.I(f[1]), pos, kind, yaw, hang > 0f, Beacon.IsBellKind(kind) ? hang : 0f);
                 if (live && placer.Length > 0) GameAudio.Play3D("pop", pos, 0.8f, 15f, 0.1f, 0.8f);
                 OnDevicePlaced(placedDevice, placer, live);
                 break;
@@ -2932,12 +3180,24 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 PeerNet.Broadcast("BA|" + from + "|" + NetworkGame.F(pitch));
                 // L'hôte l'entend aussi (son propre aboiement est déjà joué).
                 if (from != net.MyId && net.Remotes.TryGetValue(from, out var hostHeard) && hostHeard != null)
+                {
                     PlayBark(hostHeard.transform, pitch);
+                    HeardBark(from);
+                }
                 break;
             }
+            case "ZP" when host && f.Length >= 2:
+                OnZipperPulled(f[1]);
+                break;
+            case "ZX" when f.Length >= 5:
+                StartCoroutine(ZipperBlast(new Vector3(NetworkGame.P(f[2]), NetworkGame.P(f[3]), NetworkGame.P(f[4]))));
+                break;
             case "BA" when f.Length >= 3:
                 if (f[1] != net.MyId && net.Remotes.TryGetValue(f[1], out var barker) && barker != null)
+                {
                     PlayBark(barker.transform, NetworkGame.P(f[2]));
+                    HeardBark(f[1]);
+                }
                 break;
 
             // ---------- Gestes (ramasser, poser, utiliser, manger) ----------
@@ -2966,7 +3226,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 // 10 croquettes par tranche de 10 secondes restant au Compteur de Temps.
                 int bonus = Mathf.FloorToInt(timeLeft / 10f) * 10;
                 cash += bonus;
-                LogN(bonus, "Le sujet {0} passe la manche {1} : {2} ajoutée à la cagnotte.|Le sujet {0} passe la manche {1} : {2} ajoutées à la cagnotte.",
+                LogN(bonus, "Le sujet {0} passe la manche {1} : {2} ajoutée à la gamelle.|Le sujet {0} passe la manche {1} : {2} ajoutées à la gamelle.",
                     NameOf(from), round.ToString(), Loc.Pr(bonus));
                 EndRound();
                 break;
@@ -3134,11 +3394,26 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         foreach (int id in entities.Keys) if (!seenEntities.Contains(id)) gone.Add(id);
         foreach (int id in gone)
         {
-            if (entities[id] != null) Destroy(entities[id].gameObject);
+            // V0.6.13 : gardée un instant, le temps qu'un éventuel message d'éclatement (EX) arrive sur l'autre canal.
+            if (entities[id] != null)
+            {
+                lingering[id] = entities[id];
+                Destroy(entities[id].gameObject, LingerSeconds);
+            }
             entities.Remove(id);
             watching.Remove(id);
         }
+        if (lingering.Count > 0)
+        {
+            var dead = new List<int>();
+            foreach (var kv in lingering) if (kv.Value == null) dead.Add(kv.Key);
+            foreach (int id in dead) lingering.Remove(id);
+        }
     }
+
+    // Entités disparues de l'état de l'hôte, encore affichées un court instant (clients).
+    readonly Dictionary<int, Entity> lingering = new Dictionary<int, Entity>();
+    const float LingerSeconds = 0.35f;
 
     bool IsDeadForHost(string id)
     {

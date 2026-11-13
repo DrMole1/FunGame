@@ -68,7 +68,7 @@ public class PlayerController : MonoBehaviour
     }
 
     public AnimState CurrentAnimState => avatar != null ? avatar.State : AnimState.Idle;
-    // Saut : action bruyante (L'Araignée repère alors même un joueur accroupi).
+    // Saut : action bruyante (annoncée à l'hôte).
     public event System.Action Jumped;
     public bool Sneaking => gait == Gait.Sneak;
     // Capsule raccourcie (marche discrète).
@@ -162,9 +162,21 @@ public class PlayerController : MonoBehaviour
         }
         airborneLock -= Time.deltaTime;
 
+        // Note 14 du chapitre 3.2 (V0.6.14) : accroupi sans bouger pendant 0,8 s, le personnage s'assoit par terre. Il se
+        // relève dès qu'il se déplace, saute, danse ou que la touche "s'accroupir" est relâchée. Il peut aboyer assis.
+        bool still = gait == Gait.Sneak && sneakHeld && grounded && airborneLock <= 0f && inputDir.sqrMagnitude < 0.01f
+                     && !WantsToMove && chosenDance == 0 && !Dancing && !Digging && !Immobilized && CanControl && !rb.isKinematic;
+        crouchStill = still ? crouchStill + Time.deltaTime : 0f;
+        SeatedOnFloor = crouchStill >= GameRules.SitOnFloorDelay;
+        if (avatar != null) avatar.SetSeated(SeatedOnFloor);
+
         if (avatar != null && (Status == null || !Status.Dead))
             avatar.SetState(ComputeAnimState(grounded && airborneLock <= 0f));
     }
+
+    float crouchStill;
+    // Assis par terre (Note 14) : l'état est transmis aux autres joueurs avec la position (NetworkGame.FlagSeated).
+    public static bool SeatedOnFloor { get; private set; }
 
     // Hauteur tombée depuis le point le plus haut du saut ou de la chute, annoncée à l'atterrissage (V0.6.7).
     public event System.Action<float> Landed;

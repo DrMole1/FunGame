@@ -5,6 +5,9 @@ using UnityEngine;
 // 0 : "immobile et accroupi"   1 : "aller à la niche"   2 : "aboyer"
 // Zones impaires : 3 glyphes neutres, enfermés dans un boîtier de verre et reliés à la porte de la Neutral Room par un câble
 // noir. Une Clé en main brise le boîtier, un clic sur le glyphe le déclenche : son contour et son câble deviennent blancs.
+// V0.6.13 : au-dessus de chaque glyphe neutre, des icônes de pattes de chien d'un blanc très peu lumineux (1 icône à 1 joueur,
+// 2 à 2 ou 3 joueurs, 3 à 4 ou 5, 4 à partir de 6). Chaque joueur qui maintient le clic sur le glyphe en allume une ; toutes
+// allumées en même temps, le glyphe est actionné, et elles le restent.
 // Zones paires : les glyphes d'acquisition (plus grands, jamais interactifs) se chargent quand une Balise chargée les voit :
 // ils brillent de blanc, un rayon les relie à la Balise, et leur ordre s'impose à tous les joueurs.
 public class Glyph : Interactable
@@ -32,6 +35,109 @@ public class Glyph : Interactable
     // Sons propres à chaque glyphe (alertes terrifiantes de moins de 2 secondes).
     public static readonly string[] Sounds = { "glyph_sit", "glyph_kennel", "glyph_bark" };
 
+    // ---------- Icônes de pattes (glyphes neutres, V0.6.13) ----------
+    const float PawIconSize = 0.2f, PawIconGap = 0.06f, PawIconRaise = 0.2f;
+    static readonly Color PawDim = new Color(0.26f, 0.26f, 0.27f, 0.85f), PawLit = new Color(1f, 1f, 1f, 1f);
+    static Texture2D pawTexture;
+    static Material pawDim, pawLit;
+    readonly List<Renderer> paws = new List<Renderer>();
+    Light pawGlow;
+    int pawsLit;
+    float plateSize;
+
+    public int PawCount => paws.Count;
+
+    // Patte : coussinet et quatre doigts, blanc sur transparent.
+    static Texture2D PawTexture()
+    {
+        if (pawTexture != null) return pawTexture;
+        const int n = 64;
+        pawTexture = new Texture2D(n, n, TextureFormat.RGBA32, false) { name = "PatteGlyphe", wrapMode = TextureWrapMode.Clamp };
+        var pixels = new Color32[n * n];
+        var blobs = new (Vector2 c, Vector2 r)[]
+        {
+            (new Vector2(0.5f, 0.33f), new Vector2(0.22f, 0.18f)),
+            (new Vector2(0.24f, 0.6f), new Vector2(0.09f, 0.12f)), (new Vector2(0.4f, 0.74f), new Vector2(0.09f, 0.12f)),
+            (new Vector2(0.6f, 0.74f), new Vector2(0.09f, 0.12f)), (new Vector2(0.76f, 0.6f), new Vector2(0.09f, 0.12f)),
+        };
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+            {
+                var p = new Vector2((x + 0.5f) / n, (y + 0.5f) / n);
+                float a = 0f;
+                foreach (var (c, r) in blobs)
+                {
+                    Vector2 d = new Vector2((p.x - c.x) / r.x, (p.y - c.y) / r.y);
+                    a = Mathf.Max(a, Mathf.Clamp01((1f - d.magnitude) * 12f));
+                }
+                pixels[y * n + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+            }
+        pawTexture.SetPixels32(pixels);
+        pawTexture.Apply();
+        return pawTexture;
+    }
+
+    static Material PawMaterial(bool lit)
+    {
+        if (pawDim == null)
+        {
+            pawDim = new Material(Shader.Find("Sprites/Default")) { name = "PatteEteinte", mainTexture = PawTexture(), color = PawDim };
+            pawLit = new Material(Shader.Find("Sprites/Default")) { name = "PatteAllumee", mainTexture = PawTexture(), color = PawLit };
+        }
+        return lit ? pawLit : pawDim;
+    }
+
+    // Nombre d'icônes (selon le nombre de joueurs en jeu).
+    public void SetPawCount(int count)
+    {
+        if (!Neutral) return;
+        count = Mathf.Clamp(count, 1, 8);
+        if (count == paws.Count) return;
+        foreach (var r in paws) if (r != null) Destroy(r.gameObject);
+        paws.Clear();
+        float width = count * PawIconSize + (count - 1) * PawIconGap;
+        for (int k = 0; k < count; k++)
+        {
+            float x = -width * 0.5f + PawIconSize * 0.5f + k * (PawIconSize + PawIconGap);
+            var quad = GameArt.Prim(PrimitiveType.Quad, transform, new Vector3(x, plateSize * FrameWidthRatio * 0.5f + PawIconRaise, 0.02f), Vector3.one * PawIconSize, PawMaterial(false));
+            quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            quad.name = "Patte" + (k + 1);
+            foreach (var c in quad.GetComponentsInChildren<Collider>()) Destroy(c);
+            var r = quad.GetComponent<Renderer>();
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            paws.Add(r);
+        }
+        if (pawGlow == null)
+        {
+            pawGlow = new GameObject("LueurPattes").AddComponent<Light>();
+            pawGlow.transform.SetParent(transform, false);
+            pawGlow.type = LightType.Point;
+            pawGlow.color = Color.white;
+            pawGlow.range = 1.6f;
+            pawGlow.shadows = LightShadows.None;
+        }
+        pawGlow.transform.localPosition = new Vector3(0f, plateSize * FrameWidthRatio * 0.5f + PawIconRaise, 0.35f);
+        RefreshPaws();
+    }
+
+    // Icônes allumées (le glyphe actionné les garde toutes allumées).
+    public void SetPawsLit(int lit)
+    {
+        pawsLit = Mathf.Max(0, lit);
+        RefreshPaws();
+    }
+
+    void RefreshPaws()
+    {
+        int lit = Activated ? paws.Count : Mathf.Min(pawsLit, paws.Count);
+        for (int k = 0; k < paws.Count; k++) if (paws[k] != null) paws[k].sharedMaterial = PawMaterial(k < lit);
+        if (pawGlow != null)
+        {
+            pawGlow.enabled = lit > 0;
+            pawGlow.intensity = 0.25f + 0.2f * lit;
+        }
+    }
+
     public static Glyph Create(Transform parent, int id, int type, bool neutral, int zone, Vector3 pos, Vector3 normal, float size)
     {
         var go = new GameObject((neutral ? "GlypheNeutre_" : "GlypheAcquisition_") + id);
@@ -43,6 +149,7 @@ public class Glyph : Interactable
         glyph.Type = type;
         glyph.Zone = zone;
         glyph.Neutral = neutral;
+        glyph.plateSize = size;
 
         // Plaque crème.
         float depth = 0.08f;
@@ -189,6 +296,8 @@ public class Glyph : Interactable
         glassCase.SetActive(!broken);
         frame.sharedMaterial = FrameMaterial(activated);
         if (cable != null) cable.sharedMaterial = CableMaterial(activated);
+        if (activated) pawsLit = paws.Count;
+        RefreshPaws();
         if (caseChanged) RefreshOutline();
     }
 
@@ -267,7 +376,7 @@ public class Glyph : Interactable
         }
     }
 
-    public override string Prompt => CaseBroken ? Loc.T("Toucher le glyphe") : Loc.T("Briser le boîtier");
+    public override string Prompt => CaseBroken ? Loc.T("Maintenir le clic sur le glyphe") : Loc.T("Briser le boîtier");
 
     public override void Interact()
     {

@@ -174,11 +174,23 @@ public class LobbyUI : MonoBehaviour
         GameAudio.Play2D("skin", 0.6f, 0.05f);
     }
 
+    // Choix du skin dans le menu pause : seulement tant que le Bouton Rouge n'est pas enclenché ; sans lui, le panneau raccourcit.
+    GameObject pauseSkinLabel;
+
+    void UpdatePauseSkin()
+    {
+        bool canChange = GameSession.Instance == null || !GameSession.Instance.RoundStarted;
+        if (pauseSkinLabel.activeSelf == canChange) return;
+        pauseSkinLabel.SetActive(canChange);
+        pauseSkin.transform.parent.gameObject.SetActive(canChange);
+        FitPausePanel();
+    }
+
     void RefreshSkin()
     {
         string n = net.SkinCount > 0 ? net.SkinName(net.MySkin) : "-";
         lobbySkin.text = n;
-        pauseSkin.text = n;
+        if (pauseSkin != null) pauseSkin.text = n;
     }
 
     void Update()
@@ -199,6 +211,7 @@ public class LobbyUI : MonoBehaviour
         bool loading = LoadingScreen.Visible;
         bool pauseMenus = paused && !ControlsUI.IsOpen && !loading;
         if (pausePanel.activeSelf != pauseMenus) pausePanel.SetActive(pauseMenus);
+        if (pauseMenus) UpdatePauseSkin();
         if (hintPanel.activeSelf != pauseMenus) hintPanel.SetActive(pauseMenus);
         if (loading && lobbyPanel.activeSelf) lobbyPanel.SetActive(false);
         bool flagsShown = (lobbyPanel.activeSelf || pauseMenus) && !loading;
@@ -431,7 +444,7 @@ public class LobbyUI : MonoBehaviour
 
     void BuildPause(Transform root)
     {
-        // À gauche : partie, skin, volumes, quitter.
+        // À gauche : partie, skin (avant le Bouton Rouge), volumes, quitter.
         pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 690));
         UiKit.Paint(pausePanel, PanelBlack, 11);
         UiKit.Place(pausePanel, new Vector2(0f, 1f), new Vector2(16, -16));
@@ -449,7 +462,9 @@ public class LobbyUI : MonoBehaviour
         copyLabel = copy.GetComponentInChildren<Text>();
         copyButton = copy;
         UiKit.Paint(copy, JoinBlue, 12);
-        UiKit.Label(p, "Changer de skin", 15, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
+        // V0.6.14 (Note 07 du chapitre 3.1) : le réglage disparaît de ce menu dès que le Bouton Rouge est enclenché, jusqu'à
+        // la fin de la partie (UpdatePauseSkin).
+        pauseSkinLabel = UiKit.Label(p, "Changer de skin", 15, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft).gameObject;
         pauseSkin = UiKit.Selector(p, 40, () => ChangeSkin(-1), () => ChangeSkin(1));
         PaintSelector(pauseSkin, 13);
         VolumeRows(p, 36, 15, true);

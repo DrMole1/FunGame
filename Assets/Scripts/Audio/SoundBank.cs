@@ -36,6 +36,8 @@ public static class SoundBank
         "slide_rub",
         // V0.6.11 : recharge du Téléporteur Inversé terminée, apparition des Cauchemars de la manche (enregistrés seulement).
         "teleporter_ready", "round_spawn",
+        // V0.6.14 (chapitre 15.3) : étincelles du cadavre de Tête de Cloche, porte du laboratoire secret.
+        "spark", "lab_door",
     };
 
     // Synthèse des sons étalée sur les premières images : le jeu ne se fige pas au lancement. Un son demandé avant son tour est
@@ -95,6 +97,8 @@ public static class SoundBank
             case "eat": return Eat(rnd);
             case "key": return Click(rnd, 2600f, 1200f, 0.045f);
             case "beep": return Beep(880f, 0.12f);
+            case "spark": return Spark(rnd);
+            case "lab_door": return LabDoor(rnd);
             case "error": return ErrorBeep();
             case "register": return Register(rnd);
             case "sell_bell": return SellBell(rnd);
@@ -774,6 +778,53 @@ public static class SoundBank
                 float grain = rnd.NextDouble() < 0.08 ? Noise(rnd) * 2f : Noise(rnd) * 0.3f;
                 d[i] += (lp.Process(grain, 1800f) + bp.Process(grain, 900f, 0.5f) * 0.5f) * AD(t, 0.003f, 0.04f);
             }
+        }
+        return d;
+    }
+
+    // Court-circuit : salve de claquements secs et d'arcs électriques grésillants.
+    static float[] Spark(System.Random rnd)
+    {
+        var d = Buffer(0.45f);
+        var bp = new BandPass();
+        var hp = new BandPass();
+        float arc = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            // Claquements : impulsions espacées au hasard, plus denses au début.
+            if (rnd.NextDouble() < 0.004 * (1f - t / 0.45f)) arc = 1f;
+            arc *= 0.996f;
+            float crack = rnd.NextDouble() < 0.0015 ? Noise(rnd) * 4f : 0f;
+            float buzz = Square(120f * t + Noise(rnd) * 0.05f) * 0.15f + hp.Process(Noise(rnd), 5200f, 0.5f) * 0.9f;
+            d[i] = (bp.Process(Noise(rnd), 2600f, 0.35f) * arc * 1.4f + buzz * arc + crack) * ASR(t, 0.002f, 0.08f, 0.45f);
+        }
+        return d;
+    }
+
+    // Porte coulissante de laboratoire : déclic du verrou, souffle pneumatique et roulement métallique, butée.
+    static float[] LabDoor(System.Random rnd)
+    {
+        var d = Buffer(1.6f);
+        var hiss = new BandPass();
+        var rumble = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float s = 0f;
+            // Déclic du verrou.
+            if (t < 0.06f) s += Square(1400f * t) * Decay(t, 0.012f) * 0.5f + Noise(rnd) * Decay(t, 0.01f) * 0.6f;
+            // Souffle pneumatique.
+            s += hiss.Process(Noise(rnd), 3200f, 0.7f) * ASR(t - 0.08f, 0.05f, 0.5f, 0.9f) * 0.7f;
+            // Roulement du battant sur son rail.
+            s += rumble.Process(Noise(rnd), 180f) * ASR(t - 0.12f, 0.1f, 0.2f, 1.1f) * 2.2f + Sine(62f * t) * ASR(t - 0.12f, 0.1f, 0.2f, 1.1f) * 0.2f;
+            // Butée métallique.
+            if (t > 1.25f)
+            {
+                float k = t - 1.25f;
+                s += (Sine(180f * k) * 0.6f + Sine(437f * k) * 0.3f) * Decay(k, 0.08f) + Noise(rnd) * Decay(k, 0.01f) * 0.4f;
+            }
+            d[i] = s;
         }
         return d;
     }

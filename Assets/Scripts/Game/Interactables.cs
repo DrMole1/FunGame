@@ -128,6 +128,15 @@ public class ItemPickup : Interactable
             BuildKey(parent);
             return;
         }
+        // V0.6.14 : la Carte Magnétique 1, debout comme les autres objets à terre.
+        if (type == ItemType.CarteMagnetique1)
+        {
+            var card = new GameObject("Carte").transform;
+            card.SetParent(parent, false);
+            card.localPosition = new Vector3(0f, 0.22f, 0f);
+            SecretCorpse.BuildCard(card, 0.32f);
+            return;
+        }
         Material body = GameArt.Lit("Item" + type, def.color, null, 0.8f);
         if (Items.IsDuck(type))
         {

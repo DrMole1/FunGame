@@ -31,6 +31,7 @@ public class CharacterAvatar : MonoBehaviour
     Vector3 modelScale;
     Coroutine deathRoutine;
     bool dead;
+    MirkovZipper zipper;
 
     public void SetCharacter(CharacterLibrary library, int index)
     {
@@ -52,11 +53,20 @@ public class CharacterAvatar : MonoBehaviour
         SetLayerRecursive(model, gameObject.layer);
 
         if (!model.TryGetComponent(out animator)) animator = model.AddComponent<Animator>();
+        spine = chest = neck = head = upperArm = lowerArm = hand = null;
+        leftUpperArm = leftLowerArm = leftHand = hips = rightFinger = leftFinger = null;
+        leftUpperLeg = rightUpperLeg = leftLowerLeg = rightLowerLeg = leftFoot = rightFoot = null;
+        MeasureHands();
+        MeasureLegs();
         animator.runtimeAnimatorController = entry.controller;
         animator.applyRootMotion = false;
         animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
 
-        spine = chest = neck = head = upperArm = lowerArm = null;
+        // V0.6.13 : Mirkov porte une fermeture éclair dans le dos.
+        if (zipper != null) Destroy(zipper.gameObject);
+        zipper = index == MirkovZipper.Skin ? MirkovZipper.Attach(transform, model, animator) : null;
+        if (heldBoard != null) Destroy(heldBoard);
+        heldBoard = null;
         CharacterIndex = index;
         State = AnimState.Idle;
         animator.Play("Idle", 0, 0f);
@@ -117,6 +127,14 @@ public class CharacterAvatar : MonoBehaviour
 
     void Update()
     {
+        // Protocole en main, ou assis au début de la partie : l'attente principale seulement, sans variante où le corps bouge.
+        if ((holding || Sitting) && idleVariant != 0 && State == AnimState.Idle && animator != null && animator.gameObject.activeInHierarchy)
+        {
+            ResetIdle();
+            animator.CrossFadeInFixedTime(IdleStates[0], 0.3f);
+            return;
+        }
+        if (holding || Sitting) return;
         if (State != AnimState.Idle || dead || animator == null || !animator.gameObject.activeInHierarchy || Time.time < nextIdleAt) return;
         // Une variante, puis retour à l'idle principal ; les variantes ne s'enchaînent pas entre elles.
         int next = idleVariant != 0 ? 0 : Random.Range(1, IdleStates.Length);
@@ -159,8 +177,311 @@ public class CharacterAvatar : MonoBehaviour
             lowerArm = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
             hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
         }
+        CacheBones();
         if (g == PlayerGesture.Eat && eatenProp == null) eatenProp = BuildDrumstick(transform);
     }
+
+    void CacheBones()
+    {
+        if (animator == null || !animator.isHuman || leftUpperArm != null) return;
+        spine = animator.GetBoneTransform(HumanBodyBones.Spine);
+        chest = animator.GetBoneTransform(HumanBodyBones.Chest);
+        neck = animator.GetBoneTransform(HumanBodyBones.Neck);
+        head = animator.GetBoneTransform(HumanBodyBones.Head);
+        upperArm = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+        lowerArm = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
+        hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
+        leftUpperArm = animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
+        leftLowerArm = animator.GetBoneTransform(HumanBodyBones.LeftLowerArm);
+        leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
+        rightFinger = animator.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
+        leftFinger = animator.GetBoneTransform(HumanBodyBones.LeftMiddleProximal);
+        hips = animator.GetBoneTransform(HumanBodyBones.Hips);
+        leftUpperLeg = animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg);
+        rightUpperLeg = animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
+        leftLowerLeg = animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg);
+        rightLowerLeg = animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
+        leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+        rightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+    }
+
+    // ---------- Postures tenues (V0.6.13), jouées par-dessus l'animation en cours ----------
+    // - Protocole tenu à deux mains devant la poitrine (objet sélectionné dans l'inventaire).
+    // - Bras droit tendu vers l'avant tant que le clic est maintenu sur un glyphe neutre (il se lève puis se baisse).
+    // - Note 06 du chapitre 3 : à l'arrivée dans la partie, assis au sol 0,3 seconde, puis il se relève.
+    Transform leftUpperArm, leftLowerArm, leftHand, hips, leftUpperLeg, rightUpperLeg, leftLowerLeg, rightLowerLeg, leftFoot, rightFoot;
+    Transform rightFinger, leftFinger;
+    // Protocole en main : sa taille, et la hauteur des prises (part de sa hauteur) où les mains le tiennent par les côtés.
+    const float BoardScale = 0.85f, GripHeight = 0.55f;
+    bool holding, armRaised;
+    float holdWeight, armWeight, sitStart = -10f;
+    GameObject heldBoard;
+    public const float SitHold = 0.3f, StandUpDuration = 0.9f;
+
+    public void SetHolding(bool on) => holding = on;
+    // Note 14 du chapitre 3.2 (V0.6.14) : assis par terre tant que le joueur reste accroupi sans bouger. Il s'assoit en
+    // douceur et se relève très vite.
+    bool seated;
+    float seatedWeight;
+    public void SetSeated(bool on) => seated = on;
+    public void SetArmRaised(bool on) => armRaised = on;
+    public void PlaySitUp() => sitStart = Time.time;
+    public bool Sitting => Time.time - sitStart < SitHold + StandUpDuration;
+
+    // Poids de la position assise : 1 pendant SitHold, puis le personnage se relève.
+    float SitWeight()
+    {
+        float t = Time.time - sitStart;
+        if (t < 0f || t > SitHold + StandUpDuration) return 0f;
+        return t < SitHold ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (t - SitHold) / StandUpDuration);
+    }
+
+    void UpdatePoses()
+    {
+        bool visible = !dead && !hidden && model != null && model.activeInHierarchy && animator != null && animator.isHuman;
+        holdWeight = Mathf.MoveTowards(holdWeight, holding && visible ? 1f : 0f, Time.deltaTime * 5f);
+        armWeight = Mathf.MoveTowards(armWeight, armRaised && visible ? 1f : 0f, Time.deltaTime * 4f);
+        seatedWeight = Mathf.MoveTowards(seatedWeight, seated && visible ? 1f : 0f, Time.deltaTime * (seated ? 2.5f : 6f));
+        float sit = visible ? Mathf.Max(SitWeight(), Mathf.SmoothStep(0f, 1f, seatedWeight)) : 0f;
+        if (model != null && deathRoutine == null && !dead) model.transform.localPosition = modelPos;
+        if (!visible)
+        {
+            if (heldBoard != null) heldBoard.SetActive(false);
+            return;
+        }
+        CacheBones();
+        Vector3 axis = model.transform.right;
+        if (sit > 0f && deathRoutine == null) SitPose(sit);
+        if (armWeight > 0f)
+        {
+            Tilt(upperArm, axis, -80f * armWeight);
+            Tilt(lowerArm, axis, -8f * armWeight);
+        }
+        if (holdWeight > 0f && chest != null) HoldBoard();
+        else if (heldBoard != null) heldBoard.SetActive(false);
+    }
+
+    // Assis par terre, jambes allongées devant soi, puis il se relève d'un mouvement souple. Tout dépend du skin (mesuré
+    // au repos, MeasureLegs) : les hanches descendent jusqu'à l'épaisseur de la cuisse au-dessus du sol, chaque jambe est
+    // posée par IK talon au sol (orteils vers le haut), les mains se posent sur les cuisses. En se relevant, les pieds
+    // restent au sol : seules les hanches remontent.
+    void SitPose(float sit)
+    {
+        if (!legsMeasured || hips == null) return;
+        Transform m = model.transform;
+        Vector3 fwd = m.forward, right = m.right, up = m.up;
+        float groundY = transform.TransformPoint(modelPos).y;
+        // Pieds de l'animation, avant de descendre : ils sont au sol.
+        Vector3 leftStand = leftFoot.position, rightStand = rightFoot.position;
+        Quaternion leftFootRot = leftFoot.rotation, rightFootRot = rightFoot.rotation;
+        float hipH = hips.position.y - m.position.y;
+        float drop = sit * Mathf.Max(0f, hipH - seatHeight);
+        m.localPosition = modelPos + Vector3.down * drop;
+        // Fondu rapide vers la pose IK : à mi-relevé, les jambes sont déjà pliées, sans à-coup à la fin.
+        float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(sit * 2.5f));
+        Tilt(spine, right, 10f * sit);
+        Tilt(chest, right, 6f * sit);
+        foreach (int side in new[] { 1, -1 })
+        {
+            Transform upLeg = side > 0 ? rightUpperLeg : leftUpperLeg, lowLeg = side > 0 ? rightLowerLeg : leftLowerLeg;
+            Transform foot = side > 0 ? rightFoot : leftFoot;
+            Vector3 stand = (side > 0 ? rightStand : leftStand);
+            Quaternion footRot = side > 0 ? rightFootRot : leftFootRot;
+            Vector3 hip = upLeg.position;
+            // Talon au sol devant la hanche, jambe presque tendue, pieds un peu écartés.
+            float targetY = groundY + ankleHeight;
+            float dy = Mathf.Max(0f, hip.y - targetY), reach = legLength * 0.95f;
+            float ahead = Mathf.Sqrt(Mathf.Max(0f, reach * reach - dy * dy));
+            float lateral = Vector3.Dot(hip - hips.position, right) * 1.4f;
+            Vector3 seated = hips.position + Vector3.Project(hip - hips.position, up) + fwd * ahead + right * lateral;
+            seated.y = targetY;
+            Vector3 target = Vector3.Lerp(stand, seated, sit);
+            target.y = Mathf.Max(target.y, targetY);
+            Quaternion u0 = upLeg.rotation, l0 = lowLeg.rotation;
+            // Genou vers le haut et l'avant.
+            Vector3 pole = hip + fwd * (legLength * 0.5f) + up * legLength;
+            SolveArm(upLeg, lowLeg, foot, target, pole, 1f);
+            upLeg.rotation = Quaternion.Slerp(u0, upLeg.rotation, k);
+            lowLeg.rotation = Quaternion.Slerp(l0, lowLeg.rotation, k);
+            // Pied : la pointe se relève (talon au sol) au lieu de suivre le tibia dans le sol.
+            Quaternion heel = Quaternion.AngleAxis(-60f * sit, right) * footRot;
+            foot.rotation = Quaternion.Slerp(foot.rotation, heel, k);
+
+            // Main posée sur la cuisse, un peu avant le genou, paume vers le bas, doigts vers l'avant.
+            Transform arm = side > 0 ? upperArm : leftUpperArm, fore = side > 0 ? lowerArm : leftLowerArm, wrist = side > 0 ? hand : leftHand;
+            if (arm == null || fore == null || wrist == null) continue;
+            Vector3 thigh = Vector3.Lerp(upLeg.position, lowLeg.position, 0.6f) + up * (thighRadius + 0.02f) + right * (side * thighRadius * 0.3f);
+            Quaternion a0 = arm.rotation, f0 = fore.rotation, w0 = wrist.rotation;
+            Vector3 elbowPole = arm.position + right * (side * armLength) - fwd * (armLength * 0.3f);
+            SolveArm(arm, fore, wrist, thigh, elbowPole, 1f);
+            if (handsMeasured)
+            {
+                Vector3 fingers = (fwd - up * 0.3f).normalized;
+                Vector3 palm = Vector3.ProjectOnPlane(-up, fingers).normalized;
+                Vector3 fa = side > 0 ? rightFingerAxis : leftFingerAxis, pa = side > 0 ? rightPalmAxis : leftPalmAxis;
+                wrist.rotation = Quaternion.LookRotation(fingers, palm) * Quaternion.Inverse(Quaternion.LookRotation(fa, pa));
+            }
+            arm.rotation = Quaternion.Slerp(a0, arm.rotation, k);
+            fore.rotation = Quaternion.Slerp(f0, fore.rotation, k);
+            wrist.rotation = Quaternion.Slerp(w0, wrist.rotation, k);
+        }
+    }
+
+    // Mesures des jambes au repos : longueur (hanche → cheville), hauteur de la cheville et épaisseur de la cuisse (sur le
+    // maillage : distance des sommets de la cuisse à l'axe de l'os). Assis, l'articulation de la hanche est à une épaisseur
+    // de cuisse au-dessus du sol.
+    float legLength = 0.4f, ankleHeight = 0.08f, thighRadius = 0.07f, seatHeight = 0.08f;
+    bool legsMeasured;
+
+    void MeasureLegs()
+    {
+        legsMeasured = false;
+        if (hips == null || leftUpperLeg == null || rightUpperLeg == null || leftLowerLeg == null || rightLowerLeg == null || leftFoot == null || rightFoot == null) return;
+        float ground = model.transform.position.y;
+        legLength = 0.5f * (Vector3.Distance(leftUpperLeg.position, leftLowerLeg.position) + Vector3.Distance(leftLowerLeg.position, leftFoot.position)
+                          + Vector3.Distance(rightUpperLeg.position, rightLowerLeg.position) + Vector3.Distance(rightLowerLeg.position, rightFoot.position));
+        if (legLength < 0.05f) return;
+        ankleHeight = Mathf.Clamp(0.5f * (leftFoot.position.y + rightFoot.position.y) - ground, 0.01f, legLength * 0.3f);
+        thighRadius = MeasureThigh();
+        if (thighRadius <= 0f) thighRadius = legLength * 0.16f;
+        seatHeight = Mathf.Clamp(thighRadius * 1.05f, 0.03f, legLength * 0.4f);
+        legsMeasured = true;
+    }
+
+    float MeasureThigh()
+    {
+        var dist = new System.Collections.Generic.List<float>();
+        foreach (var smr in model.GetComponentsInChildren<SkinnedMeshRenderer>())
+        {
+            Mesh mesh = smr.sharedMesh;
+            if (!smr.enabled || mesh == null || !mesh.isReadable) continue;
+            BoneWeight[] weights = mesh.boneWeights;
+            Transform[] bones = smr.bones;
+            var baked = new Mesh();
+            smr.BakeMesh(baked, true);
+            Vector3[] verts = baked.vertices;
+            Destroy(baked);
+            if (weights.Length != verts.Length) continue;
+            Matrix4x4 w = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one);
+            for (int i = 0; i < verts.Length; i++)
+            {
+                int b = weights[i].boneIndex0;
+                if (b < 0 || b >= bones.Length) continue;
+                Transform top = bones[b] == leftUpperLeg ? leftUpperLeg : bones[b] == rightUpperLeg ? rightUpperLeg : null;
+                if (top == null) continue;
+                Transform knee = top == leftUpperLeg ? leftLowerLeg : rightLowerLeg;
+                Vector3 p = w.MultiplyPoint3x4(verts[i]), a = top.position, ab = knee.position - a;
+                float t = Vector3.Dot(p - a, ab) / ab.sqrMagnitude;
+                if (t < 0.2f || t > 0.6f) continue;
+                dist.Add(Vector3.Distance(p, a + ab * t));
+            }
+        }
+        if (dist.Count < 10) return 0f;
+        dist.Sort();
+        return dist[(int)(dist.Count * 0.75f)];
+    }
+
+    // Mesures de chaque skin, prises sur sa pose de repos (T-pose, paumes vers le bas) juste après l'instanciation :
+    // longueur des bras et, pour chaque main, l'axe des doigts et la normale de la paume dans le repère
+    // de l'os de la main. Les rigs n'orientent pas tous leurs os de la même façon : sans cela, la main n'est bien tournée
+    // que sur le skin pour lequel les angles ont été réglés.
+    float armLength = 0.5f, boardScale = BoardScale;
+    Vector3 rightFingerAxis, rightPalmAxis, leftFingerAxis, leftPalmAxis;
+    bool handsMeasured;
+    // Longueur des bras (épaule → poignet) de Jerk, sur qui la taille du Protocole a été réglée.
+    const float ReferenceArm = 0.5f;
+
+    void MeasureHands()
+    {
+        handsMeasured = false;
+        if (animator == null || !animator.isHuman) return;
+        CacheBones();
+        if (upperArm == null || lowerArm == null || hand == null || leftUpperArm == null || leftLowerArm == null || leftHand == null) return;
+        armLength = 0.5f * (Vector3.Distance(upperArm.position, lowerArm.position) + Vector3.Distance(lowerArm.position, hand.position)
+                          + Vector3.Distance(leftUpperArm.position, leftLowerArm.position) + Vector3.Distance(leftLowerArm.position, leftHand.position));
+        if (armLength < 0.05f) return;
+        boardScale = BoardScale * Mathf.Clamp(armLength / ReferenceArm, 0.72f, 1f);
+        Vector3 down = -model.transform.up;
+        MeasureHand(lowerArm, hand, down, out rightFingerAxis, out rightPalmAxis);
+        MeasureHand(leftLowerArm, leftHand, down, out leftFingerAxis, out leftPalmAxis);
+        handsMeasured = true;
+    }
+
+    static void MeasureHand(Transform lower, Transform wrist, Vector3 down, out Vector3 finger, out Vector3 palm)
+    {
+        Vector3 f = (wrist.position - lower.position).normalized;
+        Vector3 p = Vector3.ProjectOnPlane(down, f).normalized;
+        finger = Quaternion.Inverse(wrist.rotation) * f;
+        palm = Quaternion.Inverse(wrist.rotation) * p;
+    }
+
+    // Le Protocole tenu à deux mains devant la poitrine, le texte tourné vers le personnage (incliné, comme quand on lit) :
+    // chaque main le saisit par un côté, la paume contre la tranche et les doigts passés derrière la plaque, les coudes
+    // vers le bas (IK à deux os). Tout est proportionnel au skin : hauteur des épaules, longueur des bras.
+    void HoldBoard()
+    {
+        if (heldBoard == null)
+        {
+            heldBoard = ProtocolBoard.Build(transform, boardScale);
+            SetLayerRecursive(heldBoard, gameObject.layer);
+        }
+        heldBoard.SetActive(holdWeight > 0.5f);
+        Vector3 fwd = model.transform.forward, right = model.transform.right, upDir = model.transform.up;
+        Tilt(head, right, 12f * holdWeight);
+        Transform board = heldBoard.transform;
+        float w = ProtocolBoard.Width * boardScale, h = ProtocolBoard.Height * boardScale;
+        board.rotation = Quaternion.LookRotation(-fwd, upDir) * Quaternion.Euler(-20f, 0f, 0f);
+        // Les prises (milieu des côtés, à GripHeight de la hauteur) : sous les épaules et devant elles, à portée de bras
+        // coudes pliés, quelle que soit la taille du personnage.
+        Vector3 shoulders = upperArm != null && leftUpperArm != null ? (upperArm.position + leftUpperArm.position) * 0.5f : chest.position + upDir * 0.15f;
+        Vector3 gripCenter = shoulders + fwd * (armLength * 0.62f) - upDir * (armLength * 0.52f);
+        board.position = gripCenter - board.up * (h * GripHeight);
+        float halfW = w * 0.5f;
+        Vector3 back = -board.forward;   // côté opposé au personnage
+        foreach (int side in new[] { 1, -1 })
+        {
+            Transform up = side > 0 ? upperArm : leftUpperArm, low = side > 0 ? lowerArm : leftLowerArm;
+            Transform wrist = side > 0 ? hand : leftHand;
+            if (up == null || low == null || wrist == null) continue;
+            Vector3 outward = right * side;
+            // Le côté du personnage (droite / gauche) est à -X de la plaque, qui lui fait face.
+            Vector3 edge = gripCenter + board.right * (-side * halfW);
+            // La main : doigts dressés le long de la tranche, penchés vers l'arrière de la plaque, paume contre le bord.
+            Vector3 fingers = (board.up * 0.85f + back * 0.4f - outward * 0.1f).normalized;
+            Vector3 palm = Vector3.ProjectOnPlane(-outward, fingers).normalized;
+            // Le poignet sous la prise, la main décalée vers l'extérieur de l'épaisseur de la paume.
+            float handLen = armLength * 0.2f;
+            Vector3 grip = edge - fingers * (handLen * 0.5f) + outward * (armLength * 0.05f) - back * (armLength * 0.08f);
+            Vector3 pole = up.position - upDir * armLength + outward * (armLength * 0.4f) - fwd * (armLength * 0.3f);
+            SolveArm(up, low, wrist, grip, pole, holdWeight);
+            if (handsMeasured)
+            {
+                Vector3 fingerAxis = side > 0 ? rightFingerAxis : leftFingerAxis, palmAxis = side > 0 ? rightPalmAxis : leftPalmAxis;
+                Quaternion target = Quaternion.LookRotation(fingers, palm) * Quaternion.Inverse(Quaternion.LookRotation(fingerAxis, palmAxis));
+                wrist.rotation = Quaternion.Slerp(wrist.rotation, target, holdWeight);
+            }
+        }
+    }
+
+    // IK analytique à deux os : l'épaule et le coude tournent pour que le poignet atteigne 'target', le coude du côté de 'pole'.
+    static void SolveArm(Transform upper, Transform lower, Transform wrist, Vector3 target, Vector3 pole, float weight)
+    {
+        Vector3 a = upper.position, b = lower.position, c = wrist.position;
+        float ab = Vector3.Distance(a, b), bc = Vector3.Distance(b, c);
+        if (ab < 1e-4f || bc < 1e-4f) return;
+        Vector3 t = Vector3.Lerp(c, target, weight);
+        Vector3 toT = t - a;
+        float at = Mathf.Clamp(toT.magnitude, Mathf.Abs(ab - bc) + 1e-3f, ab + bc - 1e-3f);
+        Vector3 dir = toT.normalized;
+        Vector3 bendAxis = Vector3.Cross(dir, pole - a);
+        if (bendAxis.sqrMagnitude < 1e-6f) bendAxis = Vector3.Cross(dir, Vector3.down);
+        bendAxis.Normalize();
+        float angle = Mathf.Acos(Mathf.Clamp((ab * ab + at * at - bc * bc) / (2f * ab * at), -1f, 1f)) * Mathf.Rad2Deg;
+        Vector3 elbow = a + Quaternion.AngleAxis(angle, bendAxis) * dir * ab;
+        upper.rotation = Quaternion.FromToRotation(b - a, elbow - a) * upper.rotation;
+        lower.rotation = Quaternion.FromToRotation(wrist.position - lower.position, t - lower.position) * lower.rotation;
+    }
+
 
     // Cuisse de poulet (modèle Meshy, à défaut une version en primitives), d'environ 28 cm.
     static GameObject BuildDrumstick(Transform parent)
@@ -186,6 +507,7 @@ public class CharacterAvatar : MonoBehaviour
 
     void LateUpdate()
     {
+        UpdatePoses();
         float t = Time.time - gestureStart, duration = GestureDuration(gesture);
         if (t < 0f || t > duration || dead || hidden || head == null || !model.activeInHierarchy)
         {

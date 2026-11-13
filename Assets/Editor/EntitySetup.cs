@@ -21,7 +21,6 @@ public static class EntitySetup
         SetupRoi();
         SetupCavalier();
         SetupReveil();
-        SpiderSetup.Setup();
         IconRenderer.Generate();
         AssetDatabase.SaveAssets();
         Debug.Log("Entités et objets de la V0.4 installés.");

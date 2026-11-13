@@ -17,6 +17,9 @@ public partial class GameSession
     void PlaceUniqueObjects()
     {
         if (!net.IsHost || zones.Count == 0) return;
+        // V0.6.13 (7.10) : le Protocole, posé au sol du Hub de départ, près du centre de la piste.
+        Vector3 hubCenter = WorldBuilder.HubCenter(1);
+        PlaceDevice(DeviceKind.Protocole, hubCenter + new Vector3(0.9f, 0f, -1.1f), 200f, "");
         var rnd = new System.Random(seed * 53 + 7);
         var spots = new List<Vector3>(zones[0].itemSpots);
         for (int i = spots.Count - 1; i > 0; i--)
@@ -47,13 +50,42 @@ public partial class GameSession
 
     // Hôte : pose un appareil, annoncé à tous et gardé pour les joueurs qui arrivent ; 'placer' : joueur qui l'a posé
     // ("" : génération du terrain, sans animation ni tintement).
-    void PlaceDevice(DeviceKind kind, Vector3 pos, float yaw, string placer, bool hanging = false)
+    // 'chain' : Cloche suspendue au plafond (longueur de sa chaîne).
+    int PlaceDevice(DeviceKind kind, Vector3 pos, float yaw, string placer, bool hanging = false, float chain = 0f)
     {
         int id = nextBeaconId++;
         string msg = "BW|" + id + "|" + NetworkGame.F(pos.x) + "|" + NetworkGame.F(pos.y) + "|" + NetworkGame.F(pos.z) + "|" + (int)kind
-            + "|" + NetworkGame.F(yaw) + "|" + placer + "|" + (hanging ? 1 : 0);
+            + "|" + NetworkGame.F(yaw) + "|" + placer + "|" + (chain > 0f ? NetworkGame.F(chain) : hanging ? "1" : "0");
         beaconMessages[id] = msg;
         net.ToAll(msg);
+        return id;
+    }
+
+    // V0.6.14 (Pion, 8.4) : un Canard en Plastique (coloré ou non) ou une Peluche posé par un joueur à 5 m ou moins d'un Pion
+    // en état curieux : le plus proche vient le prendre et l'emporte.
+    void OfferToPions(int deviceId, DeviceKind kind, Vector3 pos)
+    {
+        ItemType item = Beacon.ItemOf(kind);
+        if (!Items.IsDuck(item) && !Items.IsPlush(item)) return;
+        Pion best = null;
+        float bestDist = float.MaxValue;
+        foreach (var e in entities.Values)
+        {
+            if (!(e is Pion pion)) continue;
+            float d = Vector3.Distance(pion.transform.position, pos);
+            if (d < bestDist && d <= GameRules.PionWatchDistance + 0.5f) { bestDist = d; best = pion; }
+        }
+        best?.OfferPlaced(deviceId, pos);
+    }
+
+    // Le Pion arrive sur l'objet : il disparaît du sol (comme ramassé) et le Pion le porte.
+    public ItemType TakeDevice(Entity entity, int deviceId)
+    {
+        Beacon device = beacons.Get(deviceId);
+        if (device == null || CannonOccupied(deviceId) || !beaconMessages.Remove(deviceId)) return ItemType.None;
+        tvVideos.Remove(deviceId);
+        net.ToAll("BZ|" + deviceId);
+        return device.Item;
     }
 
     // Appareil posé (live : à l'instant, par un joueur ; sinon déjà là quand on arrive dans la partie).
@@ -63,7 +95,7 @@ public partial class GameSession
         if (live && placer.Length > 0)
         {
             b.PlayPlaced();
-            if (b.Kind == DeviceKind.Bell) RingBell(b);
+            if (Beacon.IsBellKind(b.Kind)) RingBell(b);
         }
         if (b.Kind == DeviceKind.Television && placer == net.MyId) myTvs.Add(b.Id);
     }
@@ -228,7 +260,7 @@ public partial class GameSession
 
     // ================= /give (hôte) =================
 
-    // "/give 1" : une Cuisse de poulet (ID du Terminal) ; "/give O4" : un Trampoline (autres objets). La Boussole s'active pour tous.
+    // "/give 1" : une Balise (ID du Terminal) ; "/give O4" : un Trampoline (autres objets). La Boussole s'active pour tous.
     public string Give(string arg)
     {
         if (!net.IsHost) return null;
@@ -285,7 +317,7 @@ public partial class GameSession
         }
     }
 
-    // /spawn 10 : près de l'hôte s'il est dans le labyrinthe (sinon au hasard dans la zone de son Hub).
+    // /spawn 9 : près de l'hôte s'il est dans le labyrinthe (sinon au hasard dans la zone de son Hub).
     string SpawnReveilNearHost(System.Random rnd)
     {
         Vector3 me = player.transform.position;

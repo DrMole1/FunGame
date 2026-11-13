@@ -7,9 +7,11 @@ using UnityEngine;
 // le Pion crie et court vers lui. Au contact : dégâts, recul, et vol d'un objet ramassable (le Canard), qu'il emporte
 // sur sa tête pour le déposer plus loin dans sa zone. Ramasser un objet volé déclenche son attaque sur-le-champ.
 // En état curieux, il lui arrive de sauter sur place (V0.4.6 ; animation locale, sans effet sur le jeu).
+// V0.6.14 : un Canard (coloré ou non) ou une Peluche posé au sol à 5 m ou moins d'un Pion curieux : il court le prendre et
+// part au loin avec, pour le déposer plus loin (GameSession.OfferToPions).
 public class Pion : Entity
 {
-    public enum State : byte { Idle = 0, Approach = 1, Curious = 2, Rush = 3, Flee = 4, Rest = 5 }
+    public enum State : byte { Idle = 0, Approach = 1, Curious = 2, Rush = 3, Flee = 4, Rest = 5, Fetch = 6 }
 
     const float Height = 1.15f;
     const float TouchDistance = 0.75f;
@@ -26,6 +28,24 @@ public class Pion : Entity
     float curiousTimer, stateTimer;
     Vector3 fleeGoal;
     bool stealPending;
+    // Objet posé qu'il va chercher (Fetch).
+    int fetchDevice = -1;
+    Vector3 fetchPos;
+    const float FetchReach = 0.7f, FetchTimeout = 6f;
+
+    // Hôte : un objet vient d'être posé près de lui. Il ne s'y intéresse qu'en état curieux, les mains (la tête) vides.
+    public bool OfferPlaced(int deviceId, Vector3 position)
+    {
+        if (Current != State.Curious || Carried != ItemType.None) return false;
+        if (Horizontal(position - transform.position).magnitude > GameRules.PionWatchDistance) return false;
+        fetchDevice = deviceId;
+        fetchPos = position;
+        Current = State.Fetch;
+        stateTimer = 0f;
+        ClearPath();
+        Pulse++; // cri : il s'élance
+        return true;
+    }
 
     // Affichage : jambes animées en code, objet volé sur la tête.
     Transform body, head, legL, legR, carriedVisual;
@@ -145,6 +165,21 @@ public class Pion : Entity
                     stealPending = true;
                     Host?.Steal(this, TargetId, OnStolen);
                 }
+                break;
+            }
+
+            case State.Fetch:
+            {
+                Speed = GameRules.BaseSpeed * GameRules.PionRushMultiplier;
+                MoveTowards(fetchPos, dt);
+                if (Horizontal(fetchPos - transform.position).magnitude <= FetchReach)
+                {
+                    ItemType taken = Host != null ? Host.TakeDevice(this, fetchDevice) : ItemType.None;
+                    fetchDevice = -1;
+                    if (taken != ItemType.None) OnStolen(taken);
+                    else Calm();
+                }
+                else if (stateTimer > FetchTimeout) { fetchDevice = -1; Calm(); }
                 break;
             }
 

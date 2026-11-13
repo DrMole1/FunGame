@@ -17,6 +17,7 @@ public class RemotePlayer : MonoBehaviour
     readonly NetSmoother smoother = new NetSmoother();
     bool hasTarget;
     CharacterAvatar avatar;
+    bool wasSitting;
     PlayerPresence presence;
     NameTag nameTag;
     CapsuleCollider body;
@@ -86,6 +87,13 @@ public class RemotePlayer : MonoBehaviour
     public void SetStatus(AnimState anim, int hp, int flags)
     {
         bool dead = (flags & NetworkGame.FlagDead) != 0;
+        // V0.6.13 : Protocole en main, bras tendu vers un glyphe, assis à l'arrivée (il se relève).
+        avatar.SetHolding((flags & NetworkGame.FlagProtocol) != 0 && !dead);
+        avatar.SetArmRaised((flags & NetworkGame.FlagGlyphArm) != 0 && !dead);
+        avatar.SetSeated((flags & NetworkGame.FlagSeated) != 0 && !dead);
+        bool sitting = (flags & NetworkGame.FlagSitting) != 0 && !dead;
+        if (sitting && !wasSitting) avatar.PlaySitUp();
+        wasSitting = sitting;
         if (hasTarget && !dead && hp < Hp) GameAudio.Play3D("hurt", transform.position, 0.5f, 15f, 0.1f);
         Hp = hp;
         InTerminal = (flags & NetworkGame.FlagTerminal) != 0;

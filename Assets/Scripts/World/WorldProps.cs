@@ -175,6 +175,13 @@ public class Eye : MonoBehaviour
         float cameraDistance = cam != null ? (cam.transform.position - transform.position).sqrMagnitude : 0f;
         if (cameraDistance > FollowRange * FollowRange) return;
 
+        // EE2 (chapitre 15.1, V0.6.14) : le premier œil que voit le joueur, s'il a tiré les 2 %, se change en caméra.
+        if (EasterEggs.EyeCameraArmed && cam != null && EasterEggs.Seen(cam, transform.position + transform.forward * (0.3f * transform.lossyScale.x), 25f))
+        {
+            EasterEggs.EyeCameraArmed = false;
+            StartCoroutine(EasterEggs.EyeToCamera(transform));
+        }
+
         PlayerPresence target = null;
         float best = WatchRange * WatchRange;
         foreach (var p in PlayerPresence.All)

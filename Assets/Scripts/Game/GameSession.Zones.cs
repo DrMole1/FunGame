@@ -83,6 +83,7 @@ public partial class GameSession
         // Le Hub N est au sud de la zone 2N - 1.
         if (index > 1 && index % 2 == 1) AddHubFixtures(WorldBuilder.BuildHub(worldRoot, (index + 1) / 2));
         if (itemsRound == round) SpawnZoneItems(zone);
+        RefreshGlyphPaws();
         // Glyphes chargés reçus pendant sa génération.
         foreach (var kv in new List<KeyValuePair<int, int>>(glyphSources))
             if (kv.Key / 100 == index) SetGlyphSource(kv.Key, kv.Value);
@@ -180,6 +181,7 @@ public partial class GameSession
     // Nouvelle partie : boîtiers, glyphes, Hubs et portes de chapiteau refermés ; la Zone 1 et la Zone 2 à générer.
     void ClearProgress()
     {
+        ResetSecret();
         brokenCases.Clear();
         activatedGlyphs.Clear();
         sealedZones = 0;
@@ -280,9 +282,25 @@ public partial class GameSession
             ApplyWorld();
             BroadcastState();
         }
+        PlaceHangingBells();
         if (phase != Phase.Running) return;
         CullEntities();
         PopulateZones();
+    }
+
+    // Hôte (V0.6.13) : les Cloches Décoratives suspendues des zones 2+, une fois par partie et par zone générée.
+    readonly HashSet<int> bellZones = new HashSet<int>();
+
+    void PlaceHangingBells()
+    {
+        if (worldLoading || phase == Phase.GameOver) return;
+        foreach (var z in zones)
+        {
+            if (z.index < 2 || z.index > Items.MaxBellZone || z.index <= sealedZones || !bellZones.Add(z.index)) continue;
+            var rnd = new System.Random(seed * 31 + z.index * 977);
+            foreach (var (pos, chain) in z.bellSpots)
+                PlaceDevice((DeviceKind)((int)DeviceKind.BellZone + z.index), pos, (float)rnd.NextDouble() * 360f, "", false, chain);
+        }
     }
 
     // ================= Fermeture des zones trop en arrière (chapitre 9.2, V0.6.5) =================
@@ -467,7 +485,7 @@ public partial class GameSession
                 for (int k = 0; k < GameRules.NormalsPerZone; k++) SpawnNormal(z.index, rnd);
             bool nightmares = first ? z.index == 1 && played >= GameRules.LateNightmareDelay : played >= GameRules.NightmareDelay;
             if (nightmares && nightmaresSpawned.Add(z.index))
-                for (int k = 0, n = first ? 1 : GameRules.NightmaresPerZone; k < n; k++) SpawnNightmare(z.index, rnd);
+                for (int k = 0, n = first ? 1 : GameRules.NightmaresPerZone; k < n; k++) SpawnNightmare(z.index, rnd, k);
         }
     }
 
@@ -540,6 +558,7 @@ public partial class GameSession
         if (glyphTimer > 0f) return;
         glyphTimer = 0.4f;
         CheckKennelOrder();
+        CheckGlyphHolds();
         foreach (var z in zones)
         {
             if (z.acquisitionGlyphs.Count == 0) continue;
@@ -613,11 +632,79 @@ public partial class GameSession
     }
 
     // Glyphe neutre actionné (une seule fois, boîtier brisé) : son entendu de tous les joueurs présents dans la zone.
+    // V0.6.13 : tant que le clic est maintenu sur le glyphe, le joueur y allume une icône (bras droit tendu vers l'avant).
+    Glyph glyphHeld;
+    PlayerInteractor interactor;
+
     public void TouchGlyph(Glyph g)
     {
-        if (!g.Neutral) return;
-        Gesture(PlayerGesture.Use);
-        net.ToHost("NG|" + g.Id);
+        if (!g.Neutral || glyphHeld == g) return;
+        ReleaseGlyph();
+        glyphHeld = g;
+        net.ToHost("NH|" + g.Id + "|1");
+    }
+
+    void ReleaseGlyph()
+    {
+        if (glyphHeld == null) return;
+        net.ToHost("NH|" + glyphHeld.Id + "|0");
+        glyphHeld = null;
+    }
+
+    // Le clic relâché, le glyphe plus visé (ou actionné), le personnage mort : l'icône s'éteint.
+    void UpdateGlyphHold()
+    {
+        if (glyphHeld == null) return;
+        if (interactor == null) interactor = player.GetComponent<PlayerInteractor>();
+        bool held = Input.GetMouseButton(0) || Controls.Held(GameAction.Interact);
+        if (!held || status.Dead || glyphHeld.Activated || interactor == null || interactor.Current != glyphHeld) ReleaseGlyph();
+    }
+
+    // Icônes de chaque glyphe neutre selon le nombre de joueurs en jeu.
+    void RefreshGlyphPaws()
+    {
+        int count = GameRules.GlyphPaws(Mathf.Max(1, net.Roster.Count));
+        foreach (var z in zones) foreach (var g in z.neutralGlyphs) g.SetPawCount(count);
+    }
+
+    // Hôte : joueurs qui maintiennent le clic sur chaque glyphe neutre.
+    readonly Dictionary<int, HashSet<string>> glyphHolders = new Dictionary<int, HashSet<string>>();
+
+    void SetGlyphHolder(int id, string who, bool on)
+    {
+        Glyph g = FindGlyph(id);
+        if (!glyphHolders.TryGetValue(id, out var set)) glyphHolders[id] = set = new HashSet<string>();
+        bool valid = g != null && g.Neutral && phase != Phase.GameOver && brokenCases.Contains(id) && !activatedGlyphs.Contains(id);
+        if (on && valid) set.Add(who); else set.Remove(who);
+        CheckGlyphHold(id);
+    }
+
+    // Hôte : toutes les icônes allumées en même temps, le glyphe est actionné.
+    void CheckGlyphHold(int id)
+    {
+        if (!glyphHolders.TryGetValue(id, out var set)) return;
+        set.RemoveWhere(p => !net.Roster.ContainsKey(p));
+        net.ToAll("NL|" + id + "|" + set.Count);
+        Glyph g = FindGlyph(id);
+        if (g == null || set.Count < GameRules.GlyphPaws(Mathf.Max(1, net.Roster.Count))) return;
+        glyphHolders.Remove(id);
+        ActivateNeutralGlyph(g);
+    }
+
+    void CheckGlyphHolds()
+    {
+        foreach (int id in new List<int>(glyphHolders.Keys)) if (glyphHolders[id].Count > 0) CheckGlyphHold(id);
+    }
+
+    // Hôte : glyphe neutre actionné (son pour toute la zone, porte de la Neutral Room si ses trois glyphes le sont).
+    void ActivateNeutralGlyph(Glyph g)
+    {
+        if (g == null || !g.Neutral || phase == Phase.GameOver || !brokenCases.Contains(g.Id) || !activatedGlyphs.Add(g.Id)) return;
+        net.ToAll("NP|" + g.Zone + "|" + g.Type);
+        int door = (g.Zone + 1) / 2;
+        if (DoorOpen(door)) Log("Les trois glyphes sont actionnés : la porte de la Zone {0} s'ouvre !", (door * 2).ToString());
+        UpdateDoors(true);
+        BroadcastState();
     }
 
     void ResetGlyphs()
@@ -630,6 +717,8 @@ public partial class GameSession
     void ClearGlyphState()
     {
         glyphSources.Clear();
+        glyphHolders.Clear();
+        glyphHeld = null;
         foreach (var beam in glyphBeams.Values) if (beam != null) Destroy(beam.gameObject);
         glyphBeams.Clear();
         for (int t = 0; t < orders.Length; t++) StopOrder(t);
@@ -854,15 +943,16 @@ public partial class GameSession
                 return true;
             }
             case "NG" when host && f.Length >= 2:
+                ActivateNeutralGlyph(FindGlyph(NetworkGame.I(f[1])));
+                return true;
+            // V0.6.13 : clic maintenu (1) ou relâché (0) sur un glyphe neutre ; NL : icônes allumées.
+            case "NH" when host && f.Length >= 3:
+                SetGlyphHolder(NetworkGame.I(f[1]), from, f[2] == "1");
+                return true;
+            case "NL" when f.Length >= 3:
             {
-                int id = NetworkGame.I(f[1]);
-                Glyph g = FindGlyph(id);
-                if (g == null || !g.Neutral || phase == Phase.GameOver || !brokenCases.Contains(id) || !activatedGlyphs.Add(id)) return true;
-                net.ToAll("NP|" + g.Zone + "|" + g.Type);
-                int door = (g.Zone + 1) / 2;
-                if (DoorOpen(door)) Log("Les trois glyphes sont actionnés : la porte de la Zone {0} s'ouvre !", (door * 2).ToString());
-                UpdateDoors(true);
-                BroadcastState();
+                Glyph g = FindGlyph(NetworkGame.I(f[1]));
+                if (g != null) g.SetPawsLit(NetworkGame.I(f[2]));
                 return true;
             }
             case "NP" when f.Length >= 3:

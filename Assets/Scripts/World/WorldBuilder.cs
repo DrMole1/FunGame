@@ -80,6 +80,9 @@ public static class WorldBuilder
         public readonly List<ArcadeMachine> arcades = new List<ArcadeMachine>();   // V0.6.1 : à partir de la Zone 3
         public readonly List<SuspendedBridge> bridges = new List<SuspendedBridge>();   // V0.6.6
         public readonly List<Toboggan> slides = new List<Toboggan>();   // V0.6.6
+        // V0.6.13 (chapitre 10.3) : Cloches Décoratives suspendues tout en haut des salles les plus hautes (zones 2+) :
+        // position de la base de la Cloche et longueur de la chaîne jusqu'au plafond.
+        public readonly List<(Vector3 pos, float chain)> bellSpots = new List<(Vector3, float)>();
         internal Maze maze;
 
         // Zone loin de la caméra : ni dessinée ni animée. Ses collisions restent, pour que les règles du jeu (lignes de vue des
@@ -199,9 +202,11 @@ public static class WorldBuilder
         // Mur circulaire à rayures, ouvert au nord pour la porte.
         const int segments = 32;
         float segLen = 2f * Mathf.PI * (HubRadius + 0.15f) / segments + 0.08f;
+        // V0.6.14 (15.3) : au Hub 1, le pan du mur derrière l'Écran des Logs (au sud) laisse place à la bouche du tunnel.
+        bool tunnel = index == 1;
         for (int i = 1; i < segments; i++)
         {
-            if (entrance && i == segments / 2) continue;
+            if ((entrance || tunnel) && i == segments / 2) continue;
             float angle = i * 360f / segments;
             var seg = GameArt.Prim(PrimitiveType.Cube, root, Polar(angle, HubRadius + 0.15f, HubWallHeight * 0.5f),
                 new Vector3(segLen, HubWallHeight, 0.3f), i % 2 == 0 ? redMat : creamMat, true);
@@ -216,6 +221,7 @@ public static class WorldBuilder
             float angle = i * 360f / segments;
             for (int k = 0; k < 2; k++)
             {
+                // La guirlande du bas fait tout le tour, devant la bouche du tunnel comme ailleurs (elle le masque).
                 if (k == 0 && (i == 0 || entrance && i == segments / 2)) continue;
                 AddGarland(garlands, angle, k == 0, segLen, gold);
             }
@@ -305,12 +311,14 @@ public static class WorldBuilder
         refs.skipAnchor.SetParent(root, false);
         refs.skipAnchor.localPosition = Polar(QuotaAngle, HubRadius - 0.5f, 1.45f);
         refs.skipAnchor.localRotation = FacingCenter(QuotaAngle);
-        refs.cashText = Screen(root, "Rendu de Cagnotte", CashAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
+        refs.cashText = Screen(root, "Rendu de Gamelle", CashAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
         // V0.6 : l'Écran des Logs (et le portrait caché derrière) n'existe que dans le Hub 1 ; au sud des autres Hubs, l'entrée.
         if (index == 1)
         {
             refs.logText = Screen(root, "Ecran de Logs", LogAngle, HubRadius - 0.9f, 2.6f, new Vector2(8f, 3.6f), 0.027f, TextAnchor.MiddleLeft);
             AddPavlov(refs.logText.transform.parent);
+            // V0.6.14 (15.3) : le tunnel de la Control Room, caché derrière l'Écran des Logs.
+            ControlWing.Build(root);
         }
         refs.timerText.color = new Color(1f, 0.35f, 0.3f);
         refs.roundBoardText = Screen(root, "Tableau de Manche", RoundBoardAngle, HubRadius - 0.45f, 2.7f, new Vector2(4.4f, 2.8f), 0.026f);
@@ -458,6 +466,8 @@ public static class WorldBuilder
         Vector3 textPos = anchor == TextAnchor.MiddleLeft ? new Vector3(-size.x * 0.5f + 0.15f, 0f, -0.01f) : new Vector3(0f, 0f, -0.01f);
         var tm = GameArt.CreateText(go, "Text", textPos, charSize, Color.white, anchor,
             anchor == TextAnchor.MiddleLeft ? TextAlignment.Left : TextAlignment.Center);
+        // V0.6.13 (FX6) : façon vieux moniteur.
+        go.gameObject.AddComponent<CrtScreen>().Init(tm, size, ScreenCorner);
         return tm;
     }
 
@@ -543,6 +553,8 @@ public static class WorldBuilder
         public readonly int zone, N;
         public readonly List<Rect> blocks = new List<Rect>();  // chapitre 10.3 : emprises (X, Z) des plateformes pleines et de leurs escaliers
         public readonly List<Star> stars = new List<Star>();   // chapitre 10.3 : emplacements prioritaires des bornes d'arcade
+        // V0.6.14 (15.3) : sommets des plateformes atteignables (dessus, orientation, plus petit côté), pour le cadavre de la Zone 3.
+        public readonly List<(Vector3 top, float yaw, float size)> perches = new List<(Vector3, float, float)>();
         // Liaisons entre salles : trémies (cellule, sens de l'escalier), ouvertures dans les murs (arête est ou nord d'une cellule).
         public readonly List<RoomLink> links = new List<RoomLink>();
         public readonly Dictionary<Vector2Int, int> shafts = new Dictionary<Vector2Int, int>();
@@ -1168,6 +1180,13 @@ public static class WorldBuilder
         refs.nav.AddZone(m.origin, m.N, Cell, (i, j) => !m.Reserved(i, j), (i, j) => m.Ceil(i, j));
         refs.nav.Prepare(colliders.transform, refs.door != null ? refs.door.Blocker : null);
         AddReflectionProbes(m, root);
+        // V0.6.14 (15.3) : le cadavre de Tête de Cloche et la Carte Magnétique 1, sur la plus haute plateforme de la Zone 3.
+        if (zone == GameRules.SecretCorpseZone && m.perches.Count > 0)
+        {
+            var best = m.perches[0];
+            foreach (var perch in m.perches) if (perch.top.y > best.top.y) best = perch;
+            SecretCorpse.Build(root, best.top, best.yaw, best.size);
+        }
     }
 
     static IEnumerator BuildGeometry(Maze m, Transform root, GameObject colliders, System.Random archRnd)
@@ -1435,6 +1454,14 @@ public static class WorldBuilder
                     Doorway(mb, new Vector3(x, 0f, z), true, h, ZoneDoorWidth, ZoneDoorHeight, tex); // porte de la Neutral Room
                 else if (!highIn && !m.hub && i == HubCol)
                     Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex); // porte du chapiteau suivant
+                else if (!lowIn && m.zone == 1 && i == HubCol)
+                {
+                    // V0.6.14 : passage du tunnel de la Control Room (surélevé : un muret en dessous).
+                    Doorway(mb, new Vector3(x, 0f, z), true, h, 3.05f, Mathf.Min(ControlWing.Elevation + 2.55f, h - 0.1f), tex);
+                    var sill = new Vector3(x, ControlWing.Elevation * 0.5f, z);
+                    mb.Box(sill, new Vector3(3.05f, ControlWing.Elevation, Wall), tex);
+                    AddCollider(sill, new Vector3(3.05f, ControlWing.Elevation, Wall));
+                }
                 else
                 {
                     mb.Box(new Vector3(x, h * 0.5f, z), new Vector3(WallRun, h, Wall), tex, 0b0011_0000);
@@ -2371,7 +2398,7 @@ public static class WorldBuilder
                     }
                     break;
                 case RoomStyle.Chaotic:
-                    AddPlatforms(props, room, minX, maxX, minZ, maxZ, rnd, spots);
+                    AddPlatforms(props, m, room, minX, maxX, minZ, maxZ, rnd, spots);
                     break;
                 case RoomStyle.Pit:
                     AddDepthDecor(props, m, room, rnd, spots);
@@ -2773,7 +2800,7 @@ public static class WorldBuilder
     }
 
     // Salle chaotique : plateformes en escalier, de travers, à atteindre en sautant. L'objet le plus haut est au sommet.
-    static void AddPlatforms(Transform parent, Room room, float minX, float maxX, float minZ, float maxZ, System.Random rnd, List<Vector3> spots)
+    static void AddPlatforms(Transform parent, Maze m, Room room, float minX, float maxX, float minZ, float maxZ, System.Random rnd, List<Vector3> spots)
     {
         Material mat = GameArt.CheckerWall;
         Material pillar = GameArt.Concrete;
@@ -2785,6 +2812,7 @@ public static class WorldBuilder
         }
         Vector3 p = new Vector3(Rand(rnd, minX, maxX), room.floor, Rand(rnd, minZ, maxZ));
         float top = room.floor;
+        float lastYaw = 0f, lastSize = 1.3f;
         // Note 01 du chapitre 10.3 : dans les très hautes salles, plus de petites plateformes volantes au-dessus de 5 m.
         float maxTop = room.ceil > TallRoom ? ThinPlatformLevel : room.ceil - 2.4f;
         for (int k = 0; k < count; k++)
@@ -2794,6 +2822,8 @@ public static class WorldBuilder
             var plat = GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(p.x, top - size.y * 0.5f, p.z), size, mat, true);
             plat.name = "Plateforme";
             plat.transform.localRotation = Quaternion.Euler(0f, Rand(rnd, -35f, 35f), 0f);
+            lastYaw = plat.transform.localEulerAngles.y;
+            lastSize = Mathf.Min(size.x, size.z);
             // Certaines reposent sur un pilier, les autres flottent.
             if (rnd.NextDouble() < 0.5)
             {
@@ -2813,6 +2843,7 @@ public static class WorldBuilder
         }
         // Objet à ramasser au sommet (accès difficile).
         spots.Add(new Vector3(p.x, top, p.z));
+        m.perches.Add((new Vector3(p.x, top, p.z), lastYaw, lastSize));
         // Quelques blocs renversés au sol.
         for (int k = 0; k < 2; k++)
         {
@@ -2883,6 +2914,7 @@ public static class WorldBuilder
         }
         yield return null;
         BuildHighFeatures(m, props, refs, rnd);
+        FindBellSpots(m, refs, new System.Random(m.zone * 7919 + m.rooms.Count));
     }
 
     // ================= Ponts suspendus et toboggans (chapitre 10.3, V0.6.6) =================
@@ -2897,6 +2929,44 @@ public static class WorldBuilder
         {
             int other = rnd.Next(k + 1);
             (list[k], list[other]) = (list[other], list[k]);
+        }
+    }
+
+    // V0.6.13 : dès la Zone 2, des Cloches Décoratives pendent tout en haut des salles dont les plafonds sont les plus hauts (2 en
+    // Zone 2, 3 en Zone 3, 4 ensuite). Chacune pend au-dessus de la plus haute plateforme de galerie de sa salle, assez bas pour
+    // qu'un joueur debout sur la plateforme la récupère (salles à galerie en priorité) ; à défaut, au milieu d'une salle haute,
+    // à portée de main depuis le sol.
+    const float BellAbovePlatform = 1.75f, BellMinChain = 0.3f;
+
+    static void FindBellSpots(Maze m, ZoneRefs refs, System.Random rnd)
+    {
+        int wanted = GameRules.HangingBellsInZone(m.zone);
+        if (wanted <= 0) return;
+        var rooms = m.rooms.FindAll(r => !r.plain && r.style != RoomStyle.Pit && r.statueHeight <= 0f);
+        // Les plus hautes d'abord ; à hauteur égale, ordre tiré au hasard (graine de la zone).
+        var order = new Dictionary<Room, double>();
+        foreach (Room r in rooms) order[r] = rnd.NextDouble();
+        // Les salles à galerie d'abord (on monte jusqu'à la Cloche par leurs plateformes), puis les autres.
+        rooms.Sort((a, b) => (a.corners.Count > 0) != (b.corners.Count > 0) ? (a.corners.Count > 0 ? -1 : 1)
+            : a.ceil != b.ceil ? b.ceil.CompareTo(a.ceil) : order[a].CompareTo(order[b]));
+        foreach (Room room in rooms)
+        {
+            if (refs.bellSpots.Count >= wanted) break;
+            Vector3 pos;
+            if (room.corners.Count > 0)
+            {
+                GalleryCorner top = room.corners[0];
+                foreach (GalleryCorner c in room.corners) if (c.level > top.level) top = c;
+                pos = top.point + (top.u + top.v).normalized * top.reach * 0.45f + Vector3.up * (top.level + BellAbovePlatform);
+            }
+            else
+            {
+                Rect area = InnerRect(m, room);
+                pos = new Vector3(area.center.x, room.floor + BellAbovePlatform + 0.6f, area.center.y);
+            }
+            float chain = room.ceil - CeilingDrop - (pos.y + GameRules.BellHeight);
+            if (chain < BellMinChain) continue;
+            refs.bellSpots.Add((pos, chain));
         }
     }
 
@@ -3148,6 +3218,7 @@ public static class WorldBuilder
             AddRoomStairs(mb, colliders, head, outward, steps, p.level);
             if (Railed(room, rnd)) AddStairRails(mb, props, head + Vector3.up * p.level, head + outward * (steps * StepDepth), StairWidth);
             built[n] = new BuiltPlatform { center = center, reach = Mathf.Max(halfX, halfZ), level = p.level };
+            m.perches.Add((new Vector3(center.x, p.level, center.z), 0f, Mathf.Min(halfX, halfZ) * 2f));
             if (star) m.stars.Add(new Star { pos = new Vector3(cx, p.level, cz), room = room });
         }
 
@@ -3790,6 +3861,9 @@ public static class WorldBuilder
                 AddShaft(mb, props, cb, -along);
             }
             AddTube(props, tube, from, to, link.level);
+            // V0.6.14 : tunnel (caméra à la première personne à l'intérieur).
+            Vector3 axis = Vector3.up * (link.level + TubeCenterHeight);
+            TunnelZones.Register(props, from + axis, to + axis, TubeDiameter * 0.5f + 0.2f);
             GameArt.MeshObject("Liaison", props, mb.Build("Liaison"), TubeMaterial);
         }
     }
@@ -4129,6 +4203,7 @@ public static class WorldBuilder
         {
             if (room.plain || room.ceil - room.floor <= GameRules.WindowRoomHeight) continue;
             MeshBuilder stone = new MeshBuilder(), dark = new MeshBuilder(), lit = new MeshBuilder();
+            var litHere = new List<(Vector3 wall, Vector3 along, Vector3 normal, float y)>();
             foreach (Vector2Int c in room.cells)
                 for (int d = 0; d < 4; d++)
                 {
@@ -4143,7 +4218,9 @@ public static class WorldBuilder
                         if (!solid && m.Ceil(ni, nj) > y) continue;
                         Bounds panel = Occupied(wall - along * (WindowWidth * 0.5f), wall + along * (WindowWidth * 0.5f) - toWall * WindowFrame, y, y + WindowHeight);
                         if (room.occupied.Exists(b => b.Intersects(panel))) continue;
-                        AddWindow(stone, rnd.NextDouble() < GameRules.LitWindowChance ? lit : dark, wall, along, -toWall, y);
+                        bool on = rnd.NextDouble() < GameRules.LitWindowChance;
+                        AddWindow(stone, on ? lit : dark, wall, along, -toWall, y);
+                        if (on) litHere.Add((wall, along, -toWall, y));
                     }
                 }
             if (stone.IsEmpty) continue;
@@ -4155,8 +4232,22 @@ public static class WorldBuilder
             GameArt.MeshObject("Fenetres_Pierre", parent, stone.Build("Fenetres"), GameArt.WindowStone);
             if (!dark.IsEmpty) GameArt.MeshObject("Fenetres_Vitres", parent, dark.Build("Vitres"), GameArt.WindowDark);
             if (!lit.IsEmpty) GameArt.MeshObject("Fenetres_Allumees", parent, lit.Build("Vitres"), GameArt.WindowLit);
+            litWindows.AddRange(litHere);
         }
+        // EE1 (chapitre 15.1, V0.6.14) : à partir de la Zone 3, une zone sur dix a, à l'une de ses fenêtres allumées, une
+        // silhouette noire qui s'efface dès qu'on la regarde. Tirage à part : il ne change rien au reste de la zone.
+        var ee = new System.Random(rnd.Next());
+        if (m.zone >= GameRules.SilhouetteMinZone && litWindows.Count > 0 && ee.NextDouble() < GameRules.SilhouetteChance)
+        {
+            var w = litWindows[ee.Next(litWindows.Count)];
+            float sill = WindowHeight * WindowSillRatio + WindowBar;
+            WindowSilhouette.Create(parent, w.wall + Vector3.up * (w.y + sill) + w.normal * (WindowPlate + 0.02f), w.along, w.normal,
+                WindowWidth * WindowMullion * 2f - WindowBar, WindowHeight - WindowInset - WindowBar - sill);
+        }
+        litWindows.Clear();
     }
+
+    static readonly List<(Vector3 wall, Vector3 along, Vector3 normal, float y)> litWindows = new List<(Vector3, Vector3, Vector3, float)>();
 
     static void AddWindow(MeshBuilder stone, MeshBuilder glass, Vector3 wall, Vector3 along, Vector3 normal, float y)
     {
