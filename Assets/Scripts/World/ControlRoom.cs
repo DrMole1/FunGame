@@ -1,10 +1,11 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Chapitre 15.3 (V0.6.14) : la Control Room. Dans le Hub de départ, caché derrière l'Écran des Logs, un tunnel circulaire,
+// Chapitre 15.3 (V0.6.14, V0.7) : la Control Room. Dans le Hub de départ, caché derrière l'Écran des Logs, un tunnel circulaire,
 // noir et obscur, s'enfonce vers le sud (hors du labyrinthe). La musique s'y efface progressivement et revient dans le Hub.
 // À 10 m de l'entrée, une porte métallique de laboratoire, qui ne s'ouvre qu'avec la Carte Magnétique 1 (l'objet est
-// consommé). Derrière : la Control Room, salle de 20 x 30 m, sans musique, murs, plafond et sol noirs, l'enseigne
+// consommé). Derrière : la Control Room, salle de 16 x 24 m (16 m de la sortie du tunnel au mur du fond), sans musique,
+// murs, plafond et sol noirs, l'enseigne
 // "Control Room" au mur (comme la Neutral Room et l'Acquisition Room).
 // Tout est construit dans le repère du Hub 1 (son centre à l'origine, le sud vers -Z).
 public static class ControlWing
@@ -88,6 +89,8 @@ public static class ControlWing
         foreach (float s in new[] { -1f, 1f })
             Box(new Vector3(s * (DoorWidth * 0.5f + side * 0.5f), TunnelTop * 0.5f, DoorZ), new Vector3(side, TunnelTop, PlateThickness));
         Box(new Vector3(0f, (DoorHeight + TunnelTop) * 0.5f, DoorZ), new Vector3(DoorWidth, TunnelTop - DoorHeight, PlateThickness));
+        // Note 06 (V0.7) : encadrement noir au creux de l'ouverture, dans le plan de la porte (milieu de la cloison).
+        DoorFrame.Inset(root, new Vector3(0f, 0f, DoorZ - PlateThickness * 0.5f), DoorWidth * 0.5f, DoorHeight, 0.1f, PlateThickness + 0.02f);
         // Au milieu de l'épaisseur de la cloison : ouverte, elle disparaît dedans.
         ControlDoor.Create(root, new Vector3(0f, DoorHeight * 0.5f, DoorZ - PlateThickness * 0.5f), new Vector3(DoorWidth, DoorHeight, DoorThickness));
 
@@ -124,7 +127,8 @@ public static class ControlWing
     static void Sign(Transform parent, Vector3 center)
     {
         var shape = Resources.Load<Mesh>("Art/Decor/EnseigneControlRoom");
-        Material neon = GameArt.Emissive("NeonBlanc", new Color(0.95f, 0.97f, 1f), new Color(0.55f, 0.56f, 0.6f));
+        // V0.7 : le modèle "Control Room" brille d'une lueur blanche (émission forte et halo lumineux sur le mur).
+        Material neon = GameArt.Emissive("NeonBlancVif", Color.white, new Color(1.6f, 1.6f, 1.7f));
         var holder = new GameObject("EnseigneControlRoom").transform;
         holder.SetParent(parent, false);
         holder.localPosition = center;
@@ -148,8 +152,8 @@ public static class ControlWing
         light.transform.localPosition = new Vector3(0f, 0f, -1.2f);
         light.type = LightType.Point;
         light.color = new Color(0.9f, 0.93f, 1f);
-        light.intensity = 1.1f;
-        light.range = 9f;
+        light.intensity = 2.4f;
+        light.range = 11f;
         light.shadows = LightShadows.None;
     }
 

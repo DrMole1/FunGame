@@ -313,7 +313,7 @@ public static class GameArt
         return textures[key] = t;
     }
 
-    // Bruit de valeur à plusieurs octaves (béton) + quelques fissures sombres.
+    // Bruit de valeur à plusieurs octaves (béton). V0.6.14 : plus de fissures (rainures grises) sur ces textures.
     public static Texture2D Noise(string name, int size, float baseValue, float amplitude, int seed)
     {
         string key = "noise" + name + size + seed;
@@ -334,18 +334,6 @@ public static class GameArt
                 float v = baseValue + (n - 0.47f) * amplitude * 2f;
                 px[y * size + x] = new Color(v, v, v);
             }
-        for (int c = 0; c < 6; c++)
-        {
-            float x = rnd.Next(size), y = rnd.Next(size), angle = (float)rnd.NextDouble() * Mathf.PI * 2f;
-            int len = rnd.Next(size / 4, size / 2);
-            for (int i = 0; i < len; i++)
-            {
-                angle += ((float)rnd.NextDouble() - 0.5f) * 0.6f;
-                x += Mathf.Cos(angle); y += Mathf.Sin(angle);
-                int ix = ((int)x % size + size) % size, iy = ((int)y % size + size) % size;
-                px[iy * size + ix] *= 0.55f;
-            }
-        }
         t.SetPixels(px);
         t.Apply(true, true);
         return textures[key] = t;
@@ -438,30 +426,14 @@ public static class GameArt
         return textures[key] = t;
     }
 
-    // Blanc de l'œil veiné (projection équirectangulaire de la sphère low-poly).
+    // Blanc de l'œil (projection équirectangulaire de la sphère low-poly). V0.6.14 : uni, sans veines grises.
     public static Texture2D EyeSclera()
     {
         if (textures.TryGetValue("sclera", out var t) && t != null) return t;
         const int w = 256, h = 128;
-        var rnd = new System.Random(5);
         t = new Texture2D(w, h, TextureFormat.RGB24, true) { wrapMode = TextureWrapMode.Clamp };
         var px = new Color[w * h];
         for (int i = 0; i < px.Length; i++) px[i] = new Color(0.86f, 0.85f, 0.82f);
-        for (int v = 0; v < 70; v++)
-        {
-            // Les veines partent de l'arrière de l'œil (u = 0,25) vers l'iris (u = 0,75).
-            float x = w * 0.25f + (float)rnd.NextDouble() * 30f - 15f, y = (float)rnd.NextDouble() * h;
-            float dir = (float)(rnd.NextDouble() - 0.5) * 0.8f;
-            int len = rnd.Next(40, 120);
-            float shade = 0.25f + (float)rnd.NextDouble() * 0.3f;
-            for (int i = 0; i < len; i++)
-            {
-                dir += (float)(rnd.NextDouble() - 0.5) * 0.5f;
-                x += Mathf.Cos(dir); y += Mathf.Sin(dir) * 0.6f;
-                int ix = ((int)x % w + w) % w, iy = Mathf.Clamp((int)y, 0, h - 1);
-                px[iy * w + ix] = Color.Lerp(px[iy * w + ix], new Color(shade, shade * 0.9f, shade * 0.9f), 0.7f);
-            }
-        }
         t.SetPixels(px);
         t.Apply(true, true);
         return textures["sclera"] = t;

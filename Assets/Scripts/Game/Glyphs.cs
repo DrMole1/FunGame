@@ -456,6 +456,8 @@ public class AcquisitionDoor : MonoBehaviour
         Material red = GameArt.Lit("HubRed", new Color(0.72f, 0.08f, 0.1f), GameArt.Canvas(), 0.85f);
         Material gold = GameArt.Lit("HubGold", new Color(0.85f, 0.65f, 0.2f), null, 0.6f);
         float leaf = width + SlabOverlap * 2f;
+        // Note 06 (V0.7) : encadrement noir au creux de l'ouverture, du côté du battant (qui est posé devant le mur).
+        DoorFrame.Inset(go.transform, Vector3.forward * (WorldBuilder.Wall * 0.5f - 0.1f), width * 0.5f, height, 0.18f, 0.2f);
         GameArt.Prim(PrimitiveType.Cube, door.slab, new Vector3(0f, (height + SlabOverlap) * 0.5f, 0f), new Vector3(leaf, height + SlabOverlap, 0.14f), red);
         GameArt.Prim(PrimitiveType.Cube, door.slab, new Vector3(0f, height + SlabOverlap - 0.08f, 0.08f), new Vector3(leaf, 0.12f, 0.03f), gold);
         GameArt.Prim(PrimitiveType.Cube, door.slab, new Vector3(0f, 0.08f, 0.08f), new Vector3(leaf, 0.12f, 0.03f), gold);

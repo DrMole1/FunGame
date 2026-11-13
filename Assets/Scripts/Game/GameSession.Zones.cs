@@ -507,19 +507,29 @@ public partial class GameSession
         if (!WorldBuilder.IsInHub(player.transform.position)) GameAudio.Play2D("round_spawn", 1f);
     }
 
-    // Entités au-delà des zones des joueurs et de leurs voisines : supprimées (elles reviendront si des joueurs approchent).
+    // V0.7 (chapitre 14) : entités au-delà des zones des joueurs et de leurs voisines mises en veille. Elles restent où elles
+    // sont, figées (plus de simulation) et ne sont plus envoyées sur le réseau (les autres joueurs les retirent) ; dès qu'un
+    // joueur s'approche de nouveau de leur zone, elles reprennent là où elles en étaient.
+    readonly HashSet<int> standbyEntities = new HashSet<int>();
+
     void CullEntities()
     {
-        foreach (var e in new List<Entity>(entities.Values))
+        foreach (var e in entities.Values)
         {
-            if (e == null || e.Zone <= 0 || e is TeteDeCloche || ZoneActive(e.Zone)) continue;
-            normalsSpawned.Remove(e.Zone);
-            nightmaresSpawned.Remove(e.Zone);
-            entities.Remove(e.Id);
-            watching.Remove(e.Id);
-            Destroy(e.gameObject);
+            if (e == null) continue;
+            bool active = e.Zone <= 0 || e is TeteDeCloche || ZoneActive(e.Zone);
+            if (active == !standbyEntities.Contains(e.Id)) continue;
+            if (active) standbyEntities.Remove(e.Id);
+            else
+            {
+                standbyEntities.Add(e.Id);
+                watching.Remove(e.Id);
+            }
+            e.gameObject.SetActive(active);
         }
     }
+
+    bool InStandby(Entity e) => standbyEntities.Contains(e.Id);
 
     // ================= Glyphes =================
 

@@ -759,7 +759,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Camera cam = Camera.main;
         bool inHub = cam == null || WorldBuilder.IsInHub(cam.transform.position);
         float k = 1f - Mathf.Exp(-4f * Time.deltaTime);
-        // Hors du Hub, selon la luminosité (base +50 %, réglage ±10 %).
+        // Hors du Hub, selon la luminosité (base +50 %, courbe lissée de très sombre à très lumineux).
+        Brightness.Tick(Time.unscaledDeltaTime);
         float bright = Brightness.Factor;
         RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, inHub ? HubAmbient : MazeAmbient * bright, k);
         RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog / bright, k);
@@ -972,6 +973,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         string time = (seconds / 60).ToString("00") + ":" + (seconds % 60).ToString("00");
         string quotaLine = Loc.F("Quota : {0} / {1}", progress, quota), cashLine = Loc.F("Gamelle : {0}", Items.Price(cash));
         string board = RoundBoardText();
+        // V0.7 : les gamelles physiques des Hubs se remplissent selon la gamelle commune.
+        HubBowl.Amount = cash;
         foreach (var h in hubs)
         {
             h.timerText.text = time;
@@ -1249,8 +1252,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         EndTeleport(false);
         channelPad = null;
         StopChannelSound();
-        // Les objets du Terminal sont détruits, sauf la Clé, qui tombe au lieu de la mort ; les autres (avec un modèle 3D)
-        // restent à terre près du corps.
+        // V0.7 : tout tombe à terre, sauf les Balises, Balises Améliorées, Téléporteurs, Stations Curatives, Canons, Chargeurs
+        // et Post-It, détruits (Items.LeftOnDeath) ; ce qui se pose est posé près du corps.
         var left = new List<ItemType>();
         var unique = new List<ItemType>();
         if (cause != null)
@@ -1750,6 +1753,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         foreach (var d in entities.Values) if (d != null) Destroy(d.gameObject);
         entities.Clear();
+        standbyEntities.Clear();
         watching.Clear();
         pendingSteals.Clear();
         lastEntityTime = double.NegativeInfinity;
@@ -1764,7 +1768,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         {
             entityBuffer.Clear();
             entityBuffer.AddRange(entities.Values);
-            foreach (var d in entityBuffer) if (d != null) d.Simulate(Time.deltaTime, PlayerPresence.All);
+            foreach (var d in entityBuffer) if (d != null && !InStandby(d)) d.Simulate(Time.deltaTime, PlayerPresence.All);
         }
         // Le Réveil a explosé : il quitte la partie (et disparaît chez les autres avec l'envoi suivant).
         entityBuffer.Clear();
@@ -1784,7 +1788,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         bool first = true;
         foreach (var d in entities.Values)
         {
-            if (d == null) continue;
+            // En veille : plus rien n'est envoyé (les autres joueurs la retirent jusqu'à son réveil).
+            if (d == null || InStandby(d)) continue;
             if (!first) sb.Append(';');
             first = false;
             Vector3 p = d.transform.position;
@@ -1797,7 +1802,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     void UpdateEntities()
     {
-        foreach (var d in entities.Values) if (d != null) d.Present(net.IsHost, Time.deltaTime);
+        foreach (var d in entities.Values) if (d != null && !InStandby(d)) d.Present(net.IsHost, Time.deltaTime);
     }
 
     // ---------- Demandes des entités (hôte) ----------
@@ -1929,6 +1934,23 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             }
         // Note 07 du chapitre 3.4 (V0.6.7) : en dessous de 15 PV, les pulsations cardiaques sont permanentes.
         if (!status.Dead && status.Hp < GameRules.LowHealthHeartbeat) dread = Mathf.Max(dread, GameRules.LowHealthDread);
+        // Chapitre 15.3 (V0.7) : un joueur proche qui regarde le cadavre pendant son spasme a des pulsations cardiaques
+        // et perd 20 points de sérénité (une fois par spasme).
+        var corpse = SecretCorpse.Current;
+        if (corpse != null && corpse.Twitching && !status.Dead && cam != null)
+        {
+            Vector3 c = corpse.Center;
+            float d = Vector3.Distance(cam.transform.position, c);
+            Vector3 vp = cam.WorldToViewportPoint(c);
+            bool sees = d <= GameRules.CorpseScareRange && vp.z > 0f && vp.x > 0.1f && vp.x < 0.9f && vp.y > 0.1f && vp.y < 0.9f
+                && !Physics.Linecast(cam.transform.position, c + Vector3.up * 0.3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+            if (sees)
+            {
+                dread = Mathf.Max(dread, 0.9f);
+                if (corpse.ConsumeScare() && !Godmode)
+                    status.SetSerenity(status.Serenity - GameRules.CorpseScareSerenity);
+            }
+        }
         OrbitCamera.Dread = dread;
         // V0.6.13 (FX5) : les couleurs se séparent à l'approche d'un Cauchemar (à moins de 15 m).
         float nearest = float.MaxValue;
@@ -1998,6 +2020,23 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // entre eux) voit sa caméra tourner vite vers X, sans pouvoir la contrôler, jusqu'à ce qu'elle pointe vers X (y compris
     // pendant l'ordre "Aboie !").
     const float AttentionBarkWindow = 0.6f, AttentionDoneAngle = 4f, AttentionMaxTime = 2.5f;
+
+    // Hôte : dernier aboiement de chaque joueur (double aboiement contre les Pions).
+    readonly Dictionary<string, float> hostLastBark = new Dictionary<string, float>();
+
+    // V0.7 (8.4) : double aboiement à 7 m ou moins d'un Pion curieux : 20 % de chance qu'il fuie (il redevient normal et ne
+    // peut plus être curieux pendant 1 minute).
+    void ScarePions(string barkerId)
+    {
+        PlayerPresence barker = null;
+        foreach (var p in PlayerPresence.All) if (p != null && p.PlayerId == barkerId) barker = p;
+        if (barker == null) return;
+        foreach (var e in entities.Values)
+            if (e is Pion pion && pion.Current == Pion.State.Curious
+                && Vector3.Distance(pion.transform.position, barker.Position) <= GameRules.PionScareRange
+                && Random.value < GameRules.PionScareChance)
+                pion.Scare();
+    }
     readonly Dictionary<string, float> lastBarkHeard = new Dictionary<string, float>();
     string attentionTo;
     float attentionSince;
@@ -2328,7 +2367,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // /tp (hôte) : téléporte le personnage à 3 mètres de l'ennemi le plus proche ("enemy"), de la porte entre la Zone 1 et la
     // Zone 2 ("door"), d'un joueur (son pseudo), dans la zone N ("/tp N", V0.6 : générée d'abord si besoin) ou dans le Hub N
-    // ("/tp hub N", V0.6.9 : le Hub 1 est le Hub de départ). Retourne le
+    // ("/tp hub N", V0.6.9 : le Hub 1 est le Hub de départ) ou près du cadavre de la Carte Magnétique 1 ("/tp s1"). Retourne le
     // message à afficher, ou null si la commande est invalide.
     // Le personnage est ensuite invincible pendant quelques secondes.
     public string Teleport(string target)
@@ -2383,6 +2422,25 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             Vector3 p = door.position + door.forward * 3f;
             player.Teleport(new Vector3(p.x, GroundBelow(p) + 0.95f, p.z), door.eulerAngles.y + 180f);
             return Loc.T("Téléporté devant la porte de la Zone 2.");
+        }
+        // Chapitre 15 (V0.7) : "/tp s1" près de la Tête de Cloche inanimée qui détient la Carte Magnétique 1 (Zone 3).
+        if (lower == "s1")
+        {
+            if (!PrepareZone(GameRules.SecretCorpseZone) || SecretCorpse.Current == null) return null;
+            // Sur la plateforme, à côté de sa main gauche (celle de la carte) ; sinon autour, au sol.
+            Transform corpse = SecretCorpse.Current.transform;
+            bool placed = false;
+            foreach (Vector3 side in new[] { -corpse.right, corpse.right, -corpse.forward, corpse.forward })
+            {
+                Vector3 spot = corpse.position + side * 1.1f;
+                if (!Physics.Raycast(spot + Vector3.up * 1.5f, Vector3.down, out RaycastHit hit, 2f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+                    || Mathf.Abs(hit.point.y - corpse.position.y) > 0.3f) continue;
+                player.Teleport(new Vector3(spot.x, hit.point.y + 0.95f, spot.z), Mathf.Atan2(-side.x, -side.z) * Mathf.Rad2Deg);
+                placed = true;
+                break;
+            }
+            if (!placed) TeleportNear(corpse.position);
+            return Loc.T("Téléporté près de la Tête de Cloche inanimée.");
         }
         foreach (var rp in net.Remotes.Values)
         {
@@ -2916,7 +2974,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case "TG" when f.Length >= 2:
                 if (f[1] == "1" && !status.Dead && phase != Phase.GameOver) terminal.Open();
                 else if (f[1] == "1") ReleaseTerminal();
-                else hud.Toast(Loc.T("Un autre joueur utilise déjà le Terminal"));
+                else hud.Toast(Loc.T("Un autre sujet utilise déjà le Terminal"));
                 break;
             case "TS" when f.Length >= 2:
                 terminalUser = f[1];
@@ -3176,6 +3234,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 foreach (var p in PlayerPresence.All)
                     if (p != null && p.PlayerId == from)
                         foreach (var e in entities.Values) if (e != null) e.HearBark(p);
+                // V0.7 (Pion, 8.4) : un double aboiement près d'un Pion curieux peut le faire fuir.
+                bool twiceHost = hostLastBark.TryGetValue(from, out float lastHostBark) && Time.time - lastHostBark <= AttentionBarkWindow;
+                hostLastBark[from] = Time.time;
+                if (twiceHost) ScarePions(from);
                 float pitch = Mathf.Clamp(NetworkGame.P(f[1]), 0.9f, 1.1f);
                 PeerNet.Broadcast("BA|" + from + "|" + NetworkGame.F(pitch));
                 // L'hôte l'entend aussi (son propre aboiement est déjà joué).

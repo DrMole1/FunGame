@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.6.14";
+    public const string Version = "V0.7";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -237,7 +237,10 @@ public static class GameRules
     public const float PionHabitat = 30f;
     public const float PionWatchDistance = 5f;
     public const float PionCuriousMin = 12f, PionCuriousMax = 15f;
-    public const float PionRushMultiplier = 1.4f;        // il "se met à courir" : vitesse de course d'un joueur
+    public const float PionRushMultiplier = 1.4f;
+    // V0.7 : un double aboiement à 7 m ou moins d'un Pion curieux a 20 % de chance de le faire fuir ; il ne peut plus être
+    // curieux pendant 1 minute.
+    public const float PionScareRange = 7f, PionScareChance = 0.2f, PionScareCooldown = 60f;        // il "se met à courir" : vitesse de course d'un joueur
     public const float PionKnockback = 6f;
 
     // ---------- La Cloche (entité ID 5, Normal) ----------
@@ -304,12 +307,16 @@ public static class GameRules
     public const float SilhouetteChance = 0.1f, SilhouetteFade = 1f;
     // EE2 : à chaque nouvelle partie, 2 % de chance que le premier œil vu par le joueur se change en caméra (1,5 s).
     public const float EyeCameraChance = 0.02f, EyeCameraDuration = 1.5f;
-    // 15.3 : le cadavre de Tête de Cloche (Carte Magnétique 1) est sur la plus haute plateforme de la Zone 3 ; une seconde après
-    // qu'on a pris la carte, sa tête s'agite et il crache des étincelles pendant 1 seconde.
+    // 15.3 (V0.7) : le cadavre de Tête de Cloche (Carte Magnétique 1) est sur le plus haut terrain de la Zone 3 atteignable
+    // par un escalier ; une seconde après qu'on a pris la carte, sa tête, ses bras et ses jambes s'agitent et il crache des
+    // étincelles pendant 1 seconde. Un joueur proche (CorpseScareRange) qui le regarde a des pulsations cardiaques et perd
+    // 20 points de sérénité.
     public const int SecretCorpseZone = 3;
-    public const float CorpseTwitchDelay = 1f, CorpseTwitchDuration = 1f;
-    // Tunnel derrière l'Écran des Logs du Hub 1 : porte métallique à 10 m de l'entrée, puis la Control Room (20 x 30 m).
-    public const float TunnelDoorDistance = 10f, ControlRoomWidth = 20f, ControlRoomLength = 30f, ControlRoomHeight = 6f;
+    public const float CorpseTwitchDelay = 1f, CorpseTwitchDuration = 1f, CorpseScareRange = 15f;
+    public const int CorpseScareSerenity = 20;
+    // Tunnel derrière l'Écran des Logs du Hub 1 : porte métallique à 10 m de l'entrée, puis la Control Room (V0.7 : 16 x 24 m,
+    // 16 m entre la sortie du tunnel et le mur opposé).
+    public const float TunnelDoorDistance = 10f, ControlRoomWidth = 24f, ControlRoomLength = 16f, ControlRoomHeight = 6f;
     // La musique s'efface sur ces premiers mètres du tunnel (et revient en rentrant dans le Hub).
     public const float TunnelMusicFade = 6f;
     public const float StatueFilledRoomChance = 0.5f, StatueDogHeadChance = 0.05f;
@@ -663,9 +670,14 @@ public static class Items
         return def != null && def.buyPrice <= 0 && (IsDuck(type) || type == ItemType.Os || type == ItemType.JetonWoof || IsTicket(type));
     }
 
-    // Laissés à terre à la mort : les objets ramassables, et la Clé (elle tombe au lieu de la mort ; le Pion ne la vole pas).
-    // V0.6.14 : la Carte Magnétique 1, unique, tombe aussi au sol (sans elle, la porte du tunnel ne s'ouvrirait plus).
-    public static bool LeftOnDeath(ItemType type) => DropsOnDeath(type) || type == ItemType.Cle || type == ItemType.CarteMagnetique1;
+    // V0.7 (Note 08 du chapitre 3.4) : à la mort, tout l'inventaire tombe à terre, sauf les objets détruits : Balises, Balises
+    // Améliorées, Téléporteur, Station Curative, Canon, Chargeur et Post-It. Les objets qui se posent (objets uniques,
+    // peluches, boules à facettes, canards, Protocole) sont posés près du corps ; les autres tombent au sol (LeftOnDeath).
+    public static bool DestroyedOnDeath(ItemType type) =>
+        type == ItemType.Balise || type == ItemType.BaliseAmelioree || type == ItemType.Teleporteur || type == ItemType.StationCurative
+        || type == ItemType.Canon || type == ItemType.Chargeur || type == ItemType.PostIt;
+
+    public static bool LeftOnDeath(ItemType type) => type != ItemType.None && Get(type) != null && !DestroyedOnDeath(type) && !IsPlaceable(type);
     public static bool IsSecret(ItemType type) => type == ItemType.CarteMagnetique1;
 
     public static ItemDef Get(ItemType type)

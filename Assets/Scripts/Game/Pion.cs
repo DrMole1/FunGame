@@ -33,6 +33,15 @@ public class Pion : Entity
     Vector3 fetchPos;
     const float FetchReach = 0.7f, FetchTimeout = 6f;
 
+    // V0.7 : un double aboiement l'a effrayé : il redevient normal et ne peut plus être curieux pendant 1 minute.
+    float calmUntil = -1f;
+
+    public void Scare()
+    {
+        Calm();
+        calmUntil = Time.time + GameRules.PionScareCooldown;
+    }
+
     // Hôte : un objet vient d'être posé près de lui. Il ne s'y intéresse qu'en état curieux, les mains (la tête) vides.
     public bool OfferPlaced(int deviceId, Vector3 position)
     {
@@ -110,7 +119,7 @@ public class Pion : Entity
                     float d = HorizontalDistance(p);
                     if (d < best) { best = d; intruder = p; }
                 }
-                if (intruder != null)
+                if (intruder != null && Time.time >= calmUntil)
                 {
                     TargetId = intruder.PlayerId;
                     Current = State.Approach;

@@ -331,7 +331,8 @@ public static class Loc
         R("Aucune manche n'est en cours.", "No round is in progress.", "No hay ninguna ronda en curso.", "Раунд сейчас не идёт."),
         R("Le quota n'a pas été atteint.", "The quota was not reached.", "No se alcanzó la cuota.", "Квота не выполнена."),
         R("En attente de l'hôte pour une nouvelle partie…", "Waiting for the host to start a new game…", "Esperando a que el anfitrión inicie una nueva partida…", "Ожидание новой игры от хоста…"),
-        R("Un autre joueur utilise déjà le Terminal", "Another player is already using the Terminal", "Otro jugador ya está usando el Terminal", "Терминалом уже пользуется другой игрок"),
+        R("Téléporté près de la Tête de Cloche inanimée.", "Teleported next to the lifeless Bell Head.", "Teletransportado junto a la Cabeza de Campana inerte.", "Телепортирован к безжизненной Колокологоловой."),
+        R("Un autre sujet utilise déjà le Terminal", "Another subject is already using the Terminal", "Otro sujeto ya está usando el Terminal", "Терминалом уже пользуется другой субъект"),
         R("{0} vous a réanimé !", "{0} revived you!", "¡{0} te ha reanimado!", "{0} оживил(а) вас!"),
         R("Ce boîtier ne peut pas être brisé.", "This case cannot be broken.", "Esta urna no se puede romper.", "Этот футляр нельзя разбить."),
         // Ordres des glyphes (V0.6), en haut de l'écran.

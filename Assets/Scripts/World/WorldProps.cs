@@ -336,6 +336,33 @@ public class FlickerLight : MonoBehaviour
     }
 }
 
+// Note 06 du chapitre 16 (V0.7) : les portes qu'on peut ouvrir ont un encadrement noir. Note temporaire 01 : il est sur le
+// même axe que la porte (dans son plan, au creux du passage), plus sur la face du mur. Cadre de 'band' de large, plaqué
+// contre les côtés et le haut de l'ouverture, 'depth' d'épaisseur : les bords de la porte disparaissent dedans.
+// Sans collision (il ne rétrécit pas le passage des personnages ni des entités).
+// Repère : 'parent' ; 'origin' : pied de l'ouverture, dans le plan de la porte, Z perpendiculaire au mur.
+public static class DoorFrame
+{
+    public static void Inset(Transform parent, Vector3 origin, float halfWidth, float height, float band, float depth)
+    {
+        Material black = GameArt.Lit("EncadrementPorte", new Color(0.015f, 0.015f, 0.015f), null, 0.15f);
+        var holder = new GameObject("EncadrementNoir").transform;
+        holder.SetParent(parent, false);
+        holder.localPosition = origin;
+        foreach (float s in new[] { -1f, 1f })
+            Part(holder, new Vector3(s * (halfWidth - band * 0.5f), height * 0.5f, 0f), new Vector3(band, height, depth), black);
+        Part(holder, new Vector3(0f, height - band * 0.5f, 0f), new Vector3(halfWidth * 2f - band * 2f, band, depth), black);
+    }
+
+    static void Part(Transform parent, Vector3 pos, Vector3 size, Material mat)
+    {
+        var go = GameArt.Prim(PrimitiveType.Cube, parent, pos, size, mat);
+        go.name = "Bande";
+        foreach (var c in go.GetComponentsInChildren<Collider>()) Object.Destroy(c);
+        go.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+    }
+}
+
 // Unique porte du Hub : coulisse vers le haut une fois le Bouton Rouge enclenché.
 public class HubDoor : MonoBehaviour
 {
@@ -431,6 +458,10 @@ public class ZoneDoor : MonoBehaviour
             GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height + 0.35f, 0f), new Vector3(width + 1f, 0.5f, Depth), steel);
             GameArt.Prim(PrimitiveType.Cube, door.frame.transform, new Vector3(0f, height * 0.5f, 0f), new Vector3(width, height, Depth * 0.6f), steel);
         }
+
+        // Note 06 (V0.7) : encadrement noir au creux de l'ouverture, dans le plan de la porte (au milieu du mur). Caché par la
+        // porte blindée fermée, il borde le passage une fois qu'elle s'est enfoncée dans le sol.
+        DoorFrame.Inset(go.transform, Vector3.zero, width * 0.5f, height, 0.18f, WorldBuilder.Wall * 0.6f);
 
         // Gyrophare orange au-dessus de la porte, allumé pendant l'ouverture.
         door.warning = new GameObject("Gyrophare").AddComponent<Light>();

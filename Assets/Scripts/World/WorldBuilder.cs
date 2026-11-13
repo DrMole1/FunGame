@@ -24,7 +24,12 @@ public static class WorldBuilder
     // Sommet du toit du chapiteau (cône de 6 m posé sur les murs), au-dessus du sol du Hub.
     public const float ChapiteauTop = HubWallHeight + 6f;
     const float DoorWidth = 2.4f, DoorHeight = 2.8f, SillTop = 0.015f, SillDepth = 0.05f;
-    const int ChunkSize = 5, WallChunkSize = 2;
+    // V0.6.14 : sols, plafonds et damier découpés comme les murs (10 m) : un morceau de 25 m était touché par 9 lampes en
+    // moyenne, au-delà des lampes calculées précisément par objet ; la lumière changeait d'un coup à chaque jointure.
+    // Les sondes de reflet restent par blocs de 25 m (chacune coûte 6 rendus).
+    const int ChunkSize = 2, WallChunkSize = 2, ProbeChunkSize = 5;
+    // Fondu entre deux sondes de reflet voisines (Unity : 1 m par défaut, transition trop nette sur le damier astiqué).
+    const float ProbeBlendDistance = 4f;
     // Jointures des murs : chaque pan s'engage de 1 cm sous son poteau (plus de fins traits là où les hauteurs diffèrent). Les deux
     // faces restent dans le même plan : un poteau en saillie, même de 1 mm, dessine une ligne pointillée le long du mur.
     const float JointOverlap = 0.01f;
@@ -227,6 +232,9 @@ public static class WorldBuilder
             }
         }
 
+        // V0.7 : rideaux rouges sur tringles derrière les Chenils, et gamelle de cirque sous le Rendu de Gamelle.
+        HubDecor.Build(root, gold, redMat);
+
         // Toit du chapiteau.
         var roof = new MeshBuilder();
         roof.InnerCone(new Vector3(0f, HubWallHeight, 0f), HubRadius + 0.6f, 6f, segments, 16f);
@@ -261,6 +269,8 @@ public static class WorldBuilder
         var door = BuildHubDoor(root, new Vector3(0f, DoorHeight * 0.5f, HubRadius + 0.15f), new Vector3(DoorWidth + 0.1f, DoorHeight, 0.12f));
         refs.door = door.AddComponent<HubDoor>();
         refs.door.Init(DoorHeight - 0.05f);
+        // Note 06 du chapitre 16 (V0.7) : encadrement noir dans le plan de la porte coulissante, au creux du passage.
+        DoorFrame.Inset(root, new Vector3(0f, 0f, HubRadius + 0.15f), DoorWidth * 0.5f, DoorHeight, 0.18f, 0.2f);
 
         // Hubs 2 et suivants : passage au sud, fermé par la porte du chapiteau (dans le mur de l'Acquisition Room).
         if (entrance)
@@ -553,7 +563,8 @@ public static class WorldBuilder
         public readonly int zone, N;
         public readonly List<Rect> blocks = new List<Rect>();  // chapitre 10.3 : emprises (X, Z) des plateformes pleines et de leurs escaliers
         public readonly List<Star> stars = new List<Star>();   // chapitre 10.3 : emplacements prioritaires des bornes d'arcade
-        // V0.6.14 (15.3) : sommets des plateformes atteignables (dessus, orientation, plus petit côté), pour le cadavre de la Zone 3.
+        // 15.3 (V0.7) : sommets des plateformes atteignables par un escalier (dessus, orientation, plus petit côté), pour le
+        // cadavre de la Zone 3. Les plateformes des salles chaotiques (à atteindre en sautant) n'en font pas partie.
         public readonly List<(Vector3 top, float yaw, float size)> perches = new List<(Vector3, float, float)>();
         // Liaisons entre salles : trémies (cellule, sens de l'escalier), ouvertures dans les murs (arête est ou nord d'une cellule).
         public readonly List<RoomLink> links = new List<RoomLink>();
@@ -1180,13 +1191,9 @@ public static class WorldBuilder
         refs.nav.AddZone(m.origin, m.N, Cell, (i, j) => !m.Reserved(i, j), (i, j) => m.Ceil(i, j));
         refs.nav.Prepare(colliders.transform, refs.door != null ? refs.door.Blocker : null);
         AddReflectionProbes(m, root);
-        // V0.6.14 (15.3) : le cadavre de Tête de Cloche et la Carte Magnétique 1, sur la plus haute plateforme de la Zone 3.
-        if (zone == GameRules.SecretCorpseZone && m.perches.Count > 0)
-        {
-            var best = m.perches[0];
-            foreach (var perch in m.perches) if (perch.top.y > best.top.y) best = perch;
-            SecretCorpse.Build(root, best.top, best.yaw, best.size);
-        }
+        // 15.3 (V0.7) : le cadavre de Tête de Cloche et la Carte Magnétique 1, sur le plus haut terrain de la Zone 3 atteignable
+        // par un escalier (plateforme d'architecture évolutive ou plancher de salle surélevée).
+        if (zone == GameRules.SecretCorpseZone) PlaceSecretCorpse(m, root);
     }
 
     static IEnumerator BuildGeometry(Maze m, Transform root, GameObject colliders, System.Random archRnd)
@@ -2194,21 +2201,21 @@ public static class WorldBuilder
     // le damier astiqué y reflète les murs, les lampes et les yeux.
     static void AddReflectionProbes(Maze m, Transform root)
     {
-        int chunks = (m.N + ChunkSize - 1) / ChunkSize;
+        int chunks = (m.N + ProbeChunkSize - 1) / ProbeChunkSize;
         for (int x = 0; x < chunks; x++)
             for (int y = 0; y < chunks; y++)
             {
                 float low = 0f, high = WallHeight;
-                for (int i = x * ChunkSize; i < Mathf.Min(m.N, x * ChunkSize + ChunkSize); i++)
-                    for (int j = y * ChunkSize; j < Mathf.Min(m.N, y * ChunkSize + ChunkSize); j++)
+                for (int i = x * ProbeChunkSize; i < Mathf.Min(m.N, x * ProbeChunkSize + ProbeChunkSize); i++)
+                    for (int j = y * ProbeChunkSize; j < Mathf.Min(m.N, y * ProbeChunkSize + ProbeChunkSize); j++)
                     {
                         Room r = m.RoomAt(i, j);
                         if (r != null && r.style == RoomStyle.Pit) low = Mathf.Min(low, -r.pitDepth);
                         high = Mathf.Max(high, m.Ceil(i, j));
                     }
                 high = Mathf.Min(high, 16f);
-                Vector3 min = m.Center(x * ChunkSize, y * ChunkSize) - new Vector3(Cell, 0f, Cell) * 0.5f + Vector3.up * low;
-                Vector3 max = m.Center(Mathf.Min(x * ChunkSize + ChunkSize - 1, m.N - 1), Mathf.Min(y * ChunkSize + ChunkSize - 1, m.N - 1))
+                Vector3 min = m.Center(x * ProbeChunkSize, y * ProbeChunkSize) - new Vector3(Cell, 0f, Cell) * 0.5f + Vector3.up * low;
+                Vector3 max = m.Center(Mathf.Min(x * ProbeChunkSize + ProbeChunkSize - 1, m.N - 1), Mathf.Min(y * ProbeChunkSize + ProbeChunkSize - 1, m.N - 1))
                     + new Vector3(Cell, 0f, Cell) * 0.5f + Vector3.up * high;
                 var probe = new GameObject("Reflets_Z" + m.zone + "_" + x + "_" + y).AddComponent<ReflectionProbe>();
                 probe.transform.SetParent(root, false);
@@ -2216,6 +2223,7 @@ public static class WorldBuilder
                 probe.size = max - min + Vector3.one * 0.2f;
                 probe.center = new Vector3(0f, (min.y + max.y) * 0.5f - 1.5f, 0f);
                 probe.boxProjection = true;
+                probe.blendDistance = ProbeBlendDistance;
                 probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Realtime;
                 probe.refreshMode = UnityEngine.Rendering.ReflectionProbeRefreshMode.ViaScripting;
                 probe.timeSlicingMode = UnityEngine.Rendering.ReflectionProbeTimeSlicingMode.NoTimeSlicing;
@@ -2799,6 +2807,37 @@ public static class WorldBuilder
         }
     }
 
+    // Plus haut terrain atteignable par un escalier : sommets des plateformes des architectures évolutives et planchers des
+    // salles surélevées (une cellule dégagée de tout décor). À égalité, la plateforme l'emporte.
+    static void PlaceSecretCorpse(Maze m, Transform root)
+    {
+        Physics.SyncTransforms();
+        bool found = false;
+        (Vector3 top, float yaw, float size) best = default;
+        foreach (var perch in m.perches)
+            if (!found || perch.top.y > best.top.y) { best = perch; found = true; }
+        foreach (Room room in m.rooms)
+        {
+            if (room.plain || room.style == RoomStyle.Template || room.style == RoomStyle.Chaotic || room.style == RoomStyle.Pit) continue;
+            if (room.floor <= 0.5f || found && room.floor <= best.top.y) continue;
+            foreach (Vector2Int c in room.cells)
+            {
+                if (m.Reserved(c.x, c.y)) continue;
+                Vector3 top = m.Center(c.x, c.y);
+                top.y = room.floor;
+                // Le corps (environ 2,5 x 1 m) doit tenir sans toucher un décor, un escalier ou une trémie.
+                if (Physics.CheckBox(top + Vector3.up * 1f, new Vector3(0.7f, 0.9f, 1.5f), Quaternion.identity, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                    continue;
+                if (!Physics.Raycast(top + Vector3.up * 0.5f, Vector3.down, 1f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                    continue;
+                best = (top, 0f, 2f);
+                found = true;
+                break;
+            }
+        }
+        if (found) SecretCorpse.Build(root, best.top, best.yaw, best.size);
+    }
+
     // Salle chaotique : plateformes en escalier, de travers, à atteindre en sautant. L'objet le plus haut est au sommet.
     static void AddPlatforms(Transform parent, Maze m, Room room, float minX, float maxX, float minZ, float maxZ, System.Random rnd, List<Vector3> spots)
     {
@@ -2843,7 +2882,6 @@ public static class WorldBuilder
         }
         // Objet à ramasser au sommet (accès difficile).
         spots.Add(new Vector3(p.x, top, p.z));
-        m.perches.Add((new Vector3(p.x, top, p.z), lastYaw, lastSize));
         // Quelques blocs renversés au sol.
         for (int k = 0; k < 2; k++)
         {

@@ -2,8 +2,9 @@ using UnityEngine;
 
 // Chapitre 15 (V0.6.14) : la Carte Magnétique 1 et la porte du tunnel de la Control Room. L'hôte tient l'état (carte prise,
 // porte ouverte), transmis avec l'état de la partie (G, 22e champ) pour ceux qui arrivent en cours de route.
-// Messages : SC (joueur -> hôte : prendre la carte) -> GV|S1 au joueur + SK (tous : la carte disparaît, le cadavre s'agite) ;
-// SD (joueur -> hôte : carte passée dans le lecteur) -> SO (tous : la porte s'ouvre). Rares : aucun coût réseau notable.
+// Messages (préfixes en X : SC et SK sont déjà pris par les statistiques de manche et le Bouton Skip) :
+// XC (joueur -> hôte : prendre la carte) -> GV|S1 au joueur + XK (tous : la carte disparaît, le cadavre s'agite) ;
+// XD (joueur -> hôte : carte passée dans le lecteur) -> XO (tous : la porte s'ouvre). Rares : aucun coût réseau notable.
 public partial class GameSession
 {
     public static bool SecretCardTaken { get; private set; }
@@ -22,7 +23,7 @@ public partial class GameSession
         }
         pendingPickups++;
         Gesture(PlayerGesture.PickUp);
-        net.ToHost("SC");
+        net.ToHost("XC");
     }
 
     // Le joueur local passe la carte dans le lecteur de la porte : elle est consommée.
@@ -33,36 +34,36 @@ public partial class GameSession
         status.RemoveAt(slot);
         Gesture(PlayerGesture.Use);
         GameAudio.Play2D("beep", 0.6f, 0f, 1.3f);
-        net.ToHost("SD");
+        net.ToHost("XD");
     }
 
     bool HandleSecretMessage(string from, string[] f, bool host)
     {
         switch (f[0])
         {
-            case "SC" when host:
+            case "XC" when host:
                 if (!SecretCardTaken)
                 {
                     SecretCardTaken = true;
                     net.ToPeer(from, "GV|" + (int)ItemType.CarteMagnetique1);
-                    net.ToAll("SK");
+                    net.ToAll("XK");
                     BroadcastState();
                 }
                 else net.ToPeer(from, "GV|0");
                 return true;
-            case "SK":
+            case "XK":
                 SecretCardTaken = true;
                 if (SecretCorpse.Current != null) SecretCorpse.Current.SetCardTaken(true, true);
                 return true;
-            case "SD" when host:
+            case "XD" when host:
                 if (!ControlRoomOpen)
                 {
                     ControlRoomOpen = true;
-                    net.ToAll("SO");
+                    net.ToAll("XO");
                     BroadcastState();
                 }
                 return true;
-            case "SO":
+            case "XO":
                 ControlRoomOpen = true;
                 if (ControlDoor.Current != null) ControlDoor.Current.SetOpen(true, true);
                 return true;

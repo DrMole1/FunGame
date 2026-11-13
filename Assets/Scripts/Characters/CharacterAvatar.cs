@@ -15,6 +15,7 @@ public class CharacterAvatar : MonoBehaviour
     const float JumpClipOffset = 0.45f;
     // Marche discrète à l'arrêt : posture baissée figée sur une image du clip où les deux pieds sont au sol.
     const float SneakIdlePose = 2.12f;
+    const float SneakAnimSpeed = 1.5f;
     const float DeathDuration = 1.1f;
     // Morts Meshy (Death0 à Death2) : début, fin (au sol) et vitesse de lecture, mesurés sur les clips
     // (électrocuté : convulsions puis chute ; étranglé : on saute le début de la lutte ; à la renverse).
@@ -83,7 +84,8 @@ public class CharacterAvatar : MonoBehaviour
         // Corps caché (téléportation) : rien à animer.
         if (!animator.gameObject.activeInHierarchy) return;
         // Le clip de saut suit la durée raccourcie du saut.
-        animator.speed = state == AnimState.Jump ? 1f / GameRules.JumpTimeScale : 1f;
+        // V0.6.14 : la marche accroupie est jouée 50 % plus vite (l'animation seulement, pas le déplacement).
+        animator.speed = state == AnimState.Jump ? 1f / GameRules.JumpTimeScale : state == AnimState.Sneak ? SneakAnimSpeed : 1f;
         float fade = BlendTime(previous, state);
         if (state == AnimState.Jump)
             animator.CrossFadeInFixedTime("Jump", fade, 0, JumpClipOffset);

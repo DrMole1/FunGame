@@ -962,6 +962,8 @@ public static class SoundBank
     }
 
     // Nappe grave du labyrinthe : basses qui battent, souffle, grincements métalliques lointains.
+    const float BassLevel = 0.5f;
+
     static float[] MazeDrone(System.Random rnd)
     {
         const float loop = 12f;
@@ -971,7 +973,8 @@ public static class SoundBank
         for (int i = 0; i < d.Length; i++)
         {
             float t = (float)i / Rate;
-            float s = Sine(41f * t) * 0.35f + Sine(43.5f * t) * 0.3f + Sine(61.5f * t) * 0.12f * (0.5f + 0.5f * Sine(t / 6f));
+            // V0.6.14 : basses qui battent (le va-et-vient grave) deux fois moins fortes ; souffle et grincements inchangés.
+            float s = (Sine(41f * t) * 0.35f + Sine(43.5f * t) * 0.3f + Sine(61.5f * t) * 0.12f * (0.5f + 0.5f * Sine(t / 6f))) * BassLevel;
             float gust = 0.5f + 0.5f * Sine(t / 4f + 0.2f);
             s += wind.Process(Noise(rnd), 350f + 250f * Sine(t / 12f), 0.3f) * 0.18f * gust;
             float impulse = 0f;
