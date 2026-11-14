@@ -130,13 +130,13 @@ public class ItemPickup : Interactable
             BuildKey(parent);
             return;
         }
-        // V0.6.14 : la Carte Magnétique 1, debout comme les autres objets à terre.
-        if (type == ItemType.CarteMagnetique1)
+        // V0.6.14 : la Carte Magnétique 1 (V0.7.4 : et la 2, au liseré bleu), debout comme les autres objets à terre.
+        if (type == ItemType.CarteMagnetique1 || type == ItemType.CarteMagnetique2)
         {
             var card = new GameObject("Carte").transform;
             card.SetParent(parent, false);
             card.localPosition = new Vector3(0f, 0.22f, 0f);
-            SecretCorpse.BuildCard(card, 0.32f);
+            SecretCorpse.BuildCard(card, 0.32f, type == ItemType.CarteMagnetique2);
             return;
         }
         Material body = GameArt.Lit("Item" + type, def.color, null, 0.8f);
@@ -476,7 +476,8 @@ public class Kennel : Interactable
     public Vector3 Eye => transform.TransformPoint(new Vector3(0f, 0.5f, 0.38f));
 
     public override bool CanInteract => TargetDead || Own;
-    public override string Prompt => Own ? Loc.T("Entrer dans votre Chenil") : Loc.F("Réanimer {0}", PlayerName);
+    // V0.7.4 (Note 03) : simplement "Réanimer" sur le Chenil d'un autre joueur mort.
+    public override string Prompt => Own ? Loc.T("Entrer dans votre Chenil") : Loc.T("Réanimer");
     public override void Interact()
     {
         if (Own) GameSession.Instance.EnterKennel(this);

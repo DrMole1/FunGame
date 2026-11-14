@@ -156,6 +156,66 @@ public static class NeonSignsSetup
         t.AddRange(nt);
     }
 
+    // V0.7.4 (chapitre 15.3) : "L.I.V." sur la porte du Bureau, généré par Meshy depuis une image des lettres (police Ruslan
+    // Display). Le modèle brut est couché : redressé (lisible depuis -Z, lecture vers +X), Meshy a soudé le haut des lettres
+    // par une plaque (coupée en y > LivCut, le haut des lettres aplani), hauteur ramenée à 1, centré.
+    // Résultat : Resources/Art/Decor/EnseigneLIV.asset (chargé par LivDoor).
+    const string LivSource = Stored + "TexteLIV.fbx";
+    const float LivCut = 0.127f;
+    static readonly Quaternion LivUpright = Quaternion.Euler(90f, 0f, 180f);
+
+    [MenuItem("FunGame/Préparer l'enseigne L.I.V.")]
+    public static void BuildLiv()
+    {
+        var model = AssetDatabase.LoadAssetAtPath<GameObject>(LivSource);
+        if (model == null) { Debug.LogError("Modèle introuvable : " + LivSource); return; }
+        var mf = model.GetComponentInChildren<MeshFilter>();
+        Mesh src = mf.sharedMesh;
+        float scale = mf.transform.lossyScale.x;
+        Vector3[] sv = src.vertices, sn = src.normals;
+        int[] st = src.triangles;
+        var p = new Vector3[sv.Length];
+        for (int i = 0; i < sv.Length; i++) p[i] = LivUpright * (sv[i] * scale);
+
+        var map = new Dictionary<int, int>();
+        var v = new List<Vector3>();
+        var n = new List<Vector3>();
+        var t = new List<int>();
+        for (int k = 0; k + 2 < st.Length; k += 3)
+        {
+            int a = st[k], b = st[k + 1], c = st[k + 2];
+            if (p[a].y > LivCut && p[b].y > LivCut && p[c].y > LivCut) continue;
+            // Restes de la face inférieure de la plaque (horizontaux, à cheval sur la coupe) : ils formeraient un filet entre
+            // les lettres une fois aplanis. Les flancs des lettres (verticaux) sont gardés et coupés net.
+            if (Mathf.Max(p[a].y, Mathf.Max(p[b].y, p[c].y)) > LivCut - 0.004f
+                && Mathf.Abs(Vector3.Cross(p[b] - p[a], p[c] - p[a]).normalized.y) > 0.5f) continue;
+            foreach (int i in new[] { a, b, c })
+            {
+                if (!map.TryGetValue(i, out int j))
+                {
+                    j = map[i] = v.Count;
+                    v.Add(new Vector3(p[i].x, Mathf.Min(p[i].y, LivCut), p[i].z));
+                    n.Add(sn != null && sn.Length == sv.Length ? LivUpright * sn[i] : Vector3.back);
+                }
+                t.Add(j);
+            }
+        }
+        float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
+        foreach (var q in v) { minX = Mathf.Min(minX, q.x); maxX = Mathf.Max(maxX, q.x); minY = Mathf.Min(minY, q.y); maxY = Mathf.Max(maxY, q.y); }
+        float cap = Mathf.Max(0.001f, maxY - minY), mid = (minX + maxX) * 0.5f;
+        for (int i = 0; i < v.Count; i++) v[i] = new Vector3(v[i].x - mid, v[i].y - minY, v[i].z) / cap;
+        Simplify(v, n, t, 0.025f);
+        var mesh = new Mesh { name = "EnseigneLIV" };
+        if (v.Count > 65000) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        mesh.SetVertices(v);
+        mesh.SetNormals(n);
+        mesh.SetTriangles(t, 0);
+        mesh.RecalculateBounds();
+        Save(mesh, "EnseigneLIV");
+        AssetDatabase.SaveAssets();
+        Debug.Log("Enseigne L.I.V. prête : " + v.Count + " sommets, " + t.Count / 3 + " triangles.");
+    }
+
     static Mesh Combine(Word first, Word second)
     {
         var a = Extract(first);

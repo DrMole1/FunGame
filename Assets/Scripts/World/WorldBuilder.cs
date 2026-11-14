@@ -242,7 +242,10 @@ public static class WorldBuilder
         // Toit du chapiteau.
         var roof = new MeshBuilder();
         roof.InnerCone(new Vector3(0f, HubWallHeight, 0f), HubRadius + 0.6f, 6f, segments, 16f);
-        GameArt.MeshObject("Roof", root, roof.Build("HubRoof"), GameArt.Lit("HubRoof", Color.white, GameArt.CanvasStripes(red, cream), 0.8f));
+        var roofObject = GameArt.MeshObject("Roof", root, roof.Build("HubRoof"), GameArt.Lit("HubRoof", Color.white, GameArt.CanvasStripes(red, cream), 0.8f));
+        // V0.7.4 (Note 01) : la toile arrête le personnage (Trampoline) et rapproche la caméra : on ne voit plus le labyrinthe
+        // par-dessus le toit.
+        roofObject.AddComponent<MeshCollider>().sharedMesh = roofObject.GetComponent<MeshFilter>().sharedMesh;
         var roofCol = new GameObject("RoofCollider").AddComponent<BoxCollider>();
         roofCol.transform.SetParent(root, false);
         roofCol.center = new Vector3(0f, HubWallHeight + 6.5f, 0f);
@@ -1747,7 +1750,7 @@ public static class WorldBuilder
         }
     }
 
-    // ---------- Câbles entre les glyphes neutres et la porte de la Neutral Room (V0.6.5) ----------
+    // ---------- Câbles entre les glyphes et leur porte : Neutral Room (V0.6.5), Acquisition Room (V0.7.4) ----------
 
     const float CableWidth = 0.05f, CableSpread = 0.14f, CableLift = 0.025f, CableStep = 1f, CableFrontOfDoor = 0.12f, CableProbeHeight = 3.2f;
     // Devant la porte, le câble s'enfonce peu à peu dans le sol en s'affinant, et y disparaît au pied du seuil : sa dernière longueur,
@@ -1864,8 +1867,8 @@ public static class WorldBuilder
         return renderer;
     }
 
-    // Zones paires : glyphes d'acquisition contre des murs pris au hasard (plus grands), et Acquisition Room avec la porte du
-    // chapiteau suivant, qui porte tous ces glyphes.
+    // Zones paires : glyphes d'acquisition contre des murs pris au hasard, et Acquisition Room avec la porte du chapiteau suivant,
+    // qui porte tous ces glyphes. V0.7.4 : de la taille des glyphes neutres, reliés à cette porte par un câble noir.
     static void BuildAcquisitionRoom(Maze m, Transform root, ZoneRefs refs, System.Random rnd)
     {
         var props = new GameObject("Glyphes").transform;
@@ -1886,7 +1889,10 @@ public static class WorldBuilder
                 cells.Add(new Vector2Int(i, j));
             }
         var placed = new List<Vector3>();
+        var spots = new List<(Vector2Int cell, Vector3 toWall)>();
         Vector3 entry = m.Center(m.start.x, m.start.y), arCenter = m.Center(HubCol, m.N - 2);
+        // V0.7.4 : un câble doit pouvoir rejoindre la porte depuis la cellule du glyphe.
+        var towardDoor = CableRoutes(m, new Vector2Int(HubCol, m.N - 1));
         // Zones 4 et plus (non précisé dans le GDD) : 50 m si possible, sinon de moins en moins.
         float[] spacings = m.zone == 2 ? new[] { 60f, GlyphMinSpacing } : new[] { 60f, GlyphMinSpacing, 30f, 15f };
         foreach (float spacing in spacings)
@@ -1894,21 +1900,29 @@ public static class WorldBuilder
             {
                 Vector2Int c = cells[rnd.Next(cells.Count)];
                 int dir = rnd.Next(4);
-                if (!HasWall(m, c.x, c.y, dir)) continue;
+                if (!HasWall(m, c.x, c.y, dir) || towardDoor[c.x, c.y] < 0) continue;
                 Vector3 center = m.Center(c.x, c.y);
                 if (Flat(center - entry) < 25f || Flat(center - arCenter) < 25f) continue;
                 if (placed.Exists(q => Flat(q - center) < spacing)) continue;
                 // Pas de glyphe devant l'accès d'une liaison.
                 if (InBlocks(m, center + new Vector3(DI[dir], 0f, DJ[dir]) * 2f, 0.5f)) continue;
                 Vector3 toWall = new Vector3(DI[dir], 0f, DJ[dir]);
-                Vector3 p = center + toWall * (Cell * 0.5f - Wall * 0.5f - 0.04f) + Vector3.up * 2.1f;
-                int k = placed.Count;
                 placed.Add(center);
-                refs.acquisitionGlyphs.Add(Glyph.Create(props, m.zone * 100 + k, types[k], false, m.zone, p, -toWall, Glyph.AcquisitionSize));
+                spots.Add((c, toWall));
+                m.keepClear.Add(c);
             }
 
         // Porte du chapiteau suivant, dans le mur nord de l'Acquisition Room (au milieu de la colonne du Hub).
         Vector3 edge = m.Center(HubCol, m.N - 1) + Vector3.forward * (Cell * 0.5f);
+        Physics.SyncTransforms();
+        for (int k = 0; k < spots.Count; k++)
+        {
+            var (cell, toWall) = spots[k];
+            Vector3 p = m.Center(cell.x, cell.y) + toWall * (Cell * 0.5f - Wall * 0.5f - 0.04f) + Vector3.up * AcquisitionGlyphHeight;
+            Glyph glyph = Glyph.Create(props, m.zone * 100 + k, types[k], false, m.zone, p, -toWall, Glyph.AcquisitionSize);
+            refs.acquisitionGlyphs.Add(glyph);
+            glyph.SetCable(BuildCable(m, props, refs.structure, cell, p, toWall, towardDoor, edge, (k - (spots.Count - 1) * 0.5f) * CableSpread));
+        }
         var glyphTypes = refs.acquisitionGlyphs.ConvertAll(g => g.Type);
         refs.acquisitionDoor = AcquisitionDoor.Create(root, edge, Quaternion.LookRotation(Vector3.back), DoorWidth, DoorHeight, glyphTypes);
         NeonSign(props, "EnseigneAcquisitionRoom", "Acquisition Room", edge + new Vector3(0f, 4.6f, -Wall * 0.5f), AcquisitionSignWidth);
@@ -1916,6 +1930,8 @@ public static class WorldBuilder
 
     // Distance minimale entre deux glyphes d'acquisition de la Zone 2 (V0.6.1).
     const float GlyphMinSpacing = 50f;
+    // Hauteur du centre d'un glyphe d'acquisition (V0.7.4 : place pour les icônes au-dessus et l'ordre écrit en dessous).
+    const float AcquisitionGlyphHeight = 1.9f;
 
     // ---------- Super Monticules (chapitre 10.2, V0.7.2) ----------
 

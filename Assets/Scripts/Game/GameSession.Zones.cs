@@ -5,9 +5,9 @@ using UnityEngine;
 // V0.6 : remaniement du terrain. Les zones se génèrent au fil de l'avancée des joueurs (la zone où ils se trouvent et les
 // zones voisines) ; un Hub toutes les deux zones ; glyphes neutres sous boîtier de verre (V0.6.5) et glyphes d'acquisition ;
 // Sanction (La Tête de Cloche) ; Chenil où l'on peut se réfugier.
-// Messages : GY|glyphe|balise (-1 : déchargé)                    hôte -> tous : glyphe d'acquisition chargé par cette Balise
-//            GX|type|glyphe|écoulé (glyphe -1 : fin)              hôte -> tous : ordre d'un glyphe en cours
-//            NG|glyphe -> NP|zone|type                            glyphe neutre actionné (entendu par les joueurs de la zone)
+// Messages : GX|type|glyphe|écoulé (glyphe -1 : fin)              hôte -> tous : ordre d'un glyphe d'acquisition en cours
+//            NH|glyphe|0/1 -> NL|glyphe|icônes                    clic maintenu sur un glyphe (neutre ou d'acquisition)
+//            NG|glyphe -> NP|zone|type                            glyphe actionné (entendu par les joueurs de la zone)
 //            SN                                                   joueur -> hôte : ordre non respecté, Sanction
 public partial class GameSession
 {
@@ -83,9 +83,6 @@ public partial class GameSession
         if (index > 1 && index % 2 == 1) AddHubFixtures(WorldBuilder.BuildHub(worldRoot, (index + 1) / 2));
         if (itemsRound == round) SpawnZoneItems(zone);
         RefreshGlyphPaws();
-        // Glyphes chargés reçus pendant sa génération.
-        foreach (var kv in new List<KeyValuePair<int, int>>(glyphSources))
-            if (kv.Key / 100 == index) SetGlyphSource(kv.Key, kv.Value);
     }
 
     // Partie quittée ou nouvelle graine : seuls restent le Hub 1 et ses équipements.
@@ -225,7 +222,15 @@ public partial class GameSession
     {
         foreach (var z in zones)
         {
-            foreach (var g in z.neutralGlyphs) g.SetNeutralState(brokenCases.Contains(g.Id), activatedGlyphs.Contains(g.Id), animate);
+            foreach (var g in z.neutralGlyphs) g.SetState(brokenCases.Contains(g.Id), activatedGlyphs.Contains(g.Id), animate);
+            // Glyphes d'acquisition actionnés (V0.7.4) : câble blanc, et leur glyphe allumé sur la porte du chapiteau.
+            for (int k = 0; k < z.acquisitionGlyphs.Count; k++)
+            {
+                Glyph g = z.acquisitionGlyphs[k];
+                bool on = activatedGlyphs.Contains(g.Id);
+                g.SetState(true, on, animate);
+                if (z.acquisitionDoor != null) z.acquisitionDoor.SetGlyphLit(k, on);
+            }
             foreach (var b in z.bridges) b.SetBroken(brokenBridges.Contains(b.Id), animate);
             if (z.door != null)
             {
@@ -530,15 +535,13 @@ public partial class GameSession
 
     // ================= Glyphes =================
 
-    // Hôte : Balise qui charge chaque glyphe d'acquisition. Tous : ordres en cours (début, glyphe qui les a déclenchés).
-    readonly Dictionary<int, int> glyphSources = new Dictionary<int, int>();
-    readonly Dictionary<int, LineRenderer> glyphBeams = new Dictionary<int, LineRenderer>();
+    // Tous : ordres en cours (début, glyphe d'acquisition qui les a déclenchés).
     class Order
     {
         public int glyph;
         public float start;          // Time.time chez ce joueur
         public bool sanctioned;      // joueur local déjà sanctionné pour cet ordre
-        public float sitBreach;      // "Assis !" : secondes d'affilée sans être immobile et accroupi
+        public bool sat;             // "Assis !" (V0.7.4) : le joueur local s'est assis avant le délai
         public bool voiceChecked;    // V0.6.9 : l'ordre sonore a déjà été répété, ou n'a pas à l'être
         public AudioSource sound;
     }
@@ -558,7 +561,7 @@ public partial class GameSession
 
     bool OrderActive(int type) => orders[type] != null && Time.time - orders[type].start < GameRules.GlyphDuration[type];
 
-    // Hôte : un glyphe d'acquisition est chargé par la Balise (ou Balise Améliorée) chargée la plus proche qui le voit.
+    // Hôte : icônes allumées sur les glyphes, et "A la niche !" qui s'arrête plus tôt.
     void UpdateHostGlyphs()
     {
         glyphTimer -= Time.unscaledDeltaTime;
@@ -566,37 +569,6 @@ public partial class GameSession
         glyphTimer = 0.4f;
         CheckKennelOrder();
         CheckGlyphHolds();
-        foreach (var z in zones)
-        {
-            if (z.acquisitionGlyphs.Count == 0) continue;
-            foreach (var g in z.acquisitionGlyphs)
-            {
-                int source = -1;
-                float best = float.MaxValue;
-                foreach (var b in beacons.Placed)
-                {
-                    if (b == null || !b.Relays || !b.Charged) continue;
-                    float d = (b.Top - g.Anchor).sqrMagnitude;
-                    if (d < best && beacons.InSight(b, BeaconNetwork.GlyphTarget(g.Id), g.Anchor)) { best = d; source = b.Id; }
-                }
-                glyphSources.TryGetValue(g.Id, out int before);
-                if (!glyphSources.ContainsKey(g.Id)) before = -1;
-                if (source == before) continue;
-                glyphSources[g.Id] = source;
-                net.ToAll("GY|" + g.Id + "|" + source);
-                if (source >= 0 && before < 0) OnGlyphCharged(g);
-                else if (source < 0) OnGlyphDischarged(g);
-            }
-            // Tous les glyphes de la zone chargés : la porte du chapiteau s'ouvre, pour de bon.
-            // (Plus bas : "A la niche !" s'arrête plus tôt si tous les joueurs sont dans leur niche.)
-            if (!openedAcquisitions.Contains(z.index) && z.acquisitionGlyphs.TrueForAll(g => glyphSources.TryGetValue(g.Id, out int s) && s >= 0))
-            {
-                openedAcquisitions.Add(z.index);
-                Log("Tous les glyphes de la Zone {0} sont chargés : la porte du chapiteau s'ouvre !", z.index.ToString());
-                UpdateDoors(true);
-                BroadcastState();
-            }
-        }
     }
 
     // Hôte (V0.6.1) : "A la niche !" s'arrête avant la fin des 30 secondes dès que tous les joueurs en vie sont dans leur
@@ -616,36 +588,27 @@ public partial class GameSession
         if (alive > 0) EndOrder(kennelOrder);
     }
 
-    // Hôte : son ordre s'impose à tous (un seul ordre en cours par type de glyphe), pendant une manche.
-    void OnGlyphCharged(Glyph g)
-    {
-        if (phase != Phase.Running || OrderActive(g.Type)) return;
-        net.ToAll("GX|" + g.Type + "|" + g.Id + "|0");
-    }
-
-    void OnGlyphDischarged(Glyph g)
-    {
-        if (orders[g.Type] != null && orders[g.Type].glyph == g.Id) EndOrder(g.Type);
-    }
-
-    // Hôte : son glyphe s'est déchargé avant la fin, l'ordre cesse chez tous.
+    // Hôte : l'ordre cesse chez tous avant la fin.
     void EndOrder(int type) => net.ToAll("GX|" + type + "|-1|0");
 
     void StopOrder(int type)
     {
         var order = orders[type];
         orders[type] = null;
-        if (order?.sound != null) GameAudio.ReleaseLoop(order.sound);
+        if (order == null) return;
+        if (order.sound != null) GameAudio.ReleaseLoop(order.sound);
+        // Le texte de l'ordre disparaît de sous son glyphe.
+        FindGlyph(order.glyph)?.SetOrderText(null);
     }
 
-    // Glyphe neutre actionné (une seule fois, boîtier brisé) : son entendu de tous les joueurs présents dans la zone.
-    // V0.6.13 : tant que le clic est maintenu sur le glyphe, le joueur y allume une icône (bras droit tendu vers l'avant).
+    // Glyphe actionné (une seule fois ; boîtier brisé pour un glyphe neutre) : tant que le clic est maintenu sur le glyphe, le
+    // joueur y allume une icône (bras droit tendu vers l'avant). V0.7.4 : les glyphes d'acquisition aussi, sans Clé.
     Glyph glyphHeld;
     PlayerInteractor interactor;
 
     public void TouchGlyph(Glyph g)
     {
-        if (!g.Neutral || glyphHeld == g) return;
+        if (g == null || glyphHeld == g) return;
         ReleaseGlyph();
         glyphHeld = g;
         net.ToHost("NH|" + g.Id + "|1");
@@ -667,21 +630,25 @@ public partial class GameSession
         if (!held || status.Dead || glyphHeld.Activated || interactor == null || interactor.Current != glyphHeld) ReleaseGlyph();
     }
 
-    // Icônes de chaque glyphe neutre selon le nombre de joueurs en jeu.
+    // Icônes de chaque glyphe (neutre ou d'acquisition) selon le nombre de joueurs en jeu.
     void RefreshGlyphPaws()
     {
         int count = GameRules.GlyphPaws(Mathf.Max(1, net.Roster.Count));
-        foreach (var z in zones) foreach (var g in z.neutralGlyphs) g.SetPawCount(count);
+        foreach (var z in zones)
+        {
+            foreach (var g in z.neutralGlyphs) g.SetPawCount(count);
+            foreach (var g in z.acquisitionGlyphs) g.SetPawCount(count);
+        }
     }
 
-    // Hôte : joueurs qui maintiennent le clic sur chaque glyphe neutre.
+    // Hôte : joueurs qui maintiennent le clic sur chaque glyphe.
     readonly Dictionary<int, HashSet<string>> glyphHolders = new Dictionary<int, HashSet<string>>();
 
     void SetGlyphHolder(int id, string who, bool on)
     {
         Glyph g = FindGlyph(id);
         if (!glyphHolders.TryGetValue(id, out var set)) glyphHolders[id] = set = new HashSet<string>();
-        bool valid = g != null && g.Neutral && phase != Phase.GameOver && brokenCases.Contains(id) && !activatedGlyphs.Contains(id);
+        bool valid = g != null && phase != Phase.GameOver && (!g.Neutral || brokenCases.Contains(id)) && !activatedGlyphs.Contains(id);
         if (on && valid) set.Add(who); else set.Remove(who);
         CheckGlyphHold(id);
     }
@@ -695,7 +662,7 @@ public partial class GameSession
         Glyph g = FindGlyph(id);
         if (g == null || set.Count < GameRules.GlyphPaws(Mathf.Max(1, net.Roster.Count))) return;
         glyphHolders.Remove(id);
-        ActivateNeutralGlyph(g);
+        ActivateGlyph(g);
     }
 
     void CheckGlyphHolds()
@@ -703,13 +670,31 @@ public partial class GameSession
         foreach (int id in new List<int>(glyphHolders.Keys)) if (glyphHolders[id].Count > 0) CheckGlyphHold(id);
     }
 
-    // Hôte : glyphe neutre actionné (son pour toute la zone, porte de la Neutral Room si ses trois glyphes le sont).
-    void ActivateNeutralGlyph(Glyph g)
+    // Hôte : glyphe actionné. Neutre : son pour toute la zone, porte de la Neutral Room si ses trois glyphes le sont.
+    // D'acquisition (V0.7.4) : son ordre s'impose à tous (son en boucle partout, ordre sonore, texte sous le glyphe) ; plusieurs
+    // peuvent l'être en même temps (un nouvel ordre d'un même type reprend du début). La porte du chapiteau s'ouvre, pour de bon,
+    // quand tous les glyphes d'acquisition de la zone le sont.
+    void ActivateGlyph(Glyph g)
     {
-        if (g == null || !g.Neutral || phase == Phase.GameOver || !brokenCases.Contains(g.Id) || !activatedGlyphs.Add(g.Id)) return;
-        net.ToAll("NP|" + g.Zone + "|" + g.Type);
-        int door = (g.Zone + 1) / 2;
-        if (DoorOpen(door)) Log("Les trois glyphes sont actionnés : la porte de la Zone {0} s'ouvre !", (door * 2).ToString());
+        if (g == null || phase == Phase.GameOver || (g.Neutral && !brokenCases.Contains(g.Id)) || !activatedGlyphs.Add(g.Id)) return;
+        if (g.Neutral)
+        {
+            net.ToAll("NP|" + g.Zone + "|" + g.Type);
+            int door = (g.Zone + 1) / 2;
+            if (DoorOpen(door)) Log("Les trois glyphes sont actionnés : la porte de la Zone {0} s'ouvre !", (door * 2).ToString());
+        }
+        else
+        {
+            // Le son du glyphe se joue alors en boucle chez tous les joueurs : celui de la zone n'est pas joué en plus.
+            if (phase == Phase.Running) net.ToAll("GX|" + g.Type + "|" + g.Id + "|0");
+            else net.ToAll("NP|" + g.Zone + "|" + g.Type);
+            var z = g.Zone >= 1 && g.Zone <= zones.Count ? zones[g.Zone - 1] : null;
+            if (z != null && !openedAcquisitions.Contains(z.index) && z.acquisitionGlyphs.TrueForAll(a => activatedGlyphs.Contains(a.Id)))
+            {
+                openedAcquisitions.Add(z.index);
+                Log("Tous les glyphes de la Zone {0} sont actionnés : la porte du chapiteau s'ouvre !", z.index.ToString());
+            }
+        }
         UpdateDoors(true);
         BroadcastState();
     }
@@ -723,51 +708,20 @@ public partial class GameSession
 
     void ClearGlyphState()
     {
-        glyphSources.Clear();
         glyphHolders.Clear();
         glyphHeld = null;
-        foreach (var beam in glyphBeams.Values) if (beam != null) Destroy(beam.gameObject);
-        glyphBeams.Clear();
         for (int t = 0; t < orders.Length; t++) StopOrder(t);
     }
 
     void SendGlyphSnapshot(string to)
     {
-        foreach (var kv in glyphSources) if (kv.Value >= 0) net.ToPeer(to, "GY|" + kv.Key + "|" + kv.Value);
         for (int t = 0; t < orders.Length; t++)
             if (OrderActive(t)) net.ToPeer(to, "GX|" + t + "|" + orders[t].glyph + "|" + NetworkGame.F(Time.time - orders[t].start));
     }
 
-    // Tous : lueur du glyphe, glyphe allumé sur la porte du chapiteau, rayon d'énergie vers la Balise.
-    void SetGlyphSource(int id, int source)
-    {
-        glyphSources[id] = source;
-        Glyph g = FindGlyph(id);
-        if (g == null) return;
-        g.SetCharged(source >= 0);
-        var zone = zones[g.Zone - 1];
-        if (zone.acquisitionDoor != null) zone.acquisitionDoor.SetGlyphLit(zone.acquisitionGlyphs.IndexOf(g), source >= 0);
-    }
-
-    // Joueur local : rayons des glyphes chargés, ordres affichés et respectés (sinon, la Sanction).
+    // Joueur local : ordres en cours respectés (sinon, la Sanction).
     void UpdateGlyphOrders()
     {
-        foreach (var kv in glyphSources)
-        {
-            Glyph g = kv.Value >= 0 ? FindGlyph(kv.Key) : null;
-            Beacon b = g != null ? beacons.Get(kv.Value) : null;
-            glyphBeams.TryGetValue(kv.Key, out var line);
-            if (b == null)
-            {
-                if (line != null && line.gameObject.activeSelf) line.gameObject.SetActive(false);
-                continue;
-            }
-            if (line == null) glyphBeams[kv.Key] = line = beacons.NewBeam();
-            if (!line.gameObject.activeSelf) line.gameObject.SetActive(true);
-            // L'énergie circule de la Balise vers le glyphe.
-            beacons.ShowBeam(line, b, b.Top, g.Anchor);
-        }
-
         for (int t = 0; t < orders.Length; t++)
         {
             var order = orders[t];
@@ -787,9 +741,10 @@ public partial class GameSession
             }
             if (t == 0)
             {
-                // V0.6.9 : la Sanction tombe après plus de 3 secondes d'affilée sans respecter l'ordre.
-                order.sitBreach = OrderFollowed(t, order) ? 0f : order.sitBreach + Time.deltaTime;
-                if (order.sitBreach > GameRules.GlyphSitGrace) CheckOrder(order, false);
+                // V0.7.4 : toujours pas assis au bout de 3,5 secondes, ou relevé avant la fin après s'être assis : la Sanction.
+                bool seated = InKennel || PlayerController.SeatedOnFloor;
+                if (seated && elapsed < GameRules.GlyphSitDelay) order.sat = true;
+                if (!seated && (order.sat || elapsed >= GameRules.GlyphSitDelay)) CheckOrder(order, false);
             }
             else if (t == 2)
                 CheckOrder(order, InKennel || Time.time - Mathf.Max(lastBarkAt, order.start) <= GameRules.GlyphBarkGap);
@@ -800,12 +755,13 @@ public partial class GameSession
     bool OrderFollowed(int type, Order order)
     {
         if (InKennel) return true;
-        return type == 0 ? player.Crouched && presence.Still : type == 2 && lastBarkAt >= order.start;
+        return type == 0 ? PlayerController.SeatedOnFloor || player.Crouched && presence.Still : type == 2 && lastBarkAt >= order.start;
     }
 
     void CheckOrder(Order order, bool obeyed)
     {
-        if (obeyed || order.sanctioned || status.Dead || phase != Phase.Running || !net.InGame) return;
+        // En téléportation, le joueur ne peut ni s'asseoir ni aboyer : il n'est pas sanctionné.
+        if (obeyed || order.sanctioned || status.Dead || Teleporting || phase != Phase.Running || !net.InGame) return;
         order.sanctioned = true;
         net.ToHost("SN");
     }
@@ -931,9 +887,6 @@ public partial class GameSession
     {
         switch (f[0])
         {
-            case "GY" when f.Length >= 3:
-                SetGlyphSource(NetworkGame.I(f[1]), NetworkGame.I(f[2]));
-                return true;
             case "GX" when f.Length >= 4:
             {
                 int type = NetworkGame.I(f[1]), glyph = NetworkGame.I(f[2]);
@@ -947,12 +900,14 @@ public partial class GameSession
                 if (NetworkGame.P(f[3]) <= 0f) PlayOrderVoice(type);
                 else order.voiceChecked = true;
                 orders[type] = order;
+                // V0.7.4 : l'ordre est écrit sous son glyphe, dans la langue du joueur, jusqu'à la fin de sa durée.
+                FindGlyph(glyph)?.SetOrderText(Loc.T(Glyph.OrderTexts[type]));
                 return true;
             }
             case "NG" when host && f.Length >= 2:
-                ActivateNeutralGlyph(FindGlyph(NetworkGame.I(f[1])));
+                ActivateGlyph(FindGlyph(NetworkGame.I(f[1])));
                 return true;
-            // V0.6.13 : clic maintenu (1) ou relâché (0) sur un glyphe neutre ; NL : icônes allumées.
+            // V0.6.13 : clic maintenu (1) ou relâché (0) sur un glyphe (V0.7.4 : neutre ou d'acquisition) ; NL : icônes allumées.
             case "NH" when host && f.Length >= 3:
                 SetGlyphHolder(NetworkGame.I(f[1]), from, f[2] == "1");
                 return true;

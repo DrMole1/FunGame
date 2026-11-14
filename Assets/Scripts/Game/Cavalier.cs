@@ -9,7 +9,7 @@ using UnityEngine;
 // à la fois), les yeux rouges luisant dans l'obscurité. Tant que le joueur traqué le regarde (caméra, sans mur entre eux ;
 // à moins de 3 m, son personnage doit en plus lui faire face), il ne bouge plus (il ne se tourne même pas vers lui) et son
 // animation se fige net (V0.4.10 : aucune animation ne continue quand on le regarde) ; dès
-// qu'il ne le regarde plus ou se cache derrière un mur, il court vers lui (3,5 fois la marche d'un joueur), et se fige à
+// qu'il ne le regarde plus ou se cache derrière un mur, il court vers lui (3,2 fois la marche d'un joueur), et se fige à
 // nouveau, avec un cri de terreur, dès que le joueur le regarde (V0.4.9 : le cri n'est plus poussé quand il s'élance). À moins de 0,8 m (même immobile), il immobilise le
 // joueur et le frappe de sa masse, puis repart en recherche. Un compteur de distance (remis à 0 au début de la chasse)
 // compte les mètres parcourus : à 50 m, ou si le joueur rentre dans le Hub, il abandonne et ne peut plus traquer ce

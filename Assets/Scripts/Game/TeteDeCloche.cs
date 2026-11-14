@@ -4,7 +4,7 @@ using UnityEngine;
 // La Tête de Cloche (entité ID 11, type Sanction, V0.6) : grande entité bipède (taille de La Dame), une cloche de bronze à
 // la place de la tête, armée d'un marteau gravé "WOOF". Elle n'apparaît qu'en cas de Sanction (ordre d'un glyphe non
 // respecté), à 30 m du joueur sanctionné, et ne poursuit que lui : à sa vitesse les 7 premières secondes, puis elle
-// accélère chaque seconde jusqu'à 2x au bout de 20 secondes. À moins de 0,8 m, elle l'immobilise et le tue. Elle s'éloigne
+// accélère chaque seconde jusqu'à 2,5x au bout de 20 secondes. À moins de 1,2 m, elle l'immobilise et le tue. Elle s'éloigne
 // ensuite lentement du cadavre, sans attaquer personne, et disparaît d'un coup à 20 m de lui. Si le joueur se
 // réfugie dans sa niche, elle renonce et s'éloigne de même.
 // Toutes les 3 secondes (0,5 seconde à moins de 5 m de sa proie), elle frappe sa tête de son marteau : le son de cloche

@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.3";
+    public const string Version = "V0.7.4";
 
     public const int MaxPlayers = 8;
     public const int MaxHp = 100;
@@ -207,7 +207,7 @@ public static class GameRules
 
     public const int CavalierDamage = 100;
     public const float CavalierWalkMultiplier = 1.2f;       // "modérément rapide" : moins vite que la course (x1,4)
-    public const float CavalierRunMultiplier = 3.5f;        // quand le joueur traqué ne le regarde pas (V0.4.8, avant : 2,2)
+    public const float CavalierRunMultiplier = 3.2f;        // quand le joueur traqué ne le regarde pas (V0.7.4, avant : 3,5)
     public const float CavalierSightRange = 20f;
     public const float CavalierSenseRadius = 6f;            // même dans son dos
     public const float CavalierGallopRange = 30f;
@@ -239,7 +239,7 @@ public static class GameRules
     public const float PionRushMultiplier = 1.4f;
     // V0.7 : un double aboiement à 7 m ou moins d'un Pion curieux a 20 % de chance de le faire fuir ; il ne peut plus être
     // curieux pendant 1 minute.
-    public const float PionScareRange = 7f, PionScareChance = 0.2f, PionScareCooldown = 60f;        // il "se met à courir" : vitesse de course d'un joueur
+    public const float PionScareRange = 7f, PionScareChance = 0.4f, PionScareCooldown = 60f;        // il "se met à courir" : vitesse de course d'un joueur
     public const float PionKnockback = 6f;
 
     // ---------- La Cloche (entité ID 5, Normal) ----------
@@ -260,8 +260,8 @@ public static class GameRules
 
     public const int TeteDamage = 100;
     public const float TeteSpawnDistance = 30f;            // elle apparaît à 30 m du joueur sanctionné
-    public const float TeteSteadyTime = 7f, TeteFullSpeedTime = 20f, TeteMaxMultiplier = 2f;
-    public const float TeteKillDistance = 0.8f;
+    public const float TeteSteadyTime = 7f, TeteFullSpeedTime = 20f, TeteMaxMultiplier = 2.5f;          // V0.7.4 (avant : 2)
+    public const float TeteKillDistance = 1.2f;             // V0.7.4 (avant : 0,8)
     public const float TeteLeaveDistance = 20f;            // elle disparaît à 20 m du cadavre
     public const float TeteLeaveMultiplier = 0.4f;         // "en se déplaçant lentement"
     public const float TeteRingSlow = 3f, TeteRingFast = 0.5f, TeteRingNear = 5f;
@@ -338,8 +338,8 @@ public static class GameRules
     // Ordre annoncé à voix haute : un peu plus lent et un peu plus fort que l'enregistrement.
     public const float GlyphVoiceSpeed = 0.92f;
     public const float GlyphVoiceVolume = 1.25f;
-    public const float GlyphSitGrace = 3f;       // "Assis !" : au plus 3 secondes de suite sans être immobile et accroupi (V0.6.9)
-    public const float GlyphBarkGap = 3f;        // "Aboie !" : au plus 3 secondes sans aboyer (V0.6.9)
+    public const float GlyphSitDelay = 3.5f;     // "Assis !" : assis au bout de 3,5 secondes, et jusqu'à la fin (V0.7.4)
+    public const float GlyphBarkGap = 3.5f;      // "Aboie !" : au plus 3,5 secondes consécutives sans aboyer (V0.7.4, avant : 3)
     public const float GlyphVoiceRepeatDelay = 1.4f;   // V0.6.9 : action non effectuée au bout de 1,4 seconde : l'ordre sonore est répété pour ce joueur
     // Glyphes d'acquisition d'une zone paire : 3 dans la Zone 2 (un de chaque), puis 2 + nZone / 2, 6 au plus (V0.6.5).
     public const int MaxAcquisitionGlyphs = 6;
@@ -386,6 +386,7 @@ public static class GameRules
     // Téléporteur Inversé (7.9, V0.6.10) : 5 fois plus grand qu'un Téléporteur ; 120 secondes de recharge après un voyage.
     public const float ReverseTeleporterScale = 5f, ReverseTeleporterCooldown = 120f;
     public const float TeleportSpeed = 70f;   // boule d'énergie le long des liens
+    public const float TeleportSkipDelay = 5f; // V0.7.4 : "[sauter] Passer" après 5 secondes de voyage
     public const float StationHealPerSecond = 10f;
 
     // ---------- Télévision, Trampoline, Cloche Décorative (7.6 à 7.8 ; V0.7.2 : trouvés dans les Super Monticules) ----------
@@ -422,6 +423,8 @@ public enum ItemType
     Protocole = 29,
     // V0.6.14 (15.4, S1) : Carte Magnétique 1, dans la main du cadavre de Tête de Cloche (Zone 3) ; ouvre la porte du tunnel.
     CarteMagnetique1 = 30,
+    // V0.7.4 (15.4, S2) : Carte Magnétique 2 ; ouvre la porte entre la Control Room et le Vestiaire (pour l'instant : /give S2).
+    CarteMagnetique2 = 31,
     // V0.6.3 (O7) : Canard en Plastique Coloré. Le type réel est CanardColore + nZone / 2 (101 : Zone 2, 102 : Zone 4...),
     // ce qui lui donne sa couleur et sa valeur sans rien transmettre de plus sur le réseau.
     CanardColore = 100,
@@ -526,6 +529,7 @@ public static class Items
         new ItemDef { type = ItemType.Protocole, otherId = "O12", name = "Protocole", shortName = "Protocole", buyPrice = 0, sellPrice = 1, color = new Color(0.86f, 0.8f, 0.64f) },
         // V0.6.14 (15.4) : objets secrets (S1...), obtenables aussi par /give. Ils ne se vendent pas.
         new ItemDef { type = ItemType.CarteMagnetique1, otherId = "S1", name = "Carte Magnétique 1", shortName = "Carte 1", buyPrice = 0, sellPrice = 0, color = new Color(0.85f, 0.88f, 0.9f) },
+        new ItemDef { type = ItemType.CarteMagnetique2, otherId = "S2", name = "Carte Magnétique 2", shortName = "Carte 2", buyPrice = 0, sellPrice = 0, color = new Color(0.75f, 0.82f, 0.95f) },
     };
 
     // Note 06 du chapitre 7 : une peluche vaut une part du quota de la manche en cours au moment où elle est vendue :
@@ -578,7 +582,8 @@ public static class Items
             case ItemType.PelucheSinge: return "PelucheSinge";
             case ItemType.PelucheChat: return "PelucheChat";
             case ItemType.Cle: return "Cle";   // pas de modèle importé : construite à la volée (ItemPickup.BuildKey)
-            case ItemType.CarteMagnetique1: return "CarteMagnetique";   // construite à la volée (SecretCorpse.BuildCard)
+            case ItemType.CarteMagnetique1:
+            case ItemType.CarteMagnetique2: return "CarteMagnetique";   // construite à la volée (SecretCorpse.BuildCard)
             case ItemType.Television: return "Television";
             case ItemType.Trampoline: return "Trampoline";
             default:
@@ -633,7 +638,7 @@ public static class Items
     public static bool Stealable(ItemType type) => type == ItemType.Os || IsDuck(type);
 
     public static bool LeftOnDeath(ItemType type) => type != ItemType.None && Get(type) != null && !DestroyedOnDeath(type) && !IsPlaceable(type);
-    public static bool IsSecret(ItemType type) => type == ItemType.CarteMagnetique1;
+    public static bool IsSecret(ItemType type) => type == ItemType.CarteMagnetique1 || type == ItemType.CarteMagnetique2;
 
     public static ItemDef Get(ItemType type)
     {

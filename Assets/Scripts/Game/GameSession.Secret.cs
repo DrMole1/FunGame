@@ -4,13 +4,19 @@ using UnityEngine;
 // porte ouverte), transmis avec l'état de la partie (G, 22e champ) pour ceux qui arrivent en cours de route.
 // Messages (préfixes en X : SC et SK sont déjà pris par les statistiques de manche et le Bouton Skip) :
 // XC (joueur -> hôte : prendre la carte) -> GV|S1 au joueur + XK (tous : la carte disparaît, le cadavre s'agite) ;
-// XD (joueur -> hôte : carte passée dans le lecteur) -> XO (tous : la porte s'ouvre). Rares : aucun coût réseau notable.
+// XD|porte (joueur -> hôte : carte passée dans le lecteur) -> XO|porte (tous : la porte s'ouvre). Porte 1 : tunnel (Carte
+// Magnétique 1) ; porte 2 (V0.7.4) : Vestiaire (Carte Magnétique 2). XP (joueur -> hôte : pousse la porte du Bureau L.I.V.)
+// -> XQ (tous). Rares : aucun coût réseau notable.
 public partial class GameSession
 {
     public static bool SecretCardTaken { get; private set; }
     public static bool ControlRoomOpen { get; private set; }
+    public static bool VestiaireOpen { get; private set; }
+    public static bool LivDoorPushed { get; private set; }
 
-    int SecretFlags => (SecretCardTaken ? 1 : 0) | (ControlRoomOpen ? 2 : 0);
+    public static bool SecretDoorOpen(int door) => door == 2 ? VestiaireOpen : ControlRoomOpen;
+
+    int SecretFlags => (SecretCardTaken ? 1 : 0) | (ControlRoomOpen ? 2 : 0) | (VestiaireOpen ? 4 : 0) | (LivDoorPushed ? 8 : 0);
 
     // Le joueur local ramasse la carte dans la main du cadavre.
     public void TakeSecretCard()
@@ -27,14 +33,23 @@ public partial class GameSession
     }
 
     // Le joueur local passe la carte dans le lecteur de la porte : elle est consommée.
-    public void UseControlCard()
+    public void UseControlCard(int door = 1)
     {
         int slot = status.Selected;
-        if (ControlRoomOpen || slot < 0 || status[slot] != ItemType.CarteMagnetique1) return;
+        ItemType card = door == 2 ? ItemType.CarteMagnetique2 : ItemType.CarteMagnetique1;
+        if (SecretDoorOpen(door) || slot < 0 || status[slot] != card) return;
         status.RemoveAt(slot);
         Gesture(PlayerGesture.Use);
         GameAudio.Play2D("beep", 0.6f, 0f, 1.3f);
-        net.ToHost("XD");
+        net.ToHost("XD|" + door);
+    }
+
+    // V0.7.4 : le joueur local pousse la porte entrouverte du Bureau L.I.V.
+    public void PushLivDoor()
+    {
+        if (LivDoorPushed || status.Dead) return;
+        Gesture(PlayerGesture.Use);
+        net.ToHost("XP");
     }
 
     bool HandleSecretMessage(string from, string[] f, bool host)
@@ -56,33 +71,61 @@ public partial class GameSession
                 if (SecretCorpse.Current != null) SecretCorpse.Current.SetCardTaken(true, true);
                 return true;
             case "XD" when host:
-                if (!ControlRoomOpen)
+            {
+                int door = f.Length >= 2 && f[1] == "2" ? 2 : 1;
+                if (!SecretDoorOpen(door))
                 {
-                    ControlRoomOpen = true;
-                    net.ToAll("XO");
+                    SetSecretDoor(door, true);
+                    net.ToAll("XO|" + door);
                     BroadcastState();
                 }
                 return true;
+            }
             case "XO":
-                ControlRoomOpen = true;
-                if (ControlDoor.Current != null) ControlDoor.Current.SetOpen(true, true);
+            {
+                int door = f.Length >= 2 && f[1] == "2" ? 2 : 1;
+                SetSecretDoor(door, true);
+                ControlDoor.Get(door)?.SetOpen(true, true);
+                return true;
+            }
+            case "XP" when host:
+                if (!LivDoorPushed)
+                {
+                    LivDoorPushed = true;
+                    net.ToAll("XQ");
+                    BroadcastState();
+                }
+                return true;
+            case "XQ":
+                LivDoorPushed = true;
+                if (LivDoor.Current != null) LivDoor.Current.SetPushed(true, true);
                 return true;
         }
         return false;
     }
 
+    static void SetSecretDoor(int door, bool open)
+    {
+        if (door == 2) VestiaireOpen = open;
+        else ControlRoomOpen = open;
+    }
+
     void ApplySecretFlags(int flags)
     {
-        bool taken = (flags & 1) != 0, open = (flags & 2) != 0;
-        if (taken != SecretCardTaken || open != ControlRoomOpen)
+        bool taken = (flags & 1) != 0, open = (flags & 2) != 0, vestiaire = (flags & 4) != 0, pushed = (flags & 8) != 0;
+        if (taken != SecretCardTaken || open != ControlRoomOpen || vestiaire != VestiaireOpen || pushed != LivDoorPushed)
         {
             SecretCardTaken = taken;
             ControlRoomOpen = open;
+            VestiaireOpen = vestiaire;
+            LivDoorPushed = pushed;
             if (SecretCorpse.Current != null) SecretCorpse.Current.SetCardTaken(taken, false);
-            if (ControlDoor.Current != null) ControlDoor.Current.SetOpen(open, false);
+            ControlDoor.Get(1)?.SetOpen(open, false);
+            ControlDoor.Get(2)?.SetOpen(vestiaire, false);
+            if (LivDoor.Current != null) LivDoor.Current.SetPushed(pushed, false);
         }
     }
 
-    // Nouvelle partie : la carte est de nouveau dans la main du cadavre, la porte refermée.
+    // Nouvelle partie : la carte est de nouveau dans la main du cadavre, les portes refermées (celle du Bureau entrouverte).
     void ResetSecret() => ApplySecretFlags(0);
 }

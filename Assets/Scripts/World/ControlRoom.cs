@@ -11,6 +11,9 @@ using UnityEngine;
 // V0.7.2 (Note 07) : le tube est fait de segments de tunnel en béton (modèle Meshy, Resources/Art/TunnelBeton), aux mêmes
 // dimensions, toujours aussi sombre ; des pellicules de poussière en tombent. La porte, au fond, reprend le modèle de la porte
 // de la Neutral Room (porte blindée).
+// V0.7.4 : à gauche en entrant (à l'est), une seconde porte de laboratoire, ouverte par la Carte Magnétique 2, mène au Vestiaire
+// (couloir éclairé par 3 néons, penderie à cintres sur sa longueur), qui donne sur l'Ascenseur (vieil ascenseur des années
+// 1980, défectueux et saboté) et, en face, sur la porte entrouverte du Bureau L.I.V. (un néon).
 public static class ControlWing
 {
     // Tout le tunnel est surélevé : son ouverture reste cachée derrière l'Écran des Logs (de 0,7 m à 4,4 m de haut).
@@ -30,7 +33,7 @@ public static class ControlWing
     public static float MusicSilence(Vector3 world)
     {
         Vector3 d = world - WorldBuilder.HubCenter(1) - Vector3.up * Elevation;
-        if (d.z > -WallInner || d.z < RoomSouth - 2f || Mathf.Abs(d.x) > GameRules.ControlRoomWidth * 0.5f + 2f || d.y > 10f || d.y < -5f)
+        if (d.z > -WallInner || d.z < RoomSouth - 2f || d.x < -GameRules.ControlRoomWidth * 0.5f - 2f || d.x > WingEast + 2f || d.y > 10f || d.y < -5f)
             return 0f;
         return Mathf.Clamp01((-d.z - WallInner) / GameRules.TunnelMusicFade);
     }
@@ -107,7 +110,9 @@ public static class ControlWing
         room.Quad(new Vector3(-hw, 0f, s0), new Vector3(hw, 0f, s0), new Vector3(hw, 0f, n), new Vector3(-hw, 0f, n), 0.25f);   // sol
         room.Quad(new Vector3(-hw, h, n), new Vector3(hw, h, n), new Vector3(hw, h, s0), new Vector3(-hw, h, s0), 0.25f);       // plafond
         room.Quad(new Vector3(-hw, 0f, s0), new Vector3(-hw, h, s0), new Vector3(hw, h, s0), new Vector3(hw, 0f, s0), 0.25f);   // sud
-        room.Quad(new Vector3(hw, 0f, s0), new Vector3(hw, h, s0), new Vector3(hw, h, n), new Vector3(hw, 0f, n), 0.25f);       // est
+        // Est : percé de la porte du Vestiaire (V0.7.4).
+        room.PlateWithHole(new Vector3(hw, 0f, VestiaireZ), Vector3.forward, Vector3.up, s0 - VestiaireZ, n - VestiaireZ, 0f, h,
+            (x, y) => Mathf.Abs(x) < DoorWidth * 0.5f && y < DoorHeight, 0.05f, 0f, 1.2f, 2.5f);
         room.Quad(new Vector3(-hw, 0f, n), new Vector3(-hw, h, n), new Vector3(-hw, h, s0), new Vector3(-hw, 0f, s0), 0.25f);   // ouest
         // Nord : percé là où arrive le tunnel.
         room.PlateWithHole(new Vector3(0f, 0f, n), Vector3.right, Vector3.up, -hw, hw, 0f, h,
@@ -117,9 +122,14 @@ public static class ControlWing
         Box(new Vector3(0f, -0.5f, cz), new Vector3(hw * 2f + 1f, 1f, L + 1f));
         Box(new Vector3(0f, h + 0.5f, cz), new Vector3(hw * 2f + 1f, 1f, L + 1f));
         Box(new Vector3(0f, h * 0.5f, s0 - 0.5f), new Vector3(hw * 2f + 1f, h, 1f));
+        // Ouest plein ; est percé de la porte du Vestiaire (mur de 0,3 m entre la salle et le Vestiaire).
+        Box(new Vector3(-(hw + 0.5f), h * 0.5f, cz), new Vector3(1f, h, L + 1f));
+        float doorN = VestiaireZ + DoorWidth * 0.5f, doorS = VestiaireZ - DoorWidth * 0.5f;
+        Box(new Vector3(hw + 0.15f, h * 0.5f, (n + 0.5f + doorN) * 0.5f), new Vector3(0.3f, h, n + 0.5f - doorN));
+        Box(new Vector3(hw + 0.15f, h * 0.5f, (doorS + s0 - 0.5f) * 0.5f), new Vector3(0.3f, h, doorS - s0 + 0.5f));
+        Box(new Vector3(hw + 0.15f, (DoorHeight + h) * 0.5f, VestiaireZ), new Vector3(0.3f, h - DoorHeight, DoorWidth));
         foreach (float sx in new[] { -1f, 1f })
         {
-            Box(new Vector3(sx * (hw + 0.5f), h * 0.5f, cz), new Vector3(1f, h, L + 1f));
             // Mur nord, de part et d'autre du tunnel, et au-dessus.
             float inner = FloorHalf + 0.3f;
             Box(new Vector3(sx * (inner + (hw - inner) * 0.5f), h * 0.5f, n + 0.5f), new Vector3(hw - inner, h, 1f));
@@ -128,7 +138,293 @@ public static class ControlWing
 
         // Enseigne "Control Room" sur le mur du fond, face à l'entrée (néon Meshy si présent, sinon texte).
         Sign(root, new Vector3(0f, 3.6f, s0 + 0.02f));
+
+        BuildVestiaire(root, Box);
     }
+
+    // ---------- Le Vestiaire, l'Ascenseur et le Bureau L.I.V. (V0.7.4, chapitre 15.3) ----------
+    // Vu depuis le Hub de départ (schéma du GDD) : le Vestiaire part vers la gauche de la Control Room (vers l'est), l'Ascenseur
+    // s'ouvre sur son flanc nord (côté Hub), le Bureau L.I.V. est au bout, en face de la porte du Vestiaire.
+    const float VestLength = 12f, VestWidth = 3.6f, VestHeight = 3f;
+    const float LiftOpening = 1.2f, LiftWidth = 2f, LiftDepth = 2f, LiftHeight = 2.4f, LiftDoorHeight = 2.2f;
+    const float OfficeLength = 6f, OfficeWidth = 6f, OfficeDoorWidth = 1f, OfficeDoorHeight = 2.15f;
+    static float VestiaireZ => (RoomNorth + RoomSouth) * 0.5f - 2f;
+    static float VestWest => GameRules.ControlRoomWidth * 0.5f + 0.3f;
+    static float VestEast => VestWest + VestLength;
+    static float WingEast => VestEast + 0.3f + OfficeLength;
+    static float LiftX => VestEast - 3f;
+
+    static void BuildVestiaire(Transform root, System.Action<Vector3, Vector3> box)
+    {
+        var wing = new GameObject("Vestiaire").transform;
+        wing.SetParent(root, false);
+        Material wallMat = GameArt.Lit("VestiaireMur", new Color(0.4f, 0.46f, 0.42f), GameArt.Noise("concrete", 128, 0.8f, 0.25f, 23), 0.15f);
+        Material floorMat = GameArt.Lit("VestiaireSol", new Color(0.3f, 0.3f, 0.29f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.1f);
+        Material ceilMat = GameArt.Lit("VestiairePlafond", new Color(0.33f, 0.33f, 0.32f), GameArt.Noise("concrete", 128, 0.8f, 0.2f, 7), 0.05f);
+        Material officeMat = GameArt.Lit("BureauMur", new Color(0.46f, 0.41f, 0.33f), GameArt.Noise("concrete", 128, 0.85f, 0.2f, 31), 0.12f);
+        Material woodPanel = GameArt.Lit("AscenseurBois", new Color(0.36f, 0.22f, 0.13f), GameArt.Noise("wood", 128, 0.7f, 0.25f, 3), 0.35f);
+        float z = VestiaireZ, hw = VestWidth * 0.5f, x0 = VestWest, x1 = VestEast, h = VestHeight;
+        float zn = z + hw, zs = z - hw;
+
+        // Porte venant de la Control Room : même modèle que celle du tunnel, au milieu du mur de 0,3 m (Carte Magnétique 2).
+        var entry = new GameObject("PorteVestiaire").transform;
+        entry.SetParent(wing, false);
+        entry.localPosition = new Vector3(x0 - 0.15f, 0f, z);
+        entry.localRotation = Quaternion.Euler(0f, -90f, 0f);
+        DoorFrame.Inset(entry, Vector3.zero, DoorWidth * 0.5f, DoorHeight, 0.1f, 0.32f);
+        ControlDoor.Create(entry, new Vector3(0f, DoorHeight * 0.5f, 0f), new Vector3(DoorWidth, DoorHeight, DoorThickness), 2);
+
+        // ----- Couloir -----
+        var floor = new Mesh2();
+        floor.Quad(new Vector3(x0, 0f, zs), new Vector3(x1, 0f, zs), new Vector3(x1, 0f, zn), new Vector3(x0, 0f, zn), 0.5f);
+        var ceil = new Mesh2();
+        ceil.Quad(new Vector3(x0, h, zn), new Vector3(x1, h, zn), new Vector3(x1, h, zs), new Vector3(x0, h, zs), 0.5f);
+        var walls = new Mesh2();
+        walls.PlateWithHole(new Vector3(x0, 0f, z), Vector3.forward, Vector3.up, -hw, hw, 0f, h,
+            (x, y) => Mathf.Abs(x) < DoorWidth * 0.5f && y < DoorHeight, 0.05f, 0f, 1.2f, 2.5f);
+        walls.Quad(new Vector3(x0, 0f, zs), new Vector3(x1, 0f, zs), new Vector3(x1, h, zs), new Vector3(x0, h, zs), 0.5f);
+        walls.PlateWithHole(new Vector3(LiftX, 0f, zn), Vector3.right, Vector3.up, x0 - LiftX, x1 - LiftX, 0f, h,
+            (x, y) => Mathf.Abs(x) < LiftOpening * 0.5f && y < LiftDoorHeight, 0.05f, 0f, 1.4f, 2.5f);
+        walls.PlateWithHole(new Vector3(x1, 0f, z), Vector3.forward, Vector3.up, -hw, hw, 0f, h,
+            (x, y) => Mathf.Abs(x) < OfficeDoorWidth * 0.5f && y < OfficeDoorHeight, 0.05f, 0f, 1f, 2.5f);
+        GameArt.MeshObject("SolVestiaire", wing, floor.Build("SolVestiaire"), floorMat);
+        GameArt.MeshObject("PlafondVestiaire", wing, ceil.Build("PlafondVestiaire"), ceilMat);
+        GameArt.MeshObject("MursVestiaire", wing, walls.Build("MursVestiaire"), wallMat);
+        float cx = (x0 + x1) * 0.5f;
+        box(new Vector3(cx, -0.5f, z), new Vector3(VestLength + 0.6f, 1f, VestWidth + 0.6f));
+        box(new Vector3(cx, h + 0.5f, z), new Vector3(VestLength + 0.6f, 1f, VestWidth + 0.6f));
+        box(new Vector3(cx, h * 0.5f, zs - 0.15f), new Vector3(VestLength, h, 0.3f));
+        // Nord, autour de l'Ascenseur ; est, autour de la porte du Bureau.
+        float la = LiftX - LiftOpening * 0.5f, lb = LiftX + LiftOpening * 0.5f;
+        box(new Vector3((x0 + la) * 0.5f, h * 0.5f, zn + 0.15f), new Vector3(la - x0, h, 0.3f));
+        box(new Vector3((lb + x1) * 0.5f, h * 0.5f, zn + 0.15f), new Vector3(x1 - lb, h, 0.3f));
+        box(new Vector3(LiftX, (LiftDoorHeight + h) * 0.5f, zn + 0.15f), new Vector3(LiftOpening, h - LiftDoorHeight, 0.3f));
+        float da = z - OfficeDoorWidth * 0.5f, db = z + OfficeDoorWidth * 0.5f;
+        box(new Vector3(x1 + 0.15f, h * 0.5f, (zs + da) * 0.5f), new Vector3(0.3f, h, da - zs));
+        box(new Vector3(x1 + 0.15f, h * 0.5f, (db + zn) * 0.5f), new Vector3(0.3f, h, zn - db));
+        box(new Vector3(x1 + 0.15f, (OfficeDoorHeight + h) * 0.5f, z), new Vector3(0.3f, h - OfficeDoorHeight, OfficeDoorWidth));
+
+        // Trois néons au plafond, sur la longueur.
+        for (int k = 0; k < 3; k++) Neon(wing, new Vector3(x0 + VestLength * (0.2f + 0.3f * k), h, z), 6.5f, 1.5f);
+
+        BuildWardrobe(wing, x0 + 0.8f, x1 - 0.8f, zs + 0.38f);
+        BuildLift(wing, box, zn, woodPanel);
+        BuildOffice(wing, box, officeMat, floorMat, ceilMat);
+    }
+
+    // Tube de néon blanc froid sous sa réglette, et sa lumière.
+    static void Neon(Transform parent, Vector3 ceilingPoint, float range, float intensity)
+    {
+        Material housing = GameArt.Lit("RegletteNeon", new Color(0.75f, 0.76f, 0.74f), null, 0.4f);
+        Material tube = GameArt.Emissive("TubeNeon", Color.white, new Color(1.5f, 1.6f, 1.65f));
+        Deco(parent, ceilingPoint + Vector3.down * 0.04f, new Vector3(1.3f, 0.06f, 0.18f), housing);
+        var t = Deco(parent, ceilingPoint + Vector3.down * 0.1f, new Vector3(0.045f, 0.6f, 0.045f), tube, PrimitiveType.Cylinder);
+        t.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+        var light = new GameObject("Neon").AddComponent<Light>();
+        light.transform.SetParent(parent, false);
+        light.transform.localPosition = ceilingPoint + Vector3.down * 0.3f;
+        light.type = LightType.Point;
+        light.color = new Color(0.9f, 0.96f, 1f);
+        light.range = range;
+        light.intensity = intensity;
+        light.shadows = LightShadows.None;
+    }
+
+    // Penderie sur la longueur du couloir : une tringle, ses supports, des cintres (quelques-uns de travers, d'autres manquent)
+    // et trois blouses de laboratoire abandonnées.
+    static void BuildWardrobe(Transform parent, float xa, float xb, float zRail)
+    {
+        var holder = new GameObject("Penderie").transform;
+        holder.SetParent(parent, false);
+        Material chrome = GameArt.Lit("Tringle", new Color(0.62f, 0.63f, 0.64f), null, 0.85f);
+        Material wire = GameArt.Lit("Cintre", new Color(0.5f, 0.5f, 0.52f), null, 0.7f);
+        Material coat = GameArt.Lit("Blouse", new Color(0.82f, 0.82f, 0.78f), GameArt.Noise("concrete", 128, 0.9f, 0.1f, 41), 0.1f);
+        const float railY = 1.8f;
+        var rail = Deco(holder, new Vector3((xa + xb) * 0.5f, railY, zRail), new Vector3(0.03f, (xb - xa) * 0.5f, 0.03f), chrome, PrimitiveType.Cylinder);
+        rail.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+        for (float x = xa; x <= xb + 0.01f; x += (xb - xa) / 4f)
+            Deco(holder, new Vector3(x, railY + 0.02f, zRail - 0.19f), new Vector3(0.03f, 0.03f, 0.4f), chrome);
+        var rnd = new System.Random(1980);
+        int index = 0;
+        for (float x = xa + 0.25f; x < xb - 0.15f; x += 0.24f, index++)
+        {
+            if (rnd.NextDouble() < 0.18) continue;
+            var hanger = new GameObject("Cintre").transform;
+            hanger.SetParent(holder, false);
+            hanger.localPosition = new Vector3(x, railY, zRail);
+            hanger.localRotation = Quaternion.Euler((float)(rnd.NextDouble() * 10 - 5), 0f, (float)(rnd.NextDouble() * 14 - 7));
+            // Crochet sur la tringle, épaules en triangle, barre du bas.
+            Deco(hanger, new Vector3(0f, -0.04f, 0f), new Vector3(0.008f, 0.08f, 0.008f), wire);
+            foreach (float s in new[] { -1f, 1f })
+            {
+                var arm = Deco(hanger, new Vector3(0f, -0.13f, s * 0.1f), new Vector3(0.008f, 0.009f, 0.22f), wire);
+                arm.transform.localRotation = Quaternion.Euler(s * 22f, 0f, 0f);
+            }
+            Deco(hanger, new Vector3(0f, -0.17f, 0f), new Vector3(0.008f, 0.008f, 0.4f), wire);
+            if (index % 9 == 4)
+            {
+                var c = Deco(hanger, new Vector3(0f, -0.62f, 0f), new Vector3(0.07f, 0.92f, 0.46f), coat);
+                c.transform.localRotation = Quaternion.Euler(0f, (float)(rnd.NextDouble() * 16 - 8), 0f);
+            }
+        }
+    }
+
+    // L'Ascenseur : vieux (années 1980), défectueux et saboté. Les portes palières sont bloquées : l'une est rentrée, l'autre
+    // est restée à mi-course, de travers. Cabine lambrissée, panneau de commande arraché aux fils coupés, plafonnier qui grésille.
+    static void BuildLift(Transform parent, System.Action<Vector3, Vector3> box, float zn, Material wood)
+    {
+        var lift = new GameObject("Ascenseur").transform;
+        lift.SetParent(parent, false);
+        Material steel = GameArt.Lit("AscenseurAcier", new Color(0.55f, 0.52f, 0.46f), GameArt.Noise("concrete", 128, 0.85f, 0.2f, 5), 0.6f);
+        Material brass = GameArt.Lit("AscenseurLaiton", new Color(0.7f, 0.55f, 0.28f), null, 0.75f);
+        Material dark = GameArt.Lit("AscenseurNoir", new Color(0.03f, 0.03f, 0.03f), null, 0.3f);
+        float x = LiftX, w = LiftWidth * 0.5f, z0 = zn, z1 = zn + LiftDepth, h = LiftHeight;
+
+        var cabin = new Mesh2();
+        cabin.Quad(new Vector3(x - w, 0f, z0), new Vector3(x + w, 0f, z0), new Vector3(x + w, 0f, z1), new Vector3(x - w, 0f, z1), 0.5f);
+        cabin.Quad(new Vector3(x - w, h, z1), new Vector3(x + w, h, z1), new Vector3(x + w, h, z0), new Vector3(x - w, h, z0), 0.5f);
+        cabin.Quad(new Vector3(x - w, 0f, z1), new Vector3(x + w, 0f, z1), new Vector3(x + w, h, z1), new Vector3(x - w, h, z1), 0.5f);
+        cabin.Quad(new Vector3(x - w, 0f, z0), new Vector3(x - w, 0f, z1), new Vector3(x - w, h, z1), new Vector3(x - w, h, z0), 0.5f);
+        cabin.Quad(new Vector3(x + w, 0f, z1), new Vector3(x + w, 0f, z0), new Vector3(x + w, h, z0), new Vector3(x + w, h, z1), 0.5f);
+        GameArt.MeshObject("Cabine", lift, cabin.Build("Cabine"), wood);
+        // Collisions de la cabine.
+        box(new Vector3(x, -0.5f, (z0 + z1) * 0.5f), new Vector3(LiftWidth + 0.6f, 1f, LiftDepth));
+        box(new Vector3(x, h + 0.5f, (z0 + z1) * 0.5f), new Vector3(LiftWidth + 0.6f, 1f, LiftDepth));
+        box(new Vector3(x, h * 0.5f, z1 + 0.15f), new Vector3(LiftWidth + 0.6f, h, 0.3f));
+        foreach (float s in new[] { -1f, 1f }) box(new Vector3(x + s * (w + 0.15f), h * 0.5f, (z0 + z1) * 0.5f), new Vector3(0.3f, h, LiftDepth));
+
+        // Encadrement de laiton côté couloir, et indicateur d'étage mort au-dessus.
+        float o = LiftOpening * 0.5f;
+        foreach (float s in new[] { -1f, 1f })
+            Deco(lift, new Vector3(x + s * (o + 0.04f), LiftDoorHeight * 0.5f, z0 - 0.02f), new Vector3(0.08f, LiftDoorHeight, 0.04f), brass);
+        Deco(lift, new Vector3(x, LiftDoorHeight + 0.04f, z0 - 0.02f), new Vector3(LiftOpening + 0.16f, 0.08f, 0.04f), brass);
+        var dial = Deco(lift, new Vector3(x, LiftDoorHeight + 0.3f, z0 - 0.025f), new Vector3(0.36f, 0.02f, 0.36f), brass, PrimitiveType.Cylinder);
+        dial.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        var face = Deco(lift, new Vector3(x, LiftDoorHeight + 0.3f, z0 - 0.04f), new Vector3(0.3f, 0.01f, 0.3f), GameArt.Lit("CadranCreme", new Color(0.78f, 0.72f, 0.58f), null, 0.3f), PrimitiveType.Cylinder);
+        face.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        var needle = Deco(lift, new Vector3(x - 0.04f, LiftDoorHeight + 0.27f, z0 - 0.05f), new Vector3(0.012f, 0.12f, 0.005f), dark);
+        needle.transform.localRotation = Quaternion.Euler(0f, 0f, 55f);
+
+        // Portes palières : la gauche rentrée, la droite bloquée à mi-course et de travers (passage d'environ 0,9 m).
+        float doorW = LiftOpening * 0.5f;
+        Deco(lift, new Vector3(x - o - doorW * 0.5f + 0.05f, LiftDoorHeight * 0.5f, z0 + 0.06f), new Vector3(doorW, LiftDoorHeight - 0.02f, 0.04f), steel);
+        var stuck = Deco(lift, new Vector3(x + o - doorW * 0.5f + 0.3f, LiftDoorHeight * 0.5f - 0.03f, z0 + 0.07f), new Vector3(doorW, LiftDoorHeight - 0.06f, 0.04f), steel);
+        stuck.transform.localRotation = Quaternion.Euler(0f, 6f, -3f);
+        box(stuck.transform.localPosition, new Vector3(doorW, LiftDoorHeight - 0.06f, 0.06f));
+
+        // Panneau de commande, capot arraché pendant au bout de ses fils, fils coupés.
+        float px = x + w - 0.02f;
+        Deco(lift, new Vector3(px, 1.2f, z0 + 0.45f), new Vector3(0.03f, 0.5f, 0.24f), brass);
+        Deco(lift, new Vector3(px - 0.01f, 1.2f, z0 + 0.45f), new Vector3(0.03f, 0.42f, 0.17f), dark);
+        var cover = Deco(lift, new Vector3(px - 0.12f, 0.78f, z0 + 0.5f), new Vector3(0.02f, 0.46f, 0.22f), brass);
+        cover.transform.localRotation = Quaternion.Euler(18f, 0f, -24f);
+        Material[] wires = { GameArt.Lit("FilRouge", new Color(0.6f, 0.05f, 0.05f), null, 0.3f), GameArt.Lit("FilJaune", new Color(0.75f, 0.6f, 0.05f), null, 0.3f), dark };
+        for (int k = 0; k < 6; k++)
+        {
+            var wire = Deco(lift, new Vector3(px - 0.04f, 1.05f - k * 0.015f, z0 + 0.38f + k * 0.03f), new Vector3(0.008f, 0.12f + 0.03f * (k % 3), 0.008f), wires[k % 3], PrimitiveType.Cylinder);
+            wire.transform.localRotation = Quaternion.Euler(k * 9f - 20f, 0f, 10f + k * 6f);
+        }
+        for (int k = 0; k < 8; k++)
+        {
+            var button = Deco(lift, new Vector3(px - 0.03f, 1.36f - (k / 2) * 0.08f, z0 + 0.41f + (k % 2) * 0.08f), new Vector3(0.035f, 0.01f, 0.035f), k == 5 ? dark : GameArt.Lit("BoutonIvoire", new Color(0.85f, 0.8f, 0.68f), null, 0.4f), PrimitiveType.Cylinder);
+            button.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+        }
+
+        // Plafonnier qui grésille (lumière jaunie, intermittente).
+        Deco(lift, new Vector3(x, h - 0.03f, (z0 + z1) * 0.5f), new Vector3(0.5f, 0.04f, 0.5f), GameArt.Emissive("PlafonnierAscenseur", new Color(0.9f, 0.8f, 0.55f), new Color(0.5f, 0.42f, 0.25f)));
+        var bulb = new GameObject("Plafonnier").AddComponent<Light>();
+        bulb.transform.SetParent(lift, false);
+        bulb.transform.localPosition = new Vector3(x, h - 0.25f, (z0 + z1) * 0.5f);
+        bulb.type = LightType.Point;
+        bulb.color = new Color(1f, 0.82f, 0.55f);
+        bulb.range = 3.5f;
+        bulb.intensity = 0.9f;
+        bulb.shadows = LightShadows.None;
+        bulb.gameObject.AddComponent<FlickeringLight>();
+    }
+
+    // Bureau L.I.V. : au bout du Vestiaire, derrière une porte entrouverte marquée "L.I.V." (lettres blanches lumineuses, en
+    // relief), qu'un joueur peut pousser. Un seul néon, un vieux bureau, une chaise, un classeur, des papiers épars.
+    static void BuildOffice(Transform parent, System.Action<Vector3, Vector3> box, Material wallMat, Material floorMat, Material ceilMat)
+    {
+        var office = new GameObject("BureauLIV").transform;
+        office.SetParent(parent, false);
+        float x0 = VestEast + 0.3f, x1 = WingEast, z = VestiaireZ, hw = OfficeWidth * 0.5f, h = VestHeight;
+        float zs = z - hw, zn = z + hw, cx = (x0 + x1) * 0.5f;
+        var floor = new Mesh2();
+        floor.Quad(new Vector3(x0, 0f, zs), new Vector3(x1, 0f, zs), new Vector3(x1, 0f, zn), new Vector3(x0, 0f, zn), 0.5f);
+        var ceil = new Mesh2();
+        ceil.Quad(new Vector3(x0, h, zn), new Vector3(x1, h, zn), new Vector3(x1, h, zs), new Vector3(x0, h, zs), 0.5f);
+        var walls = new Mesh2();
+        walls.PlateWithHole(new Vector3(x0, 0f, z), Vector3.forward, Vector3.up, -hw, hw, 0f, h,
+            (x, y) => Mathf.Abs(x) < OfficeDoorWidth * 0.5f && y < OfficeDoorHeight, 0.05f, 0f, 1f, 2.5f);
+        walls.Quad(new Vector3(x1, 0f, zs), new Vector3(x1, h, zs), new Vector3(x1, h, zn), new Vector3(x1, 0f, zn), 0.5f);
+        walls.Quad(new Vector3(x0, 0f, zs), new Vector3(x1, 0f, zs), new Vector3(x1, h, zs), new Vector3(x0, h, zs), 0.5f);
+        walls.Quad(new Vector3(x0, 0f, zn), new Vector3(x0, h, zn), new Vector3(x1, h, zn), new Vector3(x1, 0f, zn), 0.5f);
+        GameArt.MeshObject("SolBureau", office, floor.Build("SolBureau"), floorMat);
+        GameArt.MeshObject("PlafondBureau", office, ceil.Build("PlafondBureau"), ceilMat);
+        GameArt.MeshObject("MursBureau", office, walls.Build("MursBureau"), wallMat);
+        box(new Vector3(cx, -0.5f, z), new Vector3(OfficeLength + 0.6f, 1f, OfficeWidth + 0.6f));
+        box(new Vector3(cx, h + 0.5f, z), new Vector3(OfficeLength + 0.6f, 1f, OfficeWidth + 0.6f));
+        box(new Vector3(x1 + 0.15f, h * 0.5f, z), new Vector3(0.3f, h, OfficeWidth));
+        box(new Vector3(cx, h * 0.5f, zs - 0.15f), new Vector3(OfficeLength, h, 0.3f));
+        box(new Vector3(cx, h * 0.5f, zn + 0.15f), new Vector3(OfficeLength, h, 0.3f));
+        Neon(office, new Vector3(cx, h, z), 7f, 1.3f);
+
+        // Encadrement noir dans l'épaisseur du mur, et la porte entrouverte (charnière côté nord, elle s'ouvre vers le Bureau).
+        var frame = new GameObject("PorteBureau").transform;
+        frame.SetParent(office, false);
+        frame.localPosition = new Vector3(VestEast + 0.15f, 0f, z);
+        frame.localRotation = Quaternion.Euler(0f, -90f, 0f);
+        DoorFrame.Inset(frame, Vector3.zero, OfficeDoorWidth * 0.5f, OfficeDoorHeight, 0.06f, 0.32f);
+        LivDoor.Create(office, new Vector3(x0 + 0.03f, 0f, z + OfficeDoorWidth * 0.5f - 0.04f), OfficeDoorWidth - 0.1f, OfficeDoorHeight - 0.04f);
+
+        // Mobilier.
+        Material wood = GameArt.Lit("BureauBois", new Color(0.32f, 0.2f, 0.11f), GameArt.Noise("wood", 128, 0.7f, 0.25f, 3), 0.3f);
+        Material metal = GameArt.Lit("BureauMetal", new Color(0.36f, 0.39f, 0.38f), null, 0.5f);
+        Material paper = GameArt.Lit("BureauPapier", new Color(0.86f, 0.84f, 0.76f), null, 0.1f);
+        float dx = x1 - 1.4f;
+        Deco(office, new Vector3(dx, 0.76f, z), new Vector3(0.85f, 0.05f, 1.7f), wood);
+        foreach (float sx in new[] { -1f, 1f })
+            foreach (float sz in new[] { -1f, 1f })
+                Deco(office, new Vector3(dx + sx * 0.37f, 0.37f, z + sz * 0.78f), new Vector3(0.05f, 0.74f, 0.05f), wood);
+        Deco(office, new Vector3(dx + 0.05f, 0.5f, z - 0.55f), new Vector3(0.7f, 0.45f, 0.5f), wood);
+        box(new Vector3(dx, 0.4f, z), new Vector3(0.85f, 0.8f, 1.7f));
+        // Chaise, reculée et tournée de travers.
+        var chair = new GameObject("Chaise").transform;
+        chair.SetParent(office, false);
+        chair.localPosition = new Vector3(dx - 0.85f, 0f, z + 0.2f);
+        chair.localRotation = Quaternion.Euler(0f, 70f, 0f);
+        Deco(chair, new Vector3(0f, 0.45f, 0f), new Vector3(0.45f, 0.05f, 0.45f), wood);
+        Deco(chair, new Vector3(0f, 0.75f, -0.2f), new Vector3(0.45f, 0.55f, 0.04f), wood);
+        foreach (float sx in new[] { -1f, 1f })
+            foreach (float sz in new[] { -1f, 1f })
+                Deco(chair, new Vector3(sx * 0.19f, 0.22f, sz * 0.19f), new Vector3(0.04f, 0.45f, 0.04f), metal);
+        // Classeur métallique contre le mur nord, un tiroir entrouvert.
+        float fx = x0 + 1.4f;
+        Deco(office, new Vector3(fx, 0.66f, zn - 0.32f), new Vector3(0.5f, 1.32f, 0.6f), metal);
+        Deco(office, new Vector3(fx, 0.95f, zn - 0.75f), new Vector3(0.44f, 0.26f, 0.3f), metal);
+        box(new Vector3(fx, 0.66f, zn - 0.4f), new Vector3(0.5f, 1.32f, 0.8f));
+        // Papiers sur le bureau et au sol.
+        var rnd = new System.Random(1989);
+        for (int k = 0; k < 9; k++)
+        {
+            bool onDesk = k < 4;
+            Vector3 at = onDesk ? new Vector3(dx + (float)(rnd.NextDouble() - 0.5) * 0.5f, 0.79f, z + (float)(rnd.NextDouble() - 0.5) * 1.2f)
+                                : new Vector3(x0 + 0.8f + (float)rnd.NextDouble() * (OfficeLength - 2.5f), 0.004f, z + (float)(rnd.NextDouble() - 0.5) * (OfficeWidth - 1.5f));
+            var sheet = Deco(office, at, new Vector3(0.21f, 0.002f, 0.297f), paper);
+            sheet.transform.localRotation = Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f);
+        }
+    }
+
+    // Élément de décor sans collision ni ombre portée.
+    static GameObject Deco(Transform parent, Vector3 pos, Vector3 size, Material mat, PrimitiveType type = PrimitiveType.Cube)
+    {
+        var go = GameArt.Prim(type, parent, pos, size, mat);
+        go.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        return go;
+    }
+
 
     // Segments Meshy (anneau de béton, axe Z, rayon intérieur ~0,77 m pour 1,4 m de long) mis à l'échelle du tube (rayon
     // intérieur 1,5 m) et alignés bout à bout de z0 à z1. Assombris : le tunnel reste noir et obscur.
@@ -335,22 +631,27 @@ public static class ControlWing
 
 // Porte métallique de laboratoire secret (bandes de danger jaunes et noires, lecteur de badge). Visée avec la Carte
 // Magnétique 1 sélectionnée, elle devient un objet interactif (contour) : un clic l'ouvre et consomme la carte.
+// V0.7.4 : porte 1 (tunnel, Carte Magnétique 1) ou porte 2 (Vestiaire, Carte Magnétique 2).
 public class ControlDoor : Interactable
 {
-    public static ControlDoor Current { get; private set; }
+    static readonly ControlDoor[] doors = new ControlDoor[3];
+    public static ControlDoor Get(int index) => index >= 1 && index < doors.Length ? doors[index] : null;
+    public int Index { get; private set; } = 1;
     public bool Open { get; private set; }
+    ItemType Card => Index == 2 ? ItemType.CarteMagnetique2 : ItemType.CarteMagnetique1;
 
     Transform slab;
     Renderer led;
     Vector3 closedPos, openPos;
     float progress;
 
-    public static ControlDoor Create(Transform parent, Vector3 center, Vector3 size)
+    public static ControlDoor Create(Transform parent, Vector3 center, Vector3 size, int index = 1)
     {
         var go = new GameObject("PorteLaboratoire");
         go.transform.SetParent(parent, false);
         go.transform.localPosition = center;
         var door = go.AddComponent<ControlDoor>();
+        door.Index = index;
         door.slab = new GameObject("Battant").transform;
         door.slab.SetParent(go.transform, false);
         Material steel = GameArt.Lit("PorteLabo", new Color(0.42f, 0.44f, 0.46f), GameArt.Noise("concrete", 128, 0.85f, 0.15f, 5), 0.7f);
@@ -394,8 +695,8 @@ public class ControlDoor : Interactable
         door.openPos = Vector3.right * (size.x + 0.05f);
         var col = go.AddComponent<BoxCollider>();
         col.size = size;
-        Current = door;
-        door.SetOpen(GameSession.ControlRoomOpen, false);
+        doors[index] = door;
+        door.SetOpen(GameSession.SecretDoorOpen(index), false);
         return door;
     }
 
@@ -436,12 +737,129 @@ public class ControlDoor : Interactable
         }
     }
 
-    public override bool CanInteract => !Open && GameSession.Instance != null && GameSession.Instance.SelectedItem == ItemType.CarteMagnetique1;
-    public override string Prompt => Loc.T("Utiliser la Carte Magnétique 1");
-    public override void Interact() => GameSession.Instance.UseControlCard();
+    public override bool CanInteract => !Open && GameSession.Instance != null && GameSession.Instance.SelectedItem == Card;
+    public override string Prompt => Loc.T(Index == 2 ? "Utiliser la Carte Magnétique 2" : "Utiliser la Carte Magnétique 1");
+    public override void Interact() => GameSession.Instance.UseControlCard(Index);
+
+    void OnDestroy()
+    {
+        if (doors[Index] == this) doors[Index] = null;
+    }
+}
+
+// Porte du Bureau L.I.V. (V0.7.4) : entrouverte, marquée "L.I.V." en blanc lumineux et en relief côté Vestiaire. Un joueur
+// la pousse (objet interactif) : elle s'ouvre en grand, chez tous (état tenu par l'hôte, GameSession.LivDoorPushed).
+public class LivDoor : Interactable
+{
+    public static LivDoor Current { get; private set; }
+    const float AjarAngle = 38f, PushedAngle = 102f, SwingTime = 0.9f;
+    bool pushed;
+    float angle = AjarAngle;
+
+    // 'hinge' : pied de la charnière (côté nord de l'ouverture) ; fermée, la porte s'étend vers le sud.
+    public static LivDoor Create(Transform parent, Vector3 hinge, float width, float height)
+    {
+        var go = new GameObject("PorteLIV");
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = hinge;
+        var door = go.AddComponent<LivDoor>();
+        Material wood = GameArt.Lit("PorteBureauBois", new Color(0.27f, 0.24f, 0.2f), GameArt.Noise("wood", 128, 0.75f, 0.2f, 13), 0.25f);
+        Material metal = GameArt.Lit("PoigneeLaiton", new Color(0.7f, 0.56f, 0.3f), null, 0.8f);
+        var leaf = GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(0f, height * 0.5f, -width * 0.5f), new Vector3(0.05f, height, width), wood);
+        leaf.AddComponent<BoxCollider>();
+        foreach (float s in new[] { -1f, 1f })
+            GameArt.Prim(PrimitiveType.Cube, go.transform, new Vector3(s * 0.045f, 1.0f, -width + 0.1f), new Vector3(0.04f, 0.03f, 0.13f), metal);
+        Letters(go.transform, new Vector3(-0.03f, 1.55f, -width * 0.5f));
+        Current = door;
+        door.SetPushed(GameSession.LivDoorPushed, false);
+        return door;
+    }
+
+    // "L.I.V." : modèle Meshy s'il existe (Resources/Art/Decor/EnseigneLIV), sinon lettres en relief (couches de texte
+    // superposées, la face blanche et lumineuse devant).
+    static void Letters(Transform parent, Vector3 at)
+    {
+        var holder = new GameObject("LIV").transform;
+        holder.SetParent(parent, false);
+        holder.localPosition = at;
+        // Face lisible depuis le Vestiaire (-X).
+        holder.localRotation = Quaternion.Euler(0f, 90f, 0f);
+        var shape = Resources.Load<Mesh>("Art/Decor/EnseigneLIV");
+        if (shape != null)
+        {
+            float scale = 0.7f / Mathf.Max(0.01f, shape.bounds.size.x);
+            var go = GameArt.MeshObject("L.I.V.", holder, shape, GameArt.Emissive("NeonBlancVif", Color.white, new Color(1.6f, 1.6f, 1.7f)));
+            go.transform.localScale = Vector3.one * scale;
+            go.transform.localPosition = new Vector3(-shape.bounds.center.x * scale, -shape.bounds.center.y * scale, -shape.bounds.max.z * scale);
+        }
+        else
+        {
+            const int layers = 6;
+            for (int k = layers - 1; k >= 0; k--)
+            {
+                float t = k / (float)(layers - 1);
+                var text = GameArt.CreateText(holder, k == 0 ? "Face" : "Relief" + k, new Vector3(0f, 0f, k * 0.004f), 0.05f,
+                    k == 0 ? Color.white : Color.Lerp(new Color(0.75f, 0.75f, 0.78f), new Color(0.25f, 0.25f, 0.27f), t));
+                text.text = "L.I.V.";
+                text.fontStyle = FontStyle.Bold;
+            }
+        }
+        var light = new GameObject("LueurLIV").AddComponent<Light>();
+        light.transform.SetParent(holder, false);
+        light.transform.localPosition = new Vector3(0f, 0f, -0.35f);
+        light.type = LightType.Point;
+        light.color = new Color(0.92f, 0.95f, 1f);
+        light.range = 1.6f;
+        light.intensity = 1.1f;
+        light.shadows = LightShadows.None;
+    }
+
+    public void SetPushed(bool value, bool animate)
+    {
+        if (value && !pushed && animate) GameAudio.Play3D("door", transform.position + Vector3.up, 0.6f, 15f, 0.05f, 0.7f);
+        pushed = value;
+        if (!animate) angle = pushed ? PushedAngle : AjarAngle;
+        Apply();
+    }
+
+    void Update()
+    {
+        float target = pushed ? PushedAngle : AjarAngle;
+        if (Mathf.Approximately(angle, target)) return;
+        angle = Mathf.MoveTowards(angle, target, (PushedAngle - AjarAngle) / SwingTime * Time.deltaTime);
+        Apply();
+    }
+
+    // Elle pivote vers le Bureau (+X).
+    void Apply() => transform.localRotation = Quaternion.Euler(0f, -angle, 0f);
+
+    public override bool CanInteract => !pushed;
+    public override string Prompt => Loc.T("Pousser la porte");
+    public override void Interact() => GameSession.Instance.PushLivDoor();
 
     void OnDestroy()
     {
         if (Current == this) Current = null;
+    }
+}
+
+// Lumière qui grésille : allumée presque tout le temps, avec des coupures brèves et irrégulières (plafonnier de l'Ascenseur).
+public class FlickeringLight : MonoBehaviour
+{
+    Light lamp;
+    float baseIntensity, nextChange;
+
+    void Awake()
+    {
+        lamp = GetComponent<Light>();
+        baseIntensity = lamp.intensity;
+    }
+
+    void Update()
+    {
+        if (Time.time < nextChange) return;
+        bool off = lamp.intensity > 0.01f && Random.value < 0.35f;
+        lamp.intensity = off ? 0f : baseIntensity * Random.Range(0.6f, 1f);
+        nextChange = Time.time + (off ? Random.Range(0.03f, 0.18f) : Random.Range(0.08f, 1.6f));
     }
 }

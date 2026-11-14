@@ -331,13 +331,13 @@ public class SecretCorpse : MonoBehaviour
     }
 
     // Carte magnétique d'accès (badge de laboratoire), 'width' de large : plastique blanc cassé, bande magnétique noire,
-    // liseré rouge WOOF et puce dorée.
-    public static void BuildCard(Transform parent, float width)
+    // liseré rouge WOOF et puce dorée. V0.7.4 : la Carte Magnétique 2 a un liseré bleu.
+    public static void BuildCard(Transform parent, float width, bool second = false)
     {
         float h = width * 0.63f, d = width * 0.03f;
         Material plastic = GameArt.Lit("CarteBlanc", new Color(0.88f, 0.9f, 0.92f), null, 0.6f);
         Material black = GameArt.Lit("CarteBande", new Color(0.03f, 0.03f, 0.03f), null, 0.4f);
-        Material red = GameArt.Lit("CarteRouge", new Color(0.7f, 0.06f, 0.06f), null, 0.5f);
+        Material red = second ? GameArt.Lit("CarteBleu", new Color(0.08f, 0.2f, 0.65f), null, 0.5f) : GameArt.Lit("CarteRouge", new Color(0.7f, 0.06f, 0.06f), null, 0.5f);
         Material gold = GameArt.Lit("CartePuce", new Color(0.9f, 0.72f, 0.3f), null, 0.85f);
         Prim(parent, Vector3.zero, new Vector3(width, h, d), plastic);
         Prim(parent, new Vector3(0f, h * 0.28f, -d * 0.55f), new Vector3(width * 0.98f, h * 0.18f, d * 0.2f), black);

@@ -9,34 +9,33 @@ using UnityEngine;
 // Calcul des Icônes : 1 icône à 1 joueur, 2 à 2 ou 3 joueurs, 3 à 4 ou 5, 4 à partir de 6). V0.7.2 : pastilles en léger
 // relief, disque noir cerclé de blanc. Chaque joueur qui maintient le clic sur le glyphe en allume une ; toutes
 // allumées en même temps, le glyphe est actionné, et elles le restent.
-// Zones paires : les glyphes d'acquisition (plus grands, jamais interactifs) se chargent quand une Balise chargée les voit :
-// ils brillent de blanc, un rayon les relie à la Balise, et leur ordre s'impose à tous les joueurs.
+// Zones paires : les glyphes d'acquisition (V0.7.4) s'actionnent comme les neutres, sans Clé ni boîtier : un câble noir les relie
+// à la porte de l'Acquisition Room, des icônes de pattes les surmontent, et le clic maintenu y allume une icône. Toutes allumées,
+// le glyphe est actionné (câble blanc, icônes allumées) et son ordre s'impose à tous les joueurs ; l'ordre est écrit sous le
+// glyphe, en blanc lumineux (police Ruslan Display, d'allure soviétique), jusqu'à la fin de sa durée.
 public class Glyph : Interactable
 {
-    public const float NeutralSize = 0.9f, AcquisitionSize = 1.5f;
-    static readonly Color GlowColor = new Color(1.5f, 1.5f, 1.5f);
+    public const float NeutralSize = 0.9f, AcquisitionSize = 0.9f;
 
     public int Id { get; private set; }
     public int Type { get; private set; }
     public int Zone { get; private set; }
     public bool Neutral { get; private set; }
-    public bool Charged { get; private set; }
-    // Glyphes neutres : boîtier brisé, puis glyphe actionné (une seule fois).
-    public bool CaseBroken { get; private set; }
+    // Glyphes neutres : boîtier brisé, puis glyphe actionné (une seule fois). Glyphes d'acquisition : pas de boîtier.
+    public bool CaseBroken => !Neutral || caseBroken;
+    bool caseBroken;
     public bool Activated { get; private set; }
-    // Centre de la face gravée (point d'attache du rayon d'énergie).
-    public Vector3 Anchor => face != null ? face.transform.position : transform.position;
 
     Renderer face, frame;
     Renderer cable;
     GameObject glassCase;
-    Light glow;
-    MaterialPropertyBlock block;
 
     // Sons propres à chaque glyphe (alertes terrifiantes de moins de 2 secondes).
     public static readonly string[] Sounds = { "glyph_sit", "glyph_kennel", "glyph_bark" };
+    // Ordres écrits sous un glyphe d'acquisition actionné (V0.7.4, traduits par Loc).
+    public static readonly string[] OrderTexts = { "Assis !", "A la niche !", "Aboie !" };
 
-    // ---------- Icônes de pattes (glyphes neutres, V0.6.13) ----------
+    // ---------- Icônes de pattes (glyphes neutres V0.6.13, glyphes d'acquisition V0.7.4) ----------
     const float PawIconSize = 0.2f, PawIconGap = 0.06f, PawIconRaise = 0.2f;
     static readonly Color PawDim = new Color(0.26f, 0.26f, 0.27f, 0.85f), PawLit = new Color(1f, 1f, 1f, 1f);
     static Texture2D pawTexture;
@@ -93,7 +92,6 @@ public class Glyph : Interactable
     // Nombre d'icônes (selon le nombre de joueurs en jeu).
     public void SetPawCount(int count)
     {
-        if (!Neutral) return;
         count = Mathf.Clamp(count, 1, 8);
         if (count == paws.Count) return;
         foreach (var r in paws) if (r != null) Destroy(r.gameObject);
@@ -180,24 +178,69 @@ public class Glyph : Interactable
         quad.name = "Gravure";
         glyph.face = quad.GetComponent<Renderer>();
         glyph.face.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        glyph.block = new MaterialPropertyBlock();
-
-        glyph.glow = new GameObject("Lueur").AddComponent<Light>();
-        glyph.glow.transform.SetParent(go.transform, false);
-        glyph.glow.transform.localPosition = new Vector3(0f, 0f, 0.8f);
-        glyph.glow.type = LightType.Point;
-        glyph.glow.color = Color.white;
-        glyph.glow.range = size * 4f;
-        glyph.glow.intensity = 1.5f;
-        glyph.glow.shadows = LightShadows.None;
-        glyph.glow.enabled = false;
 
         if (neutral) glyph.AddCase(size);
         glyph.FitTrigger(new Vector3(size, size, 0.4f));
         // Après la zone de sélection : elle reste à la taille de la plaque.
         glyph.AddFrame(size);
-        glyph.SetCharged(false);
         return glyph;
+    }
+
+    // ---------- Ordre écrit sous un glyphe d'acquisition actionné (V0.7.4) ----------
+
+    // Police d'allure soviétique (Resources/Fonts/RuslanDisplay-Regular, licence OFL, latin et cyrillique). Son atlas dynamique
+    // est reconstruit quand de nouveaux caractères apparaissent, le matériau suit.
+    static Font orderFont;
+    static Material orderMaterial;
+    const float OrderTextSize = 0.03f, OrderTextGap = 0.12f;
+    TextMesh orderText;
+    Light orderGlow;
+
+    static Font OrderFont => orderFont != null ? orderFont : orderFont = Resources.Load<Font>("Fonts/RuslanDisplay-Regular");
+
+    static Material OrderMaterial
+    {
+        get
+        {
+            if (orderMaterial != null) return orderMaterial;
+            if (OrderFont == null) return GameArt.TextMaterial;
+            var template = Resources.Load<Material>("Materials/Text3D");
+            orderMaterial = template != null ? new Material(template) { name = "TexteOrdre" } : new Material(OrderFont.material);
+            orderMaterial.mainTexture = OrderFont.material.mainTexture;
+            Font.textureRebuilt += f => { if (f == orderFont && orderMaterial != null) orderMaterial.mainTexture = orderFont.material.mainTexture; };
+            return orderMaterial;
+        }
+    }
+
+    // Texte de l'ordre (déjà traduit), ou null pour l'effacer.
+    public void SetOrderText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            if (orderText != null) orderText.gameObject.SetActive(false);
+            if (orderGlow != null) orderGlow.enabled = false;
+            return;
+        }
+        if (orderText == null)
+        {
+            float below = -plateSize * FrameWidthRatio * 0.5f - OrderTextGap;
+            orderText = GameArt.CreateText(transform, "Ordre", new Vector3(0f, below, 0.1f), OrderTextSize, Color.white, TextAnchor.UpperCenter);
+            if (OrderFont != null) orderText.font = OrderFont;
+            orderText.GetComponent<MeshRenderer>().sharedMaterial = OrderMaterial;
+            // Un TextMesh se lit depuis son -Z : retourné vers l'avant du glyphe.
+            orderText.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            orderGlow = new GameObject("LueurOrdre").AddComponent<Light>();
+            orderGlow.transform.SetParent(transform, false);
+            orderGlow.transform.localPosition = new Vector3(0f, below - 0.15f, 0.5f);
+            orderGlow.type = LightType.Point;
+            orderGlow.color = Color.white;
+            orderGlow.range = 2.2f;
+            orderGlow.intensity = 1.2f;
+            orderGlow.shadows = LightShadows.None;
+        }
+        orderText.text = text;
+        orderText.gameObject.SetActive(true);
+        orderGlow.enabled = true;
     }
 
     // Contour glissé derrière la plaque qui en cache le bord intérieur (V0.6.5) : blanc lumineux pour un glyphe d'acquisition ;
@@ -305,16 +348,17 @@ public class Glyph : Interactable
     // Pas de contour de sélection autour du carré invisible qui porte le cadre ; boîtier intact, seul lui est sélectionnable.
     protected override bool HasOutline(Renderer r) => r != frame && (glassCase == null || CaseBroken || r.transform.IsChildOf(glassCase.transform));
 
-    // Glyphe neutre : état du boîtier et du glyphe (identique chez tous les joueurs).
-    public void SetNeutralState(bool broken, bool activated, bool animate)
+    // État du boîtier (glyphe neutre) et du glyphe (identique chez tous les joueurs). Un glyphe d'acquisition n'a pas de
+    // boîtier et garde son contour blanc lumineux.
+    public void SetState(bool broken, bool activated, bool animate)
     {
-        if (!Neutral) return;
+        broken |= !Neutral;
         if (broken && !CaseBroken && animate) ShatterCase();
         bool caseChanged = broken != CaseBroken;
-        CaseBroken = broken;
+        if (Neutral) caseBroken = broken;
         Activated = activated;
-        glassCase.SetActive(!broken);
-        frame.sharedMaterial = FrameMaterial(activated);
+        if (glassCase != null) glassCase.SetActive(!broken);
+        frame.sharedMaterial = FrameMaterial(activated || !Neutral);
         if (cable != null) cable.sharedMaterial = CableMaterial(activated);
         if (activated) pawsLit = paws.Count;
         RefreshPaws();
@@ -354,14 +398,6 @@ public class Glyph : Interactable
         }
     }
 
-    public void SetCharged(bool on)
-    {
-        Charged = on;
-        glow.enabled = on;
-        block.SetColor("_EmissionColor", on ? GlowColor : Color.black);
-        face.SetPropertyBlock(block);
-    }
-
     void UpdateGlass()
     {
         if (glass == null || CaseBroken || !glass.isVisible) return;
@@ -374,22 +410,15 @@ public class Glyph : Interactable
         glass.SetPropertyBlock(glassBlock, 0);
     }
 
-    void Update()
-    {
-        UpdateGlass();
-        if (!Charged) return;
-        float k = 0.8f + 0.2f * Mathf.Sin(Time.time * 3.1f + Id);
-        glow.intensity = 1.5f * k;
-        block.SetColor("_EmissionColor", GlowColor * k);
-        face.SetPropertyBlock(block);
-    }
+    void Update() => UpdateGlass();
 
-    // Seuls les glyphes neutres sont interactifs : le boîtier avec une Clé en main (en godmod, sans Clé), puis le glyphe, une fois.
+    // Glyphe neutre : le boîtier avec une Clé en main (en godmod, sans Clé), puis le glyphe, une fois. Glyphe d'acquisition
+    // (V0.7.4) : le glyphe, une fois.
     public override bool CanInteract
     {
         get
         {
-            if (!Neutral || Activated) return false;
+            if (Activated) return false;
             if (CaseBroken) return true;
             var session = GameSession.Instance;
             return session != null && (session.SelectedItem == ItemType.Cle || session.Godmode);
@@ -405,7 +434,7 @@ public class Glyph : Interactable
     }
 }
 
-// Textures des glyphes : motif seul (blanc sur transparent), sert aussi de carte d'émission pour que le glyphe chargé s'illumine.
+// Textures des glyphes : motif seul (blanc sur transparent) ; plaque crème au motif rouge.
 public static class GlyphArt
 {
     public static readonly Color Red = new Color32(224, 60, 64, 255);
@@ -435,7 +464,7 @@ public static class GlyphArt
 }
 
 // Porte du chapiteau suivant, dans le mur nord de l'Acquisition Room (GDD 9, V0.6) : elle porte tous les glyphes
-// d'acquisition de la zone ; chacun s'allume en blanc, avec un contour blanc lumineux (V0.6.5), quand son glyphe est chargé.
+// d'acquisition de la zone ; chacun s'allume en blanc, avec un contour blanc lumineux (V0.6.5), quand son glyphe est actionné.
 // Elle s'ouvre (le battant s'enfonce dans le sol) quand tous le sont. Elle ne se referme que pour sceller les zones trop en
 // arrière (chapitre 9.2).
 public class AcquisitionDoor : MonoBehaviour
@@ -524,7 +553,7 @@ public class AcquisitionDoor : MonoBehaviour
     {
         if (index < 0 || index >= icons.Count) return;
         lit[index] = on;
-        // Motif rouge ; blanc lumineux, sur son médaillon assombri pour rester lisible, quand son glyphe est chargé.
+        // Motif rouge ; blanc lumineux, sur son médaillon assombri pour rester lisible, quand son glyphe est actionné.
         icons[index].material.color = on ? Color.white : GlyphArt.Red;
         plates[index].sharedMaterial = on ? GlyphArt.CreamDim : GlyphArt.Cream;
         halos[index].SetActive(on);

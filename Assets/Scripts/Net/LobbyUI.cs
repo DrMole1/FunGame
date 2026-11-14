@@ -219,6 +219,9 @@ public class LobbyUI : MonoBehaviour
         // Souris sur le menu du lobby ou le menu pause : la scène s'assombrit (fondu dans FilmGrain).
         FilmGrain.MenuHover = Hovered(lobbyBackdrop) || Hovered(pausePanel.transform as RectTransform) || Hovered(controlsPanel)
             || controlsUI.Hovered;
+        // V0.7.4 (Note 04) : dans le lobby, le personnage reste visible, éclairé par un projecteur.
+        FilmGrain.Spotlit = !inGame && lobbyPanel.activeSelf && !loading && NetworkGame.Instance != null && NetworkGame.Instance.LocalPlayer != null
+            ? NetworkGame.Instance.LocalPlayer.transform : null;
         // Clignotement lent, en fondu.
         if (paused)
         {

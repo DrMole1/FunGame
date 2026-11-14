@@ -670,6 +670,8 @@ public class BeaconNetwork : MonoBehaviour
     readonly Dictionary<Beacon, int> fluxOf = new Dictionary<Beacon, int>();
     static readonly Color[] FluxColors = { new Color(0.15f, 0.45f, 1f), new Color(0.48f, 0.12f, 1f), new Color(0.12f, 0.9f, 0.3f), new Color(1f, 0.62f, 0.08f) };
     static readonly Color[] FluxCores = { new Color(0.75f, 0.9f, 1f), new Color(0.88f, 0.75f, 1f), new Color(0.75f, 1f, 0.82f), new Color(1f, 0.92f, 0.7f) };
+    public static Color FluxColor(int index) => FluxColors[Mathf.Clamp(index, 0, FluxColors.Length - 1)];
+    public static Color FluxCore(int index) => FluxCores[Mathf.Clamp(index, 0, FluxCores.Length - 1)];
     static readonly int BeamColorId = Shader.PropertyToID("_Color"), BeamCoreId = Shader.PropertyToID("_CoreColor"), BeamLengthId = Shader.PropertyToID("_Length");
     readonly RaycastHit[] hits = new RaycastHit[16];
     MaterialPropertyBlock beamBlock;
@@ -683,9 +685,6 @@ public class BeaconNetwork : MonoBehaviour
 
     // Le décor vient de changer (porte, pont) : les lignes de vue sont revérifiées en priorité le temps qu'il finisse de bouger.
     public static void SightChanged() => urgentSightUntil = Time.time + UrgentSightWindow;
-
-    // Identifiants des cibles non-Balises dans les lignes de vue gardées en mémoire.
-    public static int GlyphTarget(int id) => (1 << 30) + id;
 
     // V0.7.2 : les Balises principales des Hubs restent chargées en permanence (plus de Chargeur).
     public bool HubCharged => true;

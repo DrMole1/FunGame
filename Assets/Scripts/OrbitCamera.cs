@@ -406,9 +406,20 @@ public class OrbitCamera : MonoBehaviour
         Vector3 pos = focus - rot * Vector3.forward * currentDistance;
         // Jamais sous les pieds du personnage (le pivot est au centre de la capsule).
         pos.y = Mathf.Max(pos.y, target.position.y - MaxDropBelowCenter);
+        Quaternion camRotation = Quaternion.LookRotation(focus - pos);
+        // V0.7.4 (Note 02) : à la troisième personne aussi, un très léger balancement au rythme des pas (le même qu'à la première
+        // personne, en bien plus discret).
+        if (controller != null && tunnelK < 0.01f)
+        {
+            Vector3 bob = HeadBob(controller, rot, out float roll);
+            pos += bob * ThirdPersonBob;
+            camRotation *= Quaternion.Euler(0f, 0f, roll * ThirdPersonBob);
+        }
         transform.position = pos;
-        transform.rotation = Quaternion.LookRotation(focus - pos);
+        transform.rotation = camRotation;
     }
+
+    const float ThirdPersonBob = 0.4f;
 
     // Première personne : la tête oscille légèrement au rythme des pas (vertical, latéral et un soupçon de roulis),
     // d'autant plus que le personnage va vite ; l'effet s'estompe à l'arrêt et en l'air.

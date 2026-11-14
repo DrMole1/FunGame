@@ -159,6 +159,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     bool healing;
     List<Vector3> teleportPath;
     int teleportLeg;
+    float teleportStartedAt;
     GameObject energyBall;
     public static bool Teleporting { get; private set; }
 
@@ -756,7 +757,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
         var target = player.GetComponent<PlayerInteractor>().Current;
         string prompt = target != null ? target.Prompt : "";
-        hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : target.InfoOnly ? prompt : "[" + Controls.Label(GameAction.Interact) + "] " + prompt);
+        if (CanSkipTeleport) hud.SetPrompt("[" + Controls.Label(GameAction.Jump) + "] " + Loc.T("Passer"));
+        else hud.SetPrompt(string.IsNullOrEmpty(prompt) ? "" : target.InfoOnly ? prompt : "[" + Controls.Label(GameAction.Interact) + "] " + prompt);
         // Cap de la caméra (là où le joueur regarde), pas celui du personnage.
         hud.SetCompass(compass && !status.Dead, (orbit != null ? orbit.transform : player.transform).eulerAngles.y);
     }
@@ -1891,7 +1893,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 looking = !status.Dead && !Teleporting && cam != null && CameraSees(cam, fou, GameRules.FouSightRange);
             else if (e is Cavalier cav)
                 looking = cav.Current == Cavalier.State.Chase && cav.TargetId == net.MyId && !status.Dead && cam != null
-                    && CameraSees(cam, cav, GameRules.CavalierChaseDistance) && FacesCavalier(cav);
+                    && CameraSeesBody(cam, cav, GameRules.CavalierChaseDistance) && FacesCavalier(cav);
             else continue;
             watching.TryGetValue(e.Id, out bool before);
             if (looking == before) continue;
@@ -1959,6 +1961,40 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         PostFx.NightmareProximity = Mathf.Clamp01(1f - nearest / 15f);
         // À la mort, le battement de cœur s'estompe progressivement (GDD 12, Battement_Coeur).
         OrbitCamera.Dying = status.Dead;
+    }
+
+    // V0.7.4 (Note 07) : n'importe quelle partie du corps à l'écran et à découvert (un bras, une jambe qui dépasse d'un coin de
+    // mur ou du bord de l'écran) suffit : chaque os de son squelette animé est testé (au plus BodyPoints), en plus des points
+    // de l'axe (tête, buste, jambes).
+    const int BodyPoints = 48;
+    static readonly Dictionary<int, Transform[]> bodyBones = new Dictionary<int, Transform[]>();
+
+    static bool CameraSeesBody(Camera cam, Entity e, float range)
+    {
+        if (CameraSees(cam, e, range)) return true;
+        if (!bodyBones.TryGetValue(e.Id, out var bones) || bones == null || bones.Length == 0 || bones[0] == null)
+        {
+            var set = new List<Transform>();
+            foreach (var smr in e.GetComponentsInChildren<SkinnedMeshRenderer>())
+                foreach (var bone in smr.bones)
+                    if (bone != null && !set.Contains(bone)) set.Add(bone);
+            // Un sur deux, un sur trois... s'il y en a trop.
+            int step = Mathf.Max(1, Mathf.CeilToInt(set.Count / (float)BodyPoints));
+            var picked = new List<Transform>();
+            for (int i = 0; i < set.Count; i += step) picked.Add(set[i]);
+            bodyBones[e.Id] = bones = picked.ToArray();
+        }
+        Vector3 from = cam.transform.position;
+        foreach (var bone in bones)
+        {
+            if (bone == null) continue;
+            Vector3 point = bone.position;
+            Vector3 v = cam.WorldToViewportPoint(point);
+            if (v.z <= 0f || v.z > range || v.x < 0f || v.x > 1f || v.y < 0f || v.y > 1f) continue;
+            if (!Physics.Linecast(from, point, out RaycastHit hit, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+                || hit.collider.transform.IsChildOf(e.transform)) return true;
+        }
+        return false;
     }
 
     // L'entité (Le Fou, Le Cavalier) est à l'écran, à portée, et un point de son corps (tête, buste ou jambes) n'est caché
@@ -2140,6 +2176,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         {
             // La Balise du Hub tombe à 0 : la téléportation se rompt.
             if (status.Dead || phase == Phase.GameOver) { EndTeleport(true); return; }
+            // V0.7.4 : au bout de 5 secondes de voyage, un saut fait arriver tout de suite (le transport le long du flux est passé).
+            if (CanSkipTeleport && Controls.Down(GameAction.Jump)) { SkipTeleport(); return; }
             TravelStep(Time.deltaTime);
             return;
         }
@@ -2161,7 +2199,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         channelPad = null;
         var path = beacons.PathToHub(pad);
         if (path == null) return;
-        StartTeleport(pad.transform.position, path);
+        // Le trajet finit à la Balise principale d'un Hub : la boule prend la couleur de son flux.
+        Beacon arrivalHub = beacons.NearestHub(path[path.Count - 1]);
+        StartTeleport(pad.transform.position, path, Beacon.ColorIndex(arrivalHub != null ? arrivalHub.HubIndex : 1));
     }
 
     void StopChannelSound()
@@ -2173,7 +2213,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // 'padPos' : disque du Téléporteur (ou du Téléporteur Inversé) ; 'arrival' : point d'arrivée (null : à côté de la Balise
     // principale du Hub où mène le trajet).
-    void StartTeleport(Vector3 padPos, List<Vector3> path, Vector3? arrival = null)
+    // 'fluxColor' (V0.7.4, Note 06) : couleur du flux suivi (0 bleu, 1 violet, 2 vert, 3 or).
+    void StartTeleport(Vector3 padPos, List<Vector3> path, int fluxColor, Vector3? arrival = null)
     {
         Teleporting = true;
         presence.Teleporting = true;
@@ -2182,14 +2223,17 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         path.Insert(0, padPos + Vector3.up * 0.9f);
         teleportPath = path;
         teleportLeg = 0;
+        teleportStartedAt = Time.time;
         // Le trajet est envoyé une fois : les autres joueurs le rejouent eux-mêmes, sans dépendre des positions reçues
         // (à 70 m/s, le moindre paquet en retard faisait saccader la boule).
-        var sb = new System.Text.StringBuilder("TS");
+        // V0.7.4 : "TJ" (et non plus "TS", déjà pris par l'occupant du Terminal : le trajet n'était jamais relayé).
+        var sb = new System.Text.StringBuilder("TJ|" + fluxColor);
         foreach (var p in path) sb.Append('|').Append(NetworkGame.F(p.x)).Append('|').Append(NetworkGame.F(p.y)).Append('|').Append(NetworkGame.F(p.z));
         net.ToHost(sb.ToString());
         player.SetFrozen(true);
         avatar.SetHidden(true);
         if (energyBall == null) energyBall = BuildEnergyBall(player.transform);
+        TintEnergyBall(energyBall, fluxColor);
         energyBall.SetActive(true);
         terminal.Close();
         postItUI.Close();
@@ -2211,6 +2255,16 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (teleportLeg >= teleportPath.Count) EndTeleport(true, true);
     }
 
+    // "[sauter] Passer" (V0.7.4) : proposé après 5 secondes de voyage (Téléporteur ou Téléporteur Inversé).
+    bool CanSkipTeleport => Teleporting && teleportPath != null && Time.time - teleportStartedAt >= GameRules.TeleportSkipDelay;
+
+    void SkipTeleport()
+    {
+        if (teleportPath.Count > 0) player.transform.position = teleportPath[teleportPath.Count - 1];
+        teleportLeg = teleportPath.Count;
+        EndTeleport(true, true);
+    }
+
     // Fin du voyage : à côté de la Balise du Hub ou de la Balise de destination du Téléporteur Inversé (arrivée), ou là où il
     // s'est rompu.
     void EndTeleport(bool restore, bool arrived = false)
@@ -2220,6 +2274,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         presence.Teleporting = false;
         if (energyBall != null) energyBall.SetActive(false);
         avatar.SetHidden(false);
+        // V0.7.4 : le personnage n'est plus figé, même quand le voyage est interrompu sans retour (mort, nouvelle partie).
+        player.SetFrozen(false);
         if (!restore) return;
         Vector3 pos = player.transform.position;
         // Téléporteur Inversé : à côté de la Balise de destination.
@@ -2232,7 +2288,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             Vector3 toCenter = new Vector3(center.x - hubPos.x, 0f, center.z - hubPos.z).normalized;
             pos = new Vector3(hubPos.x, hubPos.y + 0.95f, hubPos.z) + toCenter * 1.3f;
         }
-        player.SetFrozen(false);
         player.Teleport(pos, player.transform.eulerAngles.y);
         if (arrived) GameAudio.Play3D("revive", pos, 0.7f, 20f, 0f, 1.3f);
     }
@@ -2242,20 +2297,41 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         var ball = new GameObject("BouleEnergie");
         ball.transform.SetParent(parent, false);
-        var core = GameArt.Prim(PrimitiveType.Sphere, ball.transform, Vector3.zero, Vector3.one * 0.35f,
-            GameArt.Emissive("EnergyCore", new Color(0.6f, 0.85f, 1f), new Color(1.2f, 1.8f, 3f)));
+        var core = GameArt.Prim(PrimitiveType.Sphere, ball.transform, Vector3.zero, Vector3.one * 0.35f, EnergyCore(0));
+        core.name = "Coeur";
         core.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         var aura = GameArt.Prim(PrimitiveType.Sphere, ball.transform, Vector3.zero, Vector3.one * 0.8f, GameArt.GhostAura);
+        aura.name = "Aura";
         aura.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         var light = new GameObject("Lueur").AddComponent<Light>();
         light.transform.SetParent(ball.transform, false);
         light.type = LightType.Point;
-        light.color = new Color(0.4f, 0.7f, 1f);
+        light.color = BallLight(0);
         light.range = 5f;
         light.intensity = 2f;
         light.shadows = LightShadows.None;
         ball.SetActive(false);
         return ball;
+    }
+
+    // V0.7.4 (Note 06) : la boule a la couleur du flux qu'elle suit ; bleue pour un flux bleu (comme avant), violette, verte ou
+    // dorée sinon (couleurs des Balises principales des Hubs).
+    static Material EnergyCore(int color) => color <= 0
+        ? GameArt.Emissive("EnergyCore", new Color(0.6f, 0.85f, 1f), new Color(1.2f, 1.8f, 3f))
+        : GameArt.Emissive("EnergyCore" + color, BeaconNetwork.FluxCore(color), BeaconNetwork.FluxColor(color) * 3f);
+
+    static Color BallLight(int color) => color <= 0 ? new Color(0.4f, 0.7f, 1f) : Beacon.HubColor(color + 1);
+
+    public static void TintEnergyBall(GameObject ball, int color)
+    {
+        if (ball == null) return;
+        color = Mathf.Clamp(color, 0, 3);
+        var core = ball.transform.Find("Coeur");
+        if (core != null) core.GetComponent<Renderer>().sharedMaterial = EnergyCore(color);
+        var aura = ball.transform.Find("Aura");
+        if (aura != null) aura.GetComponent<Renderer>().sharedMaterial = color == 0 ? GameArt.GhostAura : GameArt.GhostAuraTinted("Boule" + color, Beacon.HubColor(color + 1));
+        var light = ball.GetComponentInChildren<Light>(true);
+        if (light != null) light.color = BallLight(color);
     }
 
     // ================= Actions (interactions) =================
@@ -3354,16 +3430,16 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (entities.TryGetValue(NetworkGame.I(f[1]), out var killer) && killer != null) killer.PlayKillSound();
                 break;
             // Trajet d'une téléportation : l'hôte le relaie à tous avec l'identifiant de son auteur.
-            case "TS" when host && f.Length >= 4:
+            case "TJ" when host && f.Length >= 5:
                 net.ToAll("TP|" + from + raw.Substring(2));
                 break;
-            case "TP" when f.Length >= 5:
+            case "TP" when f.Length >= 6:
                 if (f[1] != net.MyId && net.Remotes.TryGetValue(f[1], out var traveller) && traveller != null)
                 {
                     var tpPath = new List<Vector3>();
-                    for (int i = 2; i + 2 < f.Length; i += 3)
+                    for (int i = 3; i + 2 < f.Length; i += 3)
                         tpPath.Add(new Vector3(NetworkGame.P(f[i]), NetworkGame.P(f[i + 1]), NetworkGame.P(f[i + 2])));
-                    traveller.PlayTeleport(tpPath);
+                    traveller.PlayTeleport(tpPath, NetworkGame.I(f[2]));
                 }
                 break;
             case "HL" when host && f.Length >= 2:

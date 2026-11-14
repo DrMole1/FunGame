@@ -167,9 +167,12 @@ public class RemotePlayer : MonoBehaviour
     int tpLeg;
     float tpReleaseAt;
 
-    public void PlayTeleport(System.Collections.Generic.List<Vector3> path)
+    public void PlayTeleport(System.Collections.Generic.List<Vector3> path, int fluxColor)
     {
         if (path.Count == 0) return;
+        // V0.7.4 (Note 06) : la boule a la couleur du flux suivi.
+        if (energyBall == null) energyBall = GameSession.BuildEnergyBall(transform);
+        GameSession.TintEnergyBall(energyBall, fluxColor);
         tpPath = path;
         tpLeg = 0;
         TeleportFrom = path[0];

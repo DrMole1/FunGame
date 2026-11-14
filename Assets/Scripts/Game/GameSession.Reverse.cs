@@ -156,7 +156,7 @@ public partial class GameSession
         Vector3 from = path.Count >= 2 ? path[path.Count - 2] : pad.transform.position;
         Vector3 back = new Vector3(from.x - last.x, 0f, from.z - last.z);
         back = back.sqrMagnitude > 0.01f ? back.normalized : Vector3.forward;
-        StartTeleport(pad.transform.position, path, last + back * 1.3f + Vector3.up * 0.95f);
+        StartTeleport(pad.transform.position, path, Beacon.ColorIndex(hub), last + back * 1.3f + Vector3.up * 0.95f);
     }
 
     bool HandleReverseMessage(string from, string[] f, bool host)
