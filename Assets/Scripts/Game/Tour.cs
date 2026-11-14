@@ -278,7 +278,8 @@ public class Tour : Entity
     // ================= Canalisation : accroupissement lent et yeux rouges =================
 
     // Pendant les 3 s de canalisation, elle s'accroupit lentement (bassin abaissé, buste penché, genoux pliés, pieds
-    // au sol) ; ses yeux s'allument d'un rouge luisant, visible même dans le noir, jusqu'à la fin de la charge.
+    // au sol). V0.7.2 : le modèle (Meshy) a de vrais yeux rouges, deux cercles qui brillent faiblement dans le noir ; ils
+    // s'illuminent pendant la canalisation et la charge.
     const float CrouchDrop = 0.7f, CrouchLean = 22f, CrouchRelease = 0.3f;
     Transform hips, spine, head, eyes;
     (Transform upper, Transform lower, Transform foot)[] legs;
@@ -291,8 +292,24 @@ public class Tour : Entity
         crouch = goal >= crouch ? goal : Mathf.MoveTowards(crouch, goal, Time.deltaTime / CrouchRelease);
         if (crouch > 0.001f) Crouch(crouch);
         bool red = Current == State.Channel || Current == State.Charge;
-        if (red && eyes == null) BuildEyes();
-        if (eyes != null && eyes.gameObject.activeSelf != red) eyes.gameObject.SetActive(red);
+        if (eyes == null) BuildEyes();
+        eyeLevel = Mathf.MoveTowards(eyeLevel, red ? 1f : 0f, Time.deltaTime * (red ? 4f : 1.5f));
+        if (Mathf.Abs(eyeLevel - eyeShown) > 0.01f) ShowEyes();
+        if (eyeGlow != null) eyeGlow.enabled = eyeLevel > 0.05f;
+    }
+
+    // Lueur des yeux : faible en temps normal, vive en charge.
+    const float EyeIdleGlow = 0.9f, EyeChargeGlow = 5f;
+    static readonly Color EyeColor = new Color(1f, 0.12f, 0.06f);
+    float eyeLevel, eyeShown = -1f;
+    readonly List<Material> eyeMaterials = new List<Material>();
+
+    void ShowEyes()
+    {
+        eyeShown = eyeLevel;
+        Color c = EyeColor * Mathf.Lerp(EyeIdleGlow, EyeChargeGlow, eyeLevel);
+        foreach (var m in eyeMaterials) if (m != null) m.SetColor("_EmissionColor", c);
+        if (eyeGlow != null) eyeGlow.intensity = 1.4f * eyeLevel;
     }
 
     void Crouch(float w)
@@ -330,26 +347,38 @@ public class Tour : Entity
         Transform parent = head != null ? head : transform;
         eyes = new GameObject("YeuxRouges").transform;
         eyes.SetParent(parent, false);
-        eyes.localScale = Vector3.one / Mathf.Max(0.0001f, parent.lossyScale.x);
         Vector3 at = head != null ? head.position + transform.up * EyeUp + transform.forward * EyeForward : transform.position + Vector3.up * EyeHeight + transform.forward * 0.4f;
         eyes.SetPositionAndRotation(at, transform.rotation);
-        Material glow = GameArt.Glow("TourEyes", new Color(1f, 0.08f, 0.03f), 3.5f);
-        foreach (float x in new[] { -EyeGap, EyeGap })
-            GameArt.Prim(PrimitiveType.Sphere, eyes, new Vector3(x, 0f, 0f), new Vector3(0.09f, 0.05f, 0.04f), glow)
-                .GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        // Les yeux sont peints dans la texture : la carte d'émission (Resources/Art/TourYeux, le rouge de la texture) les
+        // fait briller dans le noir.
+        var emission = Resources.Load<Texture2D>("Art/TourYeux");
+        if (emission != null)
+            foreach (var r in GetComponentsInChildren<SkinnedMeshRenderer>())
+            {
+                var mats = r.materials;
+                foreach (var m in mats)
+                {
+                    m.EnableKeyword("_EMISSION");
+                    m.SetTexture("_EmissionMap", emission);
+                    m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                    eyeMaterials.Add(m);
+                }
+                r.materials = mats;
+            }
         eyeGlow = new GameObject("Lueur").AddComponent<Light>();
         eyeGlow.transform.SetParent(eyes, false);
-        eyeGlow.transform.localPosition = new Vector3(0f, 0f, 0.2f);
+        eyeGlow.transform.localPosition = new Vector3(0f, 0f, 0.3f);
         eyeGlow.type = LightType.Point;
         eyeGlow.color = new Color(1f, 0.1f, 0.05f);
         eyeGlow.range = 2.5f;
-        eyeGlow.intensity = 1.2f;
+        eyeGlow.intensity = 0f;
         eyeGlow.shadows = LightShadows.None;
-        eyes.gameObject.SetActive(false);
+        eyeGlow.enabled = false;
+        ShowEyes();
     }
 
     // Position des yeux par rapport à l'os de la tête (modèle Meshy agrandi de 25 %).
-    const float EyeUp = 0.2f, EyeForward = 0.6f, EyeGap = 0.12f;
+    const float EyeUp = 0.2f, EyeForward = 0.6f;
 
     // Impact de la charge.
     protected override void OnPulse() => GameAudio.Play3D("tour_impact", transform.position + Vector3.up, 1f, 35f, 0.05f);

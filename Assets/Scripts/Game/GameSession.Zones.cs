@@ -79,7 +79,6 @@ public partial class GameSession
         if (zoneSteps > 0) stepsPerZone = zoneSteps;
         zoneSteps = 0;
         zones.Add(zone);
-        RegisterArcades(zone.arcades);
         // Le Hub N est au sud de la zone 2N - 1.
         if (index > 1 && index % 2 == 1) AddHubFixtures(WorldBuilder.BuildHub(worldRoot, (index + 1) / 2));
         if (itemsRound == round) SpawnZoneItems(zone);
@@ -97,7 +96,6 @@ public partial class GameSession
         zoneBuild = null;
         foreach (var z in zones)
         {
-            foreach (var m in z.arcades) UnregisterArcade(m);
             // Une porte de chapiteau scellée a quitté sa zone.
             if (z.acquisitionDoor != null) Destroy(z.acquisitionDoor.gameObject);
             if (z.root != null) Destroy(z.root);
@@ -359,7 +357,6 @@ public partial class GameSession
         foreach (var z in zones)
         {
             if (z.index > sealedZones || !z.root.activeSelf) continue;
-            foreach (var m in z.arcades) UnregisterArcade(m);
             if (z.acquisitionDoor != null)
             {
                 z.acquisitionDoor.transform.SetParent(worldRoot, true);
@@ -387,7 +384,6 @@ public partial class GameSession
                 z.acquisitionDoor.transform.SetParent(z.root.transform, true);
                 z.acquisitionDoor.gameObject.SetActive(true);
             }
-            RegisterArcades(z.arcades);
         }
         SetHubsActive(sealedZones / 2 + 1, hubs.Count, true);
         beacons.SealHubs(sealedZones / 2);
@@ -408,6 +404,7 @@ public partial class GameSession
     // Monticules et objets à terre des zones scellées.
     void RemoveSealedItems()
     {
+        RemoveSealedSuperMounds();
         foreach (var kv in new List<KeyValuePair<int, Mound>>(mounds))
         {
             if (kv.Key / MoundIdsPerZone > sealedZones) continue;

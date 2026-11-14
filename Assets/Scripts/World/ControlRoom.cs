@@ -8,6 +8,9 @@ using UnityEngine;
 // murs, plafond et sol noirs, l'enseigne
 // "Control Room" au mur (comme la Neutral Room et l'Acquisition Room).
 // Tout est construit dans le repère du Hub 1 (son centre à l'origine, le sud vers -Z).
+// V0.7.2 (Note 07) : le tube est fait de segments de tunnel en béton (modèle Meshy, Resources/Art/TunnelBeton), aux mêmes
+// dimensions, toujours aussi sombre ; des pellicules de poussière en tombent. La porte, au fond, reprend le modèle de la porte
+// de la Neutral Room (porte blindée).
 public static class ControlWing
 {
     // Tout le tunnel est surélevé : son ouverture reste cachée derrière l'Écran des Logs (de 0,7 m à 4,4 m de haut).
@@ -65,9 +68,13 @@ public static class ControlWing
 
         // Tube, sol plat et collisions jusqu'à la Control Room.
         float z0 = -WallInner - 0.02f, z1 = RoomNorth - 0.05f;
-        var tube = new Mesh2();
-        tube.Tube(TunnelAxis, TunnelRadius, z0, z1, 32);
-        GameArt.MeshObject("Tunnel", root, tube.Build("Tunnel"), tunnel);
+        if (!BuildSegments(root, z0, z1))
+        {
+            var tube = new Mesh2();
+            tube.Tube(TunnelAxis, TunnelRadius, z0, z1, 32);
+            GameArt.MeshObject("Tunnel", root, tube.Build("Tunnel"), tunnel);
+        }
+        BuildDust(root, z0, z1);
         var floor = new Mesh2();
         floor.Quad(new Vector3(-FloorHalf, 0.005f, z0), new Vector3(FloorHalf, 0.005f, z0), new Vector3(FloorHalf, 0.005f, z1), new Vector3(-FloorHalf, 0.005f, z1), 0.5f);
         GameArt.MeshObject("SolTunnel", root, floor.Build("SolTunnel"), tunnel);
@@ -121,6 +128,81 @@ public static class ControlWing
 
         // Enseigne "Control Room" sur le mur du fond, face à l'entrée (néon Meshy si présent, sinon texte).
         Sign(root, new Vector3(0f, 3.6f, s0 + 0.02f));
+    }
+
+    // Segments Meshy (anneau de béton, axe Z, rayon intérieur ~0,77 m pour 1,4 m de long) mis à l'échelle du tube (rayon
+    // intérieur 1,5 m) et alignés bout à bout de z0 à z1. Assombris : le tunnel reste noir et obscur.
+    const float SegmentInnerRadius = 0.77f, SegmentLength = 1.4f;
+
+    static bool BuildSegments(Transform root, float z0, float z1)
+    {
+        var prefab = Resources.Load<GameObject>("Art/TunnelBeton");
+        if (prefab == null) return false;
+        float scale = TunnelRadius / SegmentInnerRadius;
+        float length = z0 - z1;
+        int count = Mathf.Max(1, Mathf.RoundToInt(length / (SegmentLength * scale)));
+        float stretch = length / (count * SegmentLength * scale);
+        var holder = new GameObject("Tunnel").transform;
+        holder.SetParent(root, false);
+        Material dark = null;
+        for (int k = 0; k < count; k++)
+        {
+            var seg = Object.Instantiate(prefab, holder);
+            seg.name = "Segment" + (k + 1);
+            foreach (var c in seg.GetComponentsInChildren<Collider>()) Object.Destroy(c);
+            seg.transform.localRotation = prefab.transform.localRotation * Quaternion.Euler(0f, 0f, k * 37f);
+            seg.transform.localScale = Vector3.Scale(prefab.transform.localScale, new Vector3(scale, scale, scale * stretch));
+            seg.transform.localPosition = new Vector3(0f, TunnelAxis, z0 - (k + 0.5f) * length / count);
+            foreach (var r in seg.GetComponentsInChildren<Renderer>())
+            {
+                if (dark == null)
+                {
+                    dark = new Material(r.sharedMaterial) { name = "TunnelBetonSombre", color = new Color(0.22f, 0.22f, 0.24f) };
+                    if (dark.HasProperty("_Glossiness")) dark.SetFloat("_Glossiness", 0.08f);
+                }
+                r.sharedMaterial = dark;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+        }
+        return true;
+    }
+
+    // Pellicules de poussière qui tombent lentement du haut du tube, sur toute sa longueur.
+    static void BuildDust(Transform root, float z0, float z1)
+    {
+        var go = new GameObject("Poussiere");
+        go.transform.SetParent(root, false);
+        go.transform.localPosition = new Vector3(0f, TunnelTop - 0.25f, (z0 + z1) * 0.5f);
+        var ps = go.AddComponent<ParticleSystem>();
+        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        var main = ps.main;
+        main.loop = true;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(5f, 8f);
+        main.startSpeed = 0f;
+        main.startSize = new ParticleSystem.MinMaxCurve(0.01f, 0.022f);
+        main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.4f, 0.39f, 0.37f, 0.35f), new Color(0.58f, 0.56f, 0.53f, 0.5f));
+        main.gravityModifier = 0.012f;
+        main.maxParticles = 220;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.prewarm = true;
+        var emission = ps.emission;
+        emission.rateOverTime = 26f;
+        var shape = ps.shape;
+        shape.shapeType = ParticleSystemShapeType.Box;
+        shape.scale = new Vector3(FloorHalf * 1.6f, 0.2f, Mathf.Abs(z0 - z1));
+        // Elles flottent et virevoltent un peu en tombant.
+        var noise = ps.noise;
+        noise.enabled = true;
+        noise.strength = 0.08f;
+        noise.frequency = 0.4f;
+        var color = ps.colorOverLifetime;
+        color.enabled = true;
+        var g = new Gradient();
+        g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                  new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.15f), new GradientAlphaKey(1f, 0.8f), new GradientAlphaKey(0f, 1f) });
+        color.color = g;
+        go.GetComponent<ParticleSystemRenderer>().sharedMaterial = GameArt.Spark;
+        ps.Play();
     }
 
     // Enseigne : le mot "Control" (Meshy, Resources/Art/Decor/EnseigneControlRoom) ; à défaut, un texte au néon.
@@ -275,21 +357,35 @@ public class ControlDoor : Interactable
         steel.SetFloat("_Metallic", 0.75f);
         Material yellow = GameArt.Lit("DangerJaune", new Color(0.95f, 0.75f, 0.1f), null, 0.4f);
         Material dark = GameArt.Lit("DangerNoir", new Color(0.04f, 0.04f, 0.04f), null, 0.4f);
-        Prim(door.slab, Vector3.zero, size, steel);
-        // Bandes de danger en bas, des deux côtés.
-        for (int k = 0; k < 6; k++)
+        // V0.7.2 : même modèle que la porte de la Neutral Room (porte blindée Meshy), ajusté à l'ouverture ; à défaut, une
+        // porte de laboratoire en primitives.
+        var blinded = GameArt.SpawnModel("PorteBlindee", door.slab, size.y);
+        if (blinded != null)
         {
-            float x = -size.x * 0.5f + (k + 0.5f) * size.x / 6f;
-            foreach (float s in new[] { -1f, 1f })
-            {
-                var stripe = Prim(door.slab, new Vector3(x, -size.y * 0.5f + 0.18f, s * (size.z * 0.5f + 0.004f)), new Vector3(size.x / 6f, 0.3f, 0.006f), k % 2 == 0 ? yellow : dark);
-                stripe.transform.localRotation = Quaternion.Euler(0f, 0f, 30f);
-            }
+            Bounds b = GameArt.LocalBounds(blinded.transform);
+            blinded.transform.localScale = new Vector3(size.x / Mathf.Max(0.01f, b.size.x), 1f, size.z * 1.6f / Mathf.Max(0.01f, b.size.z));
+            b = GameArt.LocalBounds(blinded.transform);
+            blinded.transform.localPosition = new Vector3(-b.center.x, -size.y * 0.5f - b.min.y, -b.center.z);
+            foreach (var r in blinded.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         }
-        // Hublot sombre en haut, et poignée.
-        foreach (float s in new[] { -1f, 1f })
-            Prim(door.slab, new Vector3(0f, size.y * 0.25f, s * (size.z * 0.5f + 0.004f)), new Vector3(0.45f, 0.3f, 0.006f), GameArt.WindowDark);
-        Prim(door.slab, new Vector3(-size.x * 0.38f, 0f, size.z * 0.5f + 0.03f), new Vector3(0.04f, 0.35f, 0.04f), GameArt.Metal);
+        else
+        {
+            Prim(door.slab, Vector3.zero, size, steel);
+            // Bandes de danger en bas, des deux côtés.
+            for (int k = 0; k < 6; k++)
+            {
+                float x = -size.x * 0.5f + (k + 0.5f) * size.x / 6f;
+                foreach (float s in new[] { -1f, 1f })
+                {
+                    var stripe = Prim(door.slab, new Vector3(x, -size.y * 0.5f + 0.18f, s * (size.z * 0.5f + 0.004f)), new Vector3(size.x / 6f, 0.3f, 0.006f), k % 2 == 0 ? yellow : dark);
+                    stripe.transform.localRotation = Quaternion.Euler(0f, 0f, 30f);
+                }
+            }
+            // Hublot sombre en haut, et poignée.
+            foreach (float s in new[] { -1f, 1f })
+                Prim(door.slab, new Vector3(0f, size.y * 0.25f, s * (size.z * 0.5f + 0.004f)), new Vector3(0.45f, 0.3f, 0.006f), GameArt.WindowDark);
+            Prim(door.slab, new Vector3(-size.x * 0.38f, 0f, size.z * 0.5f + 0.03f), new Vector3(0.04f, 0.35f, 0.04f), GameArt.Metal);
+        }
         // Lecteur de badge, à droite de l'ouverture (côté Hub), avec son voyant.
         var reader = Prim(go.transform, new Vector3(size.x * 0.5f + 0.2f, 0.15f, size.z * 0.5f + 0.12f), new Vector3(0.14f, 0.22f, 0.06f), dark);
         door.led = Prim(reader.transform.parent, reader.transform.localPosition + new Vector3(0f, 0.07f, 0.035f), new Vector3(0.05f, 0.025f, 0.01f), GameArt.Unlit("VoyantRouge", new Color(1f, 0.1f, 0.08f))).GetComponent<Renderer>();

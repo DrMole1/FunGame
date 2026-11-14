@@ -24,6 +24,8 @@ public class Pion : Entity
 
     public Vector3 Home { get; set; }
     public ItemType Carried { get; private set; }
+    // Point où il tient l'objet volé (V0.7.2 : une Cloche Décorative portée obnubile encore).
+    public Vector3 CarriedPoint => carriedVisual != null ? carriedVisual.position + Vector3.up * 0.15f : transform.position + Vector3.up * (Height + 0.1f);
 
     float curiousTimer, stateTimer;
     Vector3 fleeGoal;

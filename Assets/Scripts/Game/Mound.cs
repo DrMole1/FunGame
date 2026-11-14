@@ -48,7 +48,7 @@ public class Mound : Interactable
         return this;
     }
 
-    public override string Prompt => Digging ? "" : Loc.T("Creuser le monticule");
+    public override string Prompt => Digging ? "" : Loc.T("Creuser");
     public override bool CanInteract => !Digging;
     public override void Interact() => GameSession.Instance.RequestDig(this);
 

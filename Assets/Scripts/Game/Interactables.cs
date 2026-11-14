@@ -92,7 +92,7 @@ public class ItemPickup : Interactable
 
         if (GameArt.SpawnModel(Items.ModelName(type), visual, ModelHeight(type)) == null)
             BuildFallback(visual, type);
-        // V0.6.1 : un même modèle teinté pour les quatre tickets et les trois boules à facettes ; V0.6.3 : canards colorés.
+        // V0.6.3 : canards colorés (teinte du Hub).
         Items.ApplyLook(visual, type);
         // La Clé est couchée à plat sur le sol, immobile, centrée sur le point de chute. Son orientation dépend de l'id :
         // la même pour tous les joueurs.
@@ -103,7 +103,7 @@ public class ItemPickup : Interactable
         }
         else visual.gameObject.AddComponent<Bobbing>();
         if (Items.Dances(type)) DiscoDancer.Attach(visual);
-        // Lot gagné à une borne d'arcade ou Canard Coloré : il scintille de petites particules (un objet précieux).
+        // Peluche, Boule de Disco ou Canard Coloré : il scintille de petites particules (un objet précieux).
         if (Items.IsPrize(type) || Items.IsColoredDuck(type)) Fx.Sparkle(go.transform, Items.Get(type).color);
 
         var pickup = go.AddComponent<ItemPickup>();
@@ -116,9 +116,11 @@ public class ItemPickup : Interactable
         return pickup;
     }
 
-    // Hauteur du modèle à terre (le ticket est posé à plat, le Jeton WOOF debout comme une pièce).
+    // Hauteur du modèle à terre.
     static float ModelHeight(ItemType type) =>
-        Items.IsTicket(type) ? 0.05f : type == ItemType.JetonWoof ? 0.24f : Items.IsDiscoBall(type) ? 0.68f : Items.IsColoredDuck(type) ? Beacon.ColoredDuckHeight : 0.45f;
+        Items.IsDiscoBall(type) ? Beacon.DiscoHeight : Items.IsColoredDuck(type) ? Beacon.ColoredDuckHeight
+        : Items.IsBell(type) ? GameRules.BellHeight * 0.6f : type == ItemType.Television ? GameRules.TvHeight * 0.6f
+        : type == ItemType.Trampoline ? GameRules.TrampolineHeight : 0.45f;
 
     static void BuildFallback(Transform parent, ItemType type)
     {

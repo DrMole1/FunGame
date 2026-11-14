@@ -26,8 +26,8 @@ public static class SoundBank
         "cavalier_strike", "cavalier_stomp", "reveil_alarm", "reveil_boom",
         // V0.6 : glyphes (alertes terrifiantes, moins de 2 secondes) et La Tête de Cloche.
         "glyph_sit", "glyph_kennel", "glyph_bark", "tete_bell", "tete_kill", "tete_vue",
-        // V0.6.1 : arcades (musique de foire, jeton, Roulette, pince, danse) et boules à facettes (musique disco).
-        "arcade_music", "disco_music", "token", "roulette_start", "roulette_stop", "claw_down", "claw_open", "dance_arrow", "dance_hit",
+        // Musique disco d'une Boule de Disco posée (V0.7.2 : plus d'Arcades).
+        "disco_music",
         // Sons enregistrés seulement (GDD 12), sans équivalent synthétisé.
         "dame_kill", "tour_kill", "fou_kill", "roi_flash", "roi_kill",
         "doom",
@@ -38,6 +38,9 @@ public static class SoundBank
         "teleporter_ready", "round_spawn",
         // V0.6.14 (chapitre 15.3) : étincelles du cadavre de Tête de Cloche, porte du laboratoire secret.
         "spark", "lab_door",
+        // V0.7.2 (GDD 12) : statue de Pavlov approchée, première entrée dans le labyrinthe, porte neutre ou d'acquisition qui
+        // s'ouvre (enregistrés seulement).
+        "ambience_statue", "ambience_entrance", "ambience_opening",
     };
 
     // Synthèse des sons étalée sur les premières images : le jeu ne se fige pas au lancement. Un son demandé avant son tour est
@@ -167,50 +170,12 @@ public static class SoundBank
             case "glyph_kennel": return GlyphAlert(rnd, 1);
             case "glyph_bark": return GlyphAlert(rnd, 2);
             case "tete_bell": return TeteBell(rnd);
-            case "arcade_music": return ArcadeMusic(rnd);
             case "disco_music": return DiscoMusic(rnd);
-            case "token": return Token(rnd);
-            case "roulette_start": return RouletteStart(rnd);
-            case "roulette_stop": return RouletteStop(rnd);
-            case "claw_down": return ClawMotor(rnd);
-            case "claw_open": return ClawOpen(rnd);
-            case "dance_arrow": return Beep(1320f, 0.07f);
-            case "dance_hit": return DanceHit();
         }
         return null;
     }
 
-    // ---------- Arcades (V0.6.1) ----------
-
-    // Petite musique de foire d'une borne chargée : ritournelle de puces sonores, gaie et un peu grinçante, en boucle.
-    static float[] ArcadeMusic(System.Random rnd)
-    {
-        const float beat = 60f / 150f;
-        float loop = beat * 16f;
-        var d = Buffer(loop);
-        int[] melody = { 76, 79, 84, 79, 81, 79, 76, 72, 74, 77, 81, 77, 79, 76, 72, 74 };
-        int[] bass = { 48, 55, 48, 55, 53, 60, 53, 60, 50, 57, 50, 57, 55, 62, 55, 62 };
-        void Note(float f, float start, float length, float volume, bool square)
-        {
-            int i0 = Mathf.RoundToInt(start * Rate), n = Mathf.RoundToInt(length * Rate);
-            for (int i = 0; i < n; i++)
-            {
-                float t = (float)i / Rate;
-                float vib = 1f + 0.004f * Mathf.Sin(TwoPi * 5.5f * t);
-                float s = square ? Square(f * vib * t) * 0.6f + Square(f * 2.003f * t) * 0.15f : Mathf.Abs(Saw(f * t)) * 2f - 1f;
-                d[(i0 + i) % d.Length] += s * ASR(t, 0.005f, 0.04f, length) * volume;
-            }
-        }
-        for (int k = 0; k < 16; k++)
-        {
-            Note(Midi(melody[k]) * (1f + Noise(rnd) * 0.002f), k * beat, beat * 0.55f, 0.22f, true);
-            Note(Midi(melody[k] + 12), k * beat + beat * 0.5f, beat * 0.2f, 0.07f, true);
-            Note(Midi(bass[k] - 12), k * beat, beat * 0.45f, 0.4f, false);
-        }
-        var lp = new LowPass();
-        for (int i = 0; i < d.Length; i++) d[i] = lp.Process(d[i], 3200f);
-        return d;
-    }
+    // ---------- Boule de Disco ----------
 
     // Musique disco d'une boule à facettes : grosse caisse à chaque temps, charleston ouvert entre les temps, basse en octaves
     // et accords plaqués, 4 mesures en boucle.
@@ -257,105 +222,6 @@ public static class SoundBank
         }
         var lp = new LowPass();
         for (int i = 0; i < d.Length; i++) d[i] = lp.Process(d[i], 5000f);
-        return d;
-    }
-
-    // Jeton inséré : deux tintements métalliques et une glissade dans la machine.
-    static float[] Token(System.Random rnd)
-    {
-        var d = Buffer(0.6f);
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate, v = 0f;
-            foreach (float start in new[] { 0f, 0.09f })
-            {
-                float u = t - start;
-                if (u < 0f) continue;
-                v += (Sine(3150f * u) + Sine(4870f * u) * 0.6f + Sine(7020f * u) * 0.3f) * AD(u, 0.001f, 0.07f) * (start > 0f ? 0.6f : 1f);
-            }
-            float slide = t - 0.18f;
-            if (slide > 0f) v += Noise(rnd) * 0.25f * ASR(slide, 0.02f, 0.2f, 0.35f);
-            d[i] = v * 0.35f;
-        }
-        return d;
-    }
-
-    // Roulette lancée : levier qui claque, puis cliquetis du cliquet qui démarre.
-    static float[] RouletteStart(System.Random rnd)
-    {
-        var d = Buffer(0.9f);
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate;
-            float v = (Sine(140f * t) + Noise(rnd) * 0.6f) * AD(t, 0.002f, 0.05f);
-            // Cliquets de plus en plus rapprochés.
-            float phase = t * (6f + 18f * t);
-            float click = Mathf.Repeat(phase, 1f);
-            if (t > 0.1f) v += Noise(rnd) * Decay(click / Mathf.Max(0.001f, 6f + 18f * t), 0.004f) * 0.7f;
-            d[i] = v * 0.5f;
-        }
-        return d;
-    }
-
-    // Roulette arrêtée : carillon joyeux de trois notes.
-    static float[] RouletteStop(System.Random rnd)
-    {
-        var d = Buffer(1.3f);
-        int[] notes = { 84, 88, 91 };
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate, v = 0f;
-            for (int k = 0; k < notes.Length; k++)
-            {
-                float u = t - k * 0.12f;
-                if (u < 0f) continue;
-                float f = Midi(notes[k]);
-                v += (Sine(f * u) + Sine(f * 2.76f * u) * 0.3f) * AD(u, 0.002f, 0.4f);
-            }
-            d[i] = v * 0.3f;
-        }
-        return d;
-    }
-
-    // Moteur de la pince qui descend : bourdonnement électrique qui oscille.
-    static float[] ClawMotor(System.Random rnd)
-    {
-        var d = Buffer(1.1f);
-        var lp = new LowPass();
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate;
-            float f = 95f + 8f * Mathf.Sin(TwoPi * 7f * t);
-            float v = Saw(f * t) * 0.6f + Square(f * 2f * t) * 0.15f + Noise(rnd) * 0.05f;
-            d[i] = lp.Process(v, 900f) * ASR(t, 0.05f, 0.15f, 1.1f) * 0.6f;
-        }
-        return d;
-    }
-
-    // Pince qui s'ouvre : déclic sec et petit ressort.
-    static float[] ClawOpen(System.Random rnd)
-    {
-        var d = Buffer(0.4f);
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate;
-            d[i] = (Noise(rnd) * AD(t, 0.001f, 0.01f) + Sine(620f * t * (1f + t)) * AD(t, 0.002f, 0.09f) * 0.5f) * 0.5f;
-        }
-        return d;
-    }
-
-    // Flèche réussie : arpège montant très bref.
-    static float[] DanceHit()
-    {
-        var d = Buffer(0.3f);
-        int[] notes = { 84, 88, 91 };
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate;
-            int k = Mathf.Min(notes.Length - 1, (int)(t / 0.06f));
-            float u = t - k * 0.06f;
-            d[i] = Square(Midi(notes[k]) * t) * AD(u, 0.002f, 0.05f) * 0.25f;
-        }
         return d;
     }
 

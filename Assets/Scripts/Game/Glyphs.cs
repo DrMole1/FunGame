@@ -5,8 +5,9 @@ using UnityEngine;
 // 0 : "immobile et accroupi"   1 : "aller à la niche"   2 : "aboyer"
 // Zones impaires : 3 glyphes neutres, enfermés dans un boîtier de verre et reliés à la porte de la Neutral Room par un câble
 // noir. Une Clé en main brise le boîtier, un clic sur le glyphe le déclenche : son contour et son câble deviennent blancs.
-// V0.6.13 : au-dessus de chaque glyphe neutre, des icônes de pattes de chien d'un blanc très peu lumineux (1 icône à 1 joueur,
-// 2 à 2 ou 3 joueurs, 3 à 4 ou 5, 4 à partir de 6). Chaque joueur qui maintient le clic sur le glyphe en allume une ; toutes
+// V0.6.13 : au-dessus de chaque glyphe neutre, des icônes de pattes de chien d'un blanc très peu lumineux (chapitre 16.1,
+// Calcul des Icônes : 1 icône à 1 joueur, 2 à 2 ou 3 joueurs, 3 à 4 ou 5, 4 à partir de 6). V0.7.2 : pastilles en léger
+// relief, disque noir cerclé de blanc. Chaque joueur qui maintient le clic sur le glyphe en allume une ; toutes
 // allumées en même temps, le glyphe est actionné, et elles le restent.
 // Zones paires : les glyphes d'acquisition (plus grands, jamais interactifs) se chargent quand une Balise chargée les voit :
 // ils brillent de blanc, un rayon les relie à la Balise, et leur ordre s'impose à tous les joueurs.
@@ -41,6 +42,8 @@ public class Glyph : Interactable
     static Texture2D pawTexture;
     static Material pawDim, pawLit;
     readonly List<Renderer> paws = new List<Renderer>();
+    readonly List<GameObject> pawBadges = new List<GameObject>();
+    static Material badgeBlack, badgeWhite;
     Light pawGlow;
     int pawsLit;
     float plateSize;
@@ -48,7 +51,7 @@ public class Glyph : Interactable
     public int PawCount => paws.Count;
 
     // Patte : coussinet et quatre doigts, blanc sur transparent.
-    static Texture2D PawTexture()
+    public static Texture2D PawTexture()
     {
         if (pawTexture != null) return pawTexture;
         const int n = 64;
@@ -95,11 +98,28 @@ public class Glyph : Interactable
         if (count == paws.Count) return;
         foreach (var r in paws) if (r != null) Destroy(r.gameObject);
         paws.Clear();
+        foreach (var b in pawBadges) if (b != null) Destroy(b);
+        pawBadges.Clear();
+        if (badgeBlack == null)
+        {
+            badgeBlack = GameArt.Lit("PastilleNoire", new Color(0.03f, 0.03f, 0.035f), null, 0.35f);
+            badgeWhite = GameArt.Lit("PastilleBlanche", new Color(0.92f, 0.92f, 0.92f), null, 0.3f);
+        }
         float width = count * PawIconSize + (count - 1) * PawIconGap;
         for (int k = 0; k < count; k++)
         {
             float x = -width * 0.5f + PawIconSize * 0.5f + k * (PawIconSize + PawIconGap);
-            var quad = GameArt.Prim(PrimitiveType.Quad, transform, new Vector3(x, plateSize * FrameWidthRatio * 0.5f + PawIconRaise, 0.02f), Vector3.one * PawIconSize, PawMaterial(false));
+            Vector3 at = new Vector3(x, plateSize * FrameWidthRatio * 0.5f + PawIconRaise, 0f);
+            // V0.7.2 (Note 06) : chaque icône est une pastille en léger relief sur le mur : un disque noir bombé, cerclé de
+            // blanc, avec la patte de chien blanche en son centre.
+            var badge = new GameObject("Pastille" + (k + 1));
+            badge.transform.SetParent(transform, false);
+            badge.transform.localPosition = at;
+            var rim = GameArt.Prim(PrimitiveType.Sphere, badge.transform, new Vector3(0f, 0f, 0.004f), new Vector3(PawIconSize * 1.12f, PawIconSize * 1.12f, 0.05f), badgeWhite);
+            var disc = GameArt.Prim(PrimitiveType.Sphere, badge.transform, new Vector3(0f, 0f, 0.01f), new Vector3(PawIconSize * 0.96f, PawIconSize * 0.96f, 0.06f), badgeBlack);
+            foreach (var part in new[] { rim, disc }) part.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            pawBadges.Add(badge);
+            var quad = GameArt.Prim(PrimitiveType.Quad, badge.transform, new Vector3(0f, 0f, 0.042f), Vector3.one * PawIconSize * 0.72f, PawMaterial(false));
             quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
             quad.name = "Patte" + (k + 1);
             foreach (var c in quad.GetComponentsInChildren<Collider>()) Destroy(c);
@@ -516,6 +536,8 @@ public class AcquisitionDoor : MonoBehaviour
     public void SetOpen(bool value, bool instant)
     {
         if (value != open && !instant) GameAudio.Play3D("zone_door", transform.position + Vector3.up * 2f, 1f, 60f, 0f, 1.25f);
+        // GDD 12 (V0.7.2) : Ambiance_Ouverture, porte d'acquisition qui s'ouvre (chez chaque joueur, non spatialisé, -50 %).
+        if (value && !open && !instant) GameAudio.Play2D("ambience_opening", 0.5f);
         if (value != open) BeaconNetwork.SightChanged();
         open = value;
         blocker.enabled = !open;

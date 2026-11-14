@@ -125,6 +125,11 @@ public static class GameSetup
         ("cavalier_stomp", "Assets/Sounds/Cavalier_Pause.wav"),
         ("teleporter_ready", "Assets/Sounds/Teleporteur_Pret.wav"),
         ("round_spawn", "Assets/Sounds/Spawn_Manche.wav"),
+        // V0.7.2 : statue de Pavlov à moins de 10 m, première entrée dans le labyrinthe, ouverture d'une porte neutre ou
+        // d'acquisition (joués à 50 % du volume, non spatialisés, pour ce joueur seulement).
+        ("ambience_statue", "Assets/Sounds/Ambiance_Statue.wav"),
+        ("ambience_entrance", "Assets/Sounds/Ambiance_Entree.wav"),
+        ("ambience_opening", "Assets/Sounds/Ambiance_Ouverture.wav"),
         // V0.4.11 : battement des pulsations cardiaques (un « poum-poum » par pulsation).
         ("heart_thump", "Assets/Sounds/Battement_Coeur.wav"),
         // Musique du chapiteau, en boucle.
@@ -223,8 +228,8 @@ public static class GameSetup
 
     // Modèles statiques Meshy : pas d'animation, matériaux et textures extraits à côté du modèle.
     // Grands décors vus de près (entrée du chapiteau) : texture en 1024.
-    static readonly string[] ReadableArt = { "Tringle", "MachinePince", "PogoCouvercle", "PorteChapiteau", "Trampoline", "MasseCavalier" };
-    static readonly string[] LargeArt = { "EntreeChapiteau", "Rideau", "Roulette", "MachinePince", "ArcadeDance", "PorteBlindee", "PogoCouvercle", "PorteChapiteau" };
+    static readonly string[] ReadableArt = { "Tringle", "SuperMonticule1", "SuperMonticule2", "SuperMonticule3", "SuperMonticule4", "PogoCouvercle", "PorteChapiteau", "Trampoline", "MasseCavalier" };
+    static readonly string[] LargeArt = { "EntreeChapiteau", "Rideau", "PorteBlindee", "PogoCouvercle", "PorteChapiteau" };
 
     internal static void ImportArt()
     {

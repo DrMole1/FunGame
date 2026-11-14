@@ -2,50 +2,22 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-// V0.4.7 : objets uniques (Télévision, Trampoline, Cloche Décorative, GDD 7.6 à 7.8), commande /give, Le Réveil (explosion)
+// Télévision, Trampoline, Cloche Décorative (GDD 7.6 à 7.8 ; V0.7.2 : plus d'objets uniques posés en Zone 1, ils sortent des
+// Super Monticules et les Cloches pendent dans les zones 2+), Protocole, commande /give, Le Réveil (explosion)
 // et lumières affolées par Le Roi. (V0.6.10 : plus de sujets de test, /info, /hello et /step1 ont quitté le Terminal.)
 // Messages : TQ|télé|vidéo -> TV|télé|vidéo|écoulé (vidéo YouTube d'une Télévision, "" : aucune ; écoulé : secondes depuis
 // le début du décompte), BV|... (comme BW, sans animation : appareils déjà posés, envoyés à un joueur qui arrive).
 public partial class GameSession
 {
-    // ================= Objets uniques =================
+    // ================= Objets posés au début de la partie =================
 
-    // Hôte : à la génération du terrain, la Télévision, le Trampoline et la Cloche Décorative apparaissent au hasard dans la
-    // Zone 1, à l'écart des monticules et les uns des autres.
-    const float UniqueSpacing = 12f;
-
+    // Hôte : V0.6.13 (7.10) : le Protocole, posé au sol du Hub de départ, près du centre de la piste. (V0.7.2 : la Télévision
+    // et le Trampoline ne sont plus posés dans la Zone 1, et il n'y a plus de Cloche Décorative au sol de la Zone 1.)
     void PlaceUniqueObjects()
     {
         if (!net.IsHost || zones.Count == 0) return;
-        // V0.6.13 (7.10) : le Protocole, posé au sol du Hub de départ, près du centre de la piste.
         Vector3 hubCenter = WorldBuilder.HubCenter(1);
         PlaceDevice(DeviceKind.Protocole, hubCenter + new Vector3(0.9f, 0f, -1.1f), 200f, "");
-        var rnd = new System.Random(seed * 53 + 7);
-        var spots = new List<Vector3>(zones[0].itemSpots);
-        for (int i = spots.Count - 1; i > 0; i--)
-        {
-            int j = rnd.Next(i + 1);
-            (spots[i], spots[j]) = (spots[j], spots[i]);
-        }
-        DeviceKind[] kinds = { DeviceKind.Television, DeviceKind.Trampoline, DeviceKind.Bell };
-        var placedAt = new List<Vector3>();
-        foreach (float spacing in new[] { UniqueSpacing, 0f })
-            foreach (Vector3 spot in spots)
-            {
-                if (placedAt.Count >= kinds.Length) return;
-                if (placedAt.Contains(spot) || NearMound(spot, 1.5f)) continue;
-                bool crowded = false;
-                foreach (Vector3 other in placedAt) if (Vector3.Distance(other, spot) < spacing) crowded = true;
-                if (crowded) continue;
-                placedAt.Add(spot);
-                PlaceDevice(kinds[placedAt.Count - 1], spot, (float)rnd.NextDouble() * 360f, "");
-            }
-    }
-
-    bool NearMound(Vector3 p, float distance)
-    {
-        foreach (var loot in moundLoot.Values) if (Vector3.Distance(loot.pos, p) < distance) return true;
-        return false;
     }
 
     // Hôte : pose un appareil, annoncé à tous et gardé pour les joueurs qui arrivent ; 'placer' : joueur qui l'a posé
@@ -61,12 +33,12 @@ public partial class GameSession
         return id;
     }
 
-    // V0.6.14 (Pion, 8.4) : un Canard en Plastique (coloré ou non) ou une Peluche posé par un joueur à 5 m ou moins d'un Pion
-    // en état curieux : le plus proche vient le prendre et l'emporte.
+    // V0.6.14 (Pion, 8.4) : un Canard en Plastique (coloré ou non), une Cloche Décorative (V0.7.2) ou une Peluche posé par un
+    // joueur à 5 m ou moins d'un Pion en état curieux : le plus proche vient le prendre et l'emporte.
     void OfferToPions(int deviceId, DeviceKind kind, Vector3 pos)
     {
         ItemType item = Beacon.ItemOf(kind);
-        if (!Items.IsDuck(item) && !Items.IsPlush(item)) return;
+        if (!Items.IsDuck(item) && !Items.IsPlush(item) && !Items.IsBell(item)) return;
         Pion best = null;
         float bestDist = float.MaxValue;
         foreach (var e in entities.Values)
@@ -92,6 +64,8 @@ public partial class GameSession
     void OnDevicePlaced(Beacon b, string placer, bool live)
     {
         if (b == null) return;
+        // V0.7.3 : la Boule de Disco s'allume quand un joueur la pose (pas en sortant d'un Super Monticule).
+        if (b.IsDisco && placer.Length > 0) b.ActivateDisco();
         if (live && placer.Length > 0)
         {
             b.PlayPlaced();
@@ -223,8 +197,11 @@ public partial class GameSession
     // ---------- Cloche Décorative ----------
 
     // Posée, elle tinte : chaque joueur qui la voit (aucun mur entre eux) l'entend et en est obnubilé, la caméra forcée de la
-    // fixer, jusqu'à ce qu'un mur les sépare (et il perd 20 de sérénité).
+    // fixer, jusqu'à ce qu'un mur les sépare (et il perd 20 de sérénité). V0.7.2 : si un Pion l'emporte, elle obnubile
+    // encore : la caméra suit la Cloche dans ses bras.
     int bellObsession = -1;
+    Vector3 bellLastPoint;
+    float bellGoneAt = -1f;
 
     void RingBell(Beacon bell)
     {
@@ -238,24 +215,59 @@ public partial class GameSession
 
     static Vector3 BellPoint(Beacon bell) => bell.transform.position + Vector3.up * GameRules.BellHeight * 0.55f;
 
-    bool BellInSight(Beacon bell)
+    bool BellInSight(Beacon bell) => BellInSight(BellPoint(bell));
+
+    bool BellInSight(Vector3 point)
     {
         Vector3 head = player.transform.position + Vector3.up * 0.6f;
-        Vector3 point = BellPoint(bell);
-        return Vector3.Distance(head, point) < GameRules.BellSightRange
-            && !Physics.Linecast(head, point, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+        if (Vector3.Distance(head, point) >= GameRules.BellSightRange) return false;
+        // Ni le Pion qui la porte ni les autres entités ne cachent la Cloche : seuls les murs et le décor.
+        foreach (var hit in Physics.RaycastAll(head, point - head, Vector3.Distance(head, point), Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            if (hit.collider.GetComponentInParent<Entity>() == null && hit.collider.GetComponentInParent<PlayerController>() == null
+                && hit.collider.GetComponentInParent<RemotePlayer>() == null) return false;
+        return true;
     }
 
     Vector3? BellLook()
     {
         if (bellObsession < 0) return null;
         Beacon bell = beacons.Get(bellObsession);
-        if (bell == null || status.Dead || Teleporting || !BellInSight(bell))
+        Vector3 point;
+        if (bell != null)
+        {
+            point = bellLastPoint = BellPoint(bell);
+            bellGoneAt = -1f;
+        }
+        else
+        {
+            // Emportée par un Pion : on suit le Pion le plus proche de l'endroit où elle était, qui porte une Cloche.
+            Pion carrier = null;
+            float best = 6f;
+            foreach (var e in entities.Values)
+                if (e is Pion pion && Items.IsBell(pion.Carried))
+                {
+                    float d = Vector3.Distance(pion.CarriedPoint, bellLastPoint);
+                    if (d < best) { best = d; carrier = pion; }
+                }
+            if (carrier != null)
+            {
+                point = bellLastPoint = carrier.CarriedPoint;
+                bellGoneAt = -1f;
+            }
+            else
+            {
+                // L'état du Pion (objet porté) arrive un peu après la disparition de la Cloche du sol.
+                if (bellGoneAt < 0f) bellGoneAt = Time.time;
+                if (Time.time - bellGoneAt > 1f) { bellObsession = -1; bellGoneAt = -1f; return null; }
+                point = bellLastPoint;
+            }
+        }
+        if (status.Dead || Teleporting || !BellInSight(point))
         {
             bellObsession = -1;
             return null;
         }
-        return BellPoint(bell);
+        return point;
     }
 
     // ================= /give (hôte) =================

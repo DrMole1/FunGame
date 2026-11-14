@@ -189,7 +189,8 @@ public static class HubDecor
 // Remplissage imagé : jusqu'à LooseMax croquettes, une croquette du modèle par croquette de la gamelle commune, au fond.
 // Au-delà, un tas de croquettes monte dans la gamelle (de plus en plus lentement, plein vers FillScale x 3) et les croquettes
 // du modèle se répartissent sur son dessus.
-public class HubBowl : MonoBehaviour
+// V0.7.2 (chapitre 3.5) : à 99 de faim ou moins, la gamelle devient interactive : un clic pour se nourrir.
+public class HubBowl : Interactable
 {
     public static int Amount;
     static readonly List<HubBowl> all = new List<HubBowl>();
@@ -216,7 +217,15 @@ public class HubBowl : MonoBehaviour
     }
 
     void OnEnable() => all.Add(this);
-    void OnDisable() => all.Remove(this);
+    void OnDisable()
+    {
+        all.Remove(this);
+        SetHighlight(false);
+    }
+
+    public override bool CanInteract => GameSession.Instance != null && GameSession.Instance.CanEat;
+    public override string Prompt => CanInteract ? Loc.T("Se nourrir") : "";
+    public override void Interact() => GameSession.Instance.Eat();
 
     void Build()
     {
@@ -263,6 +272,8 @@ public class HubBowl : MonoBehaviour
             kibbles.Add(k.transform);
         }
         foreach (var c in GetComponentsInChildren<Collider>()) Object.Destroy(c);
+        // Zone de sélection (clic pour manger).
+        FitTrigger(new Vector3(1.4f, 0.6f, 1.4f));
         Refresh(Amount);
     }
 

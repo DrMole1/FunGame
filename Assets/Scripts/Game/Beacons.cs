@@ -3,11 +3,12 @@ using UnityEngine;
 
 // Appareils posés au sol, ramassables, reliés au réseau d'énergie des Balises (GDD 7.1 à 7.5), et objets uniques posés
 // de la même manière (7.6 à 7.8, V0.4.7) : la Télévision se relie aux Balises, le Trampoline et la Cloche Décorative non.
-// V0.6.1 : peluches et boules à facettes (lots de l'arcade), posées et ramassées comme une Balise, hors du réseau d'énergie.
+// Peluches et Boule de Disco (V0.7.2 : Super Monticules), posées et ramassées comme une Balise, hors du réseau d'énergie.
 public enum DeviceKind : byte
 {
     Beacon = 0, Enhanced = 1, Teleporter = 2, Station = 3, Canon = 4, Television = 5, Trampoline = 6, Bell = 7,
-    Lapin = 8, Pingouin = 9, Singe = 10, Chat = 11, DiscoArgent = 12, DiscoOr = 13, DiscoDiamant = 14,
+    // V0.7.2 : une seule Boule de Disco, arc-en-ciel (13 et 14, anciennes boules or et diamant, ne servent plus).
+    Lapin = 8, Pingouin = 9, Singe = 10, Chat = 11, Disco = 12,
     // V0.6.3 (note 06 du chapitre 7) : canards posés au sol. CanardColore : palier 1 ; les paliers suivants suivent.
     Canard = 15, CanardColore = 16,
     // V0.6.13 (7.8) : Cloche Décorative des zones 2+ (BellZone + nZone), suspendue au plafond tant qu'on ne l'a pas récupérée.
@@ -16,8 +17,8 @@ public enum DeviceKind : byte
     Protocole = 190,
 }
 
-// Balise (GDD 7.1) : petite borne posée au sol, ramassable. La Balise du Hub, plus grande, ne se ramasse pas :
-// elle est chargée 10 minutes au début du jeu (jauge circulaire autour d'elle) et se recharge avec un Chargeur.
+// Balise (GDD 7.1) : petite borne posée au sol, ramassable. La Balise du Hub, plus grande, ne se ramasse pas : elle est
+// chargée en permanence (V0.7.2 : plus de Chargeur ni de jauge).
 // V0.6 : chaque Hub a sa Balise principale (Hub 1 bleue, Hub 2 violette, Hub 3 verte, Hub 4 dorée, puis on recommence) ;
 // elles partagent la même charge.
 // Balise Améliorée (7.3, V0.6.8) : cristal et aura blancs, coordonnées affichées au-dessus d'elle ; aucune apparition d'entité à
@@ -32,7 +33,7 @@ public class Beacon : Interactable
     public const DeviceKind LastKind = DeviceKind.CanardColore + Items.MaxDuckTier - 1;
     public const DeviceKind MaxKind = DeviceKind.BellZone + Items.MaxBellZone;
     public static bool IsBellKind(DeviceKind kind) => kind == DeviceKind.Bell || kind > DeviceKind.BellZone + 1 && kind <= MaxKind;
-    public const float PlushHeight = 0.9f, DuckHeight = 0.45f, DiscoHeight = 0.72f, DiscoDiamondHeight = 1.44f, DiscoChain = 0.25f, ColoredDuckHeight = 0.6f;
+    public const float PlushHeight = 0.9f, DuckHeight = 0.45f, DiscoHeight = 0.8f, DiscoChain = 0.25f, ColoredDuckHeight = 0.6f;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
     public int Id { get; private set; }   // -N : Balise principale du Hub N
@@ -52,10 +53,14 @@ public class Beacon : Interactable
     // Balises (simples ou améliorées) : elles relaient l'énergie ; Téléporteur et Station ne font que la recevoir.
     public bool Relays => Kind == DeviceKind.Beacon || Kind == DeviceKind.Enhanced;
     // Relié au réseau d'énergie (chargé s'il voit une Balise chargée) : ni le Trampoline, ni la Cloche Décorative, ni les
-    // lots de l'arcade.
+    // peluches, ni la Boule de Disco.
     public bool Networked => Kind <= DeviceKind.Television;
     public bool IsDisco => IsDiscoKind(Kind);
-    public static bool IsDiscoKind(DeviceKind kind) => kind >= DeviceKind.DiscoArgent && kind <= DeviceKind.DiscoDiamant;
+    // V0.7.3 : une Boule de Disco ne s'allume (lumière, musique) qu'une fois posée par un joueur.
+    DiscoBall disco;
+    public bool DiscoActive => disco != null && disco.Active;
+    public void ActivateDisco() { if (disco != null) disco.Activate(); }
+    public static bool IsDiscoKind(DeviceKind kind) => kind == DeviceKind.Disco;
     public bool IsDuck => Kind >= DeviceKind.Canard && Kind <= LastKind;
     public const float ProtocolHeight = 0.06f;
     // Boule à facettes suspendue au plafond (point de pose au plafond).
@@ -87,9 +92,7 @@ public class Beacon : Interactable
             case DeviceKind.Pingouin: return ItemType.PeluchePingouin;
             case DeviceKind.Singe: return ItemType.PelucheSinge;
             case DeviceKind.Chat: return ItemType.PelucheChat;
-            case DeviceKind.DiscoArgent: return ItemType.BouleArgent;
-            case DeviceKind.DiscoOr: return ItemType.BouleOr;
-            case DeviceKind.DiscoDiamant: return ItemType.BouleDiamant;
+            case DeviceKind.Disco: return ItemType.BouleDisco;
             case DeviceKind.Canard: return ItemType.Canard;
             case DeviceKind.Protocole: return ItemType.Protocole;
             default: return ItemType.Balise;
@@ -121,8 +124,7 @@ public class Beacon : Interactable
             case DeviceKind.Bell: return GameRules.BellHeight;
             case DeviceKind.Lapin: case DeviceKind.Pingouin: case DeviceKind.Singe: case DeviceKind.Chat: return PlushHeight;
             case DeviceKind.Canard: return DuckHeight;
-            case DeviceKind.DiscoArgent: case DeviceKind.DiscoOr: return DiscoHeight;
-            case DeviceKind.DiscoDiamant: return DiscoDiamondHeight;
+            case DeviceKind.Disco: return DiscoHeight;
             default: return Height;
         }
     }
@@ -213,10 +215,8 @@ public class Beacon : Interactable
                 if (GameArt.SpawnModel(Items.ModelName(ItemOf(kind)), visual, height) == null)
                     GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, height * 0.45f, 0f), Vector3.one * height * 0.8f, GameArt.Lit("PelucheRepli", Items.Get(ItemOf(kind)).color));
                 break;
-            case DeviceKind.DiscoArgent:
-            case DeviceKind.DiscoOr:
-            case DeviceKind.DiscoDiamant:
-                BuildDiscoBall(go, visual, kind, height, beacon.Hanging);
+            case DeviceKind.Disco:
+                beacon.disco = BuildDiscoBall(go, visual, height, beacon.Hanging);
                 break;
             case DeviceKind.Station:
                 if (GameArt.SpawnModel("StationCurative", visual, height) == null)
@@ -447,24 +447,30 @@ public class Beacon : Interactable
         handle.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
     }
 
-    // Boule à facettes (V0.6.1) : modèle Meshy argenté, teinté or ou diamant, très réfléchissant. Au plafond, elle pend au
-    // bout d'une chaînette ; elle tourne et projette des faisceaux colorés (DiscoBall).
-    static void BuildDiscoBall(GameObject device, Transform visual, DeviceKind kind, float height, bool hanging)
+    // Boule de Disco (V0.7.2) : modèle Meshy arc-en-ciel, brillant. Au plafond, elle pend au bout d'une chaînette ; elle
+    // tourne et projette des faisceaux aux couleurs de l'arc-en-ciel (DiscoBall).
+    static DiscoBall BuildDiscoBall(GameObject device, Transform visual, float height, bool hanging)
     {
         var ball = new GameObject("Boule").transform;
         ball.SetParent(visual, false);
         float drop = hanging ? DiscoChain + height : 0f;
         ball.localPosition = Vector3.down * drop;
-        if (GameArt.SpawnModel("BouleFacettes", ball, height) == null)
-            GameArt.Prim(PrimitiveType.Sphere, ball, new Vector3(0f, height * 0.5f, 0f), Vector3.one * height, GameArt.Lit("BouleRepli", Color.white, null, 0.95f));
-        Color tint = Items.Tint(ItemOf(kind));
+        if (GameArt.SpawnModel("BouleDisco", ball, height) == null)
+            GameArt.Prim(PrimitiveType.Sphere, ball, new Vector3(0f, height * 0.5f, 0f), Vector3.one * height, GameArt.Lit("BouleRepli", new Color(0.85f, 0.6f, 1f), null, 0.95f));
         foreach (var r in ball.GetComponentsInChildren<Renderer>())
         {
-            var m = new Material(r.sharedMaterial) { name = "Boule" + kind };
-            // Facettes miroir : plus claires que la texture Meshy, presque métalliques.
-            m.color = tint * 1.7f;
+            if (discoMaterial != null) { r.sharedMaterial = discoMaterial; continue; }
+            var m = discoMaterial = new Material(r.sharedMaterial) { name = "BouleDisco" };
+            // Facettes miroir : plus claires que la texture Meshy, brillantes et un peu lumineuses dans le noir.
+            m.color = Color.white * 1.35f;
             if (m.HasProperty("_Glossiness")) m.SetFloat("_Glossiness", 0.92f);
-            if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", 0.6f);
+            if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", 0.55f);
+            if (m.mainTexture != null && m.HasProperty("_EmissionMap"))
+            {
+                m.EnableKeyword("_EMISSION");
+                m.SetTexture("_EmissionMap", m.mainTexture);
+                m.SetColor("_EmissionColor", new Color(0.35f, 0.35f, 0.35f));
+            }
             r.sharedMaterial = m;
         }
         if (hanging)
@@ -473,8 +479,10 @@ public class Beacon : Interactable
         var center = new GameObject("Centre").transform;
         center.SetParent(ball, false);
         center.localPosition = Vector3.up * height * 0.5f;
-        DiscoBall.Attach(device, ball, center, kind, hanging);
+        return DiscoBall.Attach(device, ball, center, hanging);
     }
+
+    static Material discoMaterial;
 
     // Point d'où la musique disco se diffuse (centre de la boule).
     public Vector3 DiscoCenter => transform.position + Vector3.down * (Hanging ? DiscoChain + VisualHeight * 0.5f : -VisualHeight * 0.5f);
@@ -521,8 +529,8 @@ public class Beacon : Interactable
         if (glow != null) glow.enabled = on;
         if (gas != null) { if (on && !gas.isPlaying) gas.Play(); else if (!on && gas.isPlaying) gas.Stop(); }
         if (block == null) block = new MaterialPropertyBlock();
-        // Les boules à facettes (argent, or, diamant) et les canards colorés gardent leur teinte.
-        if (IsDisco || IsDuck) return;
+        // La Boule de Disco, les canards colorés et le Protocole (papier noirci, V0.7.2) gardent leur teinte.
+        if (IsDisco || IsDuck || Kind == DeviceKind.Protocole) return;
         block.SetColor("_Color", on || !Networked || Kind == DeviceKind.Television ? ChargedTint : DischargedTint);
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
     }
@@ -630,12 +638,12 @@ public class Beacon : Interactable
     {
         get
         {
-            return IsHub ? Loc.T("Recharger la Balise du Hub") : Loc.F("Ramasser {0}", Items.Get(Item).name);
+            return IsHub ? "" : Loc.F("Ramasser {0}", Items.Get(Item).name);
         }
     }
 
-    // La Balise du Hub n'est interactive (contour, message, touche E) que Chargeur sélectionné.
-    public override bool CanInteract => !IsHub || (GameSession.Instance != null && GameSession.Instance.SelectedItem == ItemType.Chargeur);
+    // V0.7.2 : plus de Chargeur, la Balise du Hub n'est jamais interactive.
+    public override bool CanInteract => !IsHub;
     public override void Interact() => GameSession.Instance.InteractBeacon(this);
 }
 
@@ -650,13 +658,9 @@ public class BeaconNetwork : MonoBehaviour
     const int IdleSightRays = 6, UrgentSightRays = 32;
     const float UrgentSightWindow = 3f;
     const int GaugeSegments = 120;
-    const float GaugeInner = 0.55f, GaugeOuter = 0.68f;
-    const float BackInner = 0.52f, BackOuter = 0.71f;
 
     // Balises principales, par numéro de Hub (1 : Hub de départ).
     readonly SortedDictionary<int, Beacon> hubs = new SortedDictionary<int, Beacon>();
-    readonly Dictionary<int, MeshFilter> gauges = new Dictionary<int, MeshFilter>();
-    readonly Dictionary<int, GameObject> gaugeRoots = new Dictionary<int, GameObject>();
     Transform world;
     readonly Dictionary<int, Beacon> placed = new Dictionary<int, Beacon>();
     // Pour chaque Balise chargée, la Balise vers laquelle son énergie s'écoule (plus proche de son Hub).
@@ -681,17 +685,13 @@ public class BeaconNetwork : MonoBehaviour
     public static void SightChanged() => urgentSightUntil = Time.time + UrgentSightWindow;
 
     // Identifiants des cibles non-Balises dans les lignes de vue gardées en mémoire.
-    public static int ArcadeTarget(int id) => (1 << 29) + id;
     public static int GlyphTarget(int id) => (1 << 30) + id;
 
-    // Charge restante des Balises principales (secondes), commune à tous les Hubs.
-    public float Charge { get; set; } = GameRules.BeaconCharge;
-    public bool HubCharged => Charge > 0f;
+    // V0.7.2 : les Balises principales des Hubs restent chargées en permanence (plus de Chargeur).
+    public bool HubCharged => true;
     public Beacon Hub => hubs.TryGetValue(1, out var b) ? b : null;
     public IEnumerable<Beacon> Hubs => hubs.Values;
     public IEnumerable<int> Ids => placed.Keys;
-
-    int gaugeShown = -1;
 
     public static BeaconNetwork Create(Transform world, Vector3 hubPos, float hubYaw)
     {
@@ -708,8 +708,6 @@ public class BeaconNetwork : MonoBehaviour
     {
         if (hubs.ContainsKey(index)) return;
         hubs[index] = Beacon.Create(transform, -index, pos, yaw);
-        BuildGauge(index, pos);
-        gaugeShown = -1;
         dirty = true;
     }
 
@@ -727,9 +725,6 @@ public class BeaconNetwork : MonoBehaviour
                 Destroy(hubs[h].gameObject);
             }
             hubs.Remove(h);
-            if (gaugeRoots.TryGetValue(h, out var g) && g != null) Destroy(g);
-            gaugeRoots.Remove(h);
-            gauges.Remove(h);
         }
         dirty = true;
     }
@@ -743,7 +738,6 @@ public class BeaconNetwork : MonoBehaviour
         {
             bool on = kv.Key > upTo;
             if (kv.Value != null) kv.Value.gameObject.SetActive(on);
-            if (gaugeRoots.TryGetValue(kv.Key, out var g) && g != null) g.SetActive(on);
         }
         dirty = true;
         SightChanged();
@@ -820,7 +814,6 @@ public class BeaconNetwork : MonoBehaviour
     {
         RefreshSight();
         if (dirty) Recompute();
-        UpdateGauge();
         UpdateBeams();
     }
 
@@ -839,7 +832,7 @@ public class BeaconNetwork : MonoBehaviour
         roots.Reverse();
         foreach (var root in roots)
         {
-            if (root == null || !root.gameObject.activeSelf || !HubCharged) continue;
+            if (root == null || !root.gameObject.activeSelf) continue;
             int head = charged.Count;
             charged.Add(root);
             fluxOf[root] = root.HubIndex;
@@ -1025,26 +1018,7 @@ public class BeaconNetwork : MonoBehaviour
         return line;
     }
 
-    // ---------- Jauge circulaire autour de chaque Balise principale (pas de compteur numérique) ----------
-
-    void BuildGauge(int index, Vector3 hubPos)
-    {
-        var root = new GameObject("Jauge Hub " + index);
-        root.transform.SetParent(transform, false);
-        gaugeRoots[index] = root;
-        // Même style que les boutons du menu : coups de pinceau (fond sombre, un peu plus large, puis trait de la couleur du Hub).
-        var back = new GameObject("Jauge (fond)");
-        back.transform.SetParent(root.transform, false);
-        back.transform.position = hubPos + Vector3.up * 0.015f;
-        back.AddComponent<MeshFilter>().sharedMesh = Ring(1f, BackInner, BackOuter);
-        back.AddComponent<MeshRenderer>().sharedMaterial = BrushMaterial("BeaconGaugeBack", new Color(0.09f, 0.09f, 0.1f), 21, 3000);
-
-        var fill = new GameObject("Jauge");
-        fill.transform.SetParent(root.transform, false);
-        fill.transform.position = hubPos + Vector3.up * 0.025f;
-        gauges[index] = fill.AddComponent<MeshFilter>();
-        fill.AddComponent<MeshRenderer>().sharedMaterial = BrushMaterial("BeaconGauge" + index, Beacon.HubColor(index), 22, 3001);
-    }
+    // ---------- Jauges (Téléporteur Inversé) : anneau en coup de pinceau ----------
 
     public static Material BrushMaterial(string name, Color color, int seed, int queue)
     {
@@ -1052,22 +1026,6 @@ public class BeaconNetwork : MonoBehaviour
         m.mainTexture = UiKit.BrushTexture(2048, 96, seed);
         m.renderQueue = queue;
         return m;
-    }
-
-    void UpdateGauge()
-    {
-        int shown = Mathf.CeilToInt(Mathf.Clamp01(Charge / GameRules.BeaconCharge) * GaugeSegments);
-        if (shown == gaugeShown) return;
-        gaugeShown = shown;
-        Mesh ring = shown > 0 ? Ring((float)shown / GaugeSegments, GaugeInner, GaugeOuter) : null;
-        foreach (var gauge in gauges.Values)
-        {
-            if (gauge == null) continue;
-            if (gauge.sharedMesh != null && gauge.sharedMesh != ring) Destroy(gauge.sharedMesh);
-            gauge.sharedMesh = ring;
-        }
-        Beacon first = Hub;
-        if (shown == 0 || first != null && HubCharged != first.Charged) dirty = true;
     }
 
     // Anneau plat (vu du dessus), rempli dans le sens horaire à partir du nord sur la fraction donnée.

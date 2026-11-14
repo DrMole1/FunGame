@@ -1,11 +1,12 @@
 using UnityEngine;
 
-// Protocole (GDD 7.10, objet O19, V0.6.13) : une vieille feuille de papier abîmée, scotchée sur une plaque de métal rouillée.
+// Protocole (GDD 7.10, objet O12 en V0.7.2, V0.6.13) : une vieille feuille de papier abîmée, scotchée sur une plaque de métal rouillée.
 // Posé au sol du Hub de départ en début de partie ; un joueur peut le prendre (inventaire) et le reposer comme un objet
 // unique. Sélectionné dans l'inventaire, le personnage le tient entre ses mains ; à la première personne, le joueur le voit devant
 // lui, lisible. Le texte, écrit à la main (police Caveat, licence OFL), est traduit dans la langue du joueur (même posé au sol).
 // Textures Meshy (Resources/Art/Protocole : feuille jaunie, tachée et pliée ; plaque de métal rouillée), détourées ; le texte est
-// posé par le jeu sur la feuille, pour rester net et traduit.
+// posé par le jeu sur la feuille, pour rester net et traduit. V0.7.2 : la feuille est noircie et le texte écrit en blanc
+// (lisible en blanc sur fond noir).
 public static class ProtocolBoard
 {
     // Plaque : largeur x hauteur (m), le papier un peu plus petit.
@@ -50,7 +51,8 @@ public static class ProtocolBoard
         Loc.T("2) Tu peux aboyer.") + "\n" +
         Loc.T("3) Tu peux aller à la niche.") + "\n\n" +
         Loc.T("Maintenant, survis.") + "\n\n" +
-        "L.I.V.\nWOOF Corp.";
+        // V0.7.3 (Note 01) : plus de "L.I.V." au-dessus de la signature.
+        "WOOF Corp.";
 
     static Material plate, paper;
 
@@ -62,8 +64,10 @@ public static class ProtocolBoard
             // Matériaux préparés dans Resources (découpe des bords par la transparence) ; à défaut, des couleurs unies.
             plate = Resources.Load<Material>("Art/Protocole/PlaqueMat");
             if (plate == null) plate = GameArt.Lit("ProtocolePlaque", new Color(0.4f, 0.24f, 0.16f), null, 0.4f);
-            paper = Resources.Load<Material>("Art/Protocole/PapierMat");
-            if (paper == null) paper = GameArt.Lit("ProtocolePapier", new Color(0.88f, 0.8f, 0.62f), null, 0.05f);
+            var sheetMat = Resources.Load<Material>("Art/Protocole/PapierMat");
+            // Papier noirci : même feuille abîmée (pliures, taches, bords découpés), presque noire.
+            paper = sheetMat != null ? new Material(sheetMat) { name = "PapierNoirci", color = new Color(0.07f, 0.065f, 0.065f) }
+                                     : GameArt.Lit("ProtocolePapier", new Color(0.05f, 0.05f, 0.05f), null, 0.05f);
         }
         var root = new GameObject("Protocole");
         root.transform.SetParent(parent, false);
@@ -81,7 +85,7 @@ public static class ProtocolBoard
         quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
         foreach (var c in quad.GetComponentsInChildren<Collider>()) Object.Destroy(c);
         float hx = PaperW * 0.5f, hy = PaperH * 0.5f;
-        // Texte manuscrit à l'encre.
+        // Texte manuscrit, à l'encre blanche.
         // TextMesh se lit depuis -Z : retourné, il se lit depuis l'avant de la plaque (+Z), où le haut gauche du texte est en +X.
         var text = GameArt.CreateText(sheet, "Texte", new Vector3(hx - 0.035f, hy - 0.045f, 0.0015f), TextSize, new Color(0.08f, 0.06f, 0.07f),
             TextAnchor.UpperLeft, TextAlignment.Left);
@@ -91,7 +95,7 @@ public static class ProtocolBoard
             text.font = Hand;
             text.GetComponent<MeshRenderer>().sharedMaterial = HandMaterial;
         }
-        text.color = new Color(0.02f, 0.02f, 0.025f);   // encre noire
+        text.color = new Color(0.95f, 0.95f, 0.93f);   // encre blanche
         text.lineSpacing = 0.95f;
         text.gameObject.AddComponent<ProtocolText>().Init(text);
         foreach (var r in root.GetComponentsInChildren<Renderer>())

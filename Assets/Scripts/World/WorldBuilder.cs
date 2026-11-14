@@ -82,7 +82,11 @@ public static class WorldBuilder
         public readonly List<Glyph> neutralGlyphs = new List<Glyph>(), acquisitionGlyphs = new List<Glyph>();
         public AcquisitionDoor acquisitionDoor;   // zones paires : porte du chapiteau suivant
         public Vector3 entrance;     // point d'arrivée dans la zone (derrière la porte du Hub ou de la Neutral Room)
-        public readonly List<ArcadeMachine> arcades = new List<ArcadeMachine>();   // V0.6.1 : à partir de la Zone 3
+        // V0.7.2 (chapitre 10.2) : emplacements possibles des Super Monticules (les étoiles d'abord), choisis à chaque manche.
+        public readonly List<Vector3> superSpots = new List<Vector3>();
+        public int superPriority;    // les 'superPriority' premiers emplacements sont des étoiles (prioritaires)
+        // V0.7.2 (GDD 12) : statues de Pavlov de la zone (son Ambiance_Statue à leur approche).
+        public readonly List<Vector3> statues = new List<Vector3>();
         public readonly List<SuspendedBridge> bridges = new List<SuspendedBridge>();   // V0.6.6
         public readonly List<Toboggan> slides = new List<Toboggan>();   // V0.6.6
         // V0.6.13 (chapitre 10.3) : Cloches Décoratives suspendues tout en haut des salles les plus hautes (zones 2+) :
@@ -322,11 +326,10 @@ public static class WorldBuilder
         refs.skipAnchor.localPosition = Polar(QuotaAngle, HubRadius - 0.5f, 1.45f);
         refs.skipAnchor.localRotation = FacingCenter(QuotaAngle);
         refs.cashText = Screen(root, "Rendu de Gamelle", CashAngle, HubRadius - 0.45f, 2.5f, new Vector2(3.6f, 1.1f), 0.042f);
-        // V0.6 : l'Écran des Logs (et le portrait caché derrière) n'existe que dans le Hub 1 ; au sud des autres Hubs, l'entrée.
+        // V0.6 : l'Écran des Logs n'existe que dans le Hub 1 (V0.7.2 : plus de portrait d'Ivan Pavlov derrière) ; au sud des autres Hubs, l'entrée.
         if (index == 1)
         {
             refs.logText = Screen(root, "Ecran de Logs", LogAngle, HubRadius - 0.9f, 2.6f, new Vector2(8f, 3.6f), 0.027f, TextAnchor.MiddleLeft);
-            AddPavlov(refs.logText.transform.parent);
             // V0.6.14 (15.3) : le tunnel de la Control Room, caché derrière l'Écran des Logs.
             ControlWing.Build(root);
         }
@@ -481,23 +484,6 @@ public static class WorldBuilder
         return tm;
     }
 
-    // Easter egg : le portrait d'Ivan Pavlov, collé au dos de l'écran de Logs (visible seulement en passant derrière).
-    static void AddPavlov(Transform screen)
-    {
-        var tex = Resources.Load<Texture2D>("EasterEgg/IvanPavlov");
-        if (tex == null) return;
-        float h = 2.4f, w = h * tex.width / tex.height;
-        Material mat = GameArt.Lit("Pavlov", Color.white, tex, 0.05f);
-        // Un peu lumineux par lui-même : l'espace derrière l'écran est dans l'ombre.
-        mat.EnableKeyword("_EMISSION");
-        mat.SetTexture("_EmissionMap", tex);
-        mat.SetColor("_EmissionColor", new Color(0.35f, 0.35f, 0.35f));
-        // Le quad est visible depuis son -Z : retourné vers le mur, derrière le cadre de l'écran.
-        var quad = GameArt.Prim(PrimitiveType.Quad, screen, new Vector3(0f, 0f, 0.105f), new Vector3(w, h, 1f), mat);
-        quad.name = "Pavlov";
-        quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-    }
-
     static Light AddLight(Transform parent, Vector3 pos, Color color, float intensity, float range)
     {
         var go = new GameObject("Light");
@@ -562,7 +548,7 @@ public static class WorldBuilder
     {
         public readonly int zone, N;
         public readonly List<Rect> blocks = new List<Rect>();  // chapitre 10.3 : emprises (X, Z) des plateformes pleines et de leurs escaliers
-        public readonly List<Star> stars = new List<Star>();   // chapitre 10.3 : emplacements prioritaires des bornes d'arcade
+        public readonly List<Star> stars = new List<Star>();   // chapitre 10.3 : emplacements prioritaires des Super Monticules (V0.7.2)
         // 15.3 (V0.7) : sommets des plateformes atteignables par un escalier (dessus, orientation, plus petit côté), pour le
         // cadavre de la Zone 3. Les plateformes des salles chaotiques (à atteindre en sautant) n'en font pas partie.
         public readonly List<(Vector3 top, float yaw, float size)> perches = new List<(Vector3, float, float)>();
@@ -1173,9 +1159,7 @@ public static class WorldBuilder
         yield return null;
         var templates = BuildTemplates(m, root, colliders.transform, m.hub ? refs.neutralGlyphs : refs.acquisitionGlyphs, refs, new System.Random(seed * 71 + zone * 733));
         while (templates.MoveNext()) yield return null;
-        BuildArcades(m, root, refs, new System.Random(seed * 67 + zone * 389));
-        yield return null;
-        // Après les glyphes et les bornes : biseaux des couloirs, rambardes des plateformes et fenêtres (V0.6.8).
+        // Après les glyphes : biseaux des couloirs, rambardes des plateformes et fenêtres (V0.6.8).
         BuildBevels(m, root, refs, new System.Random(seed * 53 + zone * 929));
         BuildRails(m, root, new System.Random(seed * 61 + zone * 557));
         BuildWindows(m, root, new System.Random(seed * 47 + zone * 691));
@@ -1183,10 +1167,15 @@ public static class WorldBuilder
 
         // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, fosses, plateformes).
         Physics.SyncTransforms();
+        floorEyes = new List<Vector3>();
+        statueLog = refs.statues;
         var decor = Decorate(m, root, colliders.transform, rnd, refs.itemSpots);
         while (decor.MoveNext()) yield return null;
+        statueLog = null;
         MarkIntangibleSpheres(root);
         yield return null;
+        var supers = FindSuperMoundSpots(m, refs, new System.Random(seed * 67 + zone * 389));
+        while (supers.MoveNext()) yield return null;
         refs.nav = new MazeNav();
         refs.nav.AddZone(m.origin, m.N, Cell, (i, j) => !m.Reserved(i, j), (i, j) => m.Ceil(i, j));
         refs.nav.Prepare(colliders.transform, refs.door != null ? refs.door.Blocker : null);
@@ -1928,123 +1917,63 @@ public static class WorldBuilder
     // Distance minimale entre deux glyphes d'acquisition de la Zone 2 (V0.6.1).
     const float GlyphMinSpacing = 50f;
 
-    // ---------- Bornes d'arcade (chapitre 10.2, V0.6.1) ----------
+    // ---------- Super Monticules (chapitre 10.2, V0.7.2) ----------
 
-    // nZone - 1 bornes à partir de la Zone 3, de type tiré au hasard, contre le mur d'une cellule de plain-pied (au niveau du
-    // Hub, assez haute), loin des salles fixes, des glyphes et des autres bornes ; la cellule reste sans décor (les plaques
-    // de l'Arcade Dance s'étendent devant la borne).
-    const float ArcadeSpacing = 25f;
-    static int ArcadeId(int zone, int k) => zone * 100 + 70 + k;
+    // Emprise d'un Super Monticule : 40 % plus gros qu'un monticule (modèle de 1,53 m de large), plus 0,4 m de marge où il ne
+    // doit y avoir ni vide, ni escalier, ni obstacle, ni mur, ni œil (les monticules sont écartés à chaque manche, GameSession).
+    public const float MoundWidth = 1.53f;
+    public const float SuperMoundWidth = MoundWidth * GameRules.SuperMoundScale;
+    public static float SuperMoundReach => SuperMoundWidth * 0.5f + GameRules.SuperMoundClearance;
+    const float SuperSpacing = 6f;
+    const int MaxSuperSpots = 48;
+    // Yeux posés au sol pendant la décoration de la zone en cours (construits plus tard, hors de la physique).
+    static List<Vector3> floorEyes;
 
-    static void BuildArcades(Maze m, Transform root, ZoneRefs refs, System.Random rnd)
+    // Emplacements possibles, gardés pour toute la partie : les étoiles des plateformes (prioritaires), puis les emplacements
+    // de monticules, chacun vérifié (sol plat et continu sur toute l'emprise, rien au-dessus).
+    static IEnumerator FindSuperMoundSpots(Maze m, ZoneRefs refs, System.Random rnd)
     {
-        int count = GameRules.ArcadesInZone(m.zone);
-        if (count <= 0) return;
         Physics.SyncTransforms();
-        var props = new GameObject("Arcades").transform;
-        props.SetParent(root, false);
-        var avoid = new List<Vector3>();
-        foreach (var g in refs.acquisitionGlyphs) avoid.Add(g.transform.position);
-        foreach (var g in refs.neutralGlyphs) avoid.Add(g.transform.position);
-        if (refs.acquisitionDoor != null) avoid.Add(refs.acquisitionDoor.transform.position);
-        if (refs.door != null) avoid.Add(refs.door.transform.position);
-        var placed = new List<Vector3>();
-        // Note 01 du chapitre 10.2 (V0.6.3) : jamais plus d'une borne dans une même salle.
-        var usedRooms = new HashSet<Room>();
-        // Note 02 (V0.6.6) : plus de la moitié d'abord, sur les plateformes de galerie à plus de 10 m du sol.
-        var highSpots = new List<(GalleryCorner corner, Room room)>();
-        foreach (Room room in m.rooms)
-            foreach (GalleryCorner c in room.corners)
-                if (!c.used && c.level - room.floor > GameRules.ArcadeHighLevel) highSpots.Add((c, room));
-        Shuffle(highSpots, rnd);
-        int highWanted = GameRules.HighArcades(count);
-        foreach (float spacing in new[] { ArcadeSpacing, 12f })
-            foreach (var (corner, room) in highSpots)
+        var stars = new List<Vector3>();
+        foreach (Star star in m.stars) stars.Add(star.pos);
+        Shuffle(stars, rnd);
+        var others = new List<Vector3>(refs.itemSpots);
+        Shuffle(others, rnd);
+        int checks = 0;
+        foreach (bool priority in new[] { true, false })
+            foreach (Vector3 p in priority ? stars : others)
             {
-                if (placed.Count >= highWanted) break;
-                if (corner.used || usedRooms.Contains(room)) continue;
-                Vector3 forward = (corner.u + corner.v).normalized, pos = corner.point + forward * 0.9f + Vector3.up * corner.level;
-                if (placed.Exists(q => Flat(q - pos) < spacing)) continue;
-                // Les plaques de l'Arcade Dance ont besoin de place devant la borne.
-                bool roomy = FlatGround(pos, forward, corner.level);
-                if (!roomy && !FlatGround(pos, forward, corner.level, 1f)) continue;
-                var kind = (ArcadeKind)rnd.Next(roomy ? 3 : 2);
-                corner.used = true;
-                usedRooms.Add(room);
-                refs.arcades.Add(ArcadeMachine.Create(props, ArcadeId(m.zone, placed.Count), kind, m.zone, pos, Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg));
-                placed.Add(pos);
+                if (refs.superSpots.Count >= MaxSuperSpots) break;
+                if (++checks % SpotChecksPerStep == 0) yield return null;
+                if (refs.superSpots.Exists(q => Flat(q - p) < SuperSpacing)) continue;
+                if (!SuperMoundFits(p)) continue;
+                refs.superSpots.Add(p);
+                if (priority) refs.superPriority++;
             }
-        // Chapitre 10.3 : les étoiles des plateformes d'abord (celles qui restent recevront un monticule).
-        for (int k = m.stars.Count - 1; k > 0; k--)
-        {
-            int other = rnd.Next(k + 1);
-            (m.stars[k], m.stars[other]) = (m.stars[other], m.stars[k]);
-        }
-        foreach (Star star in m.stars)
-        {
-            if (placed.Count >= count) break;
-            if (usedRooms.Contains(star.room) || placed.Exists(q => Flat(q - star.pos) < ArcadeSpacing)) continue;
-            // Face aux étages inférieurs : vers le centre de la salle, reculée pour garder la place des plaques de danse.
-            Vector3 roomCenter = m.Center(star.room.rect.xMin, star.room.rect.yMin) + new Vector3((star.room.rect.width - 1) * Cell * 0.5f, 0f, (star.room.rect.height - 1) * Cell * 0.5f);
-            Vector3 forward = roomCenter - star.pos;
-            forward.y = 0f;
-            forward = forward.sqrMagnitude > 0.01f ? forward.normalized : Vector3.forward;
-            Vector3 starPos = star.pos - forward * 1.2f;
-            if (!FlatGround(starPos, forward, star.pos.y)) continue;
-            star.used = true;
-            usedRooms.Add(star.room);
-            int rank = placed.Count;
-            placed.Add(star.pos);
-            refs.arcades.Add(ArcadeMachine.Create(props, ArcadeId(m.zone, rank), (ArcadeKind)rnd.Next(3), m.zone, starPos, Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg));
-        }
-        for (int attempt = 0; attempt < 3000 && placed.Count < count; attempt++)
-        {
-            int i = rnd.Next(m.N), j = rnd.Next(m.N), dir = rnd.Next(4);
-            Room room = m.RoomAt(i, j);
-            if (room != null && (usedRooms.Contains(room) || room.style == RoomStyle.Template)) continue;
-            var cell = new Vector2Int(i, j);
-            if (m.Reserved(i, j) || m.Fixed(i, j) || m.keepClear.Contains(cell) || cell == m.start) continue;
-            if (room != null && (room.style == RoomStyle.Pit || room.floor > 0f || room.levels != null)) continue;
-            if (m.Ceil(i, j) < 3f || !HasWall(m, i, j, dir)) continue;
-            Vector3 center = m.Center(i, j);
-            if (avoid.Exists(q => Flat(q - center) < 12f) || placed.Exists(q => Flat(q - center) < ArcadeSpacing)) continue;
-            if (m.neutralRoom.width > 0 && m.neutralRoom.Contains(cell)) continue;
-            Vector3 toWall = new Vector3(DI[dir], 0f, DJ[dir]);
-            // Dos au mur (la borne fait moins d'un mètre de profondeur), face à la cellule.
-            Vector3 pos = center + toWall * (Cell * 0.5f - Wall * 0.5f - 0.62f);
-            if (!FlatGround(pos, -toWall)) continue;
-            var kind = (ArcadeKind)rnd.Next(3);
-            int k = placed.Count;
-            placed.Add(center);
-            if (room != null) usedRooms.Add(room);
-            m.keepClear.Add(cell);
-            float yaw = Mathf.Atan2(-toWall.x, -toWall.z) * Mathf.Rad2Deg;
-            refs.arcades.Add(ArcadeMachine.Create(props, ArcadeId(m.zone, k), kind, m.zone, pos, yaw));
-        }
+        floorEyes = null;
     }
 
-    // Sol plat au niveau du Hub sous la borne et devant elle (jusqu'aux plaques de l'Arcade Dance).
-    static bool FlatGround(Vector3 pos, Vector3 forward, float level = 0f, float reach = 2.6f)
+    static bool SuperMoundFits(Vector3 p)
     {
-        Vector3 side = Vector3.Cross(Vector3.up, forward);
-        foreach (float ahead in new[] { 0f, 1f, reach })
-            foreach (float across in new[] { -0.8f, 0f, 0.8f })
+        float reach = SuperMoundReach;
+        // Sol : plat, au même niveau, sous toute l'emprise (ni vide, ni marche, ni rampe).
+        for (int ring = 0; ring <= 2; ring++)
+        {
+            float r = reach * ring / 2f;
+            int steps = ring == 0 ? 1 : 12;
+            for (int k = 0; k < steps; k++)
             {
-                Vector3 p = pos + forward * ahead + side * across + Vector3.up * 2f;
-                if (!Physics.Raycast(p, Vector3.down, out RaycastHit hit, 3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return false;
-                if (Mathf.Abs(hit.point.y - level) > 0.05f || hit.normal.y < 0.95f) return false;
+                float a = k * Mathf.PI * 2f / steps;
+                Vector3 probe = p + new Vector3(Mathf.Cos(a) * r, 1.2f, Mathf.Sin(a) * r);
+                if (!Physics.Raycast(probe, Vector3.down, out RaycastHit hit, 2.5f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return false;
+                if (Mathf.Abs(hit.point.y - p.y) > 0.06f || hit.normal.y < 0.97f || hit.collider.name == "Rampe") return false;
             }
+        }
+        // Rien au-dessus (mur, obstacle, décor) jusqu'à 2 m.
+        if (Physics.CheckBox(p + Vector3.up * 1.1f, new Vector3(reach, 1f, reach), Quaternion.identity, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            return false;
+        if (floorEyes != null && floorEyes.Exists(e => Flat(e - p) < reach + 0.8f && Mathf.Abs(e.y - p.y) < 1f)) return false;
         return true;
-    }
-
-    // Godmod (V0.6.1) : bornes du Hub 1 (Roulette, Machine à pince, Arcade Dance), entre les Chenils et le Bouton Rouge,
-    // tournées vers le centre, sans masquer l'Écran des Logs.
-    static readonly float[] HubArcadeAngles = { 75f, -75f, 122f };
-
-    public static (Vector3 pos, float yaw) HubArcadeSpot(HubRefs h, int k)
-    {
-        float angle = HubArcadeAngles[Mathf.Clamp(k, 0, HubArcadeAngles.Length - 1)];
-        return (h.center + Polar(angle, k == 2 ? 6.6f : 7.4f, 0f), angle + 180f);
     }
 
     // Enseignes en lettres de néon blanc (mots 3D générés par Meshy, police soviétique, préparés par "FunGame/Préparer les
@@ -2452,7 +2381,7 @@ public static class WorldBuilder
             }
         }
 
-        // Chapitre 10.3 : rien dans les plateformes pleines ni leurs escaliers ; une étoile sans borne reçoit un monticule.
+        // Chapitre 10.3 : rien dans les plateformes pleines ni leurs escaliers ; une étoile reçoit aussi un monticule par défaut.
         spots.RemoveAll(s => InBlocks(m, s, 0.7f));
         foreach (Star star in m.stars) if (!star.used) spots.Add(star.pos);
 
@@ -2698,6 +2627,7 @@ public static class WorldBuilder
     // Très nombreux et purement visuels : construits sur les images suivantes, pour ne pas figer le jeu à la création d'une zone.
     static void AddEye(Transform parent, Vector3 pos, Vector3 normal, float size)
     {
+        if (floorEyes != null && normal.y > 0.5f && parent != null) floorEyes.Add(parent.TransformPoint(pos));
         WorldStreamer.Enqueue(() =>
         {
             if (parent != null) BuildEye(parent, pos, normal, size);
@@ -4341,8 +4271,11 @@ public static class WorldBuilder
         if (!best.statueFilled) best.chess = false;
     }
 
+    static List<Vector3> statueLog;
+
     static void AddStatue(Transform parent, Vector3 center, float height, List<Vector3> spots, bool dogHead)
     {
+        statueLog?.Add(center);
         var statue = GameArt.SpawnModel("Decor/StatuePavlov", parent, height);
         if (statue == null) return;
         statue.name = "Statue de Pavlov";

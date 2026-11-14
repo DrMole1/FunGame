@@ -10,6 +10,8 @@ public class GameHud : MonoBehaviour
     static readonly Color SlotSelectedColor = new Color(0.95f, 0.75f, 0.25f, 0.95f);
     static readonly Color HealthColor = new Color(0.95f, 0.38f, 0.22f);
     static readonly Color SerenityColor = new Color(0.3f, 0.62f, 1f);
+    // V0.7.2 (chapitre 3.5) : barre de faim orange, entre la vie et la sérénité.
+    static readonly Color HungerColor = new Color(1f, 0.62f, 0.1f);
     const float GaugeWidth = 330f, GaugeHeight = 30f;
     const float CompassWidth = 420f, CompassHeight = 40f, CompassSpan = 180f;
 
@@ -30,7 +32,7 @@ public class GameHud : MonoBehaviour
     Image spaceKeyImage;
     // Dans le Canon (V0.4.6) : le viseur devient un rond blanc et l'inventaire est caché.
     GameObject crosshairDot, crosshairRing, inventoryBar;
-    Gauge health, serenity;
+    Gauge health, hunger, serenity;
     Text promptText, toastText, spectateText, gameOverText;
     // Ordres des glyphes en cours (V0.6) : en haut de l'écran, les uns sous les autres, clignotants.
     readonly Text[] orderTexts = new Text[GameRules.GlyphTypes];
@@ -222,9 +224,10 @@ public class GameHud : MonoBehaviour
             orderTexts[i].gameObject.AddComponent<Outline>().effectColor = new Color(0f, 0f, 0f, 0.9f);
         }
 
-        // Jauges : vie (rouge) au-dessus de la sérénité (bleue).
+        // Jauges : vie (rouge), faim (orange, V0.7.2), puis sérénité (bleue).
         Texture2D cracked = CrackedTexture(256, 32, 11);
-        health = BuildGauge(r, "JaugeDeVie", new Vector2(20, 62), HealthColor, cracked);
+        health = BuildGauge(r, "JaugeDeVie", new Vector2(20, 102), HealthColor, cracked);
+        hunger = BuildGauge(r, "JaugeDeFaim", new Vector2(20, 62), HungerColor, cracked);
         serenity = BuildGauge(r, "JaugeDeSerenite", new Vector2(20, 22), SerenityColor, cracked);
 
         // Inventaire : 5 cases arrondies sur une barre.
@@ -479,6 +482,7 @@ public class GameHud : MonoBehaviour
 
     public void SetHealth(int hp, bool dead) => SetGauge(health, hp, GameRules.MaxHp, dead, "PV");
     public void SetSerenity(int value, bool dead) => SetGauge(serenity, value, GameRules.MaxSerenity, dead, "Sérénité");
+    public void SetHunger(int value, bool dead) => SetGauge(hunger, value, GameRules.MaxHunger, dead, "Faim");
 
     public void SetInventory(PlayerStatus status)
     {

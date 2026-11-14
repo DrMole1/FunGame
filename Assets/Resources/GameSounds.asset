@@ -81,6 +81,12 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: 4a1c4ab6997b2c24b8f53ab436ba0f5d, type: 3}
   - key: round_spawn
     clip: {fileID: 8300000, guid: 85c51d7a10a54b744a14621a378bf70a, type: 3}
+  - key: ambience_statue
+    clip: {fileID: 8300000, guid: 69e44189b000e5648967eff809a414c6, type: 3}
+  - key: ambience_entrance
+    clip: {fileID: 8300000, guid: 71e2bf7ecbeeabd45bd13a24fa0c0965, type: 3}
+  - key: ambience_opening
+    clip: {fileID: 8300000, guid: d078c903ec40eaf40a7913ffa02b73b7, type: 3}
   - key: heart_thump
     clip: {fileID: 8300000, guid: bf985b3895aa2ea41a7dd9dad3974595, type: 3}
   - key: hub_music

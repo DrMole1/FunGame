@@ -23,6 +23,8 @@ public class SecretCorpse : MonoBehaviour
     Light sparkLight;
     SecretCard card;
     float twitchAt = -10f, nextSpark, nextJerk;
+    // V0.7.2 : le son des étincelles est baissé de 50 %.
+    const float SparkVolume = 0.5f;
     bool scareUsed = true;
 
     public bool Twitching
@@ -305,7 +307,7 @@ public class SecretCorpse : MonoBehaviour
             if (Time.time >= nextSpark)
             {
                 nextSpark = Time.time + 0.15f;
-                GameAudio.Play3D("spark", sparks[Random.Range(0, sparks.Count)].transform.position, 0.75f, 15f, 0.2f);
+                GameAudio.Play3D("spark", sparks[Random.Range(0, sparks.Count)].transform.position, 0.75f * SparkVolume, 15f, 0.2f);
             }
             sparkLight.intensity = Random.value < 0.3f ? 0.3f : Random.Range(2f, 4f);
             return;
@@ -318,7 +320,7 @@ public class SecretCorpse : MonoBehaviour
             ps.Emit(Random.Range(8, 20));
             sparkLight.transform.position = ps.transform.position + Vector3.up * 0.25f;
             sparkLight.intensity = Random.Range(2f, 3.2f);
-            GameAudio.Play3D("spark", ps.transform.position, 0.45f, 12f, 0.2f);
+            GameAudio.Play3D("spark", ps.transform.position, 0.45f * SparkVolume, 12f, 0.2f);
         }
         sparkLight.intensity = Mathf.MoveTowards(sparkLight.intensity, 0f, Time.deltaTime * 20f);
     }

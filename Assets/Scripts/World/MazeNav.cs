@@ -12,6 +12,11 @@ public class MazeNav
     public const float Step = 0.5f;
     const float MaxStepHeight = 0.45f; // marche la plus haute franchissable entre deux points voisins
     const float ProbeHeight = 0.6f;    // hauteur de la vérification d'obstacle entre deux points
+    // Note 08 des Notes Diverses (V0.7.2) : une entité ne s'approche pas à moins de 1,4 m d'un mur (elle ne doit pas être vue
+    // à travers). Les points trop près d'un mur coûtent bien plus cher aux chemins (A*), et ne sont jamais tirés comme
+    // destination ; on ne les retire pas : un passage plus étroit (porte, tunnel) reste franchissable, par son milieu.
+    public const float WallClearance = 1.4f;
+    const float NearWallCost = 8f;
 
     // Zones en cellules de 5 m (appartenance d'un point à une zone, cellules exclues comme le Hub).
     class Zone
@@ -33,6 +38,7 @@ public class MazeNav
     sbyte[] zoneOf;   // -1 : hors zone
     byte[] links;     // bit k : relié au voisin k (8 directions)
     byte[] doorLinks; // bit k : lien qui traverse la porte de la Zone 2
+    float[] wallCost; // coût d'entrée dans le point : 1 au large, plus près d'un mur (jusqu'à 1 + NearWallCost)
     int[] region;      // région connexe (porte fermée) ; le dessus d'un bloc, par exemple, est un îlot
     int[] mainRegion;  // plus grande région de chaque zone
     Transform structure;
@@ -92,6 +98,7 @@ public class MazeNav
         zoneOf = new sbyte[nx * nz];
         links = new byte[nx * nz];
         doorLinks = new byte[nx * nz];
+        wallCost = new float[nx * nz];
         buildRow = 0;
     }
 
@@ -136,9 +143,30 @@ public class MazeNav
             float best = float.NegativeInfinity;
             for (int k = 0; k < count; k++)
                 if (hits[k].transform.IsChildOf(structure) && hits[k].point.y > best && hits[k].normal.y > 0.5f) best = hits[k].point.y;
-            if (!float.IsNegativeInfinity(best)) height[n] = best;
+            if (float.IsNegativeInfinity(best)) continue;
+            height[n] = best;
+            wallCost[n] = 1f + NearWallCost * (1f - WallDistance(new Vector3(p.x, best, p.z)) / WallClearance);
         }
     }
+
+    // Distance au mur le plus proche (paroi presque verticale du bâti), dans 8 directions, plafonnée à WallClearance.
+    float WallDistance(Vector3 ground)
+    {
+        Vector3 from = ground + Vector3.up * ProbeHeight;
+        float nearest = WallClearance;
+        for (int d = 0; d < 8; d++)
+        {
+            var dir = new Vector3(DX[d], 0f, DZ[d]).normalized;
+            int count = Physics.RaycastNonAlloc(from, dir, hits, nearest, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+            for (int k = 0; k < count; k++)
+                if (hits[k].transform.IsChildOf(structure) && Mathf.Abs(hits[k].normal.y) < 0.3f && hits[k].distance < nearest)
+                    nearest = hits[k].distance;
+        }
+        return nearest;
+    }
+
+    // Point à l'écart des murs (au moins WallClearance).
+    bool Clear(int n) => wallCost == null || wallCost[n] <= 1.001f;
 
     // Liens de la colonne x vers la colonne x + 1 et vers le point suivant de la colonne (directions 0 et 2) ;
     // les autres directions sont symétriques.
@@ -304,7 +332,8 @@ public class MazeNav
             if (!Walkable(n) || zoneOf[n] != zone || (mainRegion != null && region[n] != mainRegion[zone])) continue;
             Vector3 d = Position(n) - from;
             d.y = 0f;
-            fallback = n;
+            if (fallback < 0 || Clear(n)) fallback = n;
+            if (!Clear(n)) continue;
             if (d.magnitude >= minDistance && d.magnitude <= maxDistance) return n;
         }
         return fallback;
@@ -347,7 +376,7 @@ public class MazeNav
                 if ((links[n] & (1 << dir)) == 0) continue;
                 if (!DoorOpen && (doorLinks[n] & (1 << dir)) != 0) continue;
                 int m = (x + DX[dir]) * nz + (z + DZ[dir]);
-                float g = gScore[n] + ((dir & 1) == 1 ? 1.4142f : 1f) * Step;
+                float g = gScore[n] + ((dir & 1) == 1 ? 1.4142f : 1f) * Step * wallCost[m];
                 if (visited[m] == stamp && g >= gScore[m]) continue;
                 visited[m] = stamp;
                 gScore[m] = g;

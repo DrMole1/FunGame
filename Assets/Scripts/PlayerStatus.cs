@@ -1,10 +1,12 @@
 using UnityEngine;
 
-// Points de vie, sérénité et inventaire (5 cases) du joueur local.
+// Points de vie, faim, sérénité et inventaire (5 cases) du joueur local.
 public class PlayerStatus : MonoBehaviour
 {
     public int Hp { get; private set; } = GameRules.MaxHp;
     public int Serenity { get; private set; } = GameRules.MaxSerenity;
+    // V0.7.2 (chapitre 3.5) : faim, de 100 à 0.
+    public int Hunger { get; private set; } = GameRules.MaxHunger;
     public bool Dead { get; private set; }
     // Note 10 (V0.4.3) : une case est toujours sélectionnée, la case 1 par défaut.
     public int Selected { get; private set; }
@@ -67,6 +69,14 @@ public class PlayerStatus : MonoBehaviour
         hp = Mathf.Clamp(hp, 0, GameRules.MaxHp);
         if (hp == Hp) return;
         Hp = hp;
+        Changed?.Invoke();
+    }
+
+    public void SetHunger(int value)
+    {
+        value = Mathf.Clamp(value, 0, GameRules.MaxHunger);
+        if (value == Hunger) return;
+        Hunger = value;
         Changed?.Invoke();
     }
 
