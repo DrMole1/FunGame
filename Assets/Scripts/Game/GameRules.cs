@@ -499,7 +499,7 @@ public static class Items
         // V0.7.2 : le Chargeur aussi (les ID suivants sont décalés d'un cran).
         new ItemDef { type = ItemType.Balise, terminalId = 1, name = "Balise", shortName = "Balise", buyPrice = 30, sellPrice = 1, color = new Color(0.3f, 0.6f, 1f) },
         new ItemDef { type = ItemType.PostIt, terminalId = 2, name = "Post-It", shortName = "Post-It", buyPrice = 5, sellPrice = 1, color = new Color(1f, 0.93f, 0.35f) },
-        new ItemDef { type = ItemType.Cle, terminalId = 3, name = "Clé", shortName = "Clé", buyPrice = 200, sellPrice = 1, color = new Color(0.55f, 0.8f, 1f) },
+        new ItemDef { type = ItemType.Cle, terminalId = 3, name = "Clé", shortName = "Clé", buyPrice = 50, sellPrice = 1, color = new Color(0.55f, 0.8f, 1f) },
         new ItemDef { type = ItemType.Teleporteur, terminalId = 4, name = "Téléporteur", shortName = "Téléport.", buyPrice = 200, sellPrice = 1, color = new Color(1f, 0.7f, 0.15f) },
         new ItemDef { type = ItemType.BaliseAmelioree, terminalId = 5, name = "Balise Améliorée", shortName = "Balise +", buyPrice = 50, sellPrice = 1, color = new Color(0.95f, 0.95f, 1f) },
         new ItemDef { type = ItemType.StationCurative, terminalId = 6, name = "Station Curative", shortName = "Station", buyPrice = 150, sellPrice = 1, color = new Color(0.4f, 1f, 0.45f) },
