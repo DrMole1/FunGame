@@ -83,6 +83,10 @@ public class WorldStreamer : MonoBehaviour
         foreach (var probe in instance.allProbes) probe.intensity = power;
     }
 
+    // V0.7.5 : autres points de vue dont les lampes proches restent allumées (caméras de sécurité de la Control Room).
+    public static readonly List<Vector3> ExtraEyes = new List<Vector3>();
+    const float ExtraEyeLampRange = 30f;
+
     public static void Register(FlickerLight lamp)
     {
         if (Application.isPlaying) Instance.lamps.Add(lamp);
@@ -165,7 +169,10 @@ public class WorldStreamer : MonoBehaviour
                 lamps.RemoveAt(lamps.Count - 1);
                 continue;
             }
-            lamp.SetLit((lamp.transform.position - eye).sqrMagnitude < limit);
+            Vector3 at = lamp.transform.position;
+            bool lit = (at - eye).sqrMagnitude < limit;
+            for (int e = 0; !lit && e < ExtraEyes.Count; e++) lit = (at - ExtraEyes[e]).sqrMagnitude < ExtraEyeLampRange * ExtraEyeLampRange;
+            lamp.SetLit(lit);
             nextLamp++;
         }
     }

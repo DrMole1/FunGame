@@ -4,18 +4,19 @@ using UnityEngine;
 // pour ce joueur seulement, non spatialisés et à 50 % du volume :
 // - Ambiance_Statue : il s'approche à moins de 10 m d'une statue de Pavlov ;
 // - Ambiance_Entree : il pénètre pour la première fois dans le labyrinthe.
-// (Ambiance_Ouverture, à chaque porte neutre ou d'acquisition qui s'ouvre : ZoneDoor et AcquisitionDoor.)
+// - Ambiance_Ouverture (V0.7.5, avant : à chaque porte neutre ou d'acquisition qui s'ouvre) : il pénètre pour la première fois
+//   dans la Zone 2.
 public partial class GameSession
 {
     const float StatueCueRange = 10f, AmbienceCueVolume = 0.5f;
-    bool statueCuePlayed, entranceCuePlayed;
+    bool statueCuePlayed, entranceCuePlayed, zone2CuePlayed;
     float cueTimer;
 
-    void ResetAmbienceCues() => statueCuePlayed = entranceCuePlayed = false;
+    void ResetAmbienceCues() => statueCuePlayed = entranceCuePlayed = zone2CuePlayed = false;
 
     void UpdateAmbienceCues()
     {
-        if (status.Dead || worldLoading || (statueCuePlayed && entranceCuePlayed)) return;
+        if (status.Dead || worldLoading || (statueCuePlayed && entranceCuePlayed && zone2CuePlayed)) return;
         cueTimer -= Time.deltaTime;
         if (cueTimer > 0f) return;
         cueTimer = 0.25f;
@@ -24,6 +25,11 @@ public partial class GameSession
         {
             entranceCuePlayed = true;
             GameAudio.Play2D("ambience_entrance", AmbienceCueVolume);
+        }
+        if (!zone2CuePlayed && !Teleporting && !WorldBuilder.IsInHub(p) && WorldBuilder.ZoneAt(p) == 2)
+        {
+            zone2CuePlayed = true;
+            GameAudio.Play2D("ambience_opening", AmbienceCueVolume);
         }
         if (statueCuePlayed) return;
         foreach (var z in zones)

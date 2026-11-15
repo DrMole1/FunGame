@@ -443,13 +443,23 @@ public partial class GameSession
         int body = WorldBuilder.ZoneAt(player.transform.position), eye = cam != null ? WorldBuilder.ZoneAt(cam.transform.position) : 0;
         if (body < 1) body = eye;
         if (eye < 1) eye = body;
-        if (body < 1) return;
+        // V0.7.5 : la zone montrée par les caméras de sécurité de la Control Room reste dessinée.
+        if (body < 1)
+        {
+            foreach (var z in zones)
+                if (z.root.activeSelf && z.index == controlFeedZone)
+                {
+                    z.lastNeeded = Time.unscaledTime;
+                    z.ShowVisuals();
+                }
+            return;
+        }
 
         bool hidOne = false;
         foreach (var z in zones)
         {
             if (!z.root.activeSelf) continue;
-            if (Mathf.Abs(z.index - body) <= 1 || Mathf.Abs(z.index - eye) <= 1)
+            if (Mathf.Abs(z.index - body) <= 1 || Mathf.Abs(z.index - eye) <= 1 || z.index == controlFeedZone)
             {
                 z.lastNeeded = Time.unscaledTime;
                 z.ShowVisuals();

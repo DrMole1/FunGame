@@ -142,7 +142,9 @@ public partial class GameSession
     // Un peu moins que la hauteur du sol du Hub au sommet du Chapiteau ; un plafond l'arrête (collision normale).
     static float TrampolineSpeed => Mathf.Sqrt(2f * -GameRules.Gravity * GameRules.AirGravityMultiplier(false)
         * WorldBuilder.ChapiteauTop * GameRules.TrampolineJumpFraction);
-    const float TrampolineRadius = 0.6f, BounceCooldown = 0.35f;
+    // V0.7.5 (Note 04) : on rebondit dès qu'on retombe sur la toile (1,2 m de large), pas seulement en son centre : un Trampoline
+    // déterré, au milieu des joueurs qui l'entourent, s'utilise tout de suite (avant : 0,6 m, le centre seulement).
+    const float TrampolineRadius = 0.85f, BounceCooldown = 0.35f;
     float bounceAt = -10f;
     readonly Dictionary<string, float> remoteBounceAt = new Dictionary<string, float>();
     readonly HashSet<string> remoteOnTrampoline = new HashSet<string>();

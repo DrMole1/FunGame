@@ -342,6 +342,10 @@ public static class Loc
         R("Carte 2", "Card 2", "Tarjeta 2", "Карта 2"),
         R("Utiliser la Carte Magnétique 2", "Use Magnetic Card 2", "Usar la Tarjeta Magnética 2", "Использовать магнитную карту 2"),
         R("Pousser la porte", "Push the door", "Empujar la puerta", "Толкнуть дверь"),
+        // V0.7.5 : tableau de bord de la Control Room.
+        R("Appuyer sur le bouton", "Press the button", "Pulsar el botón", "Нажать кнопку"),
+        R("Zone précédente", "Previous zone", "Zona anterior", "Предыдущая зона"),
+        R("Zone suivante", "Next zone", "Zona siguiente", "Следующая зона"),
         R("Pogo n'en veut pas.", "Pogo doesn't want it.", "Pogo no lo quiere.", "Пого это не нужно."),
         R("Le Couvre Feu se déclenche.", "The Couvre Feu is triggered.", "El Couvre Feu se activa.", "Couvre Feu начинается."),
         R("Le Couvre Feu se réinitialise. Pour le moment.", "The Couvre Feu resets. For now.", "El Couvre Feu se reinicia. Por ahora.", "Couvre Feu сбрасывается. Пока что."),

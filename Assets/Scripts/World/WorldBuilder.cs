@@ -49,7 +49,8 @@ public static class WorldBuilder
     public static int ZoneOfHub(int hub) => hub * 2 - 1;
 
     // Angles (degrés, 0 = porte au nord) des emplacements du Hub.
-    public static readonly float[] KennelAngles = { 55f, 78f, 101f, 124f, -55f, -78f, -101f, -124f };
+    // V0.7.5 (Note 01) : 6 joueurs au plus, 3 Chenils de chaque côté, toujours espacés de 23 degrés.
+    public static readonly float[] KennelAngles = { 66.5f, 89.5f, 112.5f, -66.5f, -89.5f, -112.5f };
     const float TerminalAngle = 150f, LogAngle = 180f, QuotaAngle = -28f, CashAngle = 28f, RoundBoardAngle = -142f;
     const float PogoAngle = -41f, BeaconAngle = 14f;
 
@@ -335,6 +336,8 @@ public static class WorldBuilder
             refs.logText = Screen(root, "Ecran de Logs", LogAngle, HubRadius - 0.9f, 2.6f, new Vector2(8f, 3.6f), 0.027f, TextAnchor.MiddleLeft);
             // V0.6.14 (15.3) : le tunnel de la Control Room, caché derrière l'Écran des Logs.
             ControlWing.Build(root);
+            // V0.7.5 (15.3) : le Pompon, suspendu sous le sommet du chapiteau.
+            Pompon.Create(root, ChapiteauTop);
         }
         refs.timerText.color = new Color(1f, 0.35f, 0.3f);
         refs.roundBoardText = Screen(root, "Tableau de Manche", RoundBoardAngle, HubRadius - 0.45f, 2.7f, new Vector2(4.4f, 2.8f), 0.026f);
@@ -468,11 +471,18 @@ public static class WorldBuilder
     static TextMesh Screen(Transform root, string name, float angle, float radius, float y, Vector2 size, float charSize,
         TextAnchor anchor = TextAnchor.MiddleCenter)
     {
+        // Le texte se lit quand on le regarde selon son axe +Z : l'avant pointe vers le mur.
+        return ScreenAt(root, name, Polar(angle, radius, y), Quaternion.Euler(0f, angle, 0f), size, charSize, anchor);
+    }
+
+    // Écran des Hubs (cadre, fond, texte façon vieux moniteur) posé où l'on veut (V0.7.5 : aussi l'écran de la Control Room).
+    public static TextMesh ScreenAt(Transform root, string name, Vector3 localPos, Quaternion localRot, Vector2 size, float charSize,
+        TextAnchor anchor = TextAnchor.MiddleCenter)
+    {
         var go = new GameObject(name).transform;
         go.SetParent(root, false);
-        go.localPosition = Polar(angle, radius, y);
-        // Le texte se lit quand on le regarde selon son axe +Z : l'avant pointe vers le mur.
-        go.localRotation = Quaternion.Euler(0f, angle, 0f);
+        go.localPosition = localPos;
+        go.localRotation = localRot;
 
         // Coins arrondis, ceux du cadre concentriques à ceux de l'écran.
         ScreenPlate(go, "Cadre", new Vector3(0f, 0f, 0.06f), new Vector2(size.x + ScreenBorder * 2f, size.y + ScreenBorder * 2f), 0.08f, ScreenCorner + ScreenBorder,

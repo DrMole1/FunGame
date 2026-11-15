@@ -38,8 +38,8 @@ public static class SoundBank
         "teleporter_ready", "round_spawn",
         // V0.6.14 (chapitre 15.3) : étincelles du cadavre de Tête de Cloche, porte du laboratoire secret.
         "spark", "lab_door",
-        // V0.7.2 (GDD 12) : statue de Pavlov approchée, première entrée dans le labyrinthe, porte neutre ou d'acquisition qui
-        // s'ouvre (enregistrés seulement).
+        // V0.7.2 (GDD 12) : statue de Pavlov approchée, première entrée dans le labyrinthe, première entrée dans la
+        // Zone 2 (V0.7.5) (enregistrés seulement).
         "ambience_statue", "ambience_entrance", "ambience_opening",
     };
 

@@ -565,8 +565,6 @@ public class AcquisitionDoor : MonoBehaviour
     public void SetOpen(bool value, bool instant)
     {
         if (value != open && !instant) GameAudio.Play3D("zone_door", transform.position + Vector3.up * 2f, 1f, 60f, 0f, 1.25f);
-        // GDD 12 (V0.7.2) : Ambiance_Ouverture, porte d'acquisition qui s'ouvre (chez chaque joueur, non spatialisé, -50 %).
-        if (value && !open && !instant) GameAudio.Play2D("ambience_opening", 0.5f);
         if (value != open) BeaconNetwork.SightChanged();
         open = value;
         blocker.enabled = !open;

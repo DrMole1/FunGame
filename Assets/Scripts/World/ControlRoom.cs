@@ -14,6 +14,7 @@ using UnityEngine;
 // V0.7.4 : à gauche en entrant (à l'est), une seconde porte de laboratoire, ouverte par la Carte Magnétique 2, mène au Vestiaire
 // (couloir éclairé par 3 néons, penderie à cintres sur sa longueur), qui donne sur l'Ascenseur (vieil ascenseur des années
 // 1980, défectueux et saboté) et, en face, sur la porte entrouverte du Bureau L.I.V. (un néon).
+// V0.7.5 : sous l'enseigne, le grand écran (ControlScreen), relié au promontoire de la Cloche, et son tableau de bord.
 public static class ControlWing
 {
     // Tout le tunnel est surélevé : son ouverture reste cachée derrière l'Écran des Logs (de 0,7 m à 4,4 m de haut).
@@ -36,6 +37,14 @@ public static class ControlWing
         if (d.z > -WallInner || d.z < RoomSouth - 2f || d.x < -GameRules.ControlRoomWidth * 0.5f - 2f || d.x > WingEast + 2f || d.y > 10f || d.y < -5f)
             return 0f;
         return Mathf.Clamp01((-d.z - WallInner) / GameRules.TunnelMusicFade);
+    }
+
+    // V0.7.5 : le point (monde) est dans la Control Room.
+    public static bool InControlRoom(Vector3 world)
+    {
+        Vector3 d = world - WorldBuilder.HubCenter(1) - Vector3.up * Elevation;
+        return d.z <= RoomNorth && d.z >= RoomSouth && Mathf.Abs(d.x) <= GameRules.ControlRoomWidth * 0.5f
+            && d.y >= -1f && d.y <= GameRules.ControlRoomHeight + 1f;
     }
 
     public static void Build(Transform hub)
@@ -62,8 +71,11 @@ public static class ControlWing
         float halfSeg = (2f * Mathf.PI * (WallInner + 0.15f) / 32f + 0.08f) * 0.5f;
         var mouth = new Mesh2();
         mouth.UvOf = p => new Vector2((halfSeg - p.x) / (halfSeg * 2f), (p.y + Elevation) / HubWallHeight);
+        System.Func<float, float, bool> mouthHole = (x, y) => x * x + (y - TunnelAxis) * (y - TunnelAxis) < TunnelRadius * TunnelRadius && y > 0f;
+        // V0.7.5 (Note 03) : seule la face côté chapiteau est en toile ; la face arrière (vue depuis le tunnel) est construite
+        // plus bas, dans la couleur du tunnel.
         mouth.PlateWithHole(new Vector3(0f, 0f, -WallInner), Vector3.right, Vector3.up, -halfSeg, halfSeg, -Elevation, HubWallHeight - Elevation,
-            (x, y) => x * x + (y - TunnelAxis) * (y - TunnelAxis) < TunnelRadius * TunnelRadius && y > 0f, 0.025f, 0.3f);
+            mouthHole, 0.025f, 0f);
         GameArt.MeshObject("BoucheTunnel", root, mouth.Build("BoucheTunnel"), GameArt.Lit("HubRed", new Color(0.72f, 0.08f, 0.1f), GameArt.Canvas(), 0.85f));
         Box(new Vector3(0f, (TunnelTop + HubWallHeight - Elevation) * 0.5f, -WallInner - 0.15f), new Vector3(halfSeg * 2f, HubWallHeight - Elevation - TunnelTop, 0.3f));
         // Sous l'ouverture, le mur reste plein jusqu'au sol du Hub.
@@ -78,6 +90,18 @@ public static class ControlWing
             GameArt.MeshObject("Tunnel", root, tube.Build("Tunnel"), tunnel);
         }
         BuildDust(root, z0, z1);
+
+        // V0.7.5 (Note 03) : jonction entre le tunnel et le chapiteau. La face arrière du pan percé et le bord du trou (sur
+        // l'épaisseur du mur) étaient de la toile du chapiteau : deux bandes verticales rouges restaient visibles depuis le
+        // tunnel, sur les côtés. Elles sont maintenant dans la couleur du tunnel.
+        Material junction = tunnelMat != null ? tunnelMat : tunnel;
+        var back = new Mesh2();
+        back.PlateWithHole(new Vector3(0f, 0f, -WallInner - 0.3f), Vector3.right, Vector3.up, -halfSeg, halfSeg, -Elevation, HubWallHeight - Elevation,
+            mouthHole, 0.025f, 0f);
+        GameArt.MeshObject("BoucheTunnelArriere", root, back.Build("BoucheTunnelArriere"), junction);
+        var rim = new Mesh2();
+        rim.Tube(TunnelAxis, TunnelRadius - 0.01f, -WallInner - 0.005f, -WallInner - 0.31f, 48);
+        GameArt.MeshObject("JonctionTunnel", root, rim.Build("JonctionTunnel"), junction);
         var floor = new Mesh2();
         floor.Quad(new Vector3(-FloorHalf, 0.005f, z0), new Vector3(FloorHalf, 0.005f, z0), new Vector3(FloorHalf, 0.005f, z1), new Vector3(-FloorHalf, 0.005f, z1), 0.5f);
         GameArt.MeshObject("SolTunnel", root, floor.Build("SolTunnel"), tunnel);
@@ -137,7 +161,10 @@ public static class ControlWing
         Box(new Vector3(0f, (TunnelTop + h) * 0.5f, n + 0.5f), new Vector3((FloorHalf + 0.3f) * 2f, h - TunnelTop, 1f));
 
         // Enseigne "Control Room" sur le mur du fond, face à l'entrée (néon Meshy si présent, sinon texte).
-        Sign(root, new Vector3(0f, 3.6f, s0 + 0.02f));
+        // V0.7.5 : remontée (avant : 3,6 m) pour laisser place, dessous, au grand écran.
+        Sign(root, new Vector3(0f, 4.5f, s0 + 0.02f));
+        // V0.7.5 : grand écran, câble, promontoire et tableau de bord.
+        ControlScreen.Build(root, s0, hw);
 
         BuildVestiaire(root, Box);
     }
@@ -430,6 +457,9 @@ public static class ControlWing
     // intérieur 1,5 m) et alignés bout à bout de z0 à z1. Assombris : le tunnel reste noir et obscur.
     const float SegmentInnerRadius = 0.77f, SegmentLength = 1.4f;
 
+    // Matériau des segments de béton (pour la jonction avec le chapiteau, V0.7.5).
+    static Material tunnelMat;
+
     static bool BuildSegments(Transform root, float z0, float z1)
     {
         var prefab = Resources.Load<GameObject>("Art/TunnelBeton");
@@ -441,6 +471,7 @@ public static class ControlWing
         var holder = new GameObject("Tunnel").transform;
         holder.SetParent(root, false);
         Material dark = null;
+        tunnelMat = null;
         for (int k = 0; k < count; k++)
         {
             var seg = Object.Instantiate(prefab, holder);
@@ -457,6 +488,7 @@ public static class ControlWing
                     if (dark.HasProperty("_Glossiness")) dark.SetFloat("_Glossiness", 0.08f);
                 }
                 r.sharedMaterial = dark;
+                tunnelMat = dark;
                 r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             }
         }

@@ -4,9 +4,9 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.4";
+    public const string Version = "V0.7.5";
 
-    public const int MaxPlayers = 8;
+    public const int MaxPlayers = 6;            // V0.7.5 (avant : 8)
     public const int MaxHp = 100;
     public const int MaxSerenity = 100;
     public const float HubRegenPerSecond = 5f;
@@ -315,6 +315,8 @@ public static class GameRules
     public const int CorpseScareSerenity = 20;
     // Tunnel derrière l'Écran des Logs du Hub 1 : porte métallique à 10 m de l'entrée, puis la Control Room (V0.7 : 16 x 24 m,
     // 16 m entre la sortie du tunnel et le mur opposé).
+    // V0.7.5 : caméras de sécurité de l'écran de la Control Room, des yeux d'une même zone séparés d'au moins 20 m.
+    public const float ControlCameraSpacing = 20f;
     public const float TunnelDoorDistance = 10f, ControlRoomWidth = 24f, ControlRoomLength = 16f, ControlRoomHeight = 6f;
     // La musique s'efface sur ces premiers mètres du tunnel (et revient en rentrant dans le Hub).
     public const float TunnelMusicFade = 6f;
@@ -331,7 +333,7 @@ public static class GameRules
     // Glyphes neutres d'une zone impaire : un de chaque type, à au moins 40 m les uns des autres.
     public const float NeutralGlyphSpacing = 40f;
     public static int NeutralGlyphId(int zone, int type) => zone * 100 + 50 + type;
-    // V0.6.13 : icônes de pattes au-dessus d'un glyphe neutre, selon le nombre de joueurs en jeu (1 ; 2-3 ; 4-5 ; 6 et +).
+    // V0.6.13 : icônes de pattes au-dessus d'un glyphe neutre, selon le nombre de joueurs en jeu (1 ; 2-3 ; 4-5 ; 6).
     public static int GlyphPaws(int players) => players <= 1 ? 1 : players <= 3 ? 2 : players <= 5 ? 3 : 4;
     // Durée de l'ordre de chaque glyphe (immobile et accroupi, aller à la niche, aboyer).
     public static readonly float[] GlyphDuration = { 10f, 30f, 10f };

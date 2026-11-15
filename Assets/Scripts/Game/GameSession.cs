@@ -740,6 +740,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateDisco();
         UpdateHunger();
         UpdateAmbienceCues();
+        UpdateControlScreen();
         UpdateWatching();
         UpdateDread();
         UpdateCorpseDrag();
@@ -2568,7 +2569,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         + "|" + (compass ? 1 : 0) + "|" + JoinIds(brokenCases) + "|1" + "|" + NetworkGame.F(valueBoost) + "|0"
         + "|" + zoneCount + "|" + JoinIds(openedHubs) + "|" + JoinIds(openedAcquisitions) + "|" + JoinIds(activatedGlyphs) + "|" + sealedZones + "|" + JoinIds(brokenBridges) + "|" + itemZones + "|" + (timerPaused ? 1 : 0)
         // V0.6.14 (chapitre 15) : Carte Magnétique 1 prise, porte de la Control Room ouverte.
-        + "|" + SecretFlags;
+        + "|" + SecretFlags
+        // V0.7.5 : écran de la Control Room (caractères saisis, déverrouillé, zone des caméras).
+        + "|" + ControlState;
 
     static string JoinIds(HashSet<int> ids) => string.Join(".", ids);
 
@@ -2900,6 +2903,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (HandleHungerMessage(from, f, host)) return;
         if (HandleReverseMessage(from, f, host)) return;
         if (HandleSecretMessage(from, f, host)) return;
+        if (HandleControlMessage(from, f, host)) return;
         switch (f[0])
         {
             case "G" when !host && f.Length >= 10:
@@ -2924,6 +2928,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (f.Length >= 20) itemZones = Mathf.Max(2, NetworkGame.I(f[19]));
                 timerPaused = f.Length >= 21 && f[20] == "1";
                 ApplySecretFlags(f.Length >= 22 ? NetworkGame.I(f[21]) : 0);
+                if (f.Length >= 23) ApplyControlState(f[22]);
                 ApplyWorld();
                 if (net.InGame)
                 {

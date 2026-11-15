@@ -97,8 +97,29 @@ public class CrtScreen : MonoBehaviour
         ghost.transform.localPosition = text.transform.localPosition + new Vector3(0.025f, -0.012f, 0.004f);
     }
 
+    // V0.7.5 : autres textes du même écran (écran de la Control Room), chacun avec son image fantôme.
+    readonly System.Collections.Generic.List<(TextMesh main, TextMesh ghost)> extras = new System.Collections.Generic.List<(TextMesh, TextMesh)>();
+
+    public void AddText(TextMesh text)
+    {
+        var g = Instantiate(text.gameObject, text.transform.parent).GetComponent<TextMesh>();
+        g.name = text.name + "Fantome";
+        g.transform.localPosition = text.transform.localPosition + new Vector3(0.025f, -0.012f, 0.004f);
+        extras.Add((text, g));
+    }
+
     void LateUpdate()
     {
+        foreach (var (m, g) in extras)
+        {
+            if (m == null || g == null) continue;
+            bool on = m.gameObject.activeSelf;
+            if (g.gameObject.activeSelf != on) g.gameObject.SetActive(on);
+            if (!on) continue;
+            if (g.text != m.text) g.text = m.text;
+            Color e = m.color;
+            g.color = new Color(e.r * 0.8f, e.g, e.b, e.a * (0.2f + 0.06f * Mathf.Sin(Time.time * 9f)));
+        }
         if (ghost == null || !ghost.gameObject.activeSelf || main == null) return;
         if (ghost.text != main.text) ghost.text = main.text;
         Color c = main.color;

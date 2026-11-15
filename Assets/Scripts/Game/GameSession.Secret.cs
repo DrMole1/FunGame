@@ -127,5 +127,9 @@ public partial class GameSession
     }
 
     // Nouvelle partie : la carte est de nouveau dans la main du cadavre, les portes refermées (celle du Bureau entrouverte).
-    void ResetSecret() => ApplySecretFlags(0);
+    void ResetSecret()
+    {
+        ApplySecretFlags(0);
+        ResetControlScreen();
+    }
 }

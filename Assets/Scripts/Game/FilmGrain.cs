@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 // Grain d'écran sur la caméra du jeu (lobby compris), réglé dans le lobby et le menu pause (0 à 100 %, 100 % par défaut).
@@ -48,8 +49,20 @@ public class FilmGrain : MonoBehaviour
 
     // V0.7.4 (Note 04) : souris sur le menu du lobby, la scène devient noire sauf le personnage (pour bien le voir en changeant de
     // skin), éclairé d'en haut par un projecteur. Mis à jour par LobbyUI.
+    // V0.7.5 (Note 02) : le reste de la scène est un peu moins sombre (avant : 0,02), et la zone éclairée a la même taille et la
+    // même position pour tous les skins (la plus grande, mesurée une fois sur l'ensemble des skins).
+    // V0.7.5 : la zone éclairée est un cylindre vertical autour du personnage (même taille quel que soit l'angle de la caméra qui
+    // tourne autour de lui), couvrant tous les skins. Les skins sont mesurés un par image dès l'arrivée dans le lobby (sans
+    // à-coup), et le résultat est gardé pour les lancements suivants.
     public static Transform Spotlit;
-    const float SpotBrightness = 0.02f, SpotIntensity = 2.6f;
+    const float SpotBrightness = 0.08f, SpotIntensity = 2.6f;
+    const string SpotCacheKey = "spotSkins1_";
+    // Dans le repère du personnage (centre du collider) : bas et haut des skins, et plus grand écart à l'axe vertical.
+    static float skinMinY, skinMaxY, skinRadius;
+    static bool hasSkinShape, shapeDone;
+    static int measureIndex = -1;
+    static readonly List<Vector3> bakedVertices = new List<Vector3>();
+    static Mesh baked;
     float spot;
     Vector4 spotRect;
     Light spotLight;
@@ -60,6 +73,7 @@ public class FilmGrain : MonoBehaviour
         dim = Mathf.MoveTowards(dim, MenuHover ? 1f : 0f, Time.unscaledDeltaTime / DimFade);
         obsession = Mathf.MoveTowards(obsession, Obsessed ? 1f : 0f, Time.deltaTime / ObsessedFade);
         spot = Mathf.MoveTowards(spot, MenuHover && Spotlit != null && Spotlit.gameObject.activeInHierarchy ? 1f : 0f, Time.unscaledDeltaTime / DimFade);
+        if (Spotlit != null && !shapeDone) MeasureNextSkin(Spotlit);
         UpdateSpot();
     }
 
@@ -72,32 +86,19 @@ public class FilmGrain : MonoBehaviour
             return;
         }
         if (cam == null) cam = GetComponent<Camera>();
-        // Boîte englobante des maillages visibles du personnage (le skin choisi), projetée à l'écran.
-        bool any = false;
-        Bounds body = default;
-        foreach (var r in Spotlit.GetComponentsInChildren<Renderer>())
+        float minY = hasSkinShape ? skinMinY : -1f, maxY = hasSkinShape ? skinMaxY : 1.1f, radius = hasSkinShape ? skinRadius : 0.5f;
+        Vector3 basePos = Spotlit.position, up = Vector3.up;
+        Vector3 mid = basePos + up * ((minY + maxY) * 0.5f);
+        Vector3 v0 = cam.WorldToViewportPoint(mid);
+        if (v0.z > 0f)
         {
-            if (!r.enabled || !r.gameObject.activeInHierarchy || r is ParticleSystemRenderer) continue;
-            if (!any) { body = r.bounds; any = true; }
-            else body.Encapsulate(r.bounds);
-        }
-        if (!any) body = new Bounds(Spotlit.position, new Vector3(0.8f, 2f, 0.8f));
-        Vector2 min = new Vector2(float.MaxValue, float.MaxValue), max = new Vector2(float.MinValue, float.MinValue);
-        bool visible = false;
-        for (int k = 0; k < 8; k++)
-        {
-            Vector3 corner = body.center + Vector3.Scale(body.extents, new Vector3((k & 1) == 0 ? -1f : 1f, (k & 2) == 0 ? -1f : 1f, (k & 4) == 0 ? -1f : 1f));
-            Vector3 v = cam.WorldToViewportPoint(corner);
-            if (v.z <= 0f) continue;
-            visible = true;
-            min = Vector2.Min(min, v);
-            max = Vector2.Max(max, v);
-        }
-        if (visible)
-        {
-            // Une ellipse qui couvre la boîte, avec une marge : son bord doux commence à 55 % du rayon.
-            Vector2 half = (max - min) * 0.5f;
-            spotRect = new Vector4((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f, half.x * 1.45f + 0.015f, half.y * 1.35f + 0.015f);
+            // Hauteur : du bas au haut des skins ; largeur : le rayon du cylindre, toujours de face pour la caméra.
+            Vector3 right = cam.transform.right;
+            Vector3 top = cam.WorldToViewportPoint(basePos + up * maxY), bottom = cam.WorldToViewportPoint(basePos + up * minY);
+            Vector3 side = cam.WorldToViewportPoint(mid + right * radius);
+            float halfY = Mathf.Abs(top.y - bottom.y) * 0.5f, halfX = Mathf.Abs(side.x - v0.x);
+            // Une ellipse qui couvre le cylindre, avec une marge : son bord doux commence à 55 % du rayon.
+            spotRect = new Vector4(v0.x, (top.y + bottom.y) * 0.5f, halfX * 1.45f + 0.015f, halfY * 1.35f + 0.015f);
         }
         if (spotLight == null)
         {
@@ -112,6 +113,88 @@ public class FilmGrain : MonoBehaviour
         spotLight.enabled = true;
         spotLight.transform.SetPositionAndRotation(Spotlit.position + Vector3.up * 5f, Quaternion.Euler(90f, 0f, 0f));
         spotLight.intensity = SpotIntensity * Mathf.SmoothStep(0f, 1f, spot);
+    }
+
+    // Un skin par image : posé hors de vue, en pose d'attente, comme dans CharacterAvatar, ses maillages mesurés.
+    static void MeasureNextSkin(Transform player)
+    {
+        var library = player.GetComponent<CharacterLibrary>();
+        if (library == null || library.Count == 0) { shapeDone = true; return; }
+        string key = SpotCacheKey + library.Count;
+        if (measureIndex < 0)
+        {
+            // Déjà mesurés lors d'un lancement précédent.
+            string saved = PlayerPrefs.GetString(key, "");
+            string[] p = saved.Split(';');
+            if (p.Length == 3 && float.TryParse(p[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out skinMinY)
+                && float.TryParse(p[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out skinMaxY)
+                && float.TryParse(p[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out skinRadius))
+            {
+                hasSkinShape = shapeDone = true;
+                return;
+            }
+            measureIndex = 0;
+        }
+        if (measureIndex >= library.Count)
+        {
+            shapeDone = true;
+            if (baked != null) Object.Destroy(baked);
+            if (hasSkinShape)
+            {
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                PlayerPrefs.SetString(key, skinMinY.ToString(ci) + ";" + skinMaxY.ToString(ci) + ";" + skinRadius.ToString(ci));
+                PlayerPrefs.Save();
+            }
+            return;
+        }
+        var entry = library.characters[measureIndex++];
+        if (entry == null || entry.model == null) return;
+        if (baked == null) baked = new Mesh();
+        Vector3 origin = new Vector3(0f, -5000f, 0f);
+        var model = Object.Instantiate(entry.model, origin + Vector3.down * (library.height * 0.5f), Quaternion.identity);
+        model.transform.localScale = Vector3.one * entry.scale;
+        if (!model.TryGetComponent(out Animator animator)) animator = model.AddComponent<Animator>();
+        if (entry.controller != null)
+        {
+            animator.runtimeAnimatorController = entry.controller;
+            animator.Play("Idle", 0, 0f);
+            animator.Update(0f);
+        }
+        foreach (var r in model.GetComponentsInChildren<Renderer>())
+        {
+            if (r is ParticleSystemRenderer) continue;
+            if (r is SkinnedMeshRenderer smr)
+            {
+                // BakeMesh sans l'échelle : sommets posés, à replacer avec la position et la rotation du renderer seulement.
+                smr.BakeMesh(baked);
+                baked.GetVertices(bakedVertices);
+                Vector3 at = smr.transform.position - origin;
+                Quaternion rot = smr.transform.rotation;
+                foreach (var v in bakedVertices) Add(at + rot * v);
+            }
+            else
+            {
+                Bounds b = r.bounds;
+                Add(b.min - origin);
+                Add(b.max - origin);
+            }
+        }
+        Object.Destroy(model);
+    }
+
+    static void Add(Vector3 p)
+    {
+        float radius = new Vector2(p.x, p.z).magnitude;
+        if (!hasSkinShape)
+        {
+            skinMinY = skinMaxY = p.y;
+            skinRadius = radius;
+            hasSkinShape = true;
+            return;
+        }
+        skinMinY = Mathf.Min(skinMinY, p.y);
+        skinMaxY = Mathf.Max(skinMaxY, p.y);
+        skinRadius = Mathf.Max(skinRadius, radius);
     }
 
     void OnPostRender()
