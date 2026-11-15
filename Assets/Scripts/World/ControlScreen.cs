@@ -14,7 +14,14 @@ public class ControlScreen : MonoBehaviour
 
     public const int PasswordLength = 6, FeedCount = 6, MaxZone = 4;
     static readonly Vector2 ScreenSize = new Vector2(5f, 2.7f);
-    const float ScreenY = 2.05f, PedestalHeight = 0.5f, PedestalRadius = 0.35f;
+    const float ScreenY = 2.05f, PedestalHeight = 0.5f;
+    float pedestalRadius = 0.35f;
+    // V0.7.6 (Note 03) : icône de cloche (BellIcon) sur le promontoire, d'un blanc légèrement lumineux, nettement plus
+    // lumineux quand une Cloche Décorative y est posée.
+    Material bellIcon;
+    Light bellGlow;
+    static readonly Color IconDim = new Color(0.62f, 0.62f, 0.6f, 1f), IconLit = Color.white;
+    const float GlowDim = 0.25f, GlowLit = 2.2f;
     const int FeedWidth = 256, FeedHeight = 144;
     const float FeedFar = 35f;
 
@@ -36,7 +43,7 @@ public class ControlScreen : MonoBehaviour
     public Vector3 ScreenPosition => screen != null ? screen.position : transform.position;
     // Dessus du promontoire (là où se pose la Cloche Décorative).
     public Vector3 PedestalTop => pedestal.position + Vector3.up * PedestalHeight;
-    public const float PedestalReach = PedestalRadius + 0.15f;
+    public float PedestalReach => pedestalRadius + 0.15f;
 
     // 'south' : mur du fond (z), 'halfWidth' : demi-largeur de la salle ; tout est dans le repère de la Control Room.
     public static ControlScreen Build(Transform room, float south, float halfWidth)
@@ -94,29 +101,48 @@ public class ControlScreen : MonoBehaviour
             feedCams[i] = cam;
         }
 
-        // Promontoire cylindrique au sud-est (l'est est +X), un dessin de cloche sur le dessus.
-        Material metal = GameArt.Lit("PromontoireControl", new Color(0.09f, 0.09f, 0.1f), null, 0.5f);
-        var ped = GameArt.Prim(PrimitiveType.Cylinder, transform, new Vector3(hw - 2.5f, PedestalHeight * 0.5f, south + 2.5f),
-            new Vector3(PedestalRadius * 2f, PedestalHeight * 0.5f, PedestalRadius * 2f), metal);
-        ped.name = "Promontoire";
-        // Dessus parfaitement plat : la Cloche s'y pose (la capsule d'un cylindre Unity serait bombée).
-        var pc = ped.AddComponent<MeshCollider>();
-        pc.sharedMesh = ped.GetComponent<MeshFilter>().sharedMesh;
-        pc.convex = true;
+        // Promontoire au sud-est (l'est est +X) : V0.7.6 (Note 04), socle rond en métal (Meshy, Resources/Art/Decor/Promontoire),
+        // à défaut un simple cylindre. L'icône de cloche est sur le dessus.
         pedestal = new GameObject("PiedPromontoire").transform;
         pedestal.SetParent(transform, false);
         pedestal.localPosition = new Vector3(hw - 2.5f, 0f, south + 2.5f);
-        var icon = Resources.Load<Texture2D>("Icons/ClocheDecorative");
-        var drawing = GameArt.Prim(PrimitiveType.Quad, pedestal, new Vector3(0f, PedestalHeight + 0.003f, 0f), Vector3.one * PedestalRadius * 1.4f,
-            new Material(Shader.Find("Sprites/Default")) { name = "DessinCloche", mainTexture = icon, color = new Color(0.85f, 0.85f, 0.8f, icon != null ? 0.9f : 0f) });
-        drawing.name = "DessinCloche";
-        drawing.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        var model = GameArt.SpawnModel("Decor/Promontoire", pedestal, PedestalHeight);
+        if (model != null)
+        {
+            Bounds mb = GameArt.LocalBounds(model.transform);
+            pedestalRadius = Mathf.Clamp(Mathf.Min(mb.size.x, mb.size.z) * 0.5f, 0.3f, 0.7f);
+        }
+        Material metal = GameArt.Lit("PromontoireControl", new Color(0.09f, 0.09f, 0.1f), null, 0.5f);
+        var ped = GameArt.Prim(PrimitiveType.Cylinder, transform, new Vector3(hw - 2.5f, PedestalHeight * 0.5f, south + 2.5f),
+            new Vector3(pedestalRadius * 2f, PedestalHeight * 0.5f, pedestalRadius * 2f), metal);
+        ped.name = "Promontoire";
+        // Dessus parfaitement plat : la Cloche s'y pose (la capsule d'un cylindre Unity serait bombée). Avec le modèle Meshy,
+        // le cylindre ne sert plus qu'aux collisions.
+        var pc = ped.AddComponent<MeshCollider>();
+        pc.sharedMesh = ped.GetComponent<MeshFilter>().sharedMesh;
+        pc.convex = true;
+        if (model != null) ped.GetComponent<Renderer>().enabled = false;
+        var icon = Resources.Load<Texture2D>("Icons/BellIcon");
+        bellIcon = new Material(Shader.Find("Sprites/Default")) { name = "IconeCloche", mainTexture = icon, color = icon != null ? IconDim : Color.clear };
+        var drawing = GameArt.Prim(PrimitiveType.Quad, pedestal, new Vector3(0f, PedestalHeight + 0.004f, 0f), new Vector3(pedestalRadius * 1.14f, pedestalRadius * 1.3f, 1f), bellIcon);   // BellIcon : 350 x 399
+        drawing.name = "IconeCloche";
+        // À l'endroit pour qui arrive du tunnel (au nord).
+        drawing.transform.localRotation = Quaternion.Euler(90f, 180f, 0f);
+        drawing.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        bellGlow = new GameObject("LueurCloche").AddComponent<Light>();
+        bellGlow.transform.SetParent(pedestal, false);
+        bellGlow.transform.localPosition = new Vector3(0f, PedestalHeight + 0.35f, 0f);
+        bellGlow.type = LightType.Point;
+        bellGlow.color = new Color(0.95f, 0.97f, 1f);
+        bellGlow.range = 2.5f;
+        bellGlow.intensity = GlowDim;
+        bellGlow.shadows = LightShadows.None;
 
         // Câble : du bas de l'écran (côté est), le long du mur puis au sol jusqu'au promontoire.
         float cableX = ScreenSize.x * 0.5f - 0.3f, wallZ = south + 0.05f, pz = south + 2.5f, px = hw - 2.5f;
         CableSegment(new Vector3(cableX, 0f, wallZ), new Vector3(cableX, ScreenY - ScreenSize.y * 0.5f, wallZ));
         CableSegment(new Vector3(cableX, 0.02f, wallZ), new Vector3(px, 0.02f, wallZ));
-        CableSegment(new Vector3(px, 0.02f, wallZ), new Vector3(px, 0.02f, pz - PedestalRadius));
+        CableSegment(new Vector3(px, 0.02f, wallZ), new Vector3(px, 0.02f, pz - pedestalRadius));
 
         // Tableau de bord devant l'écran : pupitre incliné, flèches aux extrémités, glyphes au milieu.
         var desk = new GameObject("TableauDeBord").transform;
@@ -128,8 +154,8 @@ public class ControlScreen : MonoBehaviour
         var top = new GameObject("Dessus").transform;
         top.SetParent(desk, false);
         top.localPosition = new Vector3(0f, 0.93f, 0f);
-        // Incliné vers le joueur (au nord, +Z).
-        top.localRotation = Quaternion.Euler(-18f, 0f, 0f);
+        // V0.7.6 (Note 01) : incliné vers le tunnel (au nord, +Z), où se tient le joueur, et non vers l'écran.
+        top.localRotation = Quaternion.Euler(18f, 0f, 0f);
         var plate = GameArt.Prim(PrimitiveType.Cube, top, Vector3.zero, new Vector3(3.5f, 0.06f, 0.75f), deskMat, true);
         plate.name = "Plateau";
         // Vu depuis le nord, la gauche du joueur est à l'est (+X) : flèche gauche à +X, flèche droite à -X.
@@ -169,6 +195,8 @@ public class ControlScreen : MonoBehaviour
         applied = true;
 
         foreach (var r in cable) if (r != null) r.sharedMaterial = Glyph.CableMaterial(powered);
+        if (bellIcon.mainTexture != null) bellIcon.color = powered ? IconLit : IconDim;
+        bellGlow.intensity = powered ? GlowLit : GlowDim;
         foreach (var b in glyphButtons) b.SetLit(powered);
         foreach (var b in arrowButtons) b.SetLit(powered && unlocked);
 

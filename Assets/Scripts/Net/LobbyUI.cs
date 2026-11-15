@@ -373,8 +373,13 @@ public class LobbyUI : MonoBehaviour
         joinGo.GetComponent<LayoutElement>().preferredWidth = 150;
         UiKit.Paint(joinGo, JoinBlue, 7);
         joinButton = joinGo.GetComponent<Button>();
-        // Sous le champ du code ; sans effet pour l'instant.
-        UiKit.Paint(UiKit.Button(p, "Quitter", QuitRed, 48, () => { }), QuitRed, 9);
+        // Sous le champ du code. V0.7.6 (14.1) : dans le build Windows, il ferme le jeu (sans effet dans le navigateur).
+        UiKit.Paint(UiKit.Button(p, "Quitter", QuitRed, 48, () =>
+        {
+#if UNITY_STANDALONE && !UNITY_EDITOR
+            Application.Quit();
+#endif
+        }), QuitRed, 9);
         layout.padding = new RectOffset(36, 36, 30, 8);
     }
 
@@ -398,8 +403,10 @@ public class LobbyUI : MonoBehaviour
             light.fontSize = 15;
             light.horizontalOverflow = HorizontalWrapMode.Overflow;
             lightLabels.Add(light);
-            // Part de la résolution de l'écran (100 % par défaut).
+            // Part de la résolution de l'écran (100 % par défaut). V0.7.6 (14.1) : version navigateur seulement.
+#if !UNITY_STANDALONE || UNITY_EDITOR
             resolutionLabels.Add(VolumeRow(p, "Résolution", height, seed + 12, step => ResolutionScale.Value += step));
+#endif
         }
         RefreshVolumes();
     }

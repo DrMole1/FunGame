@@ -24,3 +24,6 @@ crashlytics-build.properties
 
 # Meshy MCP
 meshy_output/
+
+# yt-dlp (Télévision du build Windows), téléchargé à part
+/[Tt]ools/

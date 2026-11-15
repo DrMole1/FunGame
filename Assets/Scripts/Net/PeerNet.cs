@@ -3,7 +3,7 @@ using UnityEngine;
 
 // Appels vers le plugin PeerNet.jslib. Les réponses reviennent par SendMessage
 // sur le GameObject "NetworkManager" (voir NetworkGame).
-// Hors navigateur (éditeur), seul l'hébergement en solo est simulé.
+// Hors navigateur (build Windows, éditeur) : NativePeer, le même protocole en C#.
 public static class PeerNet
 {
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -37,26 +37,20 @@ public static class PeerNet
     // Heure locale du navigateur (DateTime.Now renvoie l'heure UTC en WebGL).
     public static System.DateTime LocalNow => System.DateTime.UtcNow.AddMinutes(-PeerNet_TimezoneOffset());
 #else
-    public const bool Available = false;
+    // Build Windows et éditeur : le même réseau PeerJS, en C# (NativePeer, package Unity WebRTC). Compatible avec les
+    // joueurs du navigateur (mêmes codes de partie).
+    public const bool Available = true;
     public static bool PointerLocked => Cursor.lockState == CursorLockMode.Locked;
     public static void SetRenderScale(float scale) { }
-    public static void Host(string id)
-    {
-        var go = GameObject.Find(NetworkGame.ObjectName);
-        if (go != null) go.SendMessage("OnNetOpen", id);
-    }
-    public static void Join(string hostId)
-    {
-        var go = GameObject.Find(NetworkGame.ObjectName);
-        if (go != null) go.SendMessage("OnNetError", "editor");
-    }
-    public static void Send(string to, string msg) { }
-    public static void Broadcast(string msg) { }
-    public static void SendFast(string to, string msg) { }
-    public static void BroadcastFast(string msg) { }
-    public static void Leave() { }
+    public static void Host(string id) => NativePeer.Host(id);
+    public static void Join(string hostId) => NativePeer.Join(hostId);
+    public static void Send(string to, string msg) => NativePeer.Send(to, msg);
+    public static void Broadcast(string msg) => NativePeer.Broadcast(msg);
+    public static void SendFast(string to, string msg) => NativePeer.SendFast(to, msg);
+    public static void BroadcastFast(string msg) => NativePeer.BroadcastFast(msg);
+    public static void Leave() => NativePeer.Leave();
     public static void CopyText(string text) => GUIUtility.systemCopyBuffer = text;
-    public static void Kick(string id) { }
+    public static void Kick(string id) => NativePeer.Kick(id);
     public static System.DateTime LocalNow => System.DateTime.Now;
 #endif
 }

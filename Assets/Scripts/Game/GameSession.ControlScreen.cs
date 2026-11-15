@@ -72,7 +72,7 @@ public partial class GameSession
         {
             if (b == null || !Beacon.IsBellKind(b.Kind)) continue;
             Vector3 d = b.transform.position - top;
-            if (new Vector2(d.x, d.z).magnitude <= ControlScreen.PedestalReach && d.y > -0.15f && d.y < 0.4f) return true;
+            if (new Vector2(d.x, d.z).magnitude <= cs.PedestalReach && d.y > -0.15f && d.y < 0.4f) return true;
         }
         return false;
     }

@@ -22,6 +22,12 @@ public class TvScreen : MonoBehaviour
     string videoId = "";
     float countdownStart;   // Time.time du début du décompte
     int overlay;            // lecteur YouTube (0 : aucun)
+#if UNITY_EDITOR || UNITY_STANDALONE
+    // V0.7.6 (14.1) : build Windows, vidéo lue sur l'écran même (NativeTv).
+    NativeTvPlayer nativePlayer;
+    RenderTexture nativeTarget;
+    AudioSource nativeAudio;
+#endif
     System.Random rnd;
 
     public bool HasVideo => videoId.Length > 0;
@@ -124,6 +130,9 @@ public class TvScreen : MonoBehaviour
                 return;
             }
             if (overlay == 0 && YouTubeTv.Available) overlay = YouTubeTv.Create(videoId, t - GameRules.TvCountdown);
+#if UNITY_EDITOR || UNITY_STANDALONE
+            if (UpdateNativeVideo()) return;
+#endif
             label.text = YouTubeTv.Available ? "" : "YouTube\n<size=30>" + videoId + "</size>";
             FillScreen(new Color32(8, 8, 12, 255));
             return;
@@ -321,7 +330,63 @@ public class TvScreen : MonoBehaviour
     {
         if (overlay != 0) YouTubeTv.Destroy(overlay);
         overlay = 0;
+#if UNITY_EDITOR || UNITY_STANDALONE
+        CloseNativeVideo();
+#endif
     }
+
+#if UNITY_EDITOR || UNITY_STANDALONE
+    // Vrai tant que la vidéo native s'occupe de l'écran (chargement, lecture ou message).
+    bool UpdateNativeVideo()
+    {
+        if (nativePlayer == null)
+        {
+            string url = NativeTv.Resolve(videoId);
+            if (url == null)
+            {
+                label.text = "YouTube\n<size=30>...</size>";
+                FillScreen(new Color32(8, 8, 12, 255));
+                return true;
+            }
+            if (url.Length == 0)
+            {
+                label.text = NativeTv.Available ? "YouTube\n<size=30>indisponible</size>" : "YouTube\n<size=30>" + videoId + "</size>";
+                FillScreen(new Color32(8, 8, 12, 255));
+                return true;
+            }
+            float begin = countdownStart + GameRules.TvCountdown;
+            nativePlayer = NativeTv.CreatePlayer(screen.gameObject, url, () => Time.time - begin, out nativeTarget, out nativeAudio);
+            nativeAudio.volume = 0f;
+            screenMat.mainTexture = nativeTarget;
+            screenMat.SetTexture("_EmissionMap", nativeTarget);
+        }
+        label.text = nativePlayer.Ready ? "" : "YouTube\n<size=30>...</size>";
+        // Le son de la vidéo s'entend à moins de 10 m du personnage, fort presque jusqu'à la limite (comme en WebGL).
+        Camera cam = Camera.main;
+        Vector3 ear = cam != null ? cam.transform.position : screen.position;
+        var orbit = cam != null ? cam.GetComponent<OrbitCamera>() : null;
+        if (orbit != null && orbit.target != null) ear = orbit.target.position;
+        float d = Mathf.Clamp01(Vector3.Distance(ear, screen.position) / GameRules.TvSoundRange);
+        nativeAudio.volume = Mathf.Clamp01((1f - d * d) * GameAudio.SfxVolume * 2f);
+        return true;
+    }
+
+    void CloseNativeVideo()
+    {
+        if (nativePlayer == null) return;
+        Destroy(nativePlayer);
+        if (nativeAudio != null) Destroy(nativeAudio);
+        if (nativeTarget != null) { nativeTarget.Release(); Destroy(nativeTarget); }
+        nativePlayer = null;
+        nativeAudio = null;
+        nativeTarget = null;
+        if (screenMat != null)
+        {
+            screenMat.mainTexture = noise;
+            screenMat.SetTexture("_EmissionMap", noise);
+        }
+    }
+#endif
 
     void OnDestroy()
     {

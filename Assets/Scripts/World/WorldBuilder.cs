@@ -2421,7 +2421,7 @@ public static class WorldBuilder
         {
             if (k % SpotChecksPerStep == 0) yield return null;
             Vector2 flat = new Vector2(spots[k].x, spots[k].z);
-            if (OnStairs(spots[k]) && !m.stairPlateaus.Exists(r => r.Contains(flat)) || UnderPlatform(spots[k])) spots.RemoveAt(k);
+            if (OnStairs(spots[k]) && !m.stairPlateaus.Exists(r => r.Contains(flat)) || UnderPlatform(spots[k]) || OverVoid(spots[k])) spots.RemoveAt(k);
         }
     }
 
@@ -2429,6 +2429,21 @@ public static class WorldBuilder
 
     // Emprise d'un monticule (1,1 x 0,9 m) : un peu plus large, pour qu'il ne déborde pas sur l'obstacle.
     const float MoundClearance = 0.6f;
+
+    // V0.7.6 (Note 02) : un bord du monticule (1,53 m de large) surplomberait un vide (bord d'une plateforme, d'une fosse) :
+    // le sol doit être là, au même niveau, tout autour de l'emprise.
+    static bool OverVoid(Vector3 spot)
+    {
+        float r = MoundWidth * 0.5f;
+        for (int i = 0; i < 12; i++)
+        {
+            float a = i * Mathf.PI * 2f / 12f;
+            Vector3 probe = spot + new Vector3(Mathf.Cos(a) * r, 0.5f, Mathf.Sin(a) * r);
+            if (!Physics.Raycast(probe, Vector3.down, out RaycastHit hit, 1f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+                || hit.point.y < spot.y - 0.2f) return true;
+        }
+        return false;
+    }
 
     // Escalier sous ou à côté du monticule : sa collision (rampe) touche l'emprise.
     static bool OnStairs(Vector3 spot)

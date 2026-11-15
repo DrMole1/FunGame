@@ -68,6 +68,24 @@ public class NetworkGame : MonoBehaviour
     public IReadOnlyDictionary<string, PlayerInfo> Roster => roster;
     public IReadOnlyDictionary<string, RemotePlayer> Remotes => remotes;
 
+#if UNITY_STANDALONE && !UNITY_EDITOR
+    // Build Windows : même niveau de qualité graphique que la version navigateur ("High"), avant les réglages du jeu
+    // (éclairage, ombres) qui s'y ajoutent.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    static void MatchWebQuality()
+    {
+        int high = System.Array.IndexOf(QualitySettings.names, "High");
+        if (high >= 0) QualitySettings.SetQualityLevel(high, true);
+        // V0.7.6 (14.1) : pas de barre de titre Windows : plein écran fenêtré, sans bordure (même si une fenêtre avait été
+        // choisie à un lancement précédent ; "-windowed" en ligne de commande garde une fenêtre, pour les tests).
+        if (CommandLine("-windowed").Length == 0)
+        {
+            Screen.fullScreenMode = FullScreenMode.FullScreenWindow;
+            Screen.SetResolution(Display.main.systemWidth, Display.main.systemHeight, FullScreenMode.FullScreenWindow);
+        }
+    }
+#endif
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Boot()
     {
@@ -94,8 +112,14 @@ public class NetworkGame : MonoBehaviour
 
         mySkin = Mathf.Clamp(PlayerPrefs.GetInt("skin", 0), 0, Mathf.Max(0, library.Count - 1));
         ui = gameObject.AddComponent<LobbyUI>();
-        ui.Init(this, PlayerPrefs.GetString("playerName", ""), RoomFromUrl());
+        string room = RoomFromUrl();
+        ui.Init(this, PlayerPrefs.GetString("playerName", ""), room);
         ShowLobbyPreview();
+#if UNITY_STANDALONE && !UNITY_EDITOR
+        Debug.Log("Ligne de commande : partie " + (room.Length > 0 ? room : "-") + (CommandLine("-autojoin").Length > 0 ? ", rejointe aussitôt" : ""));
+        if (room.Length > 0 && CommandLine("-autojoin").Length > 0) JoinGame(PlayerPrefs.GetString("playerName", ""), room);
+        else if (CommandLine("-autohost").Length > 0) HostGame(PlayerPrefs.GetString("playerName", ""));
+#endif
     }
 
     void Update()
@@ -245,6 +269,7 @@ public class NetworkGame : MonoBehaviour
     void OnNetOpen(string id)
     {
         myId = id;
+        if (state == State.Hosting && roomCode.Length > 0) Debug.Log("Partie hébergée : " + roomCode);
         if (state == State.Hosting)
         {
             var me = new PlayerInfo { name = myName, hue = myHue, character = mySkin, slot = 0 };
@@ -515,10 +540,13 @@ public class NetworkGame : MonoBehaviour
 
     // ---------- Utilitaires ----------
 
+    const string WebUrl = "https://drmole1.github.io/FunGame/";
+
     string InviteLink()
     {
         string url = Application.absoluteURL;
-        if (string.IsNullOrEmpty(url)) url = "";
+        // Build Windows : le lien mène à la version navigateur (un joueur du .exe, lui, saisit le code).
+        if (string.IsNullOrEmpty(url)) url = WebUrl;
         int cut = url.IndexOfAny(new[] { '?', '#' });
         if (cut >= 0) url = url.Substring(0, cut);
         return url + "?room=" + roomCode;
@@ -527,12 +555,22 @@ public class NetworkGame : MonoBehaviour
     static string RoomFromUrl()
     {
         string url = Application.absoluteURL;
-        if (string.IsNullOrEmpty(url)) return "";
+        // Build Windows : "-room CODE" en ligne de commande (avec "-autojoin", la partie est rejointe aussitôt).
+        if (string.IsNullOrEmpty(url)) return CommandLine("-room").ToUpperInvariant();
         int q = url.IndexOf('?');
         if (q < 0) return "";
         foreach (string part in url.Substring(q + 1).Split('&', '#'))
             if (part.StartsWith("room=", System.StringComparison.OrdinalIgnoreCase))
                 return part.Substring(5).ToUpperInvariant();
+        return "";
+    }
+
+    static string CommandLine(string name)
+    {
+        string[] args = System.Environment.GetCommandLineArgs();
+        for (int i = 0; i < args.Length; i++)
+            if (string.Equals(args[i], name, System.StringComparison.OrdinalIgnoreCase))
+                return i + 1 < args.Length && !args[i + 1].StartsWith("-") ? args[i + 1] : "1";
         return "";
     }
 

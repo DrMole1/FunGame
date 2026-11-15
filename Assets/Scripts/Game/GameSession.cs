@@ -2280,17 +2280,44 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         if (!restore) return;
         Vector3 pos = player.transform.position;
         // Téléporteur Inversé : à côté de la Balise de destination.
-        if (arrived && teleportArrival.HasValue) pos = teleportArrival.Value;
+        if (arrived && teleportArrival.HasValue) pos = SafeArrival(teleportArrival.Value);
         else if (arrived && teleportPath != null && teleportPath.Count > 0)
         {
             // À côté de la Balise principale du Hub où mène le trajet, vers le centre de ce Hub.
             Beacon root = beacons.NearestHub(teleportPath[teleportPath.Count - 1]);
-            Vector3 hubPos = root.transform.position, center = WorldBuilder.HubCenter(root.HubIndex);
-            Vector3 toCenter = new Vector3(center.x - hubPos.x, 0f, center.z - hubPos.z).normalized;
-            pos = new Vector3(hubPos.x, hubPos.y + 0.95f, hubPos.z) + toCenter * 1.3f;
+            if (root != null)
+            {
+                Vector3 hubPos = root.transform.position, center = WorldBuilder.HubCenter(root.HubIndex);
+                Vector3 toCenter = new Vector3(center.x - hubPos.x, 0f, center.z - hubPos.z).normalized;
+                pos = SafeArrival(new Vector3(hubPos.x, hubPos.y + 0.95f, hubPos.z) + toCenter * 1.3f);
+            }
+            else pos = SafeArrival(teleportPath[teleportPath.Count - 1]);
         }
+        else pos = SafeArrival(pos);
         player.Teleport(pos, player.transform.eulerAngles.y);
         if (arrived) GameAudio.Play3D("revive", pos, 0.7f, 20f, 0f, 1.3f);
+    }
+
+    // V0.7.6 (Note 05) : point d'arrivée sûr. Le point prévu (à côté d'une Balise) peut tomber dans un mur, un obstacle ou au
+    // bord d'un vide : on cherche autour, de plus en plus loin, une place libre pour la capsule du personnage, posée sur un sol.
+    Vector3 SafeArrival(Vector3 wanted)
+    {
+        const float Radius = 0.36f, Half = 0.9f;
+        int mask = Physics.DefaultRaycastLayers & ~(1 << 2);
+        foreach (float dist in new[] { 0f, 0.8f, 1.6f, 2.4f })
+            for (int k = 0; k < (dist == 0f ? 1 : 8); k++)
+            {
+                float a = k * Mathf.PI / 4f;
+                Vector3 p = wanted + new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a)) * dist;
+                if (!Physics.Raycast(p + Vector3.up * 1.5f, Vector3.down, out RaycastHit ground, 4f, mask, QueryTriggerInteraction.Ignore)) continue;
+                Vector3 c = new Vector3(p.x, ground.point.y + Half + 0.05f, p.z);
+                if (Physics.CheckCapsule(c + Vector3.down * (Half - Radius - 0.02f), c + Vector3.up * (Half - Radius), Radius, mask, QueryTriggerInteraction.Ignore))
+                    continue;
+                // Pas à travers un mur : le chemin depuis le point prévu est dégagé.
+                if (dist > 0f && Physics.Linecast(wanted, c, mask, QueryTriggerInteraction.Ignore)) continue;
+                return c;
+            }
+        return wanted;
     }
 
     // Boule d'énergie : sphère lumineuse et halo bleu, à la place du personnage.
