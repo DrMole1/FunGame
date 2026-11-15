@@ -163,20 +163,29 @@ public class RemotePlayer : MonoBehaviour
     // Téléportation : le trajet complet est reçu au départ et rejoué ici à vitesse constante, sans dépendre des
     // positions reçues (à 70 m/s, un paquet en retard de 50 ms faisait sauter la boule de 3,5 m).
     const float TeleportRelease = 0.2f;
+    // V0.7.7 : le rejeu est calé sur l'heure de départ (horloge de l'émetteur) et suit la même ligne de temps que les positions
+    // lissées. Chez un joueur non hôte, le trajet (canal fiable, relayé par l'hôte) arrive après les premières positions
+    // (canal rapide) : avant, la boule repartait alors du disque et rejouait le trajet en retard, puis sautait à l'arrivée.
+    // Désormais, elle reprend là où elle doit être à cet instant.
     System.Collections.Generic.List<Vector3> tpPath;
+    double tpStart;
+    bool tpTimed;
     int tpLeg;
     float tpReleaseAt;
 
-    public void PlayTeleport(System.Collections.Generic.List<Vector3> path, int fluxColor)
+    public void PlayTeleport(System.Collections.Generic.List<Vector3> path, int fluxColor, double senderStart = -1)
     {
         if (path.Count == 0) return;
+        tpTimed = senderStart >= 0 && smoother.HasData;
+        tpStart = senderStart;
         // V0.7.4 (Note 06) : la boule a la couleur du flux suivi.
         if (energyBall == null) energyBall = GameSession.BuildEnergyBall(transform);
         GameSession.TintEnergyBall(energyBall, fluxColor);
         tpPath = path;
         tpLeg = 0;
         TeleportFrom = path[0];
-        transform.position = path[0];
+        if (tpTimed) transform.position = PointAlong(path, (float)(smoother.ShownSenderTime - tpStart) * GameRules.TeleportSpeed);
+        else transform.position = path[0];
         // Si l'état « en téléportation » n'arrive jamais, le rejeu s'arrête de lui-même.
         tpReleaseAt = teleporting ? float.MaxValue : Time.time + 1f;
     }
@@ -187,6 +196,11 @@ public class RemotePlayer : MonoBehaviour
         {
             if (Time.time < tpReleaseAt)
             {
+                if (tpTimed)
+                {
+                    transform.position = PointAlong(tpPath, (float)(smoother.ShownSenderTime - tpStart) * GameRules.TeleportSpeed);
+                    return;
+                }
                 float move = GameRules.TeleportSpeed * Time.deltaTime;
                 Vector3 pos = transform.position;
                 while (move > 0f && tpLeg < tpPath.Count)
@@ -204,5 +218,18 @@ public class RemotePlayer : MonoBehaviour
         if (!hasTarget) return;
         smoother.Sample(out Vector3 pos2, out float yaw);
         transform.SetPositionAndRotation(pos2, Quaternion.Euler(0f, yaw, 0f));
+    }
+
+    // Point du trajet à 'distance' mètres du départ (avant le départ : le disque ; au-delà : l'arrivée).
+    static Vector3 PointAlong(System.Collections.Generic.List<Vector3> path, float distance)
+    {
+        if (distance <= 0f) return path[0];
+        for (int i = 0; i + 1 < path.Count; i++)
+        {
+            float d = Vector3.Distance(path[i], path[i + 1]);
+            if (distance <= d) return d > 1e-4f ? Vector3.Lerp(path[i], path[i + 1], distance / d) : path[i + 1];
+            distance -= d;
+        }
+        return path[path.Count - 1];
     }
 }

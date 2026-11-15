@@ -2228,7 +2228,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         // Le trajet est envoyé une fois : les autres joueurs le rejouent eux-mêmes, sans dépendre des positions reçues
         // (à 70 m/s, le moindre paquet en retard faisait saccader la boule).
         // V0.7.4 : "TJ" (et non plus "TS", déjà pris par l'occupant du Terminal : le trajet n'était jamais relayé).
-        var sb = new System.Text.StringBuilder("TJ|" + fluxColor);
+        // V0.7.7 : avec l'heure de départ (horloge des positions envoyées) : les autres joueurs rejouent le trajet sur la même
+        // ligne de temps que les positions, même si le trajet leur arrive en retard (relais de l'hôte, canal fiable).
+        var sb = new System.Text.StringBuilder("TJ|" + fluxColor + "|" + NetworkGame.Clock());
         foreach (var p in path) sb.Append('|').Append(NetworkGame.F(p.x)).Append('|').Append(NetworkGame.F(p.y)).Append('|').Append(NetworkGame.F(p.z));
         net.ToHost(sb.ToString());
         player.SetFrozen(true);
@@ -3462,16 +3464,17 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (entities.TryGetValue(NetworkGame.I(f[1]), out var killer) && killer != null) killer.PlayKillSound();
                 break;
             // Trajet d'une téléportation : l'hôte le relaie à tous avec l'identifiant de son auteur.
-            case "TJ" when host && f.Length >= 5:
+            case "TJ" when host && f.Length >= 6:
                 net.ToAll("TP|" + from + raw.Substring(2));
                 break;
-            case "TP" when f.Length >= 6:
+            // TP|auteur|couleur|heure de départ|x|y|z|...
+            case "TP" when f.Length >= 7:
                 if (f[1] != net.MyId && net.Remotes.TryGetValue(f[1], out var traveller) && traveller != null)
                 {
                     var tpPath = new List<Vector3>();
-                    for (int i = 3; i + 2 < f.Length; i += 3)
+                    for (int i = 4; i + 2 < f.Length; i += 3)
                         tpPath.Add(new Vector3(NetworkGame.P(f[i]), NetworkGame.P(f[i + 1]), NetworkGame.P(f[i + 2])));
-                    traveller.PlayTeleport(tpPath, NetworkGame.I(f[2]));
+                    traveller.PlayTeleport(tpPath, NetworkGame.I(f[2]), NetworkGame.D(f[3]));
                 }
                 break;
             case "HL" when host && f.Length >= 2:

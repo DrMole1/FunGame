@@ -288,6 +288,63 @@ public class GameAudio : MonoBehaviour
         return tap;
     }
 
+    // V0.7.7 (Note 03) : son non spatialisé suivi d'un effet planant de réverbération (sons du Pompon et du Tableau de Bord
+    // de la Control Room). Pas de filtre audio en WebGL : la réverbération est faite de copies retardées du son, de plus en
+    // plus faibles, qui s'éteignent lentement après lui. 'length' > 0 : le son est coupé (en fondu) au bout de 'length' s.
+    const int ReverbTaps = 6;
+    const float ReverbSpacing = 0.12f, ReverbFirst = 0.3f, ReverbDecay = 0.72f, ReverbRelease = 0.25f, ReverbTailRelease = 0.35f;
+
+    public static void Play2DReverb(string clip, float volume, float length = 0f)
+    {
+        if (instance == null || silenced) return;
+        var audio = SoundBank.Get(clip);
+        if (audio == null) return;
+        instance.StartCoroutine(instance.ReverbSound(audio, volume, length > 0f ? Mathf.Min(length, audio.length) : audio.length));
+    }
+
+    System.Collections.IEnumerator ReverbSound(AudioClip clip, float volume, float length)
+    {
+        var holder = new GameObject("Reverb_" + clip.name);
+        holder.transform.SetParent(transform, false);
+        // Filet de sécurité : une mort (StopAllCoroutines) ne laisse pas traîner les sources.
+        Destroy(holder, ReverbTaps * ReverbSpacing + length + ReverbTailRelease + 0.12f * ReverbTaps + 1f);
+        var sources = new AudioSource[ReverbTaps + 1];
+        var gains = new float[ReverbTaps + 1];
+        var starts = new float[ReverbTaps + 1];
+        var releases = new float[ReverbTaps + 1];
+        for (int k = 0; k <= ReverbTaps; k++)
+        {
+            var src = holder.AddComponent<AudioSource>();
+            src.playOnAwake = false;
+            src.spatialBlend = 0f;
+            src.clip = clip;
+            src.loop = false;
+            // Les dernières copies sont légèrement plus graves : la queue « plane ».
+            src.pitch = 1f - 0.008f * k;
+            gains[k] = k == 0 ? 1f : ReverbFirst * Mathf.Pow(ReverbDecay, k - 1);
+            starts[k] = k * ReverbSpacing;
+            // Les copies s'éteignent de plus en plus lentement.
+            releases[k] = k == 0 ? ReverbRelease : ReverbTailRelease + 0.12f * k;
+            src.volume = 0f;
+            if (k == 0) src.Play(); else src.PlayDelayed(starts[k]);
+            sources[k] = src;
+        }
+        float t0 = Time.unscaledTime, end = ReverbTaps * ReverbSpacing + length + releases[ReverbTaps];
+        while (Time.unscaledTime - t0 < end)
+        {
+            float t = Time.unscaledTime - t0;
+            float level = silenced ? 0f : volume * sfx;
+            for (int k = 0; k <= ReverbTaps; k++)
+            {
+                float local = t - starts[k];
+                float envelope = local < 0f ? 0f : Mathf.Clamp01(1f - (local - length) / releases[k]);
+                sources[k].volume = level * gains[k] * envelope;
+            }
+            yield return null;
+        }
+        Destroy(holder);
+    }
+
     // Boucle non spatialisée (ordre d'un glyphe, entendu partout) ; ReleaseLoop l'arrête en douceur.
     // Écran de chargement : pas de musique ni de boucle sonore, seulement le grésillement d'une télévision.
     public static bool Loading { get; private set; }

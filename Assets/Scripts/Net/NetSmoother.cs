@@ -28,6 +28,8 @@ public class NetSmoother
     bool started;
 
     public bool HasData => started;
+    // Instant affiché maintenant, dans l'horloge de l'émetteur (V0.7.7 : rejeu des téléportations sur la même ligne de temps).
+    public double ShownSenderTime => Time.realtimeSinceStartupAsDouble - offset - Delay;
     public Vector3 LatestPosition => snaps.Count > 0 ? snaps[snaps.Count - 1].pos : Vector3.zero;
 
     // Retourne false (et ignore l'état) s'il est plus ancien que le dernier reçu : arrivé dans le désordre.

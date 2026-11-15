@@ -158,6 +158,23 @@ public class ControlScreen : MonoBehaviour
         top.localRotation = Quaternion.Euler(18f, 0f, 0f);
         var plate = GameArt.Prim(PrimitiveType.Cube, top, Vector3.zero, new Vector3(3.5f, 0.06f, 0.75f), deskMat, true);
         plate.name = "Plateau";
+        // V0.7.7 (Note 05) : pupitre Meshy en métal rouillé (Resources/Art/Decor/TableauDeBord), aux dimensions du corps actuel
+        // (3,4 x 0,9 x 0,6 m), sa façade tournée vers le tunnel. Le modèle a un dessus plat : le plateau incliné vers le tunnel
+        // (V0.7.6) est gardé, en tôle rouillée assortie, et les boutons restent aux mêmes positions.
+        var deskModel = GameArt.SpawnModel("Decor/TableauDeBord", desk, 0.9f);
+        if (deskModel != null)
+        {
+            var inner = deskModel.transform.GetChild(0);
+            Bounds mb = GameArt.LocalBounds(deskModel.transform);
+            inner.localScale = Vector3.Scale(inner.localScale, new Vector3(3.4f / Mathf.Max(0.01f, mb.size.x), 1f, 0.6f / Mathf.Max(0.01f, mb.size.z)));
+            mb = GameArt.LocalBounds(deskModel.transform);
+            inner.localPosition += new Vector3(-mb.center.x, 0f, -mb.center.z);
+            foreach (var r in deskModel.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            body.GetComponent<Renderer>().enabled = false;
+            Material rusty = GameArt.Lit("PupitreRouille", new Color(0.2f, 0.21f, 0.21f), GameArt.Noise("rust", 64, 0.55f, 0.4f, 29), 0.35f);
+            rusty.SetFloat("_Metallic", 0.6f);
+            plate.GetComponent<Renderer>().sharedMaterial = rusty;
+        }
         // Vu depuis le nord, la gauche du joueur est à l'est (+X) : flèche gauche à +X, flèche droite à -X.
         arrowButtons.Add(ControlButton.Create(top, ControlButton.Left, new Vector3(1.3f, 0.05f, 0f)));
         for (int g = 0; g < 3; g++)

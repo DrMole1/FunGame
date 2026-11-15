@@ -20,6 +20,9 @@ public static class ControlWing
     // Tout le tunnel est surélevé : son ouverture reste cachée derrière l'Écran des Logs (de 0,7 m à 4,4 m de haut).
     // On y entre d'un saut (un saut atteint environ 1,08 m).
     public const float Elevation = 0.95f;
+    // V0.7.7 (Note 02) : calque du sol du tunnel. Les lampes du chapiteau (sans ombres) l'éclairaient à travers le mur et le
+    // teintaient de brun : elles ignorent ce calque, et le sol garde le noir de la Control Room.
+    public const int TunnelFloorLayer = 29;
     const float TunnelRadius = 1.5f, TunnelAxis = 1f;            // tube de 3 m de diamètre, sol plat à 1 m sous son axe
     static float FloorHalf => Mathf.Sqrt(TunnelRadius * TunnelRadius - TunnelAxis * TunnelAxis);   // 1,12 m
     static float TunnelTop => TunnelAxis + TunnelRadius;          // 2,5 m
@@ -102,9 +105,25 @@ public static class ControlWing
         var rim = new Mesh2();
         rim.Tube(TunnelAxis, TunnelRadius - 0.01f, -WallInner - 0.005f, -WallInner - 0.31f, 48);
         GameArt.MeshObject("JonctionTunnel", root, rim.Build("JonctionTunnel"), junction);
+        // V0.7.7 (Note 01) : les pans voisins du mur du chapiteau (tournés de 11,25°) dépassent dans la bouche du tunnel : leur
+        // tranche crème se voyait depuis le tunnel, à droite et à gauche. Deux surfaces dans la couleur du tunnel la recouvrent,
+        // sur toute l'épaisseur du mur.
+        float neighbourEdge = WallInner * Mathf.Sin(Mathf.PI / 16f) - halfSeg * Mathf.Cos(Mathf.PI / 16f) - 0.008f;
+        foreach (float sx in new[] { -1f, 1f })
+        {
+            float x = sx * neighbourEdge, za = -WallInner + 0.004f, zb = -WallInner - 0.33f;
+            var cheek = new Mesh2();
+            cheek.Quad(new Vector3(x, -0.05f, za), new Vector3(x, -0.05f, zb), new Vector3(x, TunnelTop + 0.05f, zb), new Vector3(x, TunnelTop + 0.05f, za), 0.5f);
+            GameArt.MeshObject(sx < 0f ? "JonctionGauche" : "JonctionDroite", root, cheek.Build("JonctionCote"), junction);
+        }
+        // V0.7.7 (Note 02) : le sol du tunnel est de la couleur du sol et des murs de la Control Room.
         var floor = new Mesh2();
         floor.Quad(new Vector3(-FloorHalf, 0.005f, z0), new Vector3(FloorHalf, 0.005f, z0), new Vector3(FloorHalf, 0.005f, z1), new Vector3(-FloorHalf, 0.005f, z1), 0.5f);
-        GameArt.MeshObject("SolTunnel", root, floor.Build("SolTunnel"), tunnel);
+        var floorGo = GameArt.MeshObject("SolTunnel", root, floor.Build("SolTunnel"), black);
+        floorGo.layer = TunnelFloorLayer;
+        // Il touche aussi la sonde de reflets du chapiteau, qui lui renvoyait la toile chaude : pas de reflets de sonde (comme
+        // le sol de la Control Room, hors de sa portée).
+        floorGo.GetComponent<Renderer>().reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
         float len = z0 - z1, mid = (z0 + z1) * 0.5f;
         // Sol du tunnel : un massif qui descend jusque sous le sol du Hub (sa face avant est le rebord sur lequel on saute).
         Box(new Vector3(0f, -(Elevation + 1f) * 0.5f, mid), new Vector3(FloorHalf * 2f + 1f, Elevation + 1f, len));
@@ -166,7 +185,40 @@ public static class ControlWing
         // V0.7.5 : grand écran, câble, promontoire et tableau de bord.
         ControlScreen.Build(root, s0, hw);
 
+        // V0.7.7 (Note 04) : deux néons muraux, à la même hauteur (1,2 m au-dessus des portes) : au-dessus du passage vers le
+        // Tunnel Caché (mur nord) et au-dessus de la porte du Vestiaire (mur est).
+        WallNeon(root, new Vector3(0f, DoorHeight + 1.2f, n), Vector3.back);
+        WallNeon(root, new Vector3(hw, DoorHeight + 1.2f, VestiaireZ), Vector3.left);
+        // V0.7.7 (Note 07) : la Tête-De-Cloche inanimée, assise contre le mur ouest (en face du Vestiaire).
+        SeatedTete.Build(root, new Vector3(-hw, 0f, VestiaireZ), Vector3.right, Box);
+        // V0.7.7 : un second jeu de casiers, contre le mur ouest, au nord de la Tête-De-Cloche (sous un bloc de ventilation).
+        Lockers.Build(root, new Vector3(-hw + Lockers.Depth + 0.02f, 0f, n - 6.5f), Vector3.right, Box, 1);
+        // V0.7.7 (Note 09) : tuyauteries, vannes, conduits d'aération et moteurs sur les murs.
+        ControlDecor.Build(root, hw, n, s0, h, VestiaireZ, TunnelRadius, Box);
+
         BuildVestiaire(root, Box);
+    }
+
+    // Néon mural : réglette horizontale plaquée au mur, son tube et sa lumière, tournée vers 'inward'.
+    static void WallNeon(Transform parent, Vector3 wallPoint, Vector3 inward)
+    {
+        var holder = new GameObject("NeonMural").transform;
+        holder.SetParent(parent, false);
+        holder.localPosition = wallPoint;
+        holder.localRotation = Quaternion.LookRotation(inward);
+        Material housing = GameArt.Lit("RegletteNeon", new Color(0.75f, 0.76f, 0.74f), null, 0.4f);
+        Material tube = GameArt.Emissive("TubeNeon", Color.white, new Color(1.5f, 1.6f, 1.65f));
+        Deco(holder, new Vector3(0f, 0f, 0.035f), new Vector3(1.3f, 0.12f, 0.07f), housing);
+        var t = Deco(holder, new Vector3(0f, -0.015f, 0.09f), new Vector3(0.045f, 0.6f, 0.045f), tube, PrimitiveType.Cylinder);
+        t.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+        var light = new GameObject("Neon").AddComponent<Light>();
+        light.transform.SetParent(holder, false);
+        light.transform.localPosition = new Vector3(0f, -0.15f, 0.45f);
+        light.type = LightType.Point;
+        light.color = new Color(0.9f, 0.96f, 1f);
+        light.range = 7f;
+        light.intensity = 1.4f;
+        light.shadows = LightShadows.None;
     }
 
     // ---------- Le Vestiaire, l'Ascenseur et le Bureau L.I.V. (V0.7.4, chapitre 15.3) ----------
@@ -235,6 +287,8 @@ public static class ControlWing
         for (int k = 0; k < 3; k++) Neon(wing, new Vector3(x0 + VestLength * (0.2f + 0.3f * k), h, z), 6.5f, 1.5f);
 
         BuildWardrobe(wing, x0 + 0.8f, x1 - 0.8f, zs + 0.38f);
+        // V0.7.7 (Note 08) : casiers en métal contre le mur nord, entre la porte et l'Ascenseur.
+        Lockers.Build(wing, new Vector3(x0 + 2.4f, 0f, zn - Lockers.Depth - 0.02f), Vector3.back, box);
         BuildLift(wing, box, zn, woodPanel);
         BuildOffice(wing, box, officeMat, floorMat, ceilMat);
     }
@@ -720,8 +774,10 @@ public class ControlDoor : Interactable
             Prim(door.slab, new Vector3(-size.x * 0.38f, 0f, size.z * 0.5f + 0.03f), new Vector3(0.04f, 0.35f, 0.04f), GameArt.Metal);
         }
         // Lecteur de badge, à droite de l'ouverture (côté Hub), avec son voyant.
-        var reader = Prim(go.transform, new Vector3(size.x * 0.5f + 0.2f, 0.15f, size.z * 0.5f + 0.12f), new Vector3(0.14f, 0.22f, 0.06f), dark);
-        door.led = Prim(reader.transform.parent, reader.transform.localPosition + new Vector3(0f, 0.07f, 0.035f), new Vector3(0.05f, 0.025f, 0.01f), GameArt.Unlit("VoyantRouge", new Color(1f, 0.1f, 0.08f))).GetComponent<Renderer>();
+        // V0.7.7 (Note 06) : boîtier en métal plus réaliste (Meshy, Resources/Art/Decor/LecteurCarte ; à défaut en primitives :
+        // boîtier vissé, fente, plaque) ; son voyant (une led) luit faiblement en rouge, puis en vert, de la même intensité,
+        // quand la porte s'ouvre.
+        door.BuildReader(go.transform, new Vector3(size.x * 0.5f + 0.2f, 0.15f, size.z * 0.5f + 0.1f), dark);
         door.closedPos = Vector3.zero;
         // Elle coulisse dans la paroi.
         door.openPos = Vector3.right * (size.x + 0.05f);
@@ -732,12 +788,56 @@ public class ControlDoor : Interactable
         return door;
     }
 
-    static GameObject Prim(Transform parent, Vector3 pos, Vector3 size, Material mat)
+    static GameObject Prim(Transform parent, Vector3 pos, Vector3 size, Material mat, PrimitiveType type = PrimitiveType.Cube)
     {
-        var go = GameArt.Prim(PrimitiveType.Cube, parent, pos, size, mat);
+        var go = GameArt.Prim(type, parent, pos, size, mat);
         foreach (var c in go.GetComponentsInChildren<Collider>()) Destroy(c);
         go.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         return go;
+    }
+
+    Light ledGlow;
+    static readonly Color LedRed = new Color(1f, 0.12f, 0.08f), LedGreen = new Color(0.15f, 1f, 0.25f);
+    const float LedLight = 0.35f;
+
+    // Boîtier (centre 'at', face vers +Z local) et sa led, en haut.
+    void BuildReader(Transform parent, Vector3 at, Material dark)
+    {
+        const float W = 0.13f, H = 0.2f, D = 0.05f;
+        var reader = new GameObject("LecteurCarte").transform;
+        reader.SetParent(parent, false);
+        reader.localPosition = at;
+        Vector3 ledPos = new Vector3(0f, H * 0.36f, D * 0.5f + 0.004f);
+        var model = GameArt.SpawnModel("Decor/LecteurCarte", reader, H);
+        if (model != null)
+        {
+            Bounds b = GameArt.LocalBounds(model.transform);
+            model.transform.localPosition += new Vector3(0f, -H * 0.5f, -b.max.z + D * 0.5f);
+            foreach (var r in model.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+        else
+        {
+            Material steel = GameArt.Lit("LecteurAcier", new Color(0.46f, 0.47f, 0.48f), GameArt.Noise("rust", 64, 0.75f, 0.25f, 19), 0.55f);
+            steel.SetFloat("_Metallic", 0.7f);
+            Prim(reader, new Vector3(0f, 0f, -D * 0.15f), new Vector3(W + 0.03f, H + 0.03f, D * 0.3f), steel);   // plaque murale
+            Prim(reader, Vector3.zero, new Vector3(W, H, D), steel);
+            Prim(reader, new Vector3(0f, -H * 0.12f, D * 0.5f + 0.001f), new Vector3(W * 0.75f, 0.012f, 0.004f), dark);   // fente
+            Prim(reader, new Vector3(0f, H * 0.12f, D * 0.5f + 0.001f), new Vector3(W * 0.6f, H * 0.22f, 0.003f), dark);  // plaque gravée
+            foreach (float sx in new[] { -1f, 1f })
+                foreach (float sy in new[] { -1f, 1f })
+                    Prim(reader, new Vector3(sx * W * 0.38f, sy * H * 0.42f, D * 0.5f + 0.002f), new Vector3(0.012f, 0.012f, 0.004f), GameArt.Metal, PrimitiveType.Cylinder)
+                        .transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        }
+        var bulb = Prim(reader, ledPos, new Vector3(0.018f, 0.018f, 0.012f), GameArt.Unlit("VoyantRouge", LedRed), PrimitiveType.Sphere);
+        bulb.name = "Led";
+        led = bulb.GetComponent<Renderer>();
+        ledGlow = new GameObject("LueurLed").AddComponent<Light>();
+        ledGlow.transform.SetParent(reader, false);
+        ledGlow.transform.localPosition = ledPos + Vector3.forward * 0.06f;
+        ledGlow.type = LightType.Point;
+        ledGlow.range = 0.7f;
+        ledGlow.intensity = LedLight;
+        ledGlow.shadows = LightShadows.None;
     }
 
     public void SetOpen(bool open, bool animate)
@@ -745,7 +845,9 @@ public class ControlDoor : Interactable
         if (open && !Open && animate) GameAudio.Play3D("lab_door", transform.position, 1f, 20f, 0.05f);
         Open = open;
         if (!animate) progress = open ? 1f : 0f;
-        if (led != null) led.sharedMaterial = open ? GameArt.Unlit("VoyantVert", new Color(0.15f, 1f, 0.3f)) : GameArt.Unlit("VoyantRouge", new Color(1f, 0.1f, 0.08f));
+        if (led != null) led.sharedMaterial = open ? GameArt.Unlit("VoyantVert", LedGreen) : GameArt.Unlit("VoyantRouge", LedRed);
+        // Même intensité lumineuse, rouge ou verte.
+        if (ledGlow != null) { ledGlow.color = open ? LedGreen : LedRed; ledGlow.intensity = LedLight; }
         Apply();
     }
 
@@ -768,6 +870,10 @@ public class ControlDoor : Interactable
             col.enabled = progress < 0.6f;
         }
     }
+
+    // La led n'a pas de contour : sinon, la porte visée au moment de passer la carte gardait en mémoire la led rouge et la
+    // remettait en retirant le contour (led rouge, lueur verte).
+    protected override bool HasOutline(Renderer r) => r != led;
 
     public override bool CanInteract => !Open && GameSession.Instance != null && GameSession.Instance.SelectedItem == Card;
     public override string Prompt => Loc.T(Index == 2 ? "Utiliser la Carte Magnétique 2" : "Utiliser la Carte Magnétique 1");

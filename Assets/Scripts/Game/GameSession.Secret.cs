@@ -6,7 +6,8 @@ using UnityEngine;
 // XC (joueur -> hôte : prendre la carte) -> GV|S1 au joueur + XK (tous : la carte disparaît, le cadavre s'agite) ;
 // XD|porte (joueur -> hôte : carte passée dans le lecteur) -> XO|porte (tous : la porte s'ouvre). Porte 1 : tunnel (Carte
 // Magnétique 1) ; porte 2 (V0.7.4) : Vestiaire (Carte Magnétique 2). XP (joueur -> hôte : pousse la porte du Bureau L.I.V.)
-// -> XQ (tous). Rares : aucun coût réseau notable.
+// -> XQ (tous). V0.7.7 (Note 08) : XE|casier (joueur -> hôte : ouvre ou ferme une porte des casiers du Vestiaire ou de la Control Room) ->
+// XF|casier|ouvert (tous). Rares : aucun coût réseau notable.
 public partial class GameSession
 {
     public static bool SecretCardTaken { get; private set; }
@@ -14,9 +15,13 @@ public partial class GameSession
     public static bool VestiaireOpen { get; private set; }
     public static bool LivDoorPushed { get; private set; }
 
+    // V0.7.7 (Note 08) : portes ouvertes des casiers du Vestiaire (un bit par porte).
+    static int lockerBits;
+    public static bool LockerOpen(int i) => (lockerBits & (1 << i)) != 0;
+
     public static bool SecretDoorOpen(int door) => door == 2 ? VestiaireOpen : ControlRoomOpen;
 
-    int SecretFlags => (SecretCardTaken ? 1 : 0) | (ControlRoomOpen ? 2 : 0) | (VestiaireOpen ? 4 : 0) | (LivDoorPushed ? 8 : 0);
+    int SecretFlags => (SecretCardTaken ? 1 : 0) | (ControlRoomOpen ? 2 : 0) | (VestiaireOpen ? 4 : 0) | (LivDoorPushed ? 8 : 0) | (lockerBits << 4);
 
     // Le joueur local ramasse la carte dans la main du cadavre.
     public void TakeSecretCard()
@@ -52,10 +57,41 @@ public partial class GameSession
         net.ToHost("XP");
     }
 
+    // V0.7.7 : le joueur local ouvre ou ferme une porte des casiers.
+    public void ToggleLocker(int i)
+    {
+        if (status.Dead || i < 0 || i >= Lockers.TotalDoors) return;
+        Gesture(PlayerGesture.Use);
+        net.ToHost("XE|" + i);
+    }
+
+    static void SetLocker(int i, bool open)
+    {
+        if (open) lockerBits |= 1 << i;
+        else lockerBits &= ~(1 << i);
+    }
+
     bool HandleSecretMessage(string from, string[] f, bool host)
     {
         switch (f[0])
         {
+            case "XE" when host:
+            {
+                int i = f.Length >= 2 ? NetworkGame.I(f[1]) : -1;
+                if (i < 0 || i >= Lockers.TotalDoors) return true;
+                bool open = !LockerOpen(i);
+                net.ToAll("XF|" + i + "|" + (open ? 1 : 0));
+                return true;
+            }
+            case "XF":
+            {
+                int i = f.Length >= 3 ? NetworkGame.I(f[1]) : -1;
+                if (i < 0 || i >= Lockers.TotalDoors) return true;
+                SetLocker(i, f[2] == "1");
+                LockerDoor.Get(i)?.SetOpen(LockerOpen(i), true);
+                if (host) BroadcastState();
+                return true;
+            }
             case "XC" when host:
                 if (!SecretCardTaken)
                 {
@@ -113,6 +149,12 @@ public partial class GameSession
     void ApplySecretFlags(int flags)
     {
         bool taken = (flags & 1) != 0, open = (flags & 2) != 0, vestiaire = (flags & 4) != 0, pushed = (flags & 8) != 0;
+        int lockers = (flags >> 4) & ((1 << Lockers.TotalDoors) - 1);
+        if (lockers != lockerBits)
+        {
+            lockerBits = lockers;
+            for (int i = 0; i < Lockers.TotalDoors; i++) LockerDoor.Get(i)?.SetOpen(LockerOpen(i), false);
+        }
         if (taken != SecretCardTaken || open != ControlRoomOpen || vestiaire != VestiaireOpen || pushed != LivDoorPushed)
         {
             SecretCardTaken = taken;

@@ -183,16 +183,11 @@ public partial class GameSession
     }
 
     // Son d'un glyphe, coupé au bout de 1,5 seconde.
+    // V0.7.7 (Note 03) : les sons qui émanent du Pompon ou du Tableau de Bord sont 50 % moins forts (volumes déjà divisés par
+    // deux ci-dessous) et laissent un effet planant de réverbération à leur fin.
     void PlayControlSound(int glyph, float volume)
     {
-        var src = GameAudio.Play2D(Glyph.Sounds[Mathf.Clamp(glyph, 0, Glyph.Sounds.Length - 1)], volume);
-        if (src != null) StartCoroutine(StopAfter(src, src.clip, ControlSoundLength));
-    }
-
-    static IEnumerator StopAfter(AudioSource src, AudioClip clip, float seconds)
-    {
-        yield return new WaitForSeconds(seconds);
-        if (src != null && src.clip == clip && src.isPlaying) src.Stop();
+        GameAudio.Play2DReverb(Glyph.Sounds[Mathf.Clamp(glyph, 0, Glyph.Sounds.Length - 1)], volume, ControlSoundLength);
     }
 
     // Les 6 sons du mot de passe, dans l'ordre, pour les joueurs dans le chapiteau du Hub de départ.
@@ -200,7 +195,7 @@ public partial class GameSession
     {
         for (int i = 0; i < password.Length; i++)
         {
-            if (WorldBuilder.HubAt(ListenerPosition) == 1) PlayControlSound(password[i], 0.9f);
+            if (WorldBuilder.HubAt(ListenerPosition) == 1) PlayControlSound(password[i], 0.45f);
             yield return new WaitForSeconds(ControlSoundLength);
         }
     }
@@ -233,11 +228,11 @@ public partial class GameSession
                 int glyph = NetworkGame.I(f[1]), result = NetworkGame.I(f[3]);
                 bool inRoom = InControlRoom(ListenerPosition);
                 // Le son du bouton ne résonne que dans la pièce.
-                if (inRoom) PlayControlSound(glyph, 0.8f);
+                if (inRoom) PlayControlSound(glyph, 0.4f);
                 controlCount = Mathf.Clamp(NetworkGame.I(f[2]), 0, ControlScreen.PasswordLength);
                 if (result == 2) { controlUnlocked = true; controlZone = 1; }
-                if (inRoom && result == 1) GameAudio.Play2D("error", 0.8f);
-                if (inRoom && result == 2) GameAudio.Play2D("beep", 0.7f, 0f, 1.2f);
+                if (inRoom && result == 1) GameAudio.Play2DReverb("error", 0.4f);
+                if (inRoom && result == 2) GameAudio.Play2DReverb("beep", 0.35f);
                 RefreshControlScreen();
                 return true;
             }
@@ -251,7 +246,7 @@ public partial class GameSession
                 return true;
             case "XZ":
                 if (f.Length >= 2) controlZone = Mathf.Clamp(NetworkGame.I(f[1]), 1, ControlScreen.MaxZone);
-                if (InControlRoom(ListenerPosition)) GameAudio.Play2D("tick", 0.5f);
+                if (InControlRoom(ListenerPosition)) GameAudio.Play2DReverb("tick", 0.25f);
                 RefreshControlScreen();
                 return true;
             case "XM" when host:

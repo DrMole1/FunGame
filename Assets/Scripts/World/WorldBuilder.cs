@@ -292,9 +292,10 @@ public static class WorldBuilder
         }
 
         // Éclairage chaud du chapiteau.
+        // V0.7.7 (Note 02) : elles n'éclairent pas le sol du Tunnel Caché (derrière le mur, au Hub 1).
         for (int i = 0; i < 4; i++)
-            AddLight(root, Polar(45f + i * 90f, 6.5f, 4.3f), new Color(1f, 0.85f, 0.65f), 1.1f, 13f);
-        AddLight(root, new Vector3(0f, 6f, 0f), new Color(1f, 0.9f, 0.75f), 1.2f, 12f);
+            AddLight(root, Polar(45f + i * 90f, 6.5f, 4.3f), new Color(1f, 0.85f, 0.65f), 1.1f, 13f).cullingMask = ~(1 << ControlWing.TunnelFloorLayer);
+        AddLight(root, new Vector3(0f, 6f, 0f), new Color(1f, 0.9f, 0.75f), 1.2f, 12f).cullingMask = ~(1 << ControlWing.TunnelFloorLayer);
 
         // Sonde de réflexion : la toile vernie reflète les lampes et le chapiteau.
         var probe = new GameObject("Reflets_Hub").AddComponent<ReflectionProbe>();
