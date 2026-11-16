@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.7";
+    public const string Version = "V0.7.8";
 
     public const int MaxPlayers = 6;            // V0.7.5 (avant : 8)
     public const int MaxHp = 100;
@@ -314,10 +314,10 @@ public static class GameRules
     public const float CorpseTwitchDelay = 1f, CorpseTwitchDuration = 1f, CorpseScareRange = 15f;
     public const int CorpseScareSerenity = 20;
     // Tunnel derrière l'Écran des Logs du Hub 1 : porte métallique à 10 m de l'entrée, puis la Control Room (V0.7 : 16 x 24 m,
-    // 16 m entre la sortie du tunnel et le mur opposé).
+    // 16 m entre la sortie du tunnel et le mur opposé). V0.7.8 : 12 x 18 m (12 m entre la sortie du tunnel et le mur opposé).
     // V0.7.5 : caméras de sécurité de l'écran de la Control Room, des yeux d'une même zone séparés d'au moins 20 m.
     public const float ControlCameraSpacing = 20f;
-    public const float TunnelDoorDistance = 10f, ControlRoomWidth = 24f, ControlRoomLength = 16f, ControlRoomHeight = 6f;
+    public const float TunnelDoorDistance = 10f, ControlRoomWidth = 18f, ControlRoomLength = 12f, ControlRoomHeight = 6f;
     // La musique s'efface sur ces premiers mètres du tunnel (et revient en rentrant dans le Hub).
     public const float TunnelMusicFade = 6f;
     public const float StatueFilledRoomChance = 0.5f, StatueDogHeadChance = 0.05f;

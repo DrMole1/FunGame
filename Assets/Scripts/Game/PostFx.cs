@@ -13,6 +13,9 @@ public static class PostFx
     // Réglés par GameSession : proximité du Cauchemar le plus proche (0 à 1, FX5) et cinématique de Game Over (FX8).
     public static float NightmareProximity;
     public static bool GameOverCinematic;
+    // V0.7.8 : FX10 Cell Shading appliqué en permanence (les commandes "/fx10" et "/fx11" ont été retirées). FX11 Soft Shading
+    // reste dans le shader (passe 1) mais n'est plus activable en jeu.
+    public static bool CellShading = true, SoftShading;
 
     // ---------- FX6 : texture de vieux moniteur (lignes de balayage, bords bombés assombris) ----------
 
@@ -128,13 +131,13 @@ public class CrtScreen : MonoBehaviour
     }
 }
 
-// Sur la caméra du jeu : FX1, FX4 et FX5 (OnRenderImage), FX7 (poussière en suspension) et FX8 (bandes noires de cinéma).
+// Sur la caméra du jeu : FX10 / FX11 puis FX1, FX4 et FX5 (OnRenderImage), FX7 (poussière en suspension) et FX8 (bandes noires de cinéma).
 [RequireComponent(typeof(Camera))]
 public class PostFxCamera : MonoBehaviour
 {
     static readonly int VignetteId = Shader.PropertyToID("_Vignette"), ShakeId = Shader.PropertyToID("_Shake"), SplitId = Shader.PropertyToID("_Split");
-    Material film;
-    bool filmLooked;
+    Material film, shading;
+    bool filmLooked, shadingLooked;
     const float LobbyVignette = 1.3f;
     float split;
 
@@ -144,7 +147,7 @@ public class PostFxCamera : MonoBehaviour
         BuildBars();
     }
 
-    Material Film
+    Material FilmMaterial
     {
         get
         {
@@ -157,6 +160,20 @@ public class PostFxCamera : MonoBehaviour
         }
     }
 
+    // V0.7.8 : FX10 (passe 0) et FX11 (passe 1).
+    Material Shading
+    {
+        get
+        {
+            if (shadingLooked) return shading;
+            shadingLooked = true;
+            var template = Resources.Load<Material>("Materials/Shading");
+            Shader shader = template != null ? template.shader : Shader.Find("FunGame/Shading");
+            if (shader != null && shader.isSupported) shading = new Material(shader) { name = "Shading" };
+            return shading;
+        }
+    }
+
     void Update()
     {
         split = Mathf.MoveTowards(split, PostFx.NightmareProximity, Time.deltaTime * 1.5f);
@@ -166,7 +183,22 @@ public class PostFxCamera : MonoBehaviour
 
     void OnRenderImage(RenderTexture src, RenderTexture dst)
     {
-        if (Film == null)
+        // FX10 / FX11 d'abord : les effets de vieux film se posent par-dessus.
+        int pass = PostFx.CellShading ? 0 : PostFx.SoftShading ? 1 : -1;
+        if (pass >= 0 && Shading != null)
+        {
+            var shaded = RenderTexture.GetTemporary(src.descriptor);
+            Graphics.Blit(src, shaded, shading, pass);
+            Film(shaded, dst);
+            RenderTexture.ReleaseTemporary(shaded);
+            return;
+        }
+        Film(src, dst);
+    }
+
+    void Film(RenderTexture src, RenderTexture dst)
+    {
+        if (FilmMaterial == null)
         {
             Graphics.Blit(src, dst);
             return;

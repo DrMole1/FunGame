@@ -178,7 +178,7 @@ public static class GameSetup
     }
 
     // Police du jeu, à l'essai (l'ancienne : Assets/Font/PUSAB___.otf).
-    const string FontPath = "Assets/Font/Nexa-Heavy.ttf";
+    const string FontPath = "Assets/Font/Montserrat-ExtraBold.ttf";   // V0.7.8 : Montserrat ExtraBold (OFL) remplace Nexa Heavy
     const string TitleImagePath = "Assets/Sprite/Title.png";
 
     static void CreateFonts()

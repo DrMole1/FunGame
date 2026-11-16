@@ -216,6 +216,10 @@ public class TerminalUI : MonoBehaviour
             if (result == null) Error(Loc.T("Commande invalide.") + Quit);
             else Print(result + Quit);
         }
+        else if (lower == "/pw" && session.IsHost)
+        {
+            Print(session.AutoPassword() + Quit);
+        }
         else if (lower.StartsWith("/spawn ") && session.IsHost)
         {
             string arg = text.Substring(7).Trim();

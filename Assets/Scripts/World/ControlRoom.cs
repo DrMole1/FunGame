@@ -4,7 +4,7 @@ using UnityEngine;
 // Chapitre 15.3 (V0.6.14, V0.7) : la Control Room. Dans le Hub de départ, caché derrière l'Écran des Logs, un tunnel circulaire,
 // noir et obscur, s'enfonce vers le sud (hors du labyrinthe). La musique s'y efface progressivement et revient dans le Hub.
 // À 10 m de l'entrée, une porte métallique de laboratoire, qui ne s'ouvre qu'avec la Carte Magnétique 1 (l'objet est
-// consommé). Derrière : la Control Room, salle de 16 x 24 m (16 m de la sortie du tunnel au mur du fond), sans musique,
+// consommé). Derrière : la Control Room, salle de 12 x 18 m (V0.7.8 ; 12 m de la sortie du tunnel au mur du fond), sans musique,
 // murs, plafond et sol noirs, l'enseigne
 // "Control Room" au mur (comme la Neutral Room et l'Acquisition Room).
 // Tout est construit dans le repère du Hub 1 (son centre à l'origine, le sud vers -Z).
@@ -147,7 +147,7 @@ public static class ControlWing
         // Au milieu de l'épaisseur de la cloison : ouverte, elle disparaît dedans.
         ControlDoor.Create(root, new Vector3(0f, DoorHeight * 0.5f, DoorZ - PlateThickness * 0.5f), new Vector3(DoorWidth, DoorHeight, DoorThickness));
 
-        // La Control Room : boîte noire de 20 x 30 x 6 m.
+        // La Control Room : boîte noire de 18 x 12 x 6 m (V0.7.8 ; avant : 24 x 16 m).
         float hw = GameRules.ControlRoomWidth * 0.5f, h = GameRules.ControlRoomHeight, n = RoomNorth, s0 = RoomSouth;
         var room = new Mesh2();
         room.Quad(new Vector3(-hw, 0f, s0), new Vector3(hw, 0f, s0), new Vector3(hw, 0f, n), new Vector3(-hw, 0f, n), 0.25f);   // sol
@@ -192,7 +192,8 @@ public static class ControlWing
         // V0.7.7 (Note 07) : la Tête-De-Cloche inanimée, assise contre le mur ouest (en face du Vestiaire).
         SeatedTete.Build(root, new Vector3(-hw, 0f, VestiaireZ), Vector3.right, Box);
         // V0.7.7 : un second jeu de casiers, contre le mur ouest, au nord de la Tête-De-Cloche (sous un bloc de ventilation).
-        Lockers.Build(root, new Vector3(-hw + Lockers.Depth + 0.02f, 0f, n - 6.5f), Vector3.right, Box, 1);
+        // V0.7.8 : salle réduite à 12 x 18 m : casiers entre le moteur-pompe et la Tête-De-Cloche.
+        Lockers.Build(root, new Vector3(-hw + Lockers.Depth + 0.02f, 0f, ControlDecor.WestLockersZ(n)), Vector3.right, Box, 1);
         // V0.7.7 (Note 09) : tuyauteries, vannes, conduits d'aération et moteurs sur les murs.
         ControlDecor.Build(root, hw, n, s0, h, VestiaireZ, TunnelRadius, Box);
 
@@ -604,6 +605,9 @@ public static class ControlWing
             var go = GameArt.MeshObject("Control Room", holder, shape, neon);
             go.transform.localScale = Vector3.one * scale;
             go.transform.localPosition = new Vector3(0f, -scale * 0.5f, -shape.bounds.max.z * scale - 0.01f);
+            // V0.7.8 : salle réduite, la caméra à la troisième personne venait se coller au mur sud, dans les lettres : la
+            // boîte de l'enseigne l'arrête devant (hors de portée des joueurs, à 4,5 m de haut).
+            go.AddComponent<BoxCollider>();
         }
         else
         {

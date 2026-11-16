@@ -21,6 +21,9 @@ public partial class GameSession
     int[] controlPassword;
     int controlPasswordSeed = int.MinValue;
     float pomponBusyUntil = -10f;
+    // V0.7.8 (15.5) : "/pw" de l'hôte : le mot de passe se saisit tout seul dès qu'une Cloche Décorative est posée.
+    bool autoPassword;
+    Coroutine autoPasswordRun;
     int controlFeedZone;            // zone montrée par les caméras et regardée par ce joueur (0 : aucune)
     int feedsZone = -1, feedsEyeCount = -1;
     float controlTimer, feedsCheckAt;
@@ -58,6 +61,8 @@ public partial class GameSession
         controlCount = 0;
         controlUnlocked = false;
         controlZone = 1;
+        autoPassword = false;
+        if (autoPasswordRun != null) { StopCoroutine(autoPasswordRun); autoPasswordRun = null; }
         WorldStreamer.ExtraEyes.Clear();
         RefreshControlScreen();
     }
@@ -115,6 +120,8 @@ public partial class GameSession
                 }
                 RefreshControlScreen();
             }
+            if (on && autoPassword && net.IsHost && autoPasswordRun == null && !controlUnlocked)
+                autoPasswordRun = StartCoroutine(AutoEnterPassword());
         }
 
         // Caméras de sécurité : seulement quand ce joueur regarde l'écran de près.
@@ -200,28 +207,67 @@ public partial class GameSession
         }
     }
 
+    // L'hôte reçoit un glyphe saisi au tableau de bord (d'un joueur, ou de "/pw").
+    void HostEnterGlyph(int glyph)
+    {
+        if (!controlPowered || controlUnlocked) return;
+        controlEntry.Add(glyph);
+        int result = 0;
+        if (controlEntry.Count >= ControlScreen.PasswordLength)
+        {
+            bool ok = true;
+            int[] pw = ControlPassword;
+            for (int i = 0; i < pw.Length; i++) if (controlEntry[i] != pw[i]) ok = false;
+            result = ok ? 2 : 1;
+            controlEntry.Clear();
+        }
+        net.ToAll("XH|" + glyph + "|" + (result == 0 ? controlEntry.Count : 0) + "|" + result);
+        BroadcastState();
+    }
+
+    // V0.7.8 (15.5) : "/pw" (hôte). Si une Cloche Décorative est déjà posée, le mot de passe s'écrit aussitôt sur l'écran ;
+    // sinon, il s'écrira dès qu'une le sera (une seule fois). Chez tous, comme une saisie au tableau de bord.
+    public string AutoPassword()
+    {
+        if (!net.IsHost) return null;
+        if (ControlScreen.Current == null) return Loc.T("La Control Room n'est pas encore construite.");
+        if (controlUnlocked) return Loc.T("Le mot de passe est déjà saisi.");
+        autoPassword = true;
+        if (!controlPowered) return Loc.T("Le mot de passe s'écrira dès qu'une Cloche Décorative sera posée sur le promontoire.");
+        if (autoPasswordRun == null) autoPasswordRun = StartCoroutine(AutoEnterPassword());
+        return Loc.T("Saisie automatique du mot de passe.");
+    }
+
+    // Les 6 glyphes, un à un (on voit les astérisques s'écrire), après avoir effacé une saisie commencée.
+    IEnumerator AutoEnterPassword()
+    {
+        autoPassword = false;
+        if (controlEntry.Count > 0)
+        {
+            controlEntry.Clear();
+            controlCount = 0;
+            BroadcastState();
+        }
+        int typed = 0;
+        foreach (int glyph in ControlPassword)
+        {
+            yield return new WaitForSeconds(0.45f);
+            if (!controlPowered || controlUnlocked) break;
+            HostEnterGlyph(glyph);
+            typed++;
+        }
+        // Cloche enlevée en cours de route : on réessaiera à la prochaine.
+        if (typed < ControlScreen.PasswordLength && !controlUnlocked) autoPassword = true;
+        autoPasswordRun = null;
+    }
+
     bool HandleControlMessage(string from, string[] f, bool host)
     {
         switch (f[0])
         {
             case "XG" when host:
-            {
-                if (f.Length < 2 || !controlPowered || controlUnlocked) return true;
-                int glyph = Mathf.Clamp(NetworkGame.I(f[1]), 0, GameRules.GlyphTypes - 1);
-                controlEntry.Add(glyph);
-                int result = 0;
-                if (controlEntry.Count >= ControlScreen.PasswordLength)
-                {
-                    bool ok = true;
-                    int[] pw = ControlPassword;
-                    for (int i = 0; i < pw.Length; i++) if (controlEntry[i] != pw[i]) ok = false;
-                    result = ok ? 2 : 1;
-                    controlEntry.Clear();
-                }
-                net.ToAll("XH|" + glyph + "|" + (result == 0 ? controlEntry.Count : 0) + "|" + result);
-                BroadcastState();
+                if (f.Length >= 2) HostEnterGlyph(Mathf.Clamp(NetworkGame.I(f[1]), 0, GameRules.GlyphTypes - 1));
                 return true;
-            }
             case "XH":
             {
                 if (f.Length < 4) return true;

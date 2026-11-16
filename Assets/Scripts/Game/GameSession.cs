@@ -338,6 +338,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         sitPending = true;
         audioMuteUntil = Time.unscaledTime + 2f;
+        // V0.7.8 (chapitre 17, Note 01) : la boule d'énergie est prête (et ses matériaux chargés) avant le premier voyage :
+        // plus de création au moment du départ.
+        if (energyBall == null && player != null) energyBall = BuildEnergyBall(player.transform);
         presence.PlayerId = net.MyId;
         hud.Show(true);
         hud.HideGameOver();
@@ -2255,6 +2258,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             else { pos += (goal - pos) / d * move; move = 0f; }
         }
         player.transform.position = pos;
+        // V0.7.8 (Note 01) : le corps physique suit tout de suite (pas de retour en arrière au pas de physique suivant).
+        player.Body.position = pos;
         if (teleportLeg >= teleportPath.Count) EndTeleport(true, true);
     }
 

@@ -15,6 +15,7 @@ public class PlayerController : MonoBehaviour
     public static bool InputLocked;
 
     Rigidbody rb;
+    public Rigidbody Body => rb;
     CapsuleCollider col;
     CharacterAvatar avatar;
     PlayerStatus status;
@@ -345,6 +346,11 @@ public class PlayerController : MonoBehaviour
 
     public void SetFrozen(bool frozen)
     {
+        // V0.7.8 (chapitre 17, Note 01) : figé, le personnage est déplacé à la main (boule du Téléporteur, à 70 m/s). Avec
+        // l'interpolation du corps physique, Unity ramenait à chaque image le personnage entre ses deux dernières positions
+        // physiques (jusqu'à 1,4 m en arrière) : la boule et la caméra avançaient par à-coups. Pas d'interpolation tant qu'il
+        // est figé.
+        rb.interpolation = frozen ? RigidbodyInterpolation.None : RigidbodyInterpolation.Interpolate;
         rb.isKinematic = frozen;
         col.enabled = !frozen;
         jumpRequested = false;

@@ -385,8 +385,8 @@ public class OrbitCamera : MonoBehaviour
         if (fp)
         {
             float eye = eyeHeight - GameRules.SneakEyeDrop * Mathf.SmoothStep(0f, 1f, crouchBlend);
-            Vector3 bob = HeadBob(controller, rot, out float roll);
-            transform.SetPositionAndRotation(target.position + Vector3.up * eye + bob, rot * Quaternion.Euler(0f, 0f, roll));
+            Vector3 bob = HeadBob(controller, rot, out float roll, out float nod);
+            transform.SetPositionAndRotation(target.position + Vector3.up * eye + bob, rot * Quaternion.Euler(nod, 0f, roll));
             return;
         }
         // Vers un tunnel (ou en en sortant) : le point visé descend vers les yeux et la distance fond vers zéro.
@@ -411,21 +411,26 @@ public class OrbitCamera : MonoBehaviour
         // personne, en bien plus discret).
         if (controller != null && tunnelK < 0.01f)
         {
-            Vector3 bob = HeadBob(controller, rot, out float roll);
+            Vector3 bob = HeadBob(controller, rot, out float roll, out float nod);
             pos += bob * ThirdPersonBob;
-            camRotation *= Quaternion.Euler(0f, 0f, roll * ThirdPersonBob);
+            camRotation *= Quaternion.Euler(nod * ThirdPersonBob, 0f, roll * ThirdPersonBob);
         }
         transform.position = pos;
         transform.rotation = camRotation;
     }
 
-    const float ThirdPersonBob = 0.4f;
+    // V0.7.8 (chapitre 17, Note 02) : secousses accentuées (avant : 0,4), puis légèrement réduites (0,6 -> 0,5).
+    const float ThirdPersonBob = 0.5f;
 
     // Première personne : la tête oscille légèrement au rythme des pas (vertical, latéral et un soupçon de roulis),
     // d'autant plus que le personnage va vite ; l'effet s'estompe à l'arrêt et en l'air.
     float bobPhase, bobWeight;
 
-    Vector3 HeadBob(PlayerController controller, Quaternion rot, out float roll)
+    // V0.7.8 (chapitre 17, Note 02) : secousses accentuées à la première et à la troisième personne : environ 1,7 fois plus
+    // amples (hauteur, balancement latéral, roulis), plus un léger hochement de tête à chaque pas ('nod', en degrés).
+    const float BobLift = 0.075f, BobSway = 0.034f, BobRoll = 0.6f, BobNod = 0.55f;
+
+    Vector3 HeadBob(PlayerController controller, Quaternion rot, out float roll, out float nod)
     {
         var body = controller.GetComponent<Rigidbody>();
         Vector3 v = body != null ? body.velocity : Vector3.zero;
@@ -437,10 +442,12 @@ public class OrbitCamera : MonoBehaviour
         float step = Mathf.Sin(bobPhase), sway = Mathf.Sin(bobPhase * 0.5f);
         // Pulsations cardiaques : les saccades des pas se font plus insistantes (jusqu'à 2,3 fois plus amples).
         float tension = 1f + 1.3f * dread;
-        roll = sway * 0.35f * bobWeight * tension;
+        roll = sway * BobRoll * bobWeight * tension;
+        // La tête plonge un peu à l'impact de chaque pas (au creux du mouvement vertical).
+        nod = (0.5f - Mathf.Abs(step)) * BobNod * bobWeight * tension;
         Vector3 right = rot * Vector3.right;
         right.y = 0f;
-        return (Vector3.up * (Mathf.Abs(step) - 0.5f) * 0.045f + right.normalized * sway * 0.02f) * bobWeight * tension;
+        return (Vector3.up * (Mathf.Abs(step) - 0.5f) * BobLift + right.normalized * sway * BobSway) * bobWeight * tension;
     }
 
     public float CurrentDistance => FirstPerson ? 0f : currentDistance;

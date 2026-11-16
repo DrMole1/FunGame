@@ -18,6 +18,11 @@ public static class ControlDecor
     const int RandomRuns = 100;
     static readonly float[] Radii = { 0.03f, 0.04f, 0.05f, 0.06f, 0.075f, 0.09f, 0.11f, 0.13f };
 
+    // V0.7.8 : la salle passe à 12 x 18 m. Le long du mur ouest, du nord au sud : moteur-pompe, casiers (sous un bloc de
+    // ventilation), Tête-De-Cloche (en face du Vestiaire, à 8 m du mur nord), vannes (sous le second bloc de ventilation).
+    public static float WestLockersZ(float n) => n - 5f;
+    const float MotorFromNorth = 2.4f, WestValvesFromSouth = 1.8f, SouthVentFromSouth = 2.1f;
+
     // Repère de la Control Room : murs ouest (-hw) et est (+hw), nord (n, côté tunnel) et sud (s, l'écran), hauteur h.
     public static void Build(Transform room, float hw, float n, float s, float h, float vestiaireZ, float tunnelRadius, System.Action<Vector3, Vector3> box)
     {
@@ -36,7 +41,7 @@ public static class ControlDecor
         // Conduite principale tout le long, à 4,7 m ; une seconde, plus fine, juste dessous, qui plonge vers le sol au nord.
         float wx = -hw + 0.22f;
         Run(0.13f, false, new Vector3(wx, 4.7f, n - 0.2f), new Vector3(wx, 4.7f, s + 0.2f));
-        Run(0.07f, true, new Vector3(wx + 0.05f, 4.25f, s + 0.2f), new Vector3(wx + 0.05f, 4.25f, n - 3f), new Vector3(wx + 0.05f, 0.9f, n - 3f));
+        Run(0.07f, true, new Vector3(wx + 0.05f, 4.25f, s + 0.2f), new Vector3(wx + 0.05f, 4.25f, n - MotorFromNorth), new Vector3(wx + 0.05f, 0.9f, n - MotorFromNorth));
         // Gaine d'aération rectangulaire sous le plafond.
         DuctRun(new Vector3(-hw + 0.45f, h - 0.4f, n - 0.1f), new Vector3(-hw + 0.45f, h - 0.4f, s + 0.1f), new Vector2(0.6f, 0.38f));
 
@@ -52,7 +57,7 @@ public static class ControlDecor
         float ex = hw - 0.2f;
         Run(0.09f, false, new Vector3(ex, h, n - 1.5f), new Vector3(ex, 4.4f, n - 1.5f), new Vector3(ex, 4.4f, vestiaireZ + 2.2f), new Vector3(ex, 0f, vestiaireZ + 2.2f));
         Run(0.06f, true, new Vector3(ex - 0.05f, h, vestiaireZ - 2f), new Vector3(ex - 0.05f, 0f, vestiaireZ - 2f));
-        Run(0.06f, true, new Vector3(ex - 0.05f, h, vestiaireZ - 2.35f), new Vector3(ex - 0.05f, 3.6f, vestiaireZ - 2.35f), new Vector3(ex - 0.05f, 3.6f, s + 4.5f));
+        Run(0.06f, true, new Vector3(ex - 0.05f, h, vestiaireZ - 2.35f), new Vector3(ex - 0.05f, 3.6f, vestiaireZ - 2.35f), new Vector3(ex - 0.05f, 3.6f, s + 0.6f));
 
         // ----- Mur sud : une conduite au ras du plafond, au-dessus de l'enseigne -----
         Run(0.11f, false, new Vector3(-hw + 0.2f, 5.6f, s + 0.2f), new Vector3(hw - 0.2f, 5.6f, s + 0.2f));
@@ -65,12 +70,12 @@ public static class ControlDecor
         // ----- Modèles Meshy -----
         // Blocs de ventilation accrochés en haut des murs ouest et nord, sous la gaine ; moteur-pompe au sol au nord-ouest (la
         // descente du mur ouest y plonge) ; vannes au sol, au nord-est et au sud-ouest.
-        WallModel("Decor/Ventilation", new Vector3(-hw, 3.1f, n - 6.5f), Vector3.right, 1.2f);
-        WallModel("Decor/Ventilation", new Vector3(-hw, 3.1f, s + 3.6f), Vector3.right, 1.2f);
+        WallModel("Decor/Ventilation", new Vector3(-hw, 3.1f, WestLockersZ(n)), Vector3.right, 1.2f);
+        WallModel("Decor/Ventilation", new Vector3(-hw, 3.1f, s + SouthVentFromSouth), Vector3.right, 1.2f);
         WallModel("Decor/Ventilation", new Vector3(hw - 4.5f, 3.9f, n), Vector3.back, 1.1f);
-        FloorModel("Decor/Moteur", new Vector3(-hw + 0.7f, 0f, n - 3f), 90f, 1.1f, box);
+        FloorModel("Decor/Moteur", new Vector3(-hw + 0.7f, 0f, n - MotorFromNorth), 90f, 1.1f, box);
         FloorModel("Decor/Vannes", new Vector3(hw - 0.45f, 0f, vestiaireZ + 3.6f), -90f, 1.6f, box);
-        FloorModel("Decor/Vannes", new Vector3(-hw + 0.42f, 0f, s + 2.4f), 90f, 1.4f, box);
+        FloorModel("Decor/Vannes", new Vector3(-hw + 0.42f, 0f, s + WestValvesFromSouth), 90f, 1.4f, box);
     }
 
     static void Flush(PipeMesh pipes, string name, Material mat)
@@ -111,10 +116,11 @@ public static class ControlDecor
 
         // Ouest : Tête-De-Cloche assise, casiers, blocs de ventilation, moteur, vannes, gaine sous le plafond.
         west.Block(vz - 0.9f, vz + 0.9f, -1f, 1.7f);
-        west.Block(n - 8f, n - 5f, -1f, 2.2f);
-        foreach (float z in new[] { n - 6.5f, s + 3.6f }) west.Block(z - 0.95f, z + 0.95f, 2.3f, 3.9f);
-        west.Block(n - 4f, n - 2f, -1f, 1.3f);
-        west.Block(s + 1.4f, s + 3.4f, -1f, 1.6f);
+        float lz = WestLockersZ(n);
+        west.Block(lz - Lockers.Width * 0.5f - 0.2f, lz + Lockers.Width * 0.5f + 0.2f, -1f, 2.2f);
+        foreach (float z in new[] { lz, s + SouthVentFromSouth }) west.Block(z - 0.95f, z + 0.95f, 2.3f, 3.9f);
+        west.Block(n - MotorFromNorth - 1f, n - MotorFromNorth + 1f, -1f, 1.3f);
+        west.Block(s + WestValvesFromSouth - 1f, s + WestValvesFromSouth + 1f, -1f, 1.6f);
         west.Block(s - 1f, n + 1f, h - 0.7f, h + 1f);
         // Est : porte du Vestiaire et son néon, vannes.
         east.Block(vz - 0.9f, vz + 0.9f, -1f, 2.45f);
