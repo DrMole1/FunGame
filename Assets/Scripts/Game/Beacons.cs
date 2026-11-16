@@ -52,9 +52,9 @@ public class Beacon : Interactable
     Material restHalo;
     // Balises (simples ou améliorées) : elles relaient l'énergie ; Téléporteur et Station ne font que la recevoir.
     public bool Relays => Kind == DeviceKind.Beacon || Kind == DeviceKind.Enhanced;
-    // Relié au réseau d'énergie (chargé s'il voit une Balise chargée) : ni le Trampoline, ni la Cloche Décorative, ni les
-    // peluches, ni la Boule de Disco.
-    public bool Networked => Kind <= DeviceKind.Television;
+    // Relié au réseau d'énergie (chargé s'il voit une Balise chargée) : ni la Télévision (V0.7.8), ni le Trampoline, ni la
+    // Cloche Décorative, ni les peluches, ni la Boule de Disco.
+    public bool Networked => Kind < DeviceKind.Television;
     public bool IsDisco => IsDiscoKind(Kind);
     // V0.7.3 : une Boule de Disco ne s'allume (lumière, musique) qu'une fois posée par un joueur.
     DiscoBall disco;
@@ -524,14 +524,13 @@ public class Beacon : Interactable
         // Le Trampoline et la Cloche Décorative ne sont pas reliés au réseau : jamais grisés.
         if (!Networked) on = false;
         Charged = on;
-        if (Screen != null) Screen.SetSignal(on);
         if (halo != null) halo.SetActive(on);
         if (glow != null) glow.enabled = on;
         if (gas != null) { if (on && !gas.isPlaying) gas.Play(); else if (!on && gas.isPlaying) gas.Stop(); }
         if (block == null) block = new MaterialPropertyBlock();
         // La Boule de Disco, les canards colorés et le Protocole (papier noirci, V0.7.2) gardent leur teinte.
         if (IsDisco || IsDuck || Kind == DeviceKind.Protocole) return;
-        block.SetColor("_Color", on || !Networked || Kind == DeviceKind.Television ? ChargedTint : DischargedTint);
+        block.SetColor("_Color", on || !Networked ? ChargedTint : DischargedTint);
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
     }
 
@@ -840,7 +839,7 @@ public class BeaconNetwork : MonoBehaviour
                 Beacon from = charged[head];
                 for (int i = pending.Count - 1; i >= 0; i--)
                 {
-                    if (!InSight(from, pending[i])) continue;
+                    if (!Reachable(root.HubIndex, pending[i]) || !InSight(from, pending[i])) continue;
                     parentOf[pending[i]] = from;
                     fluxOf[pending[i]] = root.HubIndex;
                     charged.Add(pending[i]);
@@ -856,7 +855,7 @@ public class BeaconNetwork : MonoBehaviour
             foreach (var from in charged)
             {
                 float d = (from.Top - leaf.Top).sqrMagnitude;
-                if (d < bestDist && InSight(from, leaf)) { best = from; bestDist = d; }
+                if (d < bestDist && Reachable(fluxOf[from], leaf) && InSight(from, leaf)) { best = from; bestDist = d; }
             }
             if (best == null) continue;
             parentOf[leaf] = best;
@@ -869,6 +868,19 @@ public class BeaconNetwork : MonoBehaviour
             if (b.Charged != parentOf.ContainsKey(b)) b.SetCharged(parentOf.ContainsKey(b));
             b.SetFlux(fluxOf.TryGetValue(b, out int hub) ? hub : 0);
         }
+    }
+
+    // V0.7.9 (Note 01) : le flux d'un Hub ne descend jamais vers une zone inférieure. Le Hub N est entre la zone 2N - 2 et la
+    // zone 2N - 1 : un appareil posé dans son chapiteau (ou celui d'un Hub plus loin) ou à partir de la zone 2N - 1 peut être
+    // relié ; dans une zone d'avant (ou le chapiteau d'un Hub d'avant), aucun lien.
+    static bool Reachable(int hub, Beacon b)
+    {
+        if (hub <= 1 || b == null) return true;
+        Vector3 p = b.transform.position;
+        int inHub = WorldBuilder.HubAt(p);
+        if (inHub > 0) return inHub >= hub;
+        int zone = WorldBuilder.ZoneAt(p);
+        return zone < 1 || zone >= 2 * hub - 1;
     }
 
     // Une Balise principale (chargée ou non) voit cet appareil, sans élément du décor entre eux.

@@ -35,18 +35,6 @@ public static class WindowsBuilder
             options = BuildOptions.None,
         });
 
-        // V0.7.6 (14.1) : la Télévision du .exe lit YouTube grâce à yt-dlp, posé à côté de l'exécutable (Tools/yt-dlp.exe).
-        string tool = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Tools", "yt-dlp.exe"));
-        if (report.summary.result == BuildResult.Succeeded)
-        {
-            // ffmpeg (licence LGPL, jointe) réunit l'image et le son téléchargés séparément.
-            foreach (string name in new[] { "yt-dlp.exe", "ffmpeg.exe", "ffmpeg-LICENSE.txt" })
-            {
-                string from = Path.Combine(Path.GetDirectoryName(tool), name);
-                if (File.Exists(from)) File.Copy(from, Path.Combine(outPath, name), true);
-                else Debug.LogWarning("Tools/" + name + " introuvable : la Télévision du .exe ne pourra pas lire YouTube.");
-            }
-        }
         if (report.summary.result == BuildResult.Succeeded)
             Debug.Log($"Build Windows réussi : {Path.Combine(outPath, ExeName)} ({report.summary.totalSize / (1024 * 1024)} Mo)");
         else

@@ -22,7 +22,7 @@ public static class SoundBank
         "fou_bells", "fou_alert", "fou_attack", "fou_dance", "fou_poof", "roi_laugh", "roi_chain", "roi_break", "roi_slash", "roi_clink",
         "dig", "dame_step", "cannon_fire", "cannon_impact",
         // V0.4.7 : objets uniques, cri de souffrance de La Dame, Le Cavalier, Le Réveil.
-        "tv_static", "tv_countdown", "tinnitus", "spring", "bell_deco", "dame_wail", "cavalier_gallop", "cavalier_alert", "cavalier_terror",
+        "tv_static", "tinnitus", "spring", "bell_deco", "dame_wail", "cavalier_gallop", "cavalier_alert", "cavalier_terror",
         "cavalier_strike", "cavalier_stomp", "reveil_alarm", "reveil_boom",
         // V0.6 : glyphes (alertes terrifiantes, moins de 2 secondes) et La Tête de Cloche.
         "glyph_sit", "glyph_kennel", "glyph_bark", "tete_bell", "tete_kill", "tete_vue",
@@ -153,7 +153,6 @@ public static class SoundBank
             case "tv_static": return TvStatic(rnd);
             case "zipper": return Zipper(rnd);
             case "slide_rub": return SlideRub(rnd);
-            case "tv_countdown": return TvCountdown(rnd);
             case "fou_poof": return FouPoof(rnd);
             case "tinnitus": return Tinnitus();
             case "spring": return Spring(rnd);
@@ -1693,24 +1692,6 @@ public static class SoundBank
             longer[i] = hiss * (0.8f + 0.2f * Sine(0.7f * t)) + hum + crackle;
         }
         return MakeLoop(longer, 2f, 0.3f);
-    }
-
-    // Décompte de la Télévision, façon amorce de film : bip sec à 1 kHz, cliquetis du projecteur et crépitement de pellicule.
-    static float[] TvCountdown(System.Random rnd)
-    {
-        var d = Buffer(0.6f);
-        var bp = new BandPass();
-        var lp = new LowPass();
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate;
-            float beep = (Sine(1000f * t) + 0.15f * Sine(3000f * t)) * ASR(t, 0.003f, 0.01f, 0.16f);
-            // Griffe du projecteur : 24 claquements par seconde, de plus en plus discrets.
-            float claw = bp.Process(Noise(rnd), 1800f, 1.2f) * Decay(Mathf.Repeat(t, 1f / 24f), 0.004f) * 0.5f * Decay(t, 0.35f);
-            float crackle = rnd.NextDouble() < 0.002 ? Noise(rnd) * 1.5f : 0f;
-            d[i] = beep * 0.8f + claw + lp.Process(crackle, 4000f) + lp.Process(Noise(rnd), 2500f) * 0.04f * Decay(t, 0.3f);
-        }
-        return d;
     }
 
     // Oreilles qui sifflent après une explosion toute proche : sifflement aigu, légèrement battant, qui s'éteint lentement.

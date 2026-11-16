@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.8";
+    public const string Version = "V0.7.9";
 
     public const int MaxPlayers = 6;            // V0.7.5 (avant : 8)
     public const int MaxHp = 100;
@@ -330,22 +330,17 @@ public static class GameRules
     // ---------- Glyphes (chapitre 9, V0.6) ----------
 
     public const int GlyphTypes = 3;
-    // Glyphes neutres d'une zone impaire : un de chaque type, à au moins 40 m les uns des autres.
-    public const float NeutralGlyphSpacing = 40f;
+    // V0.7.9 (9.3) : 3 glyphes différents par zone (un de chaque type), à au moins 40 m les uns des autres.
+    public const float GlyphSpacing = 40f;
     public static int NeutralGlyphId(int zone, int type) => zone * 100 + 50 + type;
-    // V0.6.13 : icônes de pattes au-dessus d'un glyphe neutre, selon le nombre de joueurs en jeu (1 ; 2-3 ; 4-5 ; 6).
+    // V0.7.9 : glyphes sous boîtier de verre : 1 en Zone 1, 2 en Zone 2, tous à partir de la Zone 3.
+    public static int BoxedGlyphs(int zone) => Mathf.Clamp(zone, 1, GlyphTypes);
+    // V0.6.13 : icônes de pattes au-dessus d'un glyphe, selon le nombre de joueurs en jeu (1 ; 2-3 ; 4-5 ; 6).
     public static int GlyphPaws(int players) => players <= 1 ? 1 : players <= 3 ? 2 : players <= 5 ? 3 : 4;
     // Durée de l'ordre de chaque glyphe (immobile et accroupi, aller à la niche, aboyer).
     public static readonly float[] GlyphDuration = { 10f, 30f, 10f };
-    // Ordre annoncé à voix haute : un peu plus lent et un peu plus fort que l'enregistrement.
-    public const float GlyphVoiceSpeed = 0.92f;
-    public const float GlyphVoiceVolume = 1.25f;
     public const float GlyphSitDelay = 3.5f;     // "Assis !" : assis au bout de 3,5 secondes, et jusqu'à la fin (V0.7.4)
     public const float GlyphBarkGap = 3.5f;      // "Aboie !" : au plus 3,5 secondes consécutives sans aboyer (V0.7.4, avant : 3)
-    public const float GlyphVoiceRepeatDelay = 1.4f;   // V0.6.9 : action non effectuée au bout de 1,4 seconde : l'ordre sonore est répété pour ce joueur
-    // Glyphes d'acquisition d'une zone paire : 3 dans la Zone 2 (un de chaque), puis 2 + nZone / 2, 6 au plus (V0.6.5).
-    public const int MaxAcquisitionGlyphs = 6;
-    public static int AcquisitionGlyphs(int zone) => zone <= 2 ? 3 : Mathf.Min(MaxAcquisitionGlyphs, 2 + zone / 2);
 
     // ---------- Super Monticules (chapitre 10.2, V0.7.2) ----------
 
@@ -395,8 +390,6 @@ public static class GameRules
 
     public const float TvHeight = 0.8f * 1.8f, TrampolineHeight = 0.3f * 1.8f, BellHeight = 0.8f * 1.8f;
     public const float TvSoundRange = 10f;
-    public const float TvMusicDuckRange = 7f;         // plus près d'une Télévision qui diffuse : les musiques d'ambiance s'effacent
-    public const float TvCountdown = 4f;              // décompte de 3 à 0, une seconde par chiffre
     // Trampoline : un peu moins que la hauteur entre le sol du Hub et le haut du Chapiteau.
     public const float TrampolineJumpFraction = 0.9f;
     // V0.6.13 (10.3) : Cloches Décoratives suspendues dans les zones 2+ : 2 en Zone 2, 3 en Zone 3, 4 dans les zones 4 et +.

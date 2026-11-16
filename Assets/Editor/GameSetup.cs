@@ -22,7 +22,6 @@ public static class GameSetup
         DameSetup.Setup();
         IconRenderer.Generate();
         SetupScene();
-        OcclusionSetup.Generate();
         AssetDatabase.SaveAssets();
         Debug.Log("FunGame configuré.");
     }
@@ -134,7 +133,7 @@ public static class GameSetup
         ("heart_thump", "Assets/Sounds/Battement_Coeur.wav"),
         // Musique du chapiteau, en boucle.
         ("hub_music", "Assets/Sounds/Musique_Hub.wav"),
-        // GDD 12 (V0.6.1) : sons des glyphes (une fois pour un glyphe neutre, en boucle pour un glyphe d'acquisition).
+        // GDD 12 (V0.6.1) : sons des glyphes (V0.7.9 : en boucle pendant l'ordre de tout glyphe actionné).
         ("glyph_sit", "Assets/Sounds/Glyphe01.wav"),
         ("glyph_kennel", "Assets/Sounds/Glyphe02.wav"),
         ("glyph_bark", "Assets/Sounds/Glyphe03.wav"),
@@ -146,11 +145,7 @@ public static class GameSetup
         ("tete_kill", "Assets/Sounds/TeteDeCloche_Tuer.wav"),
         ("tete_vue", "Assets/Sounds/TeteDeCloche_Vue.wav"),
         ("zipper", "Assets/Sounds/Zip.wav"),
-        // V0.6.7 : ordres vocaux des glyphes, selon la langue du joueur.
-        ("order_fr_01", "Assets/Sounds/Order_FR_01.wav"), ("order_fr_02", "Assets/Sounds/Order_FR_02.wav"), ("order_fr_03", "Assets/Sounds/Order_FR_03.wav"),
-        ("order_eng_01", "Assets/Sounds/Order_ENG_01.wav"), ("order_eng_02", "Assets/Sounds/Order_ENG_02.wav"), ("order_eng_03", "Assets/Sounds/Order_ENG_03.wav"),
-        ("order_esp_01", "Assets/Sounds/Order_ESP_01.wav"), ("order_esp_02", "Assets/Sounds/Order_ESP_02.wav"), ("order_esp_03", "Assets/Sounds/Order_ESP_03.wav"),
-        ("order_rus_01", "Assets/Sounds/Order_RUS_01.wav"), ("order_rus_02", "Assets/Sounds/Order_RUS_02.wav"), ("order_rus_03", "Assets/Sounds/Order_RUS_03.wav"),
+        // V0.7.9 : plus d'ordres vocaux des glyphes (une icône de l'ordre s'affiche à l'écran).
     };
 
     static void CreateSounds()

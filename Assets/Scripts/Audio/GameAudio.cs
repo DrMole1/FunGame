@@ -577,10 +577,9 @@ public class GameAudio : MonoBehaviour
         float k = 1f - Mathf.Exp(-1.5f * Time.unscaledDeltaTime);
         float on = AmbienceEnabled && !silenced && !Loading ? 1f : 0f;
         on *= deathDuck;
-        // À moins de 7 m d'une Télévision qui diffuse (du personnage, pas de la caméra placée derrière lui), les musiques
-        // d'ambiance s'effacent progressivement, et reviennent quand on s'en éloigne.
-        // V0.6.1 : de même près d'une boule à facettes posée (sa musique disco remplace la musique d'ambiance).
-        float tv = TvScreen.Broadcasting(ListenerBody(cam), GameRules.TvMusicDuckRange) || DiscoNear ? 0f : 1f;
+        // V0.6.1 : près d'une boule à facettes posée, les musiques d'ambiance s'effacent progressivement (sa musique disco
+        // les remplace), et reviennent quand on s'en éloigne.
+        float tv = DiscoNear ? 0f : 1f;
         // V0.6.14 (15.3) : dans le tunnel derrière l'Écran des Logs, la musique du Hub s'efface progressivement ; plus aucune
         // musique dans la Control Room. Elle revient en rentrant dans le Hub.
         float tunnel = cam != null ? ControlWing.MusicSilence(ListenerBody(cam)) : 0f;

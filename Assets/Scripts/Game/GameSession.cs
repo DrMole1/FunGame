@@ -288,9 +288,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         bellZones.Clear();
         ClearNightmareKills();
         beacons.Clear();
-        tvVideos.Clear();
-        myTvs.Clear();
-        tvAsked.Clear();
         bellObsession = -1;
         pogoMood = Pogo.Mood.Closed;
         pogoSmileUntil = pogoCooldownUntil = 0f;
@@ -1363,7 +1360,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 TryPlacePostIt(slot);
                 break;
             case ItemType.Cle:
-                hud.Toast(Loc.T("Visez le boîtier de verre d'un glyphe neutre pour le briser avec la Clé."));
+                hud.Toast(Loc.T("Visez le boîtier de verre d'un glyphe pour le briser avec la Clé."));
                 break;
         }
     }
@@ -1532,7 +1529,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         GameAudio.Play2D("sell_bell", 0.7f);
     }
 
-    // ================= Boîtiers de verre des glyphes neutres (V0.6.5) =================
+    // ================= Boîtiers de verre des glyphes (V0.6.5 ; V0.7.9 : pairs ou impairs) =================
 
     // La Clé en main brise le boîtier et disparaît ; en godmod (hôte), un clic suffit, sans Clé.
     public void BreakGlyphCase(Glyph g)
@@ -2918,8 +2915,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         LeaveKennel(false);
         // Nouvelle partie : les Balises posées disparaissent.
         beacons.Clear();
-        myTvs.Clear();
-        tvAsked.Clear();
         bellObsession = -1;
         ResetHunger();
         ReviveLocal(SpawnPoint(), GameRules.MaxHp);
@@ -2932,7 +2927,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         bool host = net.IsHost;
         if (HandleZoneMessage(from, f, host)) return;
         if (HandleCannonMessage(from, f, host)) return;
-        if (HandleObjectMessage(from, f, host)) return;
         if (HandleSuperMoundMessage(from, f, host)) return;
         if (HandleHungerMessage(from, f, host)) return;
         if (HandleReverseMessage(from, f, host)) return;
@@ -3217,7 +3211,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 if (device != null && !CannonOccupied(id) && beaconMessages.Remove(id))
                 {
                     noiseAt[from] = Time.time;
-                    tvVideos.Remove(id);
                     net.ToAll("BZ|" + id);
                     net.ToPeer(from, "GV|" + (int)device.Item);
                 }
@@ -3229,7 +3222,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 Beacon b = beacons.Get(NetworkGame.I(f[1]));
                 if (b != null) GameAudio.Play3D("pop", b.transform.position, 0.8f, 15f, 0.1f);
                 beacons.Remove(NetworkGame.I(f[1]));
-                myTvs.Remove(NetworkGame.I(f[1]));
                 break;
             }
 
@@ -3294,14 +3286,14 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 GameAudio.Play2D("error", 0.35f);
                 break;
 
-            // ---------- Boîtiers de verre des glyphes neutres ----------
+            // ---------- Boîtiers de verre des glyphes (V0.7.9 : pairs ou impairs) ----------
             case "OB" when host && f.Length >= 3:
             {
                 int glyphId = NetworkGame.I(f[1]);
                 Glyph glyph = FindGlyph(glyphId);
                 // En godmod, l'hôte brise aussi un boîtier sans Clé.
                 bool god = from == net.MyId && Godmode;
-                bool ok = glyph != null && glyph.Neutral && phase != Phase.GameOver && (god || NetworkGame.I(f[2]) >= 0) && !brokenCases.Contains(glyphId);
+                bool ok = glyph != null && glyph.Boxed && phase != Phase.GameOver && (god || NetworkGame.I(f[2]) >= 0) && !brokenCases.Contains(glyphId);
                 net.ToPeer(from, "OU|" + (ok ? f[2] : "-2"));
                 if (!ok) break;
                 brokenCases.Add(glyphId);

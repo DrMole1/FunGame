@@ -1715,7 +1715,8 @@ public static class WorldBuilder
     }
 
     // Zones impaires (V0.6.5) : Neutral Room au nord, sa porte massive dans le mur du fond (à moitié dans chaque zone), et trois
-    // glyphes neutres différents, à des emplacements tirés au hasard dans la zone et reliés à la porte par un câble.
+    // glyphes impairs différents, à des emplacements tirés au hasard dans la zone et reliés à la porte par un câble.
+    // V0.7.9 : seuls certains sont sous boîtier de verre (1 en Zone 1, tous à partir de la Zone 3).
     static void BuildNeutralRoom(Maze m, Transform root, ZoneRefs refs, System.Random rnd)
     {
         Vector3 edge = m.Center(m.doorCol, m.N - 1) + Vector3.forward * (Cell * 0.5f);
@@ -1735,7 +1736,7 @@ public static class WorldBuilder
         Vector3 nrCenter = m.Center(m.doorCol, m.N - 2);
         var placed = new List<Vector3>();
         var spots = new List<(Vector2Int cell, Vector3 toWall)>();
-        foreach (float spacing in new[] { 55f, GameRules.NeutralGlyphSpacing })
+        foreach (float spacing in new[] { 55f, GameRules.GlyphSpacing })
             for (int attempt = 0; attempt < 4000 && spots.Count < GameRules.GlyphTypes; attempt++)
             {
                 Vector2Int c = cells[rnd.Next(cells.Count)];
@@ -1751,14 +1752,24 @@ public static class WorldBuilder
 
         Physics.SyncTransforms();
         var towardDoor = CableRoutes(m, new Vector2Int(m.doorCol, m.N - 1));
+        var boxed = BoxedGlyphTypes(m.zone, rnd);
         for (int t = 0; t < spots.Count; t++)
         {
             var (cell, toWall) = spots[t];
-            Vector3 p = m.Center(cell.x, cell.y) + toWall * (Cell * 0.5f - Wall * 0.5f - 0.04f) + Vector3.up * 1.7f;
-            Glyph glyph = Glyph.Create(props, GameRules.NeutralGlyphId(m.zone, t), t, true, m.zone, p, -toWall, Glyph.NeutralSize);
+            Vector3 p = m.Center(cell.x, cell.y) + toWall * (Cell * 0.5f - Wall * 0.5f - 0.04f) + Vector3.up * GlyphHeight;
+            Glyph glyph = Glyph.Create(props, GameRules.NeutralGlyphId(m.zone, t), t, true, boxed.Contains(t), m.zone, p, -toWall, Glyph.Size);
             refs.neutralGlyphs.Add(glyph);
             glyph.SetCable(BuildCable(m, props, refs.structure, cell, p, toWall, towardDoor, edge, (t - (GameRules.GlyphTypes - 1) * 0.5f) * CableSpread));
         }
+    }
+
+    // V0.7.9 (9.3) : types des glyphes de la zone enfermés dans un boîtier de verre, tirés au hasard (même graine chez tous).
+    static HashSet<int> BoxedGlyphTypes(int zone, System.Random rnd)
+    {
+        var types = new List<int>();
+        for (int t = 0; t < GameRules.GlyphTypes; t++) types.Add(t);
+        for (int k = types.Count - 1; k > 0; k--) { int r = rnd.Next(k + 1); (types[k], types[r]) = (types[r], types[k]); }
+        return new HashSet<int>(types.GetRange(0, GameRules.BoxedGlyphs(zone)));
     }
 
     // ---------- Câbles entre les glyphes et leur porte : Neutral Room (V0.6.5), Acquisition Room (V0.7.4) ----------
@@ -1878,19 +1889,20 @@ public static class WorldBuilder
         return renderer;
     }
 
-    // Zones paires : glyphes d'acquisition contre des murs pris au hasard, et Acquisition Room avec la porte du chapiteau suivant,
-    // qui porte tous ces glyphes. V0.7.4 : de la taille des glyphes neutres, reliés à cette porte par un câble noir.
+    // Zones paires : glyphes pairs contre des murs pris au hasard, et Acquisition Room avec la porte du chapiteau suivant,
+    // qui porte tous ces glyphes, reliés à cette porte par un câble noir (V0.7.4). V0.7.9 (9.3) : 3 glyphes différents, un de
+    // chaque, à au moins 40 m les uns des autres ; 2 sous boîtier de verre en Zone 2, tous à partir de la Zone 4.
     static void BuildAcquisitionRoom(Maze m, Transform root, ZoneRefs refs, System.Random rnd)
     {
         var props = new GameObject("Glyphes").transform;
         props.SetParent(root, false);
 
-        // Glyphes d'acquisition : Zone 2, un de chaque ; ensuite, 2 + nZone / 2 tirés au hasard (6 au plus). Loin de l'entrée,
-        // de la salle du fond et les uns des autres (V0.6.1 : au moins 50 m entre eux), contre le mur d'une cellule de plain-pied.
-        int count = GameRules.AcquisitionGlyphs(m.zone);
+        // Loin de l'entrée, de la salle du fond et les uns des autres, contre le mur d'une cellule de plain-pied.
+        int count = GameRules.GlyphTypes;
         var types = new List<int>();
-        for (int k = 0; k < count; k++) types.Add(m.zone == 2 ? k % GameRules.GlyphTypes : rnd.Next(GameRules.GlyphTypes));
+        for (int k = 0; k < count; k++) types.Add(k);
         for (int k = types.Count - 1; k > 0; k--) { int r = rnd.Next(k + 1); (types[k], types[r]) = (types[r], types[k]); }
+        var boxed = BoxedGlyphTypes(m.zone, rnd);
         var cells = new List<Vector2Int>();
         for (int i = 0; i < m.N; i++)
             for (int j = 0; j < m.N; j++)
@@ -1904,8 +1916,8 @@ public static class WorldBuilder
         Vector3 entry = m.Center(m.start.x, m.start.y), arCenter = m.Center(HubCol, m.N - 2);
         // V0.7.4 : un câble doit pouvoir rejoindre la porte depuis la cellule du glyphe.
         var towardDoor = CableRoutes(m, new Vector2Int(HubCol, m.N - 1));
-        // Zones 4 et plus (non précisé dans le GDD) : 50 m si possible, sinon de moins en moins.
-        float[] spacings = m.zone == 2 ? new[] { 60f, GlyphMinSpacing } : new[] { 60f, GlyphMinSpacing, 30f, 15f };
+        // 40 m au moins ; si le labyrinthe ne le permet vraiment pas (non précisé dans le GDD), de moins en moins.
+        float[] spacings = { 60f, GameRules.GlyphSpacing, 30f, 15f };
         foreach (float spacing in spacings)
             for (int attempt = 0; attempt < 4000 && placed.Count < count; attempt++)
             {
@@ -1929,8 +1941,8 @@ public static class WorldBuilder
         for (int k = 0; k < spots.Count; k++)
         {
             var (cell, toWall) = spots[k];
-            Vector3 p = m.Center(cell.x, cell.y) + toWall * (Cell * 0.5f - Wall * 0.5f - 0.04f) + Vector3.up * AcquisitionGlyphHeight;
-            Glyph glyph = Glyph.Create(props, m.zone * 100 + k, types[k], false, m.zone, p, -toWall, Glyph.AcquisitionSize);
+            Vector3 p = m.Center(cell.x, cell.y) + toWall * (Cell * 0.5f - Wall * 0.5f - 0.04f) + Vector3.up * GlyphHeight;
+            Glyph glyph = Glyph.Create(props, m.zone * 100 + k, types[k], false, boxed.Contains(types[k]), m.zone, p, -toWall, Glyph.Size);
             refs.acquisitionGlyphs.Add(glyph);
             glyph.SetCable(BuildCable(m, props, refs.structure, cell, p, toWall, towardDoor, edge, (k - (spots.Count - 1) * 0.5f) * CableSpread));
         }
@@ -1939,10 +1951,8 @@ public static class WorldBuilder
         NeonSign(props, "EnseigneAcquisitionRoom", "Acquisition Room", edge + new Vector3(0f, 4.6f, -Wall * 0.5f), AcquisitionSignWidth);
     }
 
-    // Distance minimale entre deux glyphes d'acquisition de la Zone 2 (V0.6.1).
-    const float GlyphMinSpacing = 50f;
-    // Hauteur du centre d'un glyphe d'acquisition (V0.7.4 : place pour les icônes au-dessus et l'ordre écrit en dessous).
-    const float AcquisitionGlyphHeight = 1.9f;
+    // Hauteur du centre d'un glyphe (V0.7.9 : plus d'ordre écrit en dessous, tous à la même hauteur).
+    const float GlyphHeight = 1.7f;
 
     // ---------- Super Monticules (chapitre 10.2, V0.7.2) ----------
 

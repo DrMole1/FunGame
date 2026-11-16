@@ -225,10 +225,6 @@ public static class Loc
             "Escribe tu mensaje ({0} caracteres máx.).\nNo se podrá modificar.", "Напишите сообщение (не более {0} символов).\nИзменить его будет нельзя."),
         R("Votre message…", "Your message…", "Tu mensaje…", "Ваше сообщение…"),
         R("Entrée : accrocher · Échap : annuler", "Enter: stick · Esc: cancel", "Intro: pegar · Esc: cancelar", "Enter: прикрепить · Esc: отмена"),
-        R("La Télévision capte le signal d'une Balise.\nCollez le lien d'une vidéo YouTube.", "The Television picks up a Beacon's signal.\nPaste a YouTube video link.",
-            "La Televisión capta la señal de una Baliza.\nPega el enlace de un vídeo de YouTube.", "Телевизор ловит сигнал маяка.\nВставьте ссылку на видео YouTube."),
-        R("Entrée : diffuser · Échap : annuler", "Enter: play · Esc: cancel", "Intro: reproducir · Esc: cancelar", "Enter: показать · Esc: отмена"),
-        R("Ce lien ne mène pas à une vidéo YouTube.", "This link does not lead to a YouTube video.", "Este enlace no lleva a un vídeo de YouTube.", "Эта ссылка не ведёт на видео YouTube."),
 
         // ---------- Terminal ----------
         R("Bienvenue sur le Terminal !\nQue voulez-vous acheter ?", "Welcome to the Terminal!\nWhat would you like to buy?",
@@ -284,9 +280,10 @@ public static class Loc
         R("Maintenir le clic sur le glyphe", "Hold click on the glyph", "Mantén el clic en el glifo", "Удерживайте клик на глифе"),
         R("Protocole", "Protocol", "Protocolo", "Протокол"),
         R("Protocole :", "Protocol:", "Protocolo:", "Протокол:"),
-        R("1) Tu peux rester assis.", "1) You may stay seated.", "1) Puedes quedarte sentado.", "1) Можешь сидеть."),
-        R("2) Tu peux aboyer.", "2) You may bark.", "2) Puedes ladrar.", "2) Можешь лаять."),
-        R("3) Tu peux aller à la niche.", "3) You may go to your kennel.", "3) Puedes ir a la caseta.", "3) Можешь идти в будку."),
+        // V0.7.9 : chaque ligne finit par l'image de son glyphe (posée par ProtocolBoard).
+        R("1) Tu peux rester assis :", "1) You may stay seated:", "1) Puedes quedarte sentado:", "1) Можешь сидеть:"),
+        R("2) Tu peux aboyer :", "2) You may bark:", "2) Puedes ladrar:", "2) Можешь лаять:"),
+        R("3) Tu peux aller à la niche :", "3) You may go to your kennel:", "3) Puedes ir a la caseta:", "3) Можешь идти в будку:"),
         R("Maintenant, survis.", "Now, survive.", "Ahora, sobrevive.", "А теперь выживи."),
         R("Timer arrêté.", "Timer stopped.", "Temporizador detenido.", "Таймер остановлен."),
         R("Le timer reprend.", "The timer resumes.", "El temporizador continúa.", "Таймер снова идёт."),
@@ -317,8 +314,8 @@ public static class Loc
         R("{0} croquette|{0} croquettes", "{0} kibble|{0} kibbles", "{0} croqueta|{0} croquetas", "{0} сухарик|{0} сухарика|{0} сухариков"),
         R("Votre vie et votre sérénité sont déjà au maximum.", "Your health and serenity are already full.", "Tu vida y tu serenidad ya están al máximo.", "Здоровье и спокойствие уже на максимуме."),
         R("Miam ! +{0} PV, +{1} de sérénité", "Yum! +{0} HP, +{1} serenity", "¡Ñam! +{0} PV, +{1} de serenidad", "Ням! +{0} ОЗ, +{1} спокойствия"),
-        R("Visez le boîtier de verre d'un glyphe neutre pour le briser avec la Clé.", "Aim at a neutral glyph's glass case to break it with the Key.",
-            "Apunta a la urna de cristal de un glifo neutro para romperla con la Llave.", "Наведитесь на стеклянный футляр нейтрального глифа, чтобы разбить его ключом."),
+        R("Visez le boîtier de verre d'un glyphe pour le briser avec la Clé.", "Aim at a glyph's glass case to break it with the Key.",
+            "Apunta a la urna de cristal de un glifo para romperla con la Llave.", "Наведитесь на стеклянный футляр глифа, чтобы разбить его ключом."),
         R("Visez un mur tout proche pour y accrocher le Post-It.", "Aim at a nearby wall to stick the Post-It on it.", "Apunta a una pared cercana para pegar el Post-It.", "Наведитесь на ближайшую стену, чтобы прикрепить Post-It."),
         R("Visez le sol, tout près de vous, pour y poser : {0}.", "Aim at the ground right next to you to place: {0}.",
             "Apunta al suelo, justo a tu lado, para colocar: {0}.", "Наведитесь на землю рядом с собой, чтобы поставить: {0}."),
@@ -333,11 +330,6 @@ public static class Loc
         R("Un autre sujet utilise déjà le Terminal", "Another subject is already using the Terminal", "Otro sujeto ya está usando el Terminal", "Терминалом уже пользуется другой субъект"),
         R("{0} vous a réanimé !", "{0} revived you!", "¡{0} te ha reanimado!", "{0} оживил(а) вас!"),
         R("Ce boîtier ne peut pas être brisé.", "This case cannot be broken.", "Esta urna no se puede romper.", "Этот футляр нельзя разбить."),
-        // Ordres des glyphes (V0.6), en haut de l'écran.
-        R("Assis !", "Sit!", "¡Sentado!", "Сидеть!"),
-        R("A la niche !", "To your kennel!", "¡A la caseta!", "В будку!"),
-        R("Aboie !", "Bark!", "¡Ladra!", "Голос!"),
-
         // ---------- Journal (écran du chapiteau) ----------
         R("Carte Magnétique 1", "Magnetic Card 1", "Tarjeta Magnética 1", "Магнитная карта 1"),
         R("Carte 1", "Card 1", "Tarjeta 1", "Карта 1"),

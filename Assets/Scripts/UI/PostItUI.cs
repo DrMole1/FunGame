@@ -4,7 +4,6 @@ using UnityEngine.UI;
 
 // Saisie du message d'un Post-It (20 caractères maximum), sur le client du joueur qui l'accroche.
 // Entrée : valider ; Échap : annuler (le Post-It reste dans l'inventaire).
-// La même fenêtre sert à saisir le lien YouTube d'une Télévision (V0.4.7, "semblable à l'interface du Post-It").
 public class PostItUI : MonoBehaviour
 {
     public static bool IsOpen { get; private set; }

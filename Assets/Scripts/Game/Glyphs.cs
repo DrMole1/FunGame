@@ -3,26 +3,29 @@ using UnityEngine;
 
 // Glyphes (GDD 9, V0.6.5) : motifs rouges sur plaque crème, dans un contour (Resources/Art/Glyphes, d'après Assets/Sprite).
 // 0 : "immobile et accroupi"   1 : "aller à la niche"   2 : "aboyer"
-// Zones impaires : 3 glyphes neutres, enfermés dans un boîtier de verre et reliés à la porte de la Neutral Room par un câble
-// noir. Une Clé en main brise le boîtier, un clic sur le glyphe le déclenche : son contour et son câble deviennent blancs.
+// V0.7.9 (GDD 9.2 et 9.3) : chaque zone a 3 glyphes différents, un de chaque. Zones impaires : "glyphes impairs", reliés par un
+// câble noir à la porte de la Neutral Room ; zones paires : "glyphes pairs", reliés à la porte de l'Acquisition Room. Certains sont
+// enfermés dans un boîtier de verre (1 en Zone 1, 2 en Zone 2, tous à partir de la Zone 3) : une Clé en main le brise.
+// Ce qui suit vaut pour tous les glyphes ("neutre" désignait les glyphes impairs, "d'acquisition" les glyphes pairs).
 // V0.6.13 : au-dessus de chaque glyphe neutre, des icônes de pattes de chien d'un blanc très peu lumineux (chapitre 16.1,
 // Calcul des Icônes : 1 icône à 1 joueur, 2 à 2 ou 3 joueurs, 3 à 4 ou 5, 4 à partir de 6). V0.7.2 : pastilles en léger
 // relief, disque noir cerclé de blanc. Chaque joueur qui maintient le clic sur le glyphe en allume une ; toutes
 // allumées en même temps, le glyphe est actionné, et elles le restent.
-// Zones paires : les glyphes d'acquisition (V0.7.4) s'actionnent comme les neutres, sans Clé ni boîtier : un câble noir les relie
-// à la porte de l'Acquisition Room, des icônes de pattes les surmontent, et le clic maintenu y allume une icône. Toutes allumées,
-// le glyphe est actionné (câble blanc, icônes allumées) et son ordre s'impose à tous les joueurs ; l'ordre est écrit sous le
-// glyphe, en blanc lumineux (police Ruslan Display, d'allure soviétique), jusqu'à la fin de sa durée.
+// Actionné, un glyphe (pair ou impair) impose son ordre à tous les joueurs (V0.7.9 : plus de texte sous le glyphe ni d'ordre
+// sonore ; une icône de l'ordre s'affiche en bas à droite de l'écran). Un seul ordre à la fois : pendant qu'un glyphe sonne, les
+// autres ne sont plus interactifs.
 public class Glyph : Interactable
 {
-    public const float NeutralSize = 0.9f, AcquisitionSize = 0.9f;
+    public const float Size = 0.9f;
 
     public int Id { get; private set; }
     public int Type { get; private set; }
     public int Zone { get; private set; }
-    public bool Neutral { get; private set; }
-    // Glyphes neutres : boîtier brisé, puis glyphe actionné (une seule fois). Glyphes d'acquisition : pas de boîtier.
-    public bool CaseBroken => !Neutral || caseBroken;
+    // Glyphe impair (porte de la Neutral Room) ou pair (porte de l'Acquisition Room).
+    public bool Odd { get; private set; }
+    // V0.7.9 : sous boîtier de verre (brisé avec une Clé), puis glyphe actionné (une seule fois).
+    public bool Boxed { get; private set; }
+    public bool CaseBroken => !Boxed || caseBroken;
     bool caseBroken;
     public bool Activated { get; private set; }
 
@@ -32,10 +35,8 @@ public class Glyph : Interactable
 
     // Sons propres à chaque glyphe (alertes terrifiantes de moins de 2 secondes).
     public static readonly string[] Sounds = { "glyph_sit", "glyph_kennel", "glyph_bark" };
-    // Ordres écrits sous un glyphe d'acquisition actionné (V0.7.4, traduits par Loc).
-    public static readonly string[] OrderTexts = { "Assis !", "A la niche !", "Aboie !" };
 
-    // ---------- Icônes de pattes (glyphes neutres V0.6.13, glyphes d'acquisition V0.7.4) ----------
+    // ---------- Icônes de pattes (V0.6.13) ----------
     const float PawIconSize = 0.2f, PawIconGap = 0.06f, PawIconRaise = 0.2f;
     static readonly Color PawDim = new Color(0.26f, 0.26f, 0.27f, 0.85f), PawLit = new Color(1f, 1f, 1f, 1f);
     static Texture2D pawTexture;
@@ -156,9 +157,9 @@ public class Glyph : Interactable
         }
     }
 
-    public static Glyph Create(Transform parent, int id, int type, bool neutral, int zone, Vector3 pos, Vector3 normal, float size)
+    public static Glyph Create(Transform parent, int id, int type, bool odd, bool boxed, int zone, Vector3 pos, Vector3 normal, float size)
     {
-        var go = new GameObject((neutral ? "GlypheNeutre_" : "GlypheAcquisition_") + id);
+        var go = new GameObject((odd ? "GlypheImpair_" : "GlyphePair_") + id);
         go.transform.SetParent(parent, false);
         // L'avant (+Z) sort du mur.
         go.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(normal));
@@ -166,7 +167,8 @@ public class Glyph : Interactable
         glyph.Id = id;
         glyph.Type = type;
         glyph.Zone = zone;
-        glyph.Neutral = neutral;
+        glyph.Odd = odd;
+        glyph.Boxed = boxed;
         glyph.plateSize = size;
 
         // Plaque crème.
@@ -179,72 +181,15 @@ public class Glyph : Interactable
         glyph.face = quad.GetComponent<Renderer>();
         glyph.face.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
-        if (neutral) glyph.AddCase(size);
+        if (boxed) glyph.AddCase(size);
         glyph.FitTrigger(new Vector3(size, size, 0.4f));
         // Après la zone de sélection : elle reste à la taille de la plaque.
         glyph.AddFrame(size);
         return glyph;
     }
 
-    // ---------- Ordre écrit sous un glyphe d'acquisition actionné (V0.7.4) ----------
-
-    // Police d'allure soviétique (Resources/Fonts/RuslanDisplay-Regular, licence OFL, latin et cyrillique). Son atlas dynamique
-    // est reconstruit quand de nouveaux caractères apparaissent, le matériau suit.
-    static Font orderFont;
-    static Material orderMaterial;
-    const float OrderTextSize = 0.03f, OrderTextGap = 0.12f;
-    TextMesh orderText;
-    Light orderGlow;
-
-    static Font OrderFont => orderFont != null ? orderFont : orderFont = Resources.Load<Font>("Fonts/RuslanDisplay-Regular");
-
-    static Material OrderMaterial
-    {
-        get
-        {
-            if (orderMaterial != null) return orderMaterial;
-            if (OrderFont == null) return GameArt.TextMaterial;
-            var template = Resources.Load<Material>("Materials/Text3D");
-            orderMaterial = template != null ? new Material(template) { name = "TexteOrdre" } : new Material(OrderFont.material);
-            orderMaterial.mainTexture = OrderFont.material.mainTexture;
-            Font.textureRebuilt += f => { if (f == orderFont && orderMaterial != null) orderMaterial.mainTexture = orderFont.material.mainTexture; };
-            return orderMaterial;
-        }
-    }
-
-    // Texte de l'ordre (déjà traduit), ou null pour l'effacer.
-    public void SetOrderText(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            if (orderText != null) orderText.gameObject.SetActive(false);
-            if (orderGlow != null) orderGlow.enabled = false;
-            return;
-        }
-        if (orderText == null)
-        {
-            float below = -plateSize * FrameWidthRatio * 0.5f - OrderTextGap;
-            orderText = GameArt.CreateText(transform, "Ordre", new Vector3(0f, below, 0.1f), OrderTextSize, Color.white, TextAnchor.UpperCenter);
-            if (OrderFont != null) orderText.font = OrderFont;
-            orderText.GetComponent<MeshRenderer>().sharedMaterial = OrderMaterial;
-            // Un TextMesh se lit depuis son -Z : retourné vers l'avant du glyphe.
-            orderText.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-            orderGlow = new GameObject("LueurOrdre").AddComponent<Light>();
-            orderGlow.transform.SetParent(transform, false);
-            orderGlow.transform.localPosition = new Vector3(0f, below - 0.15f, 0.5f);
-            orderGlow.type = LightType.Point;
-            orderGlow.color = Color.white;
-            orderGlow.range = 2.2f;
-            orderGlow.intensity = 1.2f;
-            orderGlow.shadows = LightShadows.None;
-        }
-        orderText.text = text;
-        orderText.gameObject.SetActive(true);
-        orderGlow.enabled = true;
-    }
-
-    // Contour glissé derrière la plaque qui en cache le bord intérieur (V0.6.5) : blanc lumineux pour un glyphe d'acquisition ;
-    // noir pour un glyphe neutre, puis blanc lumineux une fois actionné.
+    // Contour glissé derrière la plaque qui en cache le bord intérieur (V0.6.5) : noir, puis blanc lumineux une fois le glyphe
+    // actionné (V0.7.9 : pour tous les glyphes).
     const float FrameWidthRatio = 1.75f, FrameOffset = 0.03f;
     static Material frameLit, frameDark, glassMaterial, shardMaterial;
 
@@ -337,7 +282,7 @@ public class Glyph : Interactable
 
     void AddFrame(float size)
     {
-        var quad = GameArt.Prim(PrimitiveType.Quad, transform, Vector3.forward * FrameOffset, Vector3.one * size * FrameWidthRatio, FrameMaterial(!Neutral));
+        var quad = GameArt.Prim(PrimitiveType.Quad, transform, Vector3.forward * FrameOffset, Vector3.one * size * FrameWidthRatio, FrameMaterial(false));
         quad.name = "Cadre";
         quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
         frame = quad.GetComponent<Renderer>();
@@ -348,17 +293,16 @@ public class Glyph : Interactable
     // Pas de contour de sélection autour du carré invisible qui porte le cadre ; boîtier intact, seul lui est sélectionnable.
     protected override bool HasOutline(Renderer r) => r != frame && (glassCase == null || CaseBroken || r.transform.IsChildOf(glassCase.transform));
 
-    // État du boîtier (glyphe neutre) et du glyphe (identique chez tous les joueurs). Un glyphe d'acquisition n'a pas de
-    // boîtier et garde son contour blanc lumineux.
+    // État du boîtier et du glyphe (identique chez tous les joueurs).
     public void SetState(bool broken, bool activated, bool animate)
     {
-        broken |= !Neutral;
+        broken |= !Boxed;
         if (broken && !CaseBroken && animate) ShatterCase();
         bool caseChanged = broken != CaseBroken;
-        if (Neutral) caseBroken = broken;
+        if (Boxed) caseBroken = broken;
         Activated = activated;
         if (glassCase != null) glassCase.SetActive(!broken);
-        frame.sharedMaterial = FrameMaterial(activated || !Neutral);
+        frame.sharedMaterial = FrameMaterial(activated);
         if (cable != null) cable.sharedMaterial = CableMaterial(activated);
         if (activated) pawsLit = paws.Count;
         RefreshPaws();
@@ -412,15 +356,15 @@ public class Glyph : Interactable
 
     void Update() => UpdateGlass();
 
-    // Glyphe neutre : le boîtier avec une Clé en main (en godmod, sans Clé), puis le glyphe, une fois. Glyphe d'acquisition
-    // (V0.7.4) : le glyphe, une fois.
+    // Le boîtier avec une Clé en main (en godmod, sans Clé), puis le glyphe, une fois. V0.7.9 : aucun glyphe n'est interactif
+    // tant qu'un autre fait entendre son ordre.
     public override bool CanInteract
     {
         get
         {
             if (Activated) return false;
-            if (CaseBroken) return true;
             var session = GameSession.Instance;
+            if (CaseBroken) return session == null || !session.OrderPlaying;
             return session != null && (session.SelectedItem == ItemType.Cle || session.Godmode);
         }
     }

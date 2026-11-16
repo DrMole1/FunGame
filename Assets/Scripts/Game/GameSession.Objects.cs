@@ -5,8 +5,7 @@ using UnityEngine;
 // Télévision, Trampoline, Cloche Décorative (GDD 7.6 à 7.8 ; V0.7.2 : plus d'objets uniques posés en Zone 1, ils sortent des
 // Super Monticules et les Cloches pendent dans les zones 2+), Protocole, commande /give, Le Réveil (explosion)
 // et lumières affolées par Le Roi. (V0.6.10 : plus de sujets de test, /info, /hello et /step1 ont quitté le Terminal.)
-// Messages : TQ|télé|vidéo -> TV|télé|vidéo|écoulé (vidéo YouTube d'une Télévision, "" : aucune ; écoulé : secondes depuis
-// le début du décompte), BV|... (comme BW, sans animation : appareils déjà posés, envoyés à un joueur qui arrive).
+// Messages : BV|... (comme BW, sans animation : appareils déjà posés, envoyés à un joueur qui arrive).
 public partial class GameSession
 {
     // ================= Objets posés au début de la partie =================
@@ -55,7 +54,6 @@ public partial class GameSession
     {
         Beacon device = beacons.Get(deviceId);
         if (device == null || CannonOccupied(deviceId) || !beaconMessages.Remove(deviceId)) return ItemType.None;
-        tvVideos.Remove(deviceId);
         net.ToAll("BZ|" + deviceId);
         return device.Item;
     }
@@ -71,7 +69,6 @@ public partial class GameSession
             b.PlayPlaced();
             if (Beacon.IsBellKind(b.Kind)) RingBell(b);
         }
-        if (b.Kind == DeviceKind.Television && placer == net.MyId) myTvs.Add(b.Id);
     }
 
     // Mort du joueur : ses objets uniques retombent au sol près du corps, posés comme avant.
@@ -87,55 +84,10 @@ public partial class GameSession
 
     void UpdateObjects()
     {
-        UpdateTelevisions();
         UpdateTrampolines();
     }
 
     // ---------- Télévision ----------
-
-    // Hôte : vidéo de chaque Télévision (identifiant YouTube, début du décompte).
-    readonly Dictionary<int, (string video, float start)> tvVideos = new Dictionary<int, (string, float)>();
-    // Joueur local : Télévisions qu'il a posées, et celles pour lesquelles le lien a déjà été demandé.
-    readonly HashSet<int> myTvs = new HashSet<int>();
-    readonly HashSet<int> tvAsked = new HashSet<int>();
-    const float TvAskRange = 8f;
-    const int TvLinkMaxChars = 200;
-
-    // Reliée à une Balise chargée, la Télévision posée par le joueur lui demande un lien (une fois par liaison) ; le signal
-    // perdu, l'hôte coupe la vidéo.
-    void UpdateTelevisions()
-    {
-        foreach (var b in beacons.Placed)
-        {
-            if (b == null || b.Kind != DeviceKind.Television || b.Screen == null) continue;
-            if (!b.Charged)
-            {
-                tvAsked.Remove(b.Id);
-                if (net.IsHost && tvVideos.Remove(b.Id)) net.ToAll("TV|" + b.Id + "||0");
-                continue;
-            }
-            if (!myTvs.Contains(b.Id) || b.Screen.HasVideo || tvAsked.Contains(b.Id) || status.Dead || PostItUI.IsOpen || TerminalUI.IsOpen) continue;
-            if (Vector3.Distance(player.transform.position, b.transform.position) > TvAskRange) continue;
-            tvAsked.Add(b.Id);
-            int id = b.Id;
-            postItUI.Open("Télévision", Loc.T("La Télévision capte le signal d'une Balise.\nCollez le lien d'une vidéo YouTube."),
-                "https://www.youtube.com/watch?v=…", "Entrée : diffuser · Échap : annuler", TvLinkMaxChars, text => OnTvLink(id, text));
-        }
-    }
-
-    void OnTvLink(int id, string text)
-    {
-        string video = YouTubeTv.VideoId(text);
-        if (video == null)
-        {
-            hud.Toast(Loc.T("Ce lien ne mène pas à une vidéo YouTube."));
-            return;
-        }
-        net.ToHost("TQ|" + id + "|" + video);
-    }
-
-    string TvMsg(int id) => tvVideos.TryGetValue(id, out var v)
-        ? "TV|" + id + "|" + v.video + "|" + NetworkGame.F(Time.time - v.start) : "TV|" + id + "||0";
 
     // ---------- Trampoline ----------
 
@@ -319,7 +271,6 @@ public partial class GameSession
         {
             if (b == null || b.IsHub || WorldBuilder.IsInHub(b.transform.position) || CannonOccupied(b.Id)) continue;
             if (Vector3.Distance(b.transform.position, center) > radius + 0.5f || !beaconMessages.Remove(b.Id)) continue;
-            tvVideos.Remove(b.Id);
             net.ToAll("BZ|" + b.Id);
         }
         foreach (var kv in new List<KeyValuePair<int, ItemPickup>>(items))
@@ -366,36 +317,9 @@ public partial class GameSession
         }
     }
 
-    // ================= Réception =================
-
-    bool HandleObjectMessage(string from, string[] f, bool host)
-    {
-        switch (f[0])
-        {
-            case "TQ" when host && f.Length >= 3:
-            {
-                int id = NetworkGame.I(f[1]);
-                Beacon tv = beacons.Get(id);
-                string video = YouTubeTv.VideoId("youtu.be/" + f[2]);
-                if (tv == null || tv.Kind != DeviceKind.Television || !tv.Charged || video == null) return true;
-                tvVideos[id] = (video, Time.time);
-                net.ToAll(TvMsg(id));
-                return true;
-            }
-            case "TV" when f.Length >= 4:
-            {
-                Beacon tv = beacons.Get(NetworkGame.I(f[1]));
-                if (tv != null && tv.Screen != null) tv.Screen.SetVideo(f[2], NetworkGame.P(f[3]));
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Joueur qui arrive : vidéos en cours des Télévisions et ballons déjà poussés.
+    // Joueur qui arrive : ballons déjà poussés.
     void SendObjectSnapshot(string to)
     {
-        foreach (int id in tvVideos.Keys) net.ToPeer(to, TvMsg(id));
         foreach (var ball in HubBall.All.Values)
             if (ball != null && ball.Moved) net.ToPeer(to, "BL|" + net.MyId + "|" + ball.State);
     }

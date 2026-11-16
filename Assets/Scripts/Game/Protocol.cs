@@ -6,7 +6,8 @@ using UnityEngine;
 // lui, lisible. Le texte, écrit à la main (police Caveat, licence OFL), est traduit dans la langue du joueur (même posé au sol).
 // Textures Meshy (Resources/Art/Protocole : feuille jaunie, tachée et pliée ; plaque de métal rouillée), détourées ; le texte est
 // posé par le jeu sur la feuille, pour rester net et traduit. V0.7.2 : la feuille est noircie et le texte écrit en blanc
-// (lisible en blanc sur fond noir).
+// (lisible en blanc sur fond noir). V0.7.9 : chaque règle finit, sur la même ligne, par l'image de son glyphe, sans arrière-plan,
+// à l'encre blanche comme le texte (rester assis : glyphe 1 ; aboyer : glyphe 3 ; aller à la niche : glyphe 2).
 public static class ProtocolBoard
 {
     // Plaque : largeur x hauteur (m), le papier un peu plus petit.
@@ -38,23 +39,41 @@ public static class ProtocolBoard
         }
     }
 
+    // Lignes 1 à 3 : la règle, puis l'image de son glyphe (type du glyphe : 0 = glyphe 1, 2 = glyphe 3, 1 = glyphe 2).
+    public static readonly int[] RuleGlyphs = { 0, 2, 1 };
+    // Place laissée à l'image du glyphe, en caractères.
+    const int GlyphChars = 3;
+
     public static float SizeFor(string text)
     {
         int longest = 1;
-        foreach (string line in text.Split('\n')) longest = Mathf.Max(longest, line.Length);
+        string[] lines = text.Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+            longest = Mathf.Max(longest, lines[i].Length + (i >= 1 && i <= RuleGlyphs.Length ? GlyphChars : 0));
         return TextSize * Mathf.Min(1f, FitChars / (float)longest);
     }
 
     public static string Text() =>
         Loc.T("Protocole :") + "\n" +
-        Loc.T("1) Tu peux rester assis.") + "\n" +
-        Loc.T("2) Tu peux aboyer.") + "\n" +
-        Loc.T("3) Tu peux aller à la niche.") + "\n\n" +
+        Loc.T("1) Tu peux rester assis :") + "\n" +
+        Loc.T("2) Tu peux aboyer :") + "\n" +
+        Loc.T("3) Tu peux aller à la niche :") + "\n\n" +
         Loc.T("Maintenant, survis.") + "\n\n" +
         // V0.7.3 (Note 01) : plus de "L.I.V." au-dessus de la signature.
         "WOOF Corp.";
 
     static Material plate, paper;
+    public static readonly Color Ink = new Color(0.95f, 0.95f, 0.93f);
+    static Material[] glyphInk;
+
+    // Image d'un glyphe (motif seul, sans arrière-plan), à l'encre du texte.
+    public static Material GlyphInk(int type)
+    {
+        if (glyphInk == null) glyphInk = new Material[GameRules.GlyphTypes];
+        if (glyphInk[type] == null)
+            glyphInk[type] = new Material(Shader.Find("Sprites/Default")) { name = "GlypheProtocole" + (type + 1), color = Ink, mainTexture = GlyphArt.Load("Glyphe" + (type + 1)) };
+        return glyphInk[type];
+    }
 
     // Planche dressée : la face avec le texte regarde vers +Z (local), le bas à y = 0. 'scale' : 1 au sol ou en main.
     public static GameObject Build(Transform parent, float scale = 1f, bool castShadows = true)
@@ -95,9 +114,9 @@ public static class ProtocolBoard
             text.font = Hand;
             text.GetComponent<MeshRenderer>().sharedMaterial = HandMaterial;
         }
-        text.color = new Color(0.95f, 0.95f, 0.93f);   // encre blanche
+        text.color = Ink;   // encre blanche
         text.lineSpacing = 0.95f;
-        text.gameObject.AddComponent<ProtocolText>().Init(text);
+        text.gameObject.AddComponent<ProtocolText>().Init(text, sheet);
         foreach (var r in root.GetComponentsInChildren<Renderer>())
             if (!castShadows) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         return root;
@@ -111,14 +130,30 @@ public static class ProtocolBoard
     }
 }
 
-// Texte du Protocole : retraduit au changement de langue.
+// Texte du Protocole : retraduit au changement de langue ; les images des glyphes suivent la fin de leur ligne.
 public class ProtocolText : MonoBehaviour
 {
     TextMesh text;
+    Transform sheet;
+    readonly Transform[] glyphs = new Transform[ProtocolBoard.RuleGlyphs.Length];
 
-    public void Init(TextMesh mesh)
+    public void Init(TextMesh mesh, Transform paper)
     {
         text = mesh;
+        sheet = paper;
+        for (int i = 0; i < glyphs.Length; i++)
+        {
+            var quad = GameArt.Prim(PrimitiveType.Quad, sheet, Vector3.zero, Vector3.one, ProtocolBoard.GlyphInk(ProtocolBoard.RuleGlyphs[i]));
+            quad.name = "Glyphe" + (ProtocolBoard.RuleGlyphs[i] + 1);
+            // Comme le texte : le quad se voit depuis son -Z, retourné vers l'avant de la plaque.
+            quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            foreach (var c in quad.GetComponentsInChildren<Collider>()) Destroy(c);
+            var r = quad.GetComponent<Renderer>();
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            r.receiveShadows = false;
+            quad.layer = mesh.gameObject.layer;
+            glyphs[i] = quad.transform;
+        }
         Refresh();
         Loc.Changed += Refresh;
     }
@@ -130,6 +165,34 @@ public class ProtocolText : MonoBehaviour
         if (text == null) return;
         text.text = ProtocolBoard.Text();
         text.characterSize = ProtocolBoard.SizeFor(text.text);
+        PlaceGlyphs();
+    }
+
+    // Une TextMesh mesure, en unités locales, son avance en pixels (à sa taille de police) x characterSize x 0,1. Le texte est
+    // retourné : il s'écrit vers le -X de la feuille.
+    void PlaceGlyphs()
+    {
+        Font font = text.font;
+        if (font == null) return;
+        int size = text.fontSize > 0 ? text.fontSize : font.fontSize;
+        float unit = text.characterSize * 0.1f;
+        float lineStep = font.lineHeight * (font.fontSize > 0 ? size / (float)font.fontSize : 1f) * unit * text.lineSpacing;
+        string[] lines = text.text.Split('\n');
+        font.RequestCharactersInTexture(text.text, size, text.fontStyle);
+        Vector3 origin = text.transform.localPosition;
+        float glyph = lineStep * 1.25f;
+        for (int i = 0; i < glyphs.Length; i++)
+        {
+            if (glyphs[i] == null) continue;
+            string line = i + 1 < lines.Length ? lines[i + 1] : "";
+            int advance = 0;
+            foreach (char c in line)
+                if (font.GetCharacterInfo(c, out CharacterInfo info, size, text.fontStyle)) advance += info.advance;
+            float x = origin.x - advance * unit - lineStep * 0.3f - glyph * 0.5f;
+            float y = origin.y - (i + 1.5f) * lineStep;
+            glyphs[i].localPosition = new Vector3(x, y, origin.z);
+            glyphs[i].localScale = new Vector3(glyph, glyph, 1f);
+        }
     }
 }
 

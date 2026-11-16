@@ -34,9 +34,13 @@ public class GameHud : MonoBehaviour
     GameObject crosshairDot, crosshairRing, inventoryBar;
     Gauge health, hunger, serenity;
     Text promptText, toastText, spectateText, gameOverText;
-    // Ordres des glyphes en cours (V0.6) : en haut de l'écran, les uns sous les autres, clignotants.
-    readonly Text[] orderTexts = new Text[GameRules.GlyphTypes];
-    int ordersShown;
+    // V0.7.9 (9.3) : icône de l'ordre en cours, en bas à droite de l'écran (Resources/Art/Ordres, d'après Assets/Sprite/Order01 à
+    // 03), d'un blanc modérément lumineux. Elle clignote 3 fois en apparaissant, reste jusqu'à la fin de l'ordre, puis s'efface.
+    RawImage orderIcon;
+    readonly Texture2D[] orderTextures = new Texture2D[GameRules.GlyphTypes];
+    int orderShown = -1;
+    float orderShownAt, orderHiddenAt = -100f;
+    const float OrderIconSize = 112f, OrderBlinkPeriod = 0.36f, OrderBlinks = 3f, OrderFadeOut = 1.2f, OrderAlpha = 0.85f;
     readonly Image[] slotBg = new Image[GameRules.InventorySize];
     readonly Text[] slotName = new Text[GameRules.InventorySize];
     readonly Text[] slotNumber = new Text[GameRules.InventorySize];
@@ -217,12 +221,18 @@ public class GameHud : MonoBehaviour
         toastText = Floating(r, new Vector2(0.5f, 1f), new Vector2(0, -96), new Vector2(900, 34), 20);
         toastText.color = new Color(1f, 0.85f, 0.45f);
         spectateText = Floating(r, new Vector2(0.5f, 0f), new Vector2(0, 196), new Vector2(1000, 54), 18);
-        for (int i = 0; i < orderTexts.Length; i++)
-        {
-            orderTexts[i] = Floating(r, new Vector2(0.5f, 1f), new Vector2(0, -78 - i * 48), new Vector2(900, 46), 36);
-            orderTexts[i].color = new Color(1f, 0.2f, 0.15f);
-            orderTexts[i].gameObject.AddComponent<Outline>().effectColor = new Color(0f, 0f, 0f, 0.9f);
-        }
+        var orderGo = new GameObject("IconeOrdre", typeof(RectTransform), typeof(RawImage));
+        orderGo.transform.SetParent(r, false);
+        ((RectTransform)orderGo.transform).sizeDelta = new Vector2(OrderIconSize, OrderIconSize);
+        UiKit.Place(orderGo, new Vector2(1f, 0f), new Vector2(-OrderIconSize * 0.5f - 28f, OrderIconSize * 0.5f + 28f));
+        orderIcon = orderGo.GetComponent<RawImage>();
+        orderIcon.raycastTarget = false;
+        // Léger halo sombre pour rester lisible sur un décor clair.
+        var orderShadow = orderGo.AddComponent<Shadow>();
+        orderShadow.effectColor = new Color(0f, 0f, 0f, 0.6f);
+        orderShadow.effectDistance = new Vector2(2f, -2f);
+        for (int i = 0; i < orderTextures.Length; i++) orderTextures[i] = Resources.Load<Texture2D>("Art/Ordres/Ordre" + (i + 1));
+        orderGo.SetActive(false);
 
         // Jauges : vie (rouge), faim (orange, V0.7.2), puis sérénité (bleue).
         Texture2D cracked = CrackedTexture(256, 32, 11);
@@ -632,14 +642,43 @@ public class GameHud : MonoBehaviour
     }
     public void SetSpectate(string text) => spectateText.text = text;
 
-    // Ordres des glyphes (null : aucun) ; les messages passent sous eux.
-    public void SetOrders(System.Collections.Generic.List<string> orders)
+    // Ordre d'un glyphe (0 à 2) : son icône apparaît en clignotant 3 fois ('already' : ordre déjà en cours, pour un joueur qui
+    // arrive, sans clignoter).
+    public void ShowOrder(int type, bool already = false)
     {
-        int n = orders?.Count ?? 0;
-        for (int i = 0; i < orderTexts.Length; i++) orderTexts[i].text = i < n ? orders[i] : "";
-        if (n == ordersShown) return;
-        ordersShown = n;
-        toastText.rectTransform.anchoredPosition = new Vector2(0, -96 - n * 48);
+        if (orderIcon == null || type < 0 || type >= orderTextures.Length) return;
+        orderShown = type;
+        orderShownAt = already ? Time.unscaledTime - OrderBlinks * OrderBlinkPeriod : Time.unscaledTime;
+        orderHiddenAt = -100f;
+        orderIcon.texture = orderTextures[type];
+        orderIcon.gameObject.SetActive(orderIcon.texture != null);
+        RefreshOrderIcon();
+    }
+
+    // Fin de l'ordre 'type' (-1 : quel qu'il soit) : l'icône s'efface progressivement ('instant' : tout de suite).
+    public void HideOrder(int type, bool instant = false)
+    {
+        if (orderIcon == null || orderShown < 0 || (type >= 0 && type != orderShown)) return;
+        orderShown = -1;
+        orderHiddenAt = instant ? -100f : Time.unscaledTime;
+        if (instant) orderIcon.gameObject.SetActive(false);
+    }
+
+    void RefreshOrderIcon()
+    {
+        if (orderIcon == null || !orderIcon.gameObject.activeSelf) return;
+        float a;
+        if (orderShown >= 0)
+        {
+            float t = Time.unscaledTime - orderShownAt;
+            a = t < OrderBlinks * OrderBlinkPeriod && Mathf.Repeat(t, OrderBlinkPeriod) >= OrderBlinkPeriod * 0.55f ? 0f : 1f;
+        }
+        else
+        {
+            a = 1f - Mathf.Clamp01((Time.unscaledTime - orderHiddenAt) / OrderFadeOut);
+            if (a <= 0f) { orderIcon.gameObject.SetActive(false); return; }
+        }
+        orderIcon.color = new Color(1f, 1f, 1f, OrderAlpha * a);
     }
 
     public void Toast(string message)
@@ -755,12 +794,7 @@ public class GameHud : MonoBehaviour
             spaceKeyImage.color = down ? new Color(0.72f, 0.72f, 0.7f) : new Color(0.92f, 0.92f, 0.9f);
         }
 
-        // Ordres des glyphes : ils clignotent.
-        if (ordersShown > 0)
-        {
-            float a = Mathf.Repeat(Time.unscaledTime, 0.8f) < 0.5f ? 1f : 0.25f;
-            foreach (var t in orderTexts) { var c = t.color; c.a = a; t.color = c; }
-        }
+        RefreshOrderIcon();
 
         if (toastTimer > 0f)
         {

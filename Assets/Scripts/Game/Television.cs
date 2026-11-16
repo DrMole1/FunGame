@@ -1,52 +1,20 @@
-using System.Runtime.InteropServices;
 using UnityEngine;
 
-// Écran de la Télévision (GDD 7.6, V0.4.7). Par défaut, sans signal : neige de pixels gris et noirs qui clignotent et
-// ondulent, avec un grésillement spatialisé à moins de 10 m. Reliée à une Balise chargée et un lien YouTube saisi, elle
-// affiche un décompte (3 à 0), puis la vidéo, dont le son s'entend à moins de 10 m. Le signal perdu, la neige revient.
-// En WebGL, la vidéo est un lecteur YouTube posé par-dessus le canvas sur les coins de l'écran (YouTubeTv.jslib) ;
-// dans l'éditeur, l'écran l'annonce simplement.
+// Écran de la Télévision (GDD 7.6, V0.4.7) : neige de pixels gris et noirs qui clignotent et ondulent, avec un
+// grésillement spatialisé à moins de 10 m. V0.7.8 : plus de vidéo YouTube ni de liaison aux Balises (contraintes
+// légales) : la Télévision est un objet de décor.
 public class TvScreen : MonoBehaviour
 {
     const int NoiseW = 48, NoiseH = 36;
-    const float NoiseRefresh = 0.05f, OverlayRange = 30f;
+    const float NoiseRefresh = 0.05f, NoiseRange = 30f;
 
     Transform screen;
     Material screenMat;
     Texture2D noise;
     Color32[] pixels;
-    TextMesh label;
     AudioSource staticLoop;
     float noiseTimer, wave;
-    bool signal;
-    string videoId = "";
-    float countdownStart;   // Time.time du début du décompte
-    int overlay;            // lecteur YouTube (0 : aucun)
-#if UNITY_EDITOR || UNITY_STANDALONE
-    // V0.7.6 (14.1) : build Windows, vidéo lue sur l'écran même (NativeTv).
-    NativeTvPlayer nativePlayer;
-    RenderTexture nativeTarget;
-    AudioSource nativeAudio;
-#endif
     System.Random rnd;
-
-    public bool HasVideo => videoId.Length > 0;
-    // Télévisions en jeu : près de l'une d'elles qui diffuse, les musiques d'ambiance s'effacent (GameAudio).
-    static readonly System.Collections.Generic.List<TvScreen> all = new System.Collections.Generic.List<TvScreen>();
-
-    void OnEnable() => all.Add(this);
-    void OnDisable() => all.Remove(this);
-
-    // Une Télévision diffuse (décompte ou vidéo) à moins de 'range' mètres de 'position'.
-    public static bool Broadcasting(Vector3 position, float range)
-    {
-        foreach (var tv in all)
-            if (tv != null && tv.screen != null && tv.signal && tv.HasVideo && (tv.screen.position - position).sqrMagnitude < range * range)
-                return true;
-        return false;
-    }
-    public bool Playing => signal && HasVideo && Time.time - countdownStart >= GameRules.TvCountdown;
-    public Vector3 ScreenCenter => screen.position;
 
     // L'écran occupe la face avant (+Z) du poste, au format 4:3, d'après l'encombrement du modèle. Sur le modèle Meshy,
     // la vitre est sur la gauche (vue de face : vers +X), le panneau de boutons à droite.
@@ -79,67 +47,17 @@ public class TvScreen : MonoBehaviour
         var r = tv.screen.GetComponent<Renderer>();
         r.sharedMaterial = tv.screenMat;
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        tv.label = GameArt.CreateText(root, "Decompte", tv.screen.localPosition + Vector3.forward * 0.004f, h * 0.1f, Color.white);
-        tv.label.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-        tv.label.gameObject.SetActive(false);
         tv.staticLoop = GameAudio.Loop3D("tv_static", root, tv.screen.localPosition, 0.45f, GameRules.TvSoundRange);
         if (tv.staticLoop != null) tv.staticLoop.Play();
         tv.DrawNoise();
         return tv;
     }
 
-    public void SetSignal(bool on)
-    {
-        if (on == signal) return;
-        signal = on;
-        Refresh();
-    }
-
-    // Vidéo reçue de l'hôte : 'elapsed' secondes depuis le début du décompte ("" : plus de vidéo).
-    public void SetVideo(string id, float elapsed)
-    {
-        id = id ?? "";
-        if (id == videoId && Mathf.Abs(Time.time - elapsed - countdownStart) < 1f) return;
-        CloseOverlay();
-        videoId = id;
-        countdownStart = Time.time - elapsed;
-        Refresh();
-    }
-
-    void Refresh()
-    {
-        bool video = signal && HasVideo;
-        if (staticLoop != null) staticLoop.mute = video;
-        if (!video) CloseOverlay();
-        label.gameObject.SetActive(video);
-    }
-
     void Update()
     {
-        if (signal && HasVideo)
-        {
-            float t = Time.time - countdownStart;
-            if (t < GameRules.TvCountdown)
-            {
-                // Décompte : 3, 2, 1, 0, une seconde chacun, sur fond noir.
-                string digit = Mathf.Clamp(Mathf.FloorToInt(GameRules.TvCountdown - t), 0, 3).ToString();
-                // Un bip d'amorce de film à chaque chiffre (y compris le premier).
-                if (label.text != digit) GameAudio.Play3D("tv_countdown", screen.position, 0.55f, GameRules.TvSoundRange, 0f);
-                label.text = digit;
-                FillScreen(new Color32(0, 0, 0, 255));
-                return;
-            }
-            if (overlay == 0 && YouTubeTv.Available) overlay = YouTubeTv.Create(videoId, t - GameRules.TvCountdown);
-#if UNITY_EDITOR || UNITY_STANDALONE
-            if (UpdateNativeVideo()) return;
-#endif
-            label.text = YouTubeTv.Available ? "" : "YouTube\n<size=30>" + videoId + "</size>";
-            FillScreen(new Color32(8, 8, 12, 255));
-            return;
-        }
         // Neige : seulement quand quelqu'un peut la voir.
         Camera cam = Camera.main;
-        if (cam == null || (cam.transform.position - screen.position).sqrMagnitude > OverlayRange * OverlayRange) return;
+        if (cam == null || (cam.transform.position - screen.position).sqrMagnitude > NoiseRange * NoiseRange) return;
         noiseTimer -= Time.deltaTime;
         if (noiseTimer > 0f) return;
         noiseTimer = NoiseRefresh;
@@ -166,300 +84,9 @@ public class TvScreen : MonoBehaviour
         noise.Apply(false);
     }
 
-    void FillScreen(Color32 c)
-    {
-        if (pixels[0].Equals(c) && pixels[pixels.Length - 1].Equals(c)) return;
-        for (int i = 0; i < pixels.Length; i++) pixels[i] = c;
-        noise.SetPixels32(pixels);
-        noise.Apply(false);
-    }
-
-    // Après la caméra : le lecteur YouTube suit les coins de l'écran, ou se cache.
-    void LateUpdate()
-    {
-        if (overlay == 0) return;
-        Camera cam = Camera.main;
-        var c = new Vector3[4];
-        bool visible = cam != null && OrbitCamera.Looking && !TerminalUI.IsOpen && !PostItUI.IsOpen;
-        if (visible)
-        {
-            Vector3 eye = cam.transform.position, center = screen.position;
-            Vector3 front = -screen.forward;
-            visible = Vector3.Dot(eye - center, front) > 0f && (eye - center).magnitude < OverlayRange
-                && !Physics.Linecast(eye, center + (eye - center).normalized * 0.05f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
-            // Haut-gauche, haut-droit, bas-droit, bas-gauche, vus de face.
-            Vector3[] local = { new Vector3(-0.5f, 0.5f, 0f), new Vector3(0.5f, 0.5f, 0f), new Vector3(0.5f, -0.5f, 0f), new Vector3(-0.5f, -0.5f, 0f) };
-            for (int i = 0; i < 4 && visible; i++)
-            {
-                Vector3 v = cam.WorldToViewportPoint(screen.TransformPoint(local[i]));
-                if (v.z < 0.05f) visible = false;
-                c[i] = new Vector3(v.x, 1f - v.y, 0f);
-            }
-        }
-        // Le son de la vidéo s'entend à moins de 10 m du personnage (pas de la caméra, placée derrière lui), fort presque
-        // jusqu'à la limite.
-        Vector3 ear = cam != null ? cam.transform.position : screen.position;
-        var orbit = cam != null ? cam.GetComponent<OrbitCamera>() : null;
-        if (orbit != null && orbit.target != null) ear = orbit.target.position;
-        float d = Mathf.Clamp01(Vector3.Distance(ear, screen.position) / GameRules.TvSoundRange);
-        float volume = 100f * (1f - d * d) * GameAudio.SfxVolume * 2f;
-        YouTubeTv.Update(overlay, visible, c, volume, visible ? OcclusionMask(cam) : "");
-    }
-
-    // ---------- Occlusion du lecteur YouTube ----------
-
-    // Le lecteur est posé par-dessus le canvas : sans masque, il recouvrirait les personnages et les entités qui passent
-    // devant l'écran. Leur silhouette y est découpée : des capsules le long des os d'un humanoïde, une ellipse sinon.
-    // Format (pixels du lecteur, 640 x 480) : "l x1 y1 x2 y2 r" (capsule) ou "e cx cy rx ry" (ellipse), séparés par ';'.
-    const float PlayerW = 640f, PlayerH = 480f, AnimatorRefresh = 0.5f;
-    static Animator[] animators = new Animator[0];
-    static float animatorsAt = -10f;
-    readonly System.Text.StringBuilder mask = new System.Text.StringBuilder();
-
-    readonly OcclusionProfiles.Segment[] segments = new OcclusionProfiles.Segment[OcclusionProfiles.SegmentCount];
-
-    string OcclusionMask(Camera cam)
-    {
-        if (Time.time - animatorsAt > AnimatorRefresh)
-        {
-            animatorsAt = Time.time;
-            animators = FindObjectsOfType<Animator>();
-        }
-        mask.Length = 0;
-        Vector3 eye = cam.transform.position;
-        Vector3 center = screen.position, front = -screen.forward;
-        float eyeSide = Vector3.Dot(eye - center, front);
-        foreach (var animator in animators)
-        {
-            if (animator == null || !animator.isActiveAndEnabled || !Shown(animator)) continue;
-            // Seulement ce qui se trouve entre l'écran et la caméra.
-            float side = Vector3.Dot(animator.transform.position - center, front);
-            if (side > eyeSide + 2f || (animator.transform.position - center).sqrMagnitude > OverlayRange * OverlayRange) continue;
-            if (animator.isHuman && animator.avatar != null) MaskHumanoid(animator, eye, center, front);
-            else MaskBounds(animator, eye, center, front);
-        }
-        return mask.ToString();
-    }
-
-    // Un modèle masqué (corps du joueur en vue à la première personne, joueur caché) ne découpe rien.
-    static bool Shown(Animator animator)
-    {
-        foreach (var r in animator.GetComponentsInChildren<Renderer>())
-            if (r.enabled && !r.forceRenderingOff && r.gameObject.activeInHierarchy) return true;
-        return false;
-    }
-
-    // Capsules le long des os ; rayons mesurés sur le modèle (OcclusionProfiles), sinon rayons par défaut.
-    void MaskHumanoid(Animator animator, Vector3 eye, Vector3 center, Vector3 front)
-    {
-        if (!OcclusionProfiles.Build(animator, segments, out float size)) return;
-        float[] radii = OcclusionProfiles.RadiiFor(animator.avatar);
-        for (int i = 0; i < segments.Length; i++)
-        {
-            if (!segments[i].valid) continue;
-            float r = radii != null && radii[i] > 0f ? radii[i] * size : segments[i].defaultRadius;
-            Capsule(segments[i].a, segments[i].b, r, eye, center, front);
-        }
-    }
-
-    // Créature non humanoïde : ellipse englobant la projection de son encombrement.
-    void MaskBounds(Animator animator, Vector3 eye, Vector3 center, Vector3 front)
-    {
-        Bounds b = new Bounds();
-        bool any = false;
-        foreach (var r in animator.GetComponentsInChildren<Renderer>())
-        {
-            if (!r.enabled || r.forceRenderingOff || r is ParticleSystemRenderer) continue;
-            if (!any) { b = r.bounds; any = true; }
-            else b.Encapsulate(r.bounds);
-        }
-        if (!any) return;
-        float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
-        int n = 0;
-        for (int i = 0; i < 8; i++)
-        {
-            Vector3 corner = b.center + Vector3.Scale(b.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1));
-            if (!OnScreen(corner, eye, center, front, out Vector2 p, out _)) continue;
-            minX = Mathf.Min(minX, p.x); maxX = Mathf.Max(maxX, p.x);
-            minY = Mathf.Min(minY, p.y); maxY = Mathf.Max(maxY, p.y);
-            n++;
-        }
-        if (n == 0) return;
-        // L'ellipse inscrite dans la boîte projetée, un peu élargie (la boîte est plus large que la silhouette).
-        float rx = (maxX - minX) * 0.5f, ry = (maxY - minY) * 0.5f;
-        Append('e', (minX + maxX) * 0.5f, (minY + maxY) * 0.5f, rx * 1.05f, ry * 1.05f, -1f);
-    }
-
-    void Capsule(Vector3 a, Vector3 b, float radius, Vector3 eye, Vector3 center, Vector3 front)
-    {
-        bool okA = OnScreen(a, eye, center, front, out Vector2 pa, out float ka);
-        bool okB = OnScreen(b, eye, center, front, out Vector2 pb, out float kb);
-        if (!okA && !okB) return;
-        if (!okA) { pa = pb; ka = kb; }
-        if (!okB) { pb = pa; kb = ka; }
-        // Rayon agrandi comme l'objet projeté sur l'écran (plus il est près de la caméra, plus il cache).
-        float r = radius * Mathf.Max(ka, kb) / Mathf.Max(0.0001f, screen.lossyScale.x) * PlayerW;
-        Append('l', pa.x, pa.y, pb.x, pb.y, r);
-    }
-
-    // Point projeté depuis la caméra sur le plan de l'écran, en pixels du lecteur ; faux s'il est derrière l'écran.
-    // 'k' : agrandissement de la projection (distance caméra-écran / distance caméra-point).
-    bool OnScreen(Vector3 world, Vector3 eye, Vector3 center, Vector3 front, out Vector2 pixel, out float k)
-    {
-        pixel = Vector2.zero;
-        k = 0f;
-        float toPoint = Vector3.Dot(world - eye, -front), toScreen = Vector3.Dot(center - eye, -front);
-        if (toPoint <= 0.05f || toPoint >= toScreen) return false;
-        k = toScreen / toPoint;
-        Vector3 hit = eye + (world - eye) * k;
-        Vector3 local = screen.InverseTransformPoint(hit);
-        // Coins (haut-gauche = local (-0,5 ; 0,5)) : voir LateUpdate.
-        pixel = new Vector2((local.x + 0.5f) * PlayerW, (0.5f - local.y) * PlayerH);
-        return true;
-    }
-
-    void Append(char kind, float a, float b, float c, float d, float r)
-    {
-        if (mask.Length > 0) mask.Append(';');
-        mask.Append(kind).Append(' ').Append(Mathf.RoundToInt(a)).Append(' ').Append(Mathf.RoundToInt(b)).Append(' ')
-            .Append(Mathf.RoundToInt(c)).Append(' ').Append(Mathf.RoundToInt(d));
-        if (r >= 0f) mask.Append(' ').Append(Mathf.RoundToInt(r));
-    }
-
-    void CloseOverlay()
-    {
-        if (overlay != 0) YouTubeTv.Destroy(overlay);
-        overlay = 0;
-#if UNITY_EDITOR || UNITY_STANDALONE
-        CloseNativeVideo();
-#endif
-    }
-
-#if UNITY_EDITOR || UNITY_STANDALONE
-    // Vrai tant que la vidéo native s'occupe de l'écran (chargement, lecture ou message).
-    bool UpdateNativeVideo()
-    {
-        if (nativePlayer == null)
-        {
-            string url = NativeTv.Resolve(videoId);
-            if (url == null)
-            {
-                label.text = "YouTube\n<size=30>...</size>";
-                FillScreen(new Color32(8, 8, 12, 255));
-                return true;
-            }
-            if (url.Length == 0)
-            {
-                label.text = NativeTv.Available ? "YouTube\n<size=30>indisponible</size>" : "YouTube\n<size=30>" + videoId + "</size>";
-                FillScreen(new Color32(8, 8, 12, 255));
-                return true;
-            }
-            float begin = countdownStart + GameRules.TvCountdown;
-            nativePlayer = NativeTv.CreatePlayer(screen.gameObject, url, () => Time.time - begin, out nativeTarget, out nativeAudio);
-            nativeAudio.volume = 0f;
-            screenMat.mainTexture = nativeTarget;
-            screenMat.SetTexture("_EmissionMap", nativeTarget);
-        }
-        label.text = nativePlayer.Ready ? "" : "YouTube\n<size=30>...</size>";
-        // Le son de la vidéo s'entend à moins de 10 m du personnage, fort presque jusqu'à la limite (comme en WebGL).
-        Camera cam = Camera.main;
-        Vector3 ear = cam != null ? cam.transform.position : screen.position;
-        var orbit = cam != null ? cam.GetComponent<OrbitCamera>() : null;
-        if (orbit != null && orbit.target != null) ear = orbit.target.position;
-        float d = Mathf.Clamp01(Vector3.Distance(ear, screen.position) / GameRules.TvSoundRange);
-        nativeAudio.volume = Mathf.Clamp01((1f - d * d) * GameAudio.SfxVolume * 2f);
-        return true;
-    }
-
-    void CloseNativeVideo()
-    {
-        if (nativePlayer == null) return;
-        Destroy(nativePlayer);
-        if (nativeAudio != null) Destroy(nativeAudio);
-        if (nativeTarget != null) { nativeTarget.Release(); Destroy(nativeTarget); }
-        nativePlayer = null;
-        nativeAudio = null;
-        nativeTarget = null;
-        if (screenMat != null)
-        {
-            screenMat.mainTexture = noise;
-            screenMat.SetTexture("_EmissionMap", noise);
-        }
-    }
-#endif
-
     void OnDestroy()
     {
-        CloseOverlay();
         if (noise != null) Destroy(noise);
         if (screenMat != null) Destroy(screenMat);
-    }
-}
-
-// Appels vers YouTubeTv.jslib (navigateur seulement).
-public static class YouTubeTv
-{
-#if UNITY_WEBGL && !UNITY_EDITOR
-    [DllImport("__Internal")] static extern int YouTubeTv_Create(string videoId, float start);
-    [DllImport("__Internal")] static extern void YouTubeTv_Update(int id, int visible, float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, float volume, string mask);
-    [DllImport("__Internal")] static extern void YouTubeTv_Destroy(int id);
-    [DllImport("__Internal")] static extern void YouTubeTv_ListenPaste(string objectName);
-
-    public const bool Available = true;
-    public static int Create(string videoId, float start) => YouTubeTv_Create(videoId, start);
-    public static void Update(int id, bool visible, Vector3[] c, float volume, string mask) =>
-        YouTubeTv_Update(id, visible ? 1 : 0, c[0].x, c[0].y, c[1].x, c[1].y, c[2].x, c[2].y, c[3].x, c[3].y, volume, mask);
-    public static void Destroy(int id) => YouTubeTv_Destroy(id);
-    public static void ListenPaste(string objectName) => YouTubeTv_ListenPaste(objectName);
-#else
-    public const bool Available = false;
-    public static int Create(string videoId, float start) => 0;
-    public static void Update(int id, bool visible, Vector3[] c, float volume, string mask) { }
-    public static void Destroy(int id) { }
-    public static void ListenPaste(string objectName) { }
-#endif
-
-    static readonly System.Text.RegularExpressions.Regex Link = new System.Text.RegularExpressions.Regex(
-        @"(?:youtube(?:-nocookie)?\.com/(?:watch\?(?:[^#]*&)?v=|embed/|shorts/|live/|v/)|youtu\.be/)([A-Za-z0-9_-]{11})",
-        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-    // Identifiant de la vidéo d'un lien YouTube, ou null si le lien ne mène pas à YouTube.
-    public static string VideoId(string url)
-    {
-        var m = Link.Match(url ?? "");
-        return m.Success ? m.Groups[1].Value : null;
-    }
-}
-
-// Ctrl+V dans le navigateur : le texte collé est inséré dans la zone de saisie active (lien de la Télévision, Terminal,
-// Post-It), Unity WebGL n'ayant pas accès au presse-papiers.
-public class PasteReceiver : MonoBehaviour
-{
-    const string ObjectName = "PasteReceiver";
-
-    public static void Ensure()
-    {
-        if (!YouTubeTv.Available || GameObject.Find(ObjectName) != null) return;
-        var go = new GameObject(ObjectName);
-        DontDestroyOnLoad(go);
-        go.AddComponent<PasteReceiver>();
-        YouTubeTv.ListenPaste(ObjectName);
-    }
-
-    void OnPaste(string text)
-    {
-        var selected = UnityEngine.EventSystems.EventSystem.current != null ? UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject : null;
-        var field = selected != null ? selected.GetComponent<UnityEngine.UI.InputField>() : null;
-        if (field == null || !field.isFocused) return;
-        text = text.Replace("\r", "").Replace("\n", " ");
-        int a = Mathf.Min(field.selectionAnchorPosition, field.selectionFocusPosition);
-        int b = Mathf.Max(field.selectionAnchorPosition, field.selectionFocusPosition);
-        string current = field.text;
-        a = Mathf.Clamp(a, 0, current.Length);
-        b = Mathf.Clamp(b, a, current.Length);
-        string result = current.Substring(0, a) + text + current.Substring(b);
-        if (field.characterLimit > 0 && result.Length > field.characterLimit) result = result.Substring(0, field.characterLimit);
-        field.text = result;
-        field.caretPosition = field.selectionAnchorPosition = field.selectionFocusPosition = Mathf.Min(result.Length, a + text.Length);
     }
 }

@@ -128,21 +128,4 @@ public partial class GameSession
         OrbitCamera.DeathSpot = null;
         if (avatar != null) avatar.SetHidden(false);
     }
-
-    // ================= Ordres sonores des glyphes (V0.6.7) =================
-
-    static void PlayOrderVoice(int type) => GameAudio.Play2D(OrderVoice(type), GameRules.GlyphVoiceVolume, 0f, GameRules.GlyphVoiceSpeed);
-
-    static string OrderVoice(int type)
-    {
-        string language;
-        switch (Loc.Current)
-        {
-            case Lang.Fr: language = "fr"; break;
-            case Lang.Es: language = "esp"; break;
-            case Lang.Ru: language = "rus"; break;
-            default: language = "eng"; break;
-        }
-        return "order_" + language + "_0" + (type + 1);
-    }
 }
