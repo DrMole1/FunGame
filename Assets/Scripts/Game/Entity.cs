@@ -28,8 +28,8 @@ public interface IEntityHost
     IEnumerable<Vector3> BeaconPositions();
     // Secondes depuis la dernière action bruyante du joueur (aboiement, saut, objet ramassé ou posé).
     float NoiseAge(string playerId);
-    // Le Réveil (ou La Cloche, V0.6) explose : dégâts et recul aux joueurs dans le rayon (Hub compris) ; pour Le Réveil,
-    // objets détruits (hors Hub).
+    // Le Réveil (ou La Cloche, V0.6) explose : dégâts et recul aux joueurs dans le rayon (Hub compris) ; objets au sol détruits
+    // (hors Hub ; V0.7.10 : pour La Cloche aussi).
     void Explode(Entity entity, Vector3 center, float radius, int damage, float knockback, bool destroyObjects = true);
 }
 

@@ -9,6 +9,7 @@ using UnityEngine;
 // En état curieux, il lui arrive de sauter sur place (V0.4.6 ; animation locale, sans effet sur le jeu).
 // V0.6.14 : un Canard (coloré ou non) ou une Peluche posé au sol à 5 m ou moins d'un Pion curieux : il court le prendre et
 // part au loin avec, pour le déposer plus loin (GameSession.OfferToPions).
+// V0.7.10 : une petite clef de jouet mécanique (Meshy, Resources/Art/ClefPion) tourne continuellement dans son dos.
 public class Pion : Entity
 {
     public enum State : byte { Idle = 0, Approach = 1, Curious = 2, Rush = 3, Flee = 4, Rest = 5, Fetch = 6 }
@@ -59,7 +60,11 @@ public class Pion : Entity
     }
 
     // Affichage : jambes animées en code, objet volé sur la tête.
-    Transform body, head, legL, legR, carriedVisual;
+    Transform body, head, legL, legR, carriedVisual, windKey;
+    // Clef de jouet : longueur, hauteur et enfoncement dans le dos (non précisés dans le GDD). Rotation : 120°/s à l'arrêt, plus
+    // 180°/s par m/s de déplacement (elle tourne nettement plus vite quand il marche, et plus encore quand il court).
+    const float KeyLength = 0.38f, KeyHeight = 0.38f, KeyDepth = -0.08f, KeySpin = 120f, KeySpinPerSpeed = 180f, KeySpinMax = 1440f;
+    float keyAngle;
     ItemType shownCarried;
     float walkPhase, hopTimer = -1f, hopNext;
     const float HopDuration = 0.45f, HopHeight = 0.35f;
@@ -89,7 +94,26 @@ public class Pion : Entity
             GameArt.Prim(PrimitiveType.Capsule, head, new Vector3(-0.07f, 0.32f, 0f), new Vector3(0.06f, 0.16f, 0.06f), skin);
             GameArt.Prim(PrimitiveType.Capsule, head, new Vector3(0.07f, 0.32f, 0f), new Vector3(0.06f, 0.16f, 0.06f), skin);
         }
+        BuildWindKey();
         foreach (var r in GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+    }
+
+    // Clef plantée dans le dos (-Z) : la tige entre dans la cape, l'anneau dépasse derrière et tourne autour de la tige.
+    void BuildWindKey()
+    {
+        windKey = new GameObject("Clef").transform;
+        windKey.SetParent(body, false);
+        windKey.localPosition = new Vector3(0f, KeyHeight, KeyDepth);
+        var holder = new GameObject("Modele").transform;
+        holder.SetParent(windKey, false);
+        // Le modèle est debout (anneau en haut) : on couche la tige le long de l'axe avant-arrière, anneau vers l'arrière.
+        holder.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+        if (GameArt.SpawnModel("ClefPion", holder, KeyLength) == null)
+        {
+            Material brass = GameArt.Lit("PionKey", new Color(0.62f, 0.6f, 0.55f), null, 0.7f);
+            GameArt.Prim(PrimitiveType.Cylinder, holder, new Vector3(0f, KeyLength * 0.35f, 0f), new Vector3(0.025f, KeyLength * 0.35f, 0.025f), brass);
+            GameArt.Prim(PrimitiveType.Cube, holder, new Vector3(0f, KeyLength * 0.85f, 0f), new Vector3(0.24f, 0.09f, 0.015f), brass);
+        }
     }
 
     Transform Leg(float x, Material mat)
@@ -299,6 +323,11 @@ public class Pion : Entity
                 hopNext = Random.Range(1.5f, 4f);
                 if (Random.value < 0.5f) hopTimer = 0f;
             }
+        }
+        if (windKey != null)
+        {
+            keyAngle = Mathf.Repeat(keyAngle + Mathf.Min(KeySpin + KeySpinPerSpeed * visualSpeed, KeySpinMax) * dt, 360f);
+            windKey.localRotation = Quaternion.Euler(0f, 0f, keyAngle);
         }
         legL.localRotation = Quaternion.Euler(swing, 0f, 0f);
         legR.localRotation = Quaternion.Euler(-swing, 0f, 0f);

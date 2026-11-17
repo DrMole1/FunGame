@@ -13,6 +13,7 @@ public static class WebGLBuilder
     {
         // GitHub Pages ne sert pas les en-têtes Content-Encoding : le build est compressé et le navigateur le décompresse lui-même
         // (téléchargement bien plus léger, au prix de quelques secondes de décompression au premier lancement).
+        WindowsBuilder.ApplyPlayerSettings();
         PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Brotli;
         PlayerSettings.WebGL.decompressionFallback = true;
         PlayerSettings.WebGL.template = "PROJECT:FunGame";
@@ -36,6 +37,7 @@ public static class WebGLBuilder
         if (report.summary.result == BuildResult.Succeeded)
         {
             File.WriteAllText(Path.Combine(outPath, ".nojekyll"), "");
+            WindowsBuilder.CopyLicenses(outPath);
             Debug.Log($"Build WebGL réussi : {outPath} ({report.summary.totalSize / (1024 * 1024)} Mo)");
         }
         else

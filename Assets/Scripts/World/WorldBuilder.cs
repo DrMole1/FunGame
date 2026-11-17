@@ -4353,7 +4353,7 @@ public static class WorldBuilder
         if (dogHead) PutDogHead(statue, b, stone);
     }
 
-    // Tête de chien de Snoopy (Tete1), dans la pierre de la statue, à la place de celle d'Ivan Pavlov (corps sans tête préparé dans
+    // Tête de chien de Snoops (Tete1), dans la pierre de la statue, à la place de celle d'Ivan Pavlov (corps sans tête préparé dans
     // l'éditeur par "FunGame/Préparer les modèles V0.6.8").
     static void PutDogHead(GameObject statue, Bounds b, Material stone)
     {

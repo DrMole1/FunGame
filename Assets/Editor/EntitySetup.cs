@@ -5,16 +5,14 @@ using UnityEditor.Animations;
 using UnityEngine;
 
 // Contenu de la V0.4 du GDD : La Tour et La Cloche (modèles Meshy riggés, Assets/Models/<Nom>/), objets du Terminal
-// (Téléporteur, Station Curative, tête du Pion : Resources/Art), Balise Améliorée (texture de la Balise virée au rouge)
-// et icônes d'inventaire.
+// (Téléporteur, Station Curative, tête du Pion : Resources/Art) et icônes d'inventaire. V0.7.10 : plus de Balise Améliorée ni de
+// Balises de Hub recolorées (seul leur orbe prend la couleur du Hub).
 public static class EntitySetup
 {
     [MenuItem("FunGame/Installer les entités V0.4")]
     public static void Setup()
     {
         GameSetup.ImportArt();
-        CreateWhiteBeacon();
-        CreateHubBeacons();
         SetupCreature("Tour", 2.66f, new[] { ("Walk", true), ("Run", true), ("Look", true), ("Stance", true) });
         SetupCreature("Cloche", 1f, new[] { ("Walk", true), ("Run", true) });
         SetupFou();
@@ -117,103 +115,5 @@ public static class EntitySetup
         art.scale = height / CharacterSetup.MeasureHeight(art.model);
         EditorUtility.SetDirty(art);
         Debug.Log(name + " installée (échelle " + art.scale.ToString("0.###") + ").");
-    }
-
-    // Balises principales des Hubs 2 à 4 (violette, verte, dorée ; GDD 9) : les parties bleues de la texture prennent la
-    // couleur du Hub, le reste (socle, métal) ne change pas. Les Hubs suivants réutilisent ces matériaux.
-    const float BeaconBlueHue = 0.59f;
-
-    [MenuItem("FunGame/Préparer les balises des Hubs")]
-    public static void CreateHubBeacons()
-    {
-        const string art = "Assets/Resources/Art/";
-        const string source = art + "Balise_Textures/Balise_BaseColor.png";
-        if (!File.Exists(source)) return;
-        byte[] original = File.ReadAllBytes(source);
-        for (int hub = 2; hub <= 4; hub++)
-        {
-            string name = "BaliseHub" + hub;
-            string texDir = art + name + "_Textures";
-            string texPath = texDir + "/" + name + "_BaseColor.png";
-            if (!AssetDatabase.IsValidFolder(texDir)) AssetDatabase.CreateFolder("Assets/Resources/Art", name + "_Textures");
-
-            Color.RGBToHSV(Beacon.HubColor(hub), out float targetHue, out _, out _);
-            var tex = new Texture2D(2, 2);
-            tex.LoadImage(original);
-            Color[] px = tex.GetPixels();
-            for (int i = 0; i < px.Length; i++) px[i] = TintBlue(px[i], targetHue);
-            tex.SetPixels(px);
-            File.WriteAllBytes(texPath, tex.EncodeToPNG());
-            Object.DestroyImmediate(tex);
-            AssetDatabase.ImportAsset(texPath);
-            var importer = (TextureImporter)AssetImporter.GetAtPath(texPath);
-            importer.maxTextureSize = 512;
-            importer.SaveAndReimport();
-
-            string matPath = art + name + ".mat";
-            var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
-            if (mat == null)
-            {
-                mat = new Material(Shader.Find("Standard"));
-                AssetDatabase.CreateAsset(mat, matPath);
-            }
-            mat.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
-            mat.color = Color.white;
-            mat.SetFloat("_Glossiness", 0.25f);
-            EditorUtility.SetDirty(mat);
-        }
-        AssetDatabase.SaveAssets();
-    }
-
-    // Plus le pixel est franchement bleu, plus il prend la teinte voulue (fondu sur les gris bleutés pour éviter les ruptures).
-    static Color TintBlue(Color c, float targetHue)
-    {
-        Color.RGBToHSV(c, out float h, out float s, out float v);
-        float weight = Soft(0.06f, 0.2f, s) * Soft(0.47f, 0.52f, h) * (1f - Soft(0.72f, 0.78f, h));
-        if (weight <= 0f) return c;
-        Color tinted = Color.HSVToRGB(Mathf.Repeat(targetHue + (h - BeaconBlueHue) * 0.5f, 1f), s, v);
-        tinted.a = c.a;
-        return Color.Lerp(c, tinted, weight);
-    }
-
-    static float Soft(float from, float to, float value) => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(from, to, value));
-
-    // Balise Améliorée (V0.6.8) : la texture de la Balise dont le cristal bleu devient blanc.
-    public static void CreateWhiteBeacon()
-    {
-        const string source = "Assets/Resources/Art/Balise_Textures/Balise_BaseColor.png";
-        const string texDir = "Assets/Resources/Art/BaliseBlanche_Textures";
-        const string texPath = texDir + "/BaliseBlanche_BaseColor.png";
-        if (!File.Exists(source)) return;
-        if (!AssetDatabase.IsValidFolder(texDir)) AssetDatabase.CreateFolder("Assets/Resources/Art", "BaliseBlanche_Textures");
-        var tex = new Texture2D(2, 2);
-        tex.LoadImage(File.ReadAllBytes(source));
-        Color[] px = tex.GetPixels();
-        for (int i = 0; i < px.Length; i++)
-        {
-            Color c = px[i];
-            // Teintes bleues (cristal et lueurs) : elles passent au blanc.
-            if (c.b > c.r + 0.08f && c.b > c.g)
-                px[i] = new Color(Mathf.Min(1f, c.b * 1.15f), Mathf.Min(1f, c.b * 1.15f), Mathf.Min(1f, c.b * 1.15f), c.a);
-        }
-        tex.SetPixels(px);
-        File.WriteAllBytes(texPath, tex.EncodeToPNG());
-        Object.DestroyImmediate(tex);
-        AssetDatabase.ImportAsset(texPath);
-        var importer = (TextureImporter)AssetImporter.GetAtPath(texPath);
-        importer.maxTextureSize = 512;
-        importer.SaveAndReimport();
-
-        const string matPath = "Assets/Resources/Art/BaliseBlanche.mat";
-        var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
-        if (mat == null)
-        {
-            mat = new Material(Shader.Find("Standard"));
-            AssetDatabase.CreateAsset(mat, matPath);
-        }
-        mat.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
-        mat.color = Color.white;
-        mat.SetFloat("_Glossiness", 0.25f);
-        EditorUtility.SetDirty(mat);
     }
 }

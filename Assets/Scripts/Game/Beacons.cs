@@ -6,7 +6,8 @@ using UnityEngine;
 // Peluches et Boule de Disco (V0.7.2 : Super Monticules), posées et ramassées comme une Balise, hors du réseau d'énergie.
 public enum DeviceKind : byte
 {
-    Beacon = 0, Enhanced = 1, Teleporter = 2, Station = 3, Canon = 4, Television = 5, Trampoline = 6, Bell = 7,
+    // V0.7.10 : plus de Balise Améliorée (1 ne sert plus).
+    Beacon = 0, Teleporter = 2, Station = 3, Canon = 4, Television = 5, Trampoline = 6, Bell = 7,
     // V0.7.2 : une seule Boule de Disco, arc-en-ciel (13 et 14, anciennes boules or et diamant, ne servent plus).
     Lapin = 8, Pingouin = 9, Singe = 10, Chat = 11, Disco = 12,
     // V0.6.3 (note 06 du chapitre 7) : canards posés au sol. CanardColore : palier 1 ; les paliers suivants suivent.
@@ -21,9 +22,10 @@ public enum DeviceKind : byte
 // chargée en permanence (V0.7.2 : plus de Chargeur ni de jauge).
 // V0.6 : chaque Hub a sa Balise principale (Hub 1 bleue, Hub 2 violette, Hub 3 verte, Hub 4 dorée, puis on recommence) ;
 // elles partagent la même charge.
-// Balise Améliorée (7.3, V0.6.8) : cristal et aura blancs, coordonnées affichées au-dessus d'elle ; aucune apparition d'entité à
-// moins de 5 m ; pendant le Couvre Feu, elle éclaire comme un néon blanc et un joueur tout près est comme au Hub. Téléporteur (7.2), Station Curative (7.4) et Canon (7.5) : chargés s'ils voient une Balise
-// chargée. Le Canon de cirque tourne avec la visée du joueur qui est dedans, et recule en crachant des confettis au tir.
+// V0.7.10 : nouveau modèle (pion d'échecs blanc) ; un orbe fantomatique, à la couleur du flux, flotte au niveau de la boule blanche
+// d'une Balise chargée (aucun orbe sur une Balise non chargée). Les Balises des Hubs, plus grandes, ont le même modèle : leur orbe,
+// toujours présent, prend la couleur du Hub. Plus de Balise Améliorée. Téléporteur (7.2), Station Curative (7.3) et Canon (7.4) :
+// chargés s'ils voient une Balise chargée. Le Canon de cirque tourne avec la visée du joueur qui est dedans, et recule en crachant des confettis au tir.
 // Note 03 du chapitre 7 (V0.4.7) : un objet posé au sol joue une légère animation rapide (il s'écrase puis rebondit).
 public class Beacon : Interactable
 {
@@ -47,11 +49,8 @@ public class Beacon : Interactable
     public static int ColorIndex(int hub) => (Mathf.Max(1, hub) - 1) % HubColors.Length;
     // Hub dont provient le flux qui alimente cet appareil (0 : aucun).
     public int FluxHub { get; private set; }
-    static readonly Material[] fluxBodies = new Material[HubColors.Length];
-    Material[] restBodies;
-    Material restHalo;
-    // Balises (simples ou améliorées) : elles relaient l'énergie ; Téléporteur et Station ne font que la recevoir.
-    public bool Relays => Kind == DeviceKind.Beacon || Kind == DeviceKind.Enhanced;
+    // Balises : elles relaient l'énergie ; Téléporteur et Station ne font que la recevoir.
+    public bool Relays => Kind == DeviceKind.Beacon;
     // Relié au réseau d'énergie (chargé s'il voit une Balise chargée) : ni la Télévision (V0.7.8), ni le Trampoline, ni la
     // Cloche Décorative, ni les peluches, ni la Boule de Disco.
     public bool Networked => Kind < DeviceKind.Television;
@@ -71,7 +70,7 @@ public class Beacon : Interactable
     public ItemType Item => ItemOf(Kind);
     float VisualHeight => IsHub ? HubHeight : HeightOf(Kind);
     // Point d'attache des rayons d'énergie : le cristal (le centre du disque, le haut du tube, le fût du Canon, l'antenne).
-    public Vector3 Top => transform.position + Vector3.up * (Kind == DeviceKind.Teleporter ? 0.12f : Kind == DeviceKind.Canon ? CanonBarrel : VisualHeight * 0.86f);
+    public Vector3 Top => transform.position + Vector3.up * (Kind == DeviceKind.Teleporter ? 0.12f : Kind == DeviceKind.Canon ? CanonBarrel : VisualHeight * (Kind == DeviceKind.Beacon ? OrbLevel : 0.86f));
 
     public static ItemType ItemOf(DeviceKind kind)
     {
@@ -81,7 +80,6 @@ public class Beacon : Interactable
         if (kind >= DeviceKind.CanardColore && kind <= LastKind) return ItemType.CanardColore + (kind - DeviceKind.CanardColore + 1);
         switch (kind)
         {
-            case DeviceKind.Enhanced: return ItemType.BaliseAmelioree;
             case DeviceKind.Teleporter: return ItemType.Teleporteur;
             case DeviceKind.Station: return ItemType.StationCurative;
             case DeviceKind.Canon: return ItemType.Canon;
@@ -136,12 +134,8 @@ public class Beacon : Interactable
 
     Renderer[] bodies;
     GameObject halo;
-    Light glow, curfewNeon;
+    Light glow;
     MaterialPropertyBlock block;
-    // Couvre Feu en cours (GameSession) : les Balises Améliorées chargées s'allument.
-    public static bool CurfewGlow;
-    const float CurfewNeonRange = 10f, CurfewNeonIntensity = 1.8f, DistanceTextShake = 0.004f;
-    TextMesh coordinates;
     ParticleSystem gas;
     Transform visualRoot;
     float recoil = -1f, placedPop = -1f;
@@ -227,60 +221,37 @@ public class Beacon : Interactable
                 beacon.gas = BuildGas(go.transform, height);
                 break;
             default:
+                // V0.7.10 : pion d'échecs blanc (Meshy). Repli : un pion blanc en primitives.
                 if (GameArt.SpawnModel("Balise", visual, height) == null)
                 {
-                    Material stone = GameArt.Lit("BeaconStone", new Color(0.45f, 0.43f, 0.38f), null, 0.15f);
-                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, height * 0.35f, 0f), new Vector3(0.22f, height * 0.35f, 0.22f) * (height / Height), stone);
-                    GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, height * 0.84f, 0f), new Vector3(0.3f, 0.26f, 0.3f) * (height / Height),
-                        kind == DeviceKind.Enhanced ? GameArt.Emissive("BeaconCrystalWhite", Color.white, new Color(0.9f, 0.9f, 0.95f))
-                                                    : GameArt.Emissive("BeaconCrystal", new Color(0.2f, 0.45f, 1f), new Color(0.1f, 0.3f, 0.9f)));
-                }
-                else if (kind == DeviceKind.Enhanced)
-                {
-                    // Même modèle, cristal blanc (texture préparée par "Préparer les modèles V0.6.8").
-                    var white = Resources.Load<Material>("Art/BaliseBlanche");
-                    if (white != null) foreach (var r in visual.GetComponentsInChildren<Renderer>()) r.sharedMaterial = white;
+                    Material ivory = GameArt.Lit("BeaconIvory", new Color(0.93f, 0.92f, 0.9f), null, 0.4f);
+                    float k = height / Height;
+                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.06f, 0f) * k, new Vector3(0.36f, 0.06f, 0.36f) * k, ivory);
+                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.36f, 0f) * k, new Vector3(0.16f, 0.26f, 0.16f) * k, ivory);
+                    GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, OrbLevel * height, 0f), Vector3.one * 0.22f * k, ivory);
                 }
                 break;
         }
 
-        if (kind == DeviceKind.Beacon || kind == DeviceKind.Enhanced) AddFarModel(visual, height);
+        if (kind == DeviceKind.Beacon) AddFarModel(visual, height);
         beacon.bodies = visual.GetComponentsInChildren<Renderer>();
         beacon.block = new MaterialPropertyBlock();
         if (Items.Dances(beacon.Item)) DiscoDancer.Attach(visual);
         // Le Canard Coloré scintille, posé comme à terre.
         if (Items.IsColoredDuck(beacon.Item)) Fx.Sparkle(go.transform, Items.Get(beacon.Item).color);
-        // Halo autour du cristal quand l'appareil est chargé (blanc pour la Balise Améliorée). Aucun sur le Téléporteur.
-        if (kind == DeviceKind.Beacon || kind == DeviceKind.Enhanced || kind == DeviceKind.Station)
+        // Orbe fantomatique quand l'appareil est chargé : celui d'une Balise, au niveau de la boule blanche, prend la couleur du flux
+        // (SetFlux ; bleu du Hub 1 par défaut). Vert sur la Station Curative ; aucun sur le Téléporteur.
+        if (kind == DeviceKind.Beacon || kind == DeviceKind.Station)
         {
-            Material aura = kind == DeviceKind.Enhanced ? GameArt.BeaconHalo("White", Color.white)
-                : kind == DeviceKind.Station ? GameArt.BeaconHalo("Green", new Color(0.3f, 1f, 0.4f)) : GameArt.BeaconHalo("Blue", new Color(0.3f, 0.65f, 1f));
-            beacon.halo = NewHalo(go.transform, beacon.Top - pos, kind == DeviceKind.Station ? 0.55f : height * 0.26f, aura);
+            Material aura = kind == DeviceKind.Station ? GameArt.BeaconHalo("Green", new Color(0.3f, 1f, 0.4f)) : OrbMaterial(0);
+            beacon.halo = NewHalo(go.transform, beacon.Top - pos, kind == DeviceKind.Station ? 0.55f : height * OrbSize, aura);
         }
         if (hub)
         {
             Color color = HubColor(-id);
-            // Hubs 2 et suivants : la Balise et son cristal prennent la couleur de son Hub (violet, vert, doré...).
-            if (-id > 1)
-            {
-                // Modèle Meshy : texture recolorée (menu "FunGame/Préparer les balises des Hubs"). Hub 5, 9... : bleue d'origine.
-                int colorIndex = (-id - 1) % HubColors.Length;
-                var tinted = colorIndex > 0 ? Resources.Load<Material>("Art/BaliseHub" + (colorIndex + 1)) : null;
-                if (visual.Find("Balise") != null)
-                {
-                    if (tinted != null) foreach (var r in visual.GetComponentsInChildren<Renderer>()) r.sharedMaterial = tinted;
-                }
-                else
-                {
-                    // Silhouette de secours, sans modèle : un cristal à la couleur du Hub.
-                    var crystal = GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, height * 0.86f, 0f), new Vector3(0.3f, 0.34f, 0.3f) * (height / Height),
-                        GameArt.Emissive("BeaconCrystalHub" + colorIndex, color, color * 0.9f));
-                    crystal.name = "Cristal";
-                }
-                if (beacon.halo != null) Object.Destroy(beacon.halo);
-                beacon.halo = NewHalo(go.transform, beacon.Top - pos, height * 0.26f, GameArt.BeaconHalo("Hub" + (-id - 1) % HubColors.Length, color));
-                beacon.bodies = visual.GetComponentsInChildren<Renderer>();
-            }
+            // V0.7.10 : même pion blanc que les autres Balises ; seul son orbe, toujours présent, prend la couleur du Hub (bleu,
+            // violet, vert, doré...).
+            if (beacon.halo != null) beacon.halo.GetComponent<Renderer>().sharedMaterial = OrbMaterial(ColorIndex(-id));
             beacon.glow = new GameObject("Lueur").AddComponent<Light>();
             beacon.glow.transform.SetParent(go.transform, false);
             beacon.glow.transform.localPosition = new Vector3(0f, height * 0.9f, 0f);
@@ -295,21 +266,6 @@ public class Beacon : Interactable
             solid.height = height;
             solid.radius = 0.22f;
         }
-        if (kind == DeviceKind.Enhanced)
-        {
-            // Distance jusqu'au Hub, dans l'air au-dessus d'elle (renseignée par BeaconNetwork.Add).
-            beacon.coordinates = GameArt.CreateText(go.transform, "DistanceHub", new Vector3(0f, height + 0.45f, 0f), 0.02f, new Color(0.92f, 0.92f, 0.96f));
-            // Pendant le Couvre Feu : lumière blanche, à la manière d'un néon.
-            beacon.curfewNeon = new GameObject("Neon").AddComponent<Light>();
-            beacon.curfewNeon.transform.SetParent(go.transform, false);
-            beacon.curfewNeon.transform.localPosition = new Vector3(0f, height + 0.3f, 0f);
-            beacon.curfewNeon.type = LightType.Point;
-            beacon.curfewNeon.color = new Color(0.93f, 0.95f, 1f);
-            beacon.curfewNeon.range = CurfewNeonRange;
-            beacon.curfewNeon.intensity = CurfewNeonIntensity;
-            beacon.curfewNeon.shadows = LightShadows.None;
-            beacon.curfewNeon.enabled = false;
-        }
         beacon.FitTrigger(kind == DeviceKind.Protocole ? new Vector3(ProtocolBoard.Width + 0.1f, 0.2f, ProtocolBoard.Height + 0.1f)
             : kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.76f, CanonHeight, 1.76f)
             : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.9f, 0.9f, 0.9f) : new Vector3(0.6f, height, 0.6f));
@@ -317,55 +273,9 @@ public class Beacon : Interactable
         return beacon;
     }
 
-    // V0.6.13 : pendant le Couvre Feu, une Balise Améliorée (qui éclaire comme un néon) près d'un Roi clignote frénétiquement,
-    // comme les néons du labyrinthe : rafales de coupures, franches ou partielles.
-    float neonTimer, neonLevel = 1f;
-    bool neonOff;
-    int neonBurst;
-
-    void UpdateCurfewNeon()
-    {
-        bool on = CurfewGlow && Charged;
-        if (curfewNeon.enabled != on) curfewNeon.enabled = on;
-        if (!on)
-        {
-            if (halo != null && halo.activeSelf != Charged) halo.SetActive(Charged);
-            return;
-        }
-        bool frantic = false;
-        foreach (Vector3 p in FlickerLight.Frenzy)
-            if ((p - transform.position).sqrMagnitude < GameRules.RoiLightRange * GameRules.RoiLightRange) { frantic = true; break; }
-        if (!frantic)
-        {
-            neonOff = false;
-            neonBurst = 0;
-            neonLevel = 1f;
-        }
-        else
-        {
-            neonTimer -= Time.deltaTime;
-            if (neonTimer <= 0f)
-            {
-                if (neonOff)
-                {
-                    neonOff = false;
-                    neonLevel = Random.Range(0.7f, 1.2f);
-                    neonTimer = neonBurst > 0 ? Random.Range(0.04f, 0.25f) : Random.Range(0.25f, 1.6f);
-                }
-                else
-                {
-                    if (neonBurst == 0) neonBurst = Random.Range(1, 6);
-                    neonBurst--;
-                    neonOff = true;
-                    neonLevel = Random.value < 0.35f ? Random.Range(0.15f, 0.45f) : Random.Range(0.01f, 0.06f);
-                    neonTimer = Random.Range(0.03f, 0.15f);
-                    if (Random.value < 0.1f) GameAudio.Play3D("neon", transform.position, 0.25f, 14f, 0.2f);
-                }
-            }
-        }
-        curfewNeon.intensity = CurfewNeonIntensity * neonLevel;
-        if (halo != null) halo.SetActive(Charged && neonLevel > 0.2f);
-    }
+    // L'orbe (halo) est un carré face à la caméra : il ne reçoit pas le contour blanc, sinon un carré apparaît autour de la
+    // boule du pion quand on vise la Balise.
+    protected override bool HasOutline(Renderer r) => halo == null || r.gameObject != halo;
 
     static GameObject NewHalo(Transform parent, Vector3 localPos, float size, Material material)
     {
@@ -534,44 +444,19 @@ public class Beacon : Interactable
         foreach (var r in bodies) if (r != null) r.SetPropertyBlock(block);
     }
 
-    // Note 02 du chapitre 9.3 (V0.6.9) : une Balise simple chargée prend la couleur du flux (celle de son Hub) ; déchargée, elle
-    // retrouve sa couleur d'origine, bleue et terne.
+    // Note 02 du chapitre 9.1 (V0.6.9 ; V0.7.10) : l'orbe d'une Balise chargée prend la couleur du flux (celle de son Hub) ;
+    // déchargée, elle n'a plus d'orbe (SetCharged).
     public void SetFlux(int hub)
     {
         if (hub == FluxHub || IsHub) return;
-        int before = ColorIndex(FluxHub), after = ColorIndex(hub);
         FluxHub = hub;
-        if (Kind != DeviceKind.Beacon || before == after) return;
-        if (restBodies == null)
-        {
-            restBodies = new Material[bodies.Length];
-            for (int i = 0; i < bodies.Length; i++) if (bodies[i] != null) restBodies[i] = bodies[i].sharedMaterial;
-            if (halo != null) restHalo = halo.GetComponent<Renderer>().sharedMaterial;
-        }
-        Material body = after > 0 && visualRoot.Find("Balise") != null ? FluxBody(after) : null;
-        for (int i = 0; i < bodies.Length; i++) if (bodies[i] != null) bodies[i].sharedMaterial = body != null ? body : restBodies[i];
-        if (halo != null) halo.GetComponent<Renderer>().sharedMaterial = after > 0 ? GameArt.BeaconHalo("Hub" + after, HubColors[after]) : restHalo;
+        if (Kind == DeviceKind.Beacon && halo != null) halo.GetComponent<Renderer>().sharedMaterial = OrbMaterial(ColorIndex(hub));
     }
 
-    static Material FluxBody(int colorIndex)
-    {
-        if (fluxBodies[colorIndex] == null) fluxBodies[colorIndex] = Resources.Load<Material>("Art/BaliseHub" + (colorIndex + 1));
-        return fluxBodies[colorIndex];
-    }
+    // Orbe d'une Balise : au niveau de la boule blanche du pion (part de la hauteur de la Balise), de la couleur du Hub.
+    public const float OrbLevel = 0.85f, OrbSize = 0.38f;
 
-    // Balise Améliorée : distance au sol jusqu'à la Balise du Hub, arrondie au mètre (ex. "29m"), suivie de sa profondeur
-    // ou de sa hauteur par rapport au niveau du Hub quand elle dépasse 2 m (ex. "29m ↓3m", "29m ↑4m").
-    const float LevelShownBeyond = 2f;
-
-    public void ShowHubDistance(Vector3 hubPos)
-    {
-        if (coordinates == null) return;
-        Vector3 d = transform.position - hubPos;
-        string text = Mathf.RoundToInt(new Vector2(d.x, d.z).magnitude) + "m";
-        float level = transform.position.y - hubPos.y;
-        if (Mathf.Abs(level) > LevelShownBeyond) text += (level < 0f ? " ↓" : " ↑") + Mathf.RoundToInt(Mathf.Abs(level)) + "m";
-        coordinates.text = text;
-    }
+    static Material OrbMaterial(int colorIndex) => GameArt.BeaconHalo("Hub" + colorIndex, HubColors[colorIndex]);
 
     // Posé au sol (Note 03 du chapitre 7) : il s'écrase légèrement puis rebondit, en un tiers de seconde.
     public void PlayPlaced() => placedPop = 0f;
@@ -591,15 +476,6 @@ public class Beacon : Interactable
     {
         UpdateRecoil();
         UpdatePlacedPop();
-        if (curfewNeon != null) UpdateCurfewNeon();
-        if (coordinates != null && Camera.main != null)
-        {
-            Transform text = coordinates.transform;
-            text.rotation = Quaternion.LookRotation(text.position - Camera.main.transform.position);
-            // Chapitre 6, Note 01 (V0.6.9) : le texte tremble légèrement.
-            Vector2 jitter = TextShake.Jitter(Id, TextShake.Step) * DistanceTextShake;
-            text.position = transform.position + Vector3.up * (VisualHeight + 0.45f) + text.right * jitter.x + text.up * jitter.y;
-        }
     }
 
     // Canon : le fût suit la visée (cap en degrés, dans le monde).
@@ -761,8 +637,6 @@ public class BeaconNetwork : MonoBehaviour
         if (placed.TryGetValue(id, out var existing) && existing != null) return existing;
         // Orientation : celle choisie à la pose (la Télévision fait face au joueur), sinon au hasard.
         var b = Beacon.Create(transform, id, pos, float.IsNaN(yaw) ? Random.Range(0f, 360f) : yaw, kind, hanging, chain);
-        Beacon nearest = NearestHub(pos);
-        if (nearest != null) b.ShowHubDistance(nearest.transform.position);
         placed[id] = b;
         dirty = true;
         return b;

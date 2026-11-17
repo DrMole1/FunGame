@@ -390,6 +390,9 @@ public class HeavyModelImport : AssetPostprocessor
     {
         { "Trampoline", 8000 },
         { "MasseCavalier", 6000 },
+        // V0.7.10 : nouvelle Balise (pion d'échecs, posée en nombre) et clef de jouet dans le dos de chaque Pion.
+        { "Balise", 12000 },
+        { "ClefPion", 3000 },
     };
 
     // Le maillage doit être lisible à l'import pour être réduit.

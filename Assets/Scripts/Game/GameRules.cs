@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.9";
+    public const string Version = "V0.7.10";
 
     public const int MaxPlayers = 6;            // V0.7.5 (avant : 8)
     public const int MaxHp = 100;
@@ -111,7 +111,7 @@ public static class GameRules
     public const float CurfewLossPerSecond = 1f;
     // Note 02 du chapitre 3.4 (V0.4.10) : à 0 de sérénité, le personnage perd 15 PV par seconde (au lieu de mourir).
     public const int DespairDamagePerSecond = 15;
-    // V0.6.8 : dans un Hub (ou près d'une Balise Améliorée), la sérénité remonte de 10 points par seconde.
+    // V0.6.8 : dans un Hub, la sérénité remonte de 10 points par seconde.
     public const float CurfewRegenPerSecond = 10f;
     // Non précisé dans le GDD : les néons s'éteignent en 1,2 s (avec le son du générateur) ; lumières et musique reviennent en 3 et 6 s.
     public const float CurfewPowerOff = 1.2f, CurfewPowerOn = 3f, CurfewMusicReturn = 6f;
@@ -372,9 +372,6 @@ public static class GameRules
     // ---------- Balises (chapitre 7.1) ----------
 
     // V0.7.2 : plus de Chargeur ; les Balises des Hubs restent chargées en permanence.
-    // Balise Améliorée (7.3, V0.6.8) : aucune entité n'apparaît dans ce rayon ; pendant le Couvre Feu, un joueur s'y trouve comme au Hub.
-    public const float EnhancedBeaconRadius = 5f;
-    public const float EnhancedBeaconSerenityRange = 4f;   // V0.6.9 : pendant le Couvre Feu, un joueur à 4 m ou moins est comme au Hub
 
     // ---------- Téléporteur (7.2) et Station Curative (7.4) ----------
 
@@ -406,7 +403,8 @@ public static class GameRules
 
 public enum ItemType
 {
-    None = 0, CuisseDePoulet = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8, BaliseAmelioree = 9,
+    None = 0, CuisseDePoulet = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8,
+    // V0.7.10 : plus de Balise Améliorée (9 ne sert plus).
     StationCurative = 10, Os = 11, Canon = 12, Television = 13, Trampoline = 14, ClocheDecorative = 15,
     // V0.7.2 : plus d'Arcades (ni Jeton WOOF, ni tickets, ni anciennes boules : 16 à 20, 26 et 27 ne servent plus). Peluches et
     // Boule de Disco (arc-en-ciel) sortent des Super Monticules. (Chargeur, 7 : supprimé.)
@@ -493,17 +491,17 @@ public static class Items
 
     static readonly ItemDef[] All =
     {
-        // Objets obtenables au Terminal (ID 1 à 9), dans l'ordre du document. V0.6.14 : la Cuisse de Poulet est supprimée ;
-        // V0.7.2 : le Chargeur aussi (les ID suivants sont décalés d'un cran).
+        // Objets obtenables au Terminal (ID 1 à 8), dans l'ordre du document. V0.6.14 : la Cuisse de Poulet est supprimée ;
+        // V0.7.2 : le Chargeur aussi (les ID suivants sont décalés d'un cran) ;
+        // V0.7.10 : la Balise Améliorée aussi (Station Curative 5, Canon 6, Téléporteur Inversé 7, Boussole 8).
         new ItemDef { type = ItemType.Balise, terminalId = 1, name = "Balise", shortName = "Balise", buyPrice = 30, sellPrice = 1, color = new Color(0.3f, 0.6f, 1f) },
         new ItemDef { type = ItemType.PostIt, terminalId = 2, name = "Post-It", shortName = "Post-It", buyPrice = 5, sellPrice = 1, color = new Color(1f, 0.93f, 0.35f) },
         new ItemDef { type = ItemType.Cle, terminalId = 3, name = "Clé", shortName = "Clé", buyPrice = 50, sellPrice = 1, color = new Color(0.55f, 0.8f, 1f) },
         new ItemDef { type = ItemType.Teleporteur, terminalId = 4, name = "Téléporteur", shortName = "Téléport.", buyPrice = 200, sellPrice = 1, color = new Color(1f, 0.7f, 0.15f) },
-        new ItemDef { type = ItemType.BaliseAmelioree, terminalId = 5, name = "Balise Améliorée", shortName = "Balise +", buyPrice = 50, sellPrice = 1, color = new Color(0.95f, 0.95f, 1f) },
-        new ItemDef { type = ItemType.StationCurative, terminalId = 6, name = "Station Curative", shortName = "Station", buyPrice = 150, sellPrice = 1, color = new Color(0.4f, 1f, 0.45f) },
-        new ItemDef { type = ItemType.Canon, terminalId = 7, name = "Canon", shortName = "Canon", buyPrice = 200, sellPrice = 1, color = new Color(0.9f, 0.2f, 0.2f) },
-        new ItemDef { type = ItemType.TeleporteurInverse, terminalId = 8, name = "Téléporteur Inversé", shortName = "Télép. inv.", buyPrice = 300, sellPrice = 0, color = new Color(1f, 0.7f, 0.15f), inventory = false },
-        new ItemDef { type = ItemType.Boussole, terminalId = 9, name = "Boussole", shortName = "Boussole", buyPrice = 150, sellPrice = 0, color = new Color(0.9f, 0.9f, 0.9f), inventory = false },
+        new ItemDef { type = ItemType.StationCurative, terminalId = 5, name = "Station Curative", shortName = "Station", buyPrice = 150, sellPrice = 1, color = new Color(0.4f, 1f, 0.45f) },
+        new ItemDef { type = ItemType.Canon, terminalId = 6, name = "Canon", shortName = "Canon", buyPrice = 200, sellPrice = 1, color = new Color(0.9f, 0.2f, 0.2f) },
+        new ItemDef { type = ItemType.TeleporteurInverse, terminalId = 7, name = "Téléporteur Inversé", shortName = "Télép. inv.", buyPrice = 300, sellPrice = 0, color = new Color(1f, 0.7f, 0.15f), inventory = false },
+        new ItemDef { type = ItemType.Boussole, terminalId = 8, name = "Boussole", shortName = "Boussole", buyPrice = 150, sellPrice = 0, color = new Color(0.9f, 0.9f, 0.9f), inventory = false },
         // Autres objets (O1 à O12, V0.7.2) : monticules, Super Monticules, Cloches suspendues des zones 2+, Hub de départ.
         new ItemDef { type = ItemType.Canard, otherId = "O1", name = "Canard en Plastique", shortName = "Canard", buyPrice = 0, sellPrice = 30, color = new Color(1f, 0.84f, 0.15f) },
         new ItemDef { type = ItemType.Os, otherId = "O2", name = "Os", shortName = "Os", buyPrice = 0, sellPrice = 20, color = new Color(0.93f, 0.9f, 0.8f) },
@@ -621,12 +619,12 @@ public static class Items
         return v;
     }
 
-    // V0.7 (Note 08 du chapitre 3.4) : à la mort, tout l'inventaire tombe à terre, sauf les objets détruits : Balises, Balises
-    // Améliorées, Téléporteur, Station Curative, Canon et Post-It (V0.7.2 : plus de Chargeur). Les objets qui se posent
+    // V0.7 (Note 08 du chapitre 3.4) : à la mort, tout l'inventaire tombe à terre, sauf les objets détruits : Balises,
+    // Téléporteur, Station Curative, Canon et Post-It (V0.7.2 : plus de Chargeur ; V0.7.10 : plus de Balise Améliorée). Les objets qui se posent
     // (Télévision, Trampoline, Cloche, peluches, Boule de Disco, canards, Protocole) sont posés près du corps ; les autres
     // tombent au sol (LeftOnDeath).
     public static bool DestroyedOnDeath(ItemType type) =>
-        type == ItemType.Balise || type == ItemType.BaliseAmelioree || type == ItemType.Teleporteur || type == ItemType.StationCurative
+        type == ItemType.Balise || type == ItemType.Teleporteur || type == ItemType.StationCurative
         || type == ItemType.Canon || type == ItemType.PostIt;
 
     // Le Pion peut voler dans l'inventaire un objet des monticules (Os, canards).

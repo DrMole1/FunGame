@@ -62,7 +62,7 @@ public class NetworkGame : MonoBehaviour
     public int MySkin => mySkin;
     public int SkinCount => library.Count;
     // Noms des personnages (Perso 1 à 8, V0.4.8 : Perso 5 à 8), affichés dans les menus de choix du skin.
-    static readonly string[] SkinNames = { "Snoopy", "Grumble", "Princess", "Jerk", "Karen", "Peepoo", "Gladys", "Mirkov" };
+    static readonly string[] SkinNames = { "Snoops", "Grumble", "Princess", "Jerk", "Karen", "Peepoo", "Gladys", "Mirkov" };
     public string SkinName(int i) => i >= 0 && i < SkinNames.Length ? SkinNames[i] : "Perso " + (i + 1);
     public PlayerController LocalPlayer => localPlayer;
     public IReadOnlyDictionary<string, PlayerInfo> Roster => roster;
@@ -183,6 +183,7 @@ public class NetworkGame : MonoBehaviour
 
     public void HostGame(string playerName)
     {
+        if (NameRefused(playerName)) return;
         BeginSession(playerName);
         isHost = true;
         state = State.Hosting;
@@ -194,6 +195,7 @@ public class NetworkGame : MonoBehaviour
     // Partie solo : l'hôte joue seul, sans connexion au serveur ni code pour rejoindre.
     public void SoloGame(string playerName)
     {
+        if (NameRefused(playerName)) return;
         BeginSession(playerName);
         isHost = true;
         state = State.Hosting;
@@ -209,6 +211,7 @@ public class NetworkGame : MonoBehaviour
             ui.ShowLobby(Loc.T("Entrez le code de la partie à rejoindre."));
             return;
         }
+        if (NameRefused(playerName)) return;
         BeginSession(playerName);
         isHost = false;
         state = State.Joining;
@@ -231,6 +234,8 @@ public class NetworkGame : MonoBehaviour
         PlayerPrefs.SetInt("skin", mySkin);
         PlayerPrefs.Save();
         localPlayer.GetComponent<CharacterAvatar>().SetCharacter(library, mySkin);
+        // Note 02 du chapitre 6.1 (V0.7.10) : dans le lobby, la caméra revient vite face au nouveau skin.
+        if (state != State.InGame) OrbitCamera.ReturnToLobbyHome();
         // "1" : le pseudo suit le skin (l'hôte le renomme).
         if (state == State.InGame) ToHost("K|" + mySkin + "|" + (nameFromSkin ? "1" : "0"));
     }
@@ -454,10 +459,25 @@ public class NetworkGame : MonoBehaviour
         go.GetComponent<CharacterAvatar>().SetCharacter(library, mySkin);
         go.GetComponent<CharacterAvatar>().SetDead(false);
         localPlayer.SetFrozen(true);
-        localPlayer.Teleport(new Vector3(0f, library.height * 0.5f, -4f), 0f);
+        // Note 02 du chapitre 6.1 (V0.7.10) : le personnage fait face à la caméra, le Terminal derrière lui.
+        Vector3 spot = new Vector3(0f, library.height * 0.5f, -4f);
+        float homeYaw = LobbyHomeYaw(spot);
+        localPlayer.Teleport(spot, homeYaw + 180f);
+        OrbitCamera.SetLobbyHome(homeYaw);
         if (go.TryGetComponent(out NameTag tag)) tag.Show(false);
         PlayerController.InputLocked = true;
         OrbitCamera.ControlsEnabled = false;
+    }
+
+    // Cap de la caméra du lobby : du personnage vers le Terminal le plus proche (la caméra, devant lui, le voit en arrière-plan).
+    static float LobbyHomeYaw(Vector3 spot)
+    {
+        Transform best = null;
+        foreach (var t in Object.FindObjectsOfType<Transform>())
+            if (t.name == "TerminalAnchor" && (best == null || (t.position - spot).sqrMagnitude < (best.position - spot).sqrMagnitude)) best = t;
+        if (best == null) return 180f;
+        Vector3 d = best.position - spot;
+        return Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
     }
 
     void EnterGame(PlayerInfo me)
@@ -581,8 +601,18 @@ public class NetworkGame : MonoBehaviour
         return sb.ToString();
     }
 
+    // Mots interdits (GDD 15.2, V0.7.10) : la validation du pseudo est bloquée, avec un message dans le menu du lobby.
+    bool NameRefused(string playerName)
+    {
+        if (!ForbiddenWords.Contains(playerName)) return false;
+        ui.ShowLobby(Loc.T("Ce pseudo contient un mot interdit."));
+        return true;
+    }
+
     public static string SanitizeName(string n)
     {
+        // Pseudo interdit reçu malgré tout (client modifié) : l'hôte le remplace.
+        if (ForbiddenWords.Contains(n)) n = "";
         n = (n ?? "").Replace("|", "").Replace("\n", "").Replace("\r", "").Replace("<", "").Replace(">", "").Trim();
         if (n.Length > 16) n = n.Substring(0, 16);
         return n.Length == 0 ? "Joueur" : n;

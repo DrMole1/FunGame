@@ -869,10 +869,10 @@ public partial class GameSession
         }
     }
 
-    // ================= Godmod : Balise Améliorée posée d'un clic (V0.6) =================
+    // ================= Godmod : Balise posée d'un clic (V0.6 ; V0.7.10 : Balise, plus de Balise Améliorée) =================
 
-    // Case d'inventaire vide sélectionnée : un clic sur le sol pose une Balise Améliorée (sans rien retirer de l'inventaire).
-    public void GodPlaceEnhanced()
+    // Case d'inventaire vide sélectionnée : un clic sur le sol pose une Balise (sans rien retirer de l'inventaire).
+    public void GodPlaceBeacon()
     {
         if (!Godmode || !net.IsHost) return;
         Camera cam = Camera.main;
@@ -884,7 +884,7 @@ public partial class GameSession
         Gesture(PlayerGesture.Place);
         Vector3 back = player.transform.position - hit.point;
         float yaw = back.sqrMagnitude > 0.01f ? Mathf.Atan2(back.x, back.z) * Mathf.Rad2Deg : 0f;
-        net.ToHost("BN|" + NetworkGame.F(hit.point.x) + "|" + NetworkGame.F(hit.point.y) + "|" + NetworkGame.F(hit.point.z) + "|" + (int)DeviceKind.Enhanced
+        net.ToHost("BN|" + NetworkGame.F(hit.point.x) + "|" + NetworkGame.F(hit.point.y) + "|" + NetworkGame.F(hit.point.z) + "|" + (int)DeviceKind.Beacon
             + "|" + NetworkGame.F(yaw));
     }
 

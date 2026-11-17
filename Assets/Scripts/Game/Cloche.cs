@@ -110,11 +110,11 @@ public class Cloche : Entity
             Pursue(target, dt);
             return;
         }
-        // Tout contre sa proie : elle explose.
+        // Tout contre sa proie : elle explose. V0.7.10 (Note 01) : comme Le Réveil, son explosion fait disparaître les objets au sol.
         Current = State.Explode;
         Speed = 0f;
         explodeTimer = 0f;
-        Host?.Explode(this, transform.position + Vector3.up * 0.5f, GameRules.ClocheBlastRadius, GameRules.ClocheDamage, GameRules.ClocheKnockback, false);
+        Host?.Explode(this, transform.position + Vector3.up * 0.5f, GameRules.ClocheBlastRadius, GameRules.ClocheDamage, GameRules.ClocheKnockback);
     }
 
     void BeginSearch()

@@ -41,10 +41,10 @@ public class PlayerInteractor : MonoBehaviour
         {
             session.UseSelectedItem();
         }
-        // Godmod (V0.6) : case vide sélectionnée, un clic sur le sol pose une Balise Améliorée.
+        // Godmod (V0.6) : case vide sélectionnée, un clic sur le sol pose une Balise (V0.7.10).
         else if (click && session.Godmode)
         {
-            session.GodPlaceEnhanced();
+            session.GodPlaceBeacon();
         }
     }
 

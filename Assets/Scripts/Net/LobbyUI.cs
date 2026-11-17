@@ -350,6 +350,8 @@ public class LobbyUI : MonoBehaviour
         UiKit.Label(p, "Skin", 16, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft);
         lobbySkin = UiKit.Selector(p, 48, () => ChangeSkin(-1), () => ChangeSkin(1));
         PaintSelector(lobbySkin, 3);
+        // Survol des flèches du skin : zoom progressif sur le personnage (menu du lobby seulement, pas le menu pause).
+        foreach (var b in lobbySkin.transform.parent.GetComponentsInChildren<Button>()) b.gameObject.AddComponent<LobbySkinZoom>();
         VolumeRows(p, 30, 20, false);
 
         UiKit.Spacer(p, 4);

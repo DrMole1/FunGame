@@ -36,14 +36,22 @@ public class PostItUI : MonoBehaviour
         panel.SetActive(false);
     }
 
-    public void Open() => Open("Post-It", Loc.F(PostItHint, Items.PostItMaxChars), "Votre message…", "Entrée : accrocher · Échap : annuler",
-        Items.PostItMaxChars, onPostIt);
+    // Post-It : la saisie est refusée si elle contient un mot interdit (GDD 15.2, V0.7.10).
+    public void Open()
+    {
+        Open("Post-It", Loc.F(PostItHint, Items.PostItMaxChars), "Votre message…", "Entrée : accrocher · Échap : annuler",
+            Items.PostItMaxChars, onPostIt);
+        filtered = true;
+    }
+
+    bool filtered;
 
     // heading, placeholder et keys : textes français (traduits ici) ; help : déjà traduit.
     public void Open(string heading, string help, string placeholder, string keys, int maxChars, System.Action<string> written)
     {
         if (IsOpen) return;
         IsOpen = true;
+        filtered = false;
         onWritten = written;
         Loc.Bind(title, heading);
         hint.text = help;
@@ -79,6 +87,12 @@ public class PostItUI : MonoBehaviour
         if (!IsOpen || !(Input.GetKey(KeyCode.Return) || Input.GetKey(KeyCode.KeypadEnter))) return;
         if (text.Trim().Length == 0)
         {
+            input.ActivateInputField();
+            return;
+        }
+        if (filtered && ForbiddenWords.Contains(text))
+        {
+            hint.text = Loc.T("Message refusé : il contient un mot interdit.");
             input.ActivateInputField();
             return;
         }

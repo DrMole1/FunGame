@@ -31,7 +31,7 @@ using UnityEngine;
 //   NZ                                                          joueur -> hôte : saut (action bruyante, pour L'Araignée)
 //   DR|objet|x|y|z -> IA|id|objet|x|y|z                         objet laissé à terre (mort, Pion), ramassable comme les autres
 //   BN|x|y|z|appareil / BG|id                                   joueur -> hôte : poser / ramasser un appareil
-//   BW|id|x|y|z|appareil|cap|joueur / BZ|id                     hôte -> tous : appareil posé / retiré (Balise, Balise Améliorée,
+//   BW|id|x|y|z|appareil|cap|joueur / BZ|id                     hôte -> tous : appareil posé / retiré (Balise,
 //                                                               Téléporteur, Station Curative, Canon, objets uniques)
 //   JO / JS|objet / JE                                          joueur -> hôte : ouvrir Pogo / lui vendre un objet / cliquer les mains vides
 //   JX|état|sourire|frappé|victimes / JK / JN|raison                    hôte -> tous : état de Pogo ; -> joueur : coup mortel / refus
@@ -701,8 +701,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             }
         }
         else regenAcc = 0f;
-        // Pendant le Couvre Feu, seulement dans un Hub ou près d'une Balise Améliorée : +10 par seconde ; sinon, +2 par seconde partout.
-        float serenityRate = CurfewActive ? (inHub || InEnhancedBeaconShelter(player.transform.position) ? GameRules.CurfewRegenPerSecond : 0f)
+        // Pendant le Couvre Feu, seulement dans un Hub : +10 par seconde ; sinon, +2 par seconde partout.
+        float serenityRate = CurfewActive ? (inHub ? GameRules.CurfewRegenPerSecond : 0f)
                            : GameRules.CalmSerenityRegenPerSecond;
         if (!status.Dead && status.Serenity < GameRules.MaxSerenity && serenityRate > 0f)
         {
@@ -789,7 +789,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         bool curfew = net.InGame && CurfewActive;
         FlickerLight.CurfewWarning = net.InGame && phase == Phase.Running && timeLeft > GameRules.CurfewStart && timeLeft <= GameRules.CurfewStart + GameRules.CurfewWarning;
         WorldStreamer.SetPower(Mathf.MoveTowards(FlickerLight.Power, curfew ? 0f : 1f, Time.deltaTime / (curfew ? GameRules.CurfewPowerOff : GameRules.CurfewPowerOn)));
-        Beacon.CurfewGlow = curfew;
         GameAudio.CurfewLevel = curfew ? 1f : 0f;
     }
 
@@ -867,13 +866,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         player.ReleaseImmobilize();
     }
 
-    // Couvre Feu (V0.6.8) : dans le labyrinthe, hors des Hubs et loin d'une Balise Améliorée, -1 de sérénité par seconde.
+    // Couvre Feu (V0.6.8) : dans le labyrinthe, hors des Hubs, -1 de sérénité par seconde.
     void UpdateCurfewDrain()
     {
         Vector3 p = player.transform.position;
         player.SpeedFactor = FallSpeedFactor();
         bool draining = !status.Dead && !Teleporting && !CannonFlying && !Sliding && !InKennel && CurfewActive && zones.Count > 0
-            && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p) && !InEnhancedBeaconShelter(p);
+            && WorldBuilder.ZoneAt(p) > 0 && !WorldBuilder.IsInHub(p);
         if (!draining || Godmode)
         {
             curfewDrain = 0f;
@@ -1265,7 +1264,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         EndTeleport(false);
         channelPad = null;
         StopChannelSound();
-        // V0.7 : tout tombe à terre, sauf les Balises, Balises Améliorées, Téléporteurs, Stations Curatives, Canons
+        // V0.7 : tout tombe à terre, sauf les Balises, Téléporteurs, Stations Curatives, Canons
         // et Post-It, détruits (Items.LeftOnDeath) ; ce qui se pose est posé près du corps.
         var left = new List<ItemType>();
         var unique = new List<ItemType>();
@@ -1331,9 +1330,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         {
             case ItemType.Balise:
                 TryPlaceBeacon(slot, DeviceKind.Beacon);
-                break;
-            case ItemType.BaliseAmelioree:
-                TryPlaceBeacon(slot, DeviceKind.Enhanced);
                 break;
             case ItemType.Teleporteur:
                 TryPlaceBeacon(slot, DeviceKind.Teleporter);
@@ -1412,8 +1408,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     // ================= Balises =================
 
-    // Viser le sol (assez près) pose la Balise (ou la Balise Améliorée, le Téléporteur, la Station Curative, le Canon).
-    // Le Téléporteur, la Station Curative et le Canon se posent hors du Hub ; les Balises, les Balises Améliorées et les
+    // Viser le sol (assez près) pose la Balise (ou le Téléporteur, la Station Curative, le Canon).
+    // Le Téléporteur, la Station Curative et le Canon se posent hors du Hub ; les Balises et les
     // objets uniques, partout (et se ramassent de la même façon). La Balise du Hub initiale ne change pas.
     void TryPlaceBeacon(int slot, DeviceKind kind)
     {
@@ -1433,7 +1429,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                             : Loc.F("Visez le sol, tout près de vous, pour y poser : {0}.", what));
             return;
         }
-        if (WorldBuilder.IsInHub(hit.point) && !Items.IsPlaceable(status[slot]) && kind != DeviceKind.Beacon && kind != DeviceKind.Enhanced)
+        if (WorldBuilder.IsInHub(hit.point) && !Items.IsPlaceable(status[slot]) && kind != DeviceKind.Beacon)
         {
             hud.Toast(Loc.F("{0} : à poser hors du Hub.", what));
             return;
@@ -1678,7 +1674,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     }
 
     // Sur la grille de navigation de la zone (1, 2, 3...), loin du Hub, des joueurs (au moins 20 m, note 01 du chapitre 8)
-    // et des Balises Améliorées ; sans emplacement valable, l'entité n'apparaît pas.
+    // (V0.7.10 : plus de Balise Améliorée) ; sans emplacement valable, l'entité n'apparaît pas.
     T SpawnAt<T>(int zone, System.Random rnd, float playerClearance) where T : Entity
     {
         if (zone < 1 || zone > zones.Count) return null;
@@ -1690,7 +1686,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             int candidate = nav.RandomNode(0, rnd, Vector3.zero, 0f);
             if (candidate < 0) continue;
             Vector3 p = nav.Position(candidate);
-            bool blocked = NearEnhancedBeacon(p) || WorldBuilder.IsInHub(p);
+            bool blocked = WorldBuilder.IsInHub(p);
             foreach (var pl in PlayerPresence.All)
                 if (pl.Alive && Vector3.Distance(pl.Position, p) < playerClearance) blocked = true;
             if (!blocked) node = candidate;
@@ -1821,7 +1817,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     public IEnumerable<Vector3> BeaconPositions()
     {
         foreach (var b in beacons.Placed)
-            if (b != null && (b.Kind == DeviceKind.Beacon || b.Kind == DeviceKind.Enhanced)) yield return b.transform.position;
+            if (b != null && b.Kind == DeviceKind.Beacon) yield return b.transform.position;
     }
 
     public void Swap(Entity entity, string targetId, Vector3 position) =>
@@ -2124,17 +2120,6 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         if (status.Dead || Godmode || InKennel) return;
         status.SetSerenity(status.Serenity - GameRules.BellObsessionSerenity);
-    }
-
-    // ---------- Balises Améliorées : chargées, à 4 m ou moins, comme au Hub pendant le Couvre Feu ; aucune entité n'apparaît à moins de 5 m ----------
-
-    bool InEnhancedBeaconShelter(Vector3 p) => NearEnhancedBeacon(p, GameRules.EnhancedBeaconSerenityRange, true);
-
-    bool NearEnhancedBeacon(Vector3 p, float range = GameRules.EnhancedBeaconRadius, bool chargedOnly = false)
-    {
-        foreach (var b in beacons.Placed)
-            if (b != null && b.Kind == DeviceKind.Enhanced && (!chargedOnly || b.Charged) && (b.transform.position - p).sqrMagnitude <= range * range) return true;
-        return false;
     }
 
     // ---------- Station Curative : +10 PV par seconde à moins d'1 m ----------
@@ -3138,7 +3123,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             {
                 noiseAt[from] = Time.time;
                 string text = SanitizeNote(f[7]);
-                if (text.Length == 0) break;
+                // Mots interdits (15.2, V0.7.10) : déjà refusés à la saisie ; l'hôte ignore un Post-It qui en contiendrait un.
+                if (text.Length == 0 || ForbiddenWords.Contains(text)) break;
                 int id = nextNoteId++;
                 string msg = "PA|" + id + "|" + f[1] + "|" + f[2] + "|" + f[3] + "|" + f[4] + "|" + f[5] + "|" + f[6] + "|" + text;
                 noteMessages[id] = msg;

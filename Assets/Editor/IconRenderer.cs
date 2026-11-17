@@ -18,7 +18,6 @@ public static class IconRenderer
         // V0.5.1 : la Cuisse de poulet remplace la Croquette (objet 1).
         Render("DuckSolo", ItemType.Canard, new Vector3(8f, -140f, 0f), 0f);
         Render("Balise", ItemType.Balise, new Vector3(10f, -150f, 0f), 0f);
-        Render("Balise", ItemType.BaliseAmelioree, new Vector3(10f, -150f, 0f), 0f, "BaliseBlanche");
         Render("Teleporteur", ItemType.Teleporteur, new Vector3(45f, -150f, 0f), 0f);
         Render("StationCurative", ItemType.StationCurative, new Vector3(10f, -150f, 0f), 0f);
         // V0.4.6 : l'Os (monticules) et le Canon (Terminal).
@@ -40,12 +39,13 @@ public static class IconRenderer
         Debug.Log("Icônes d'inventaire générées.");
     }
 
-    // V0.6.8 : seule l'icône de la Balise Améliorée (devenue blanche).
-    public static void RenderEnhancedBeacon()
+    // V0.7.10 : seule l'icône de la Balise (nouveau modèle : pion d'échecs blanc).
+    [MenuItem("FunGame/Générer l'icône de la Balise")]
+    public static void RenderBeacon()
     {
-        Render("Balise", ItemType.BaliseAmelioree, new Vector3(10f, -150f, 0f), 0f, "BaliseBlanche");
+        Render("Balise", ItemType.Balise, new Vector3(10f, -150f, 0f), 0f);
         AssetDatabase.Refresh();
-        ConfigureSprite(IconDir + "/" + ItemType.BaliseAmelioree + ".png");
+        ConfigureSprite(IconDir + "/" + ItemType.Balise + ".png");
     }
 
     static void Render(string model, ItemType type, Vector3 viewAngles, float skipBottom, string material = null, Color tint = default)
@@ -62,7 +62,7 @@ public static class IconRenderer
         var go = Object.Instantiate(prefab, root.transform);
         go.transform.localPosition = Vector3.zero;
         go.transform.localRotation = prefab.transform.localRotation; // rotation d'import conservée (FBX Meshy remaillés)
-        // Variante d'un modèle (Balise Améliorée) : même maillage, autre matériau.
+        // Variante d'un modèle : même maillage, autre matériau.
         var swap = material != null ? Resources.Load<Material>("Art/" + material) : null;
         if (swap != null)
             foreach (var r in go.GetComponentsInChildren<Renderer>()) r.sharedMaterial = swap;

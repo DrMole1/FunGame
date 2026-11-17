@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-// V0.6.8 : Balise Améliorée blanche (texture, matériau, icône) et corps sans tête de la statue de Pavlov (sa variante à tête de chien).
+// V0.6.8 : corps sans tête de la statue de Pavlov (sa variante à tête de chien).
 public static class V068Setup
 {
     const string StatueBody = "Assets/Resources/Art/Decor/StatuePavlovSansTete.asset";
@@ -10,9 +10,6 @@ public static class V068Setup
     [MenuItem("FunGame/Préparer les modèles V0.6.8")]
     public static void Run()
     {
-        EntitySetup.CreateWhiteBeacon();
-        AssetDatabase.SaveAssets();
-        IconRenderer.RenderEnhancedBeacon();
         BuildHeadlessStatue();
         AssetDatabase.SaveAssets();
         Debug.Log("Modèles V0.6.8 prêts.");

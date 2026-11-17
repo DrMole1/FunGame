@@ -14,6 +14,7 @@ public static class WindowsBuilder
     [MenuItem("FunGame/Build Windows (.exe)")]
     public static void Build()
     {
+        ApplyPlayerSettings();
         BuildTarget previous = EditorUserBuildSettings.activeBuildTarget;
         BuildTargetGroup previousGroup = EditorUserBuildSettings.selectedBuildTargetGroup;
         PlayerSettings.runInBackground = true;
@@ -36,11 +37,43 @@ public static class WindowsBuilder
         });
 
         if (report.summary.result == BuildResult.Succeeded)
+        {
+            CopyLicenses(outPath);
             Debug.Log($"Build Windows réussi : {Path.Combine(outPath, ExeName)} ({report.summary.totalSize / (1024 * 1024)} Mo)");
+        }
         else
             Debug.LogError($"Build Windows échoué : {report.summary.result}, {report.summary.totalErrors} erreur(s)");
 
         if (EditorUserBuildSettings.activeBuildTarget != previous)
             EditorUserBuildSettings.SwitchActiveBuildTarget(previousGroup, previous);
+    }
+
+    // GDD 15.1 (V0.7.10) : avant chaque build, nom de la société, nom du produit, version actuelle et icône par défaut
+    // (Assets/Sprite/DefaultIcon.png, aussi icône de l'onglet du navigateur en WebGL).
+    public const string DefaultIconPath = "Assets/Sprite/DefaultIcon.png";
+
+    [MenuItem("FunGame/Appliquer les paramètres de build")]
+    public static void ApplyPlayerSettings()
+    {
+        PlayerSettings.companyName = "Prob Bastien";
+        PlayerSettings.productName = "Pavlov's Theory";
+        PlayerSettings.bundleVersion = GameRules.Version.TrimStart('V', 'v');
+        var icon = AssetDatabase.LoadAssetAtPath<Texture2D>(DefaultIconPath);
+        if (icon != null) PlayerSettings.SetIconsForTargetGroup(BuildTargetGroup.Unknown, new[] { icon });
+        else Debug.LogWarning("Icône par défaut introuvable : " + DefaultIconPath);
+        string favicon = Path.Combine(Application.dataPath, "WebGLTemplates/FunGame/favicon.png");
+        if (File.Exists(DefaultIconPath)) File.Copy(DefaultIconPath, favicon, true);
+        AssetDatabase.SaveAssets();
+    }
+
+    // Licences des polices embarquées (SIL OFL 1.1) : la licence et la mention de copyright doivent accompagner toute
+    // distribution du jeu. Copiées depuis Assets/Font/ dans le dossier "Licenses/" du build (Windows et WebGL).
+    public static void CopyLicenses(string outPath)
+    {
+        string src = Path.Combine(Application.dataPath, "Font");
+        string dst = Path.Combine(outPath, "Licenses");
+        Directory.CreateDirectory(dst);
+        foreach (string f in Directory.GetFiles(src, "*-OFL.txt"))
+            File.Copy(f, Path.Combine(dst, Path.GetFileName(f)), true);
     }
 }

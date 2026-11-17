@@ -3,7 +3,7 @@ using UnityEngine;
 
 // Téléporteur Inversé (GDD 7.9, V0.6.10) : un par Hub au plus, acheté au Terminal de ce Hub (il n'y est alors plus proposé),
 // il apparaît au centre du Hub. Relié à la Balise du Hub chargée, il fait voyager tous les joueurs qui se tiennent dessus,
-// après la même canalisation qu'un Téléporteur (ils dansent 3 secondes), jusqu'à la Balise (ou Balise Améliorée) la plus
+// après la même canalisation qu'un Téléporteur (ils dansent 3 secondes), jusqu'à la Balise la plus
 // éloignée de la Balise du Hub parmi celles du flux de ce Hub ; le voyage suit les liens d'énergie, dans l'autre sens.
 // Ensuite : 120 secondes de recharge (teinte terne, jauge circulaire).
 // Messages : VN|hub (hôte -> tous : il apparaît), VJ|hub|1/0 (joueur -> hôte : sur le disque ou non),
@@ -115,7 +115,7 @@ public partial class GameSession
         }
     }
 
-    // Balise (ou Balise Améliorée) chargée par le flux de ce Hub, la plus éloignée de sa Balise principale.
+    // Balise chargée par le flux de ce Hub, la plus éloignée de sa Balise principale.
     Beacon FarthestFluxBeacon(int hub)
     {
         Beacon root = beacons.GetHub(hub);

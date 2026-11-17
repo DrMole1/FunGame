@@ -20,6 +20,20 @@ public class OrbitCamera : MonoBehaviour
 
     // Désactivé pendant le lobby : la caméra tourne lentement et la souris reste libre.
     public static bool ControlsEnabled = true;
+    // Note 02 du chapitre 6.1 (V0.7.10) : dans le lobby, la caméra part face au personnage (son visage, le Terminal en arrière-plan)
+    // puis tourne comme avant ; au changement de skin, elle revient rapidement à cette position de départ.
+    static float lobbyHomeYaw;
+    static bool lobbySnap, lobbyReturn;
+    const float LobbySpinSpeed = 6f, LobbyReturnSpeed = 360f;
+
+    public static void SetLobbyHome(float yaw)
+    {
+        lobbyHomeYaw = yaw;
+        lobbySnap = true;
+        lobbyReturn = false;
+    }
+
+    public static void ReturnToLobbyHome() => lobbyReturn = true;
     // Bloque le verrouillage de la souris (Terminal ouvert).
     public static bool CursorLockBlocked;
     // Image où la souris vient d'être verrouillée : ce clic ne doit pas aussi déclencher d'action.
@@ -246,6 +260,10 @@ public class OrbitCamera : MonoBehaviour
         transform.SetPositionAndRotation(Vector3.Lerp(transform.position, pos, w), Quaternion.Slerp(transform.rotation, rot, w));
     }
 
+    // Zoom du lobby (survol des flèches du skin) : champ de vision réduit à 65 %, atteint en 1,2 s, quitté en 0,3 s.
+    float lobbyZoom;
+    const float LobbyZoomFov = 0.65f, LobbyZoomIn = 1.2f, LobbyZoomOut = 0.3f;
+
     // Zoom dans le Canon et secousses (tir, impact).
     void UpdateLens()
     {
@@ -255,6 +273,10 @@ public class OrbitCamera : MonoBehaviour
         cam.fieldOfView += heartFov;
         if (baseFov < 0f) baseFov = cam.fieldOfView;
         float wanted = CannonEye.HasValue ? baseFov * CannonZoom : baseFov;
+        // Lobby : flèches du skin survolées, zoom progressif sur le personnage ; retour rapide une fois le survol fini.
+        bool skinZoom = !ControlsEnabled && LobbySkinZoom.Active;
+        lobbyZoom = Mathf.MoveTowards(lobbyZoom, skinZoom ? 1f : 0f, Time.deltaTime / (skinZoom ? LobbyZoomIn : LobbyZoomOut));
+        wanted *= Mathf.Lerp(1f, LobbyZoomFov, Mathf.SmoothStep(0f, 1f, lobbyZoom));
         cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, wanted + shake * 12f, 1f - Mathf.Exp(-10f * Time.deltaTime));
         if (zoomPunch >= 0f)
         {
@@ -295,7 +317,19 @@ public class OrbitCamera : MonoBehaviour
         // Première personne : seulement sur son propre personnage (pas en spectateur), hors du lobby. Forcée dans le Canon.
         bool fp = (firstPerson || CannonEye.HasValue || KennelEye.HasValue || tunnelBlend >= 1f) && own;
         if (!ControlsEnabled)
-            yaw += 6f * Time.deltaTime;
+        {
+            if (lobbySnap)
+            {
+                yaw = lobbyHomeYaw;
+                lobbySnap = lobbyReturn = false;
+            }
+            else if (lobbyReturn)
+            {
+                yaw = Mathf.MoveTowardsAngle(yaw, lobbyHomeYaw, LobbyReturnSpeed * Time.deltaTime);
+                if (Mathf.Abs(Mathf.DeltaAngle(yaw, lobbyHomeYaw)) < 0.1f) lobbyReturn = false;
+            }
+            else yaw += LobbySpinSpeed * Time.deltaTime;
+        }
         else if (ForcedLook.HasValue)
         {
             // La souris n'y peut rien : le regard est tiré vers La Cloche.
