@@ -24,11 +24,11 @@ public partial class GameSession
 
     int CurrentHub() => NearestHub(player.transform.position).index;
 
-    // Proposé au Terminal : la Boussole jusqu'à son achat, le Téléporteur Inversé tant que ce Hub n'en a pas.
+    // Proposé au Terminal : le Téléporteur Inversé tant que ce Hub n'en a pas.
     public bool ForSale(ItemDef def)
     {
-        if (def.type == ItemType.Boussole) return !compass;
-        if (def.type == ItemType.TeleporteurInverse) return !reversePads.ContainsKey(CurrentHub());
+        if (def.type
+ == ItemType.TeleporteurInverse) return !reversePads.ContainsKey(CurrentHub());
         return true;
     }
 

@@ -38,7 +38,7 @@ public class PlayerController : MonoBehaviour
     bool Immobilized => Time.time < lockedUntil;
 
     public bool Grounded => grounded;
-    // Sur un Téléporteur ou une Station Curative en marche : le personnage danse tant qu'il ne bouge pas.
+    // Sur un Téléporteur en marche : le personnage danse tant qu'il ne bouge pas.
     public bool Dancing { get; set; }
     // En train de creuser un monticule (animation "Creuser", commandes bloquées par le jeu).
     public bool Digging { get; set; }
@@ -55,6 +55,9 @@ public class PlayerController : MonoBehaviour
 
     // Multiplicateur de vitesse imposé par le jeu (brume du Couvre Feu).
     public float SpeedFactor { get; set; } = 1f;
+    // V0.7.11 (7.14) : maître du joueur soumis (laisse de 5 m), null sinon.
+    public Vector3? Tether { get; set; }
+    public float TetherLength = 5f;
     // Aura blanche du Roi : impossible de courir.
     public bool RunBlocked { get; set; }
     // Chaîne du Roi : vitesse horizontale imposée (le personnage est traîné), null sinon.
@@ -235,6 +238,21 @@ public class PlayerController : MonoBehaviour
         }
 
         if (grounded && !Pull.HasValue && Time.frameCount - carryFrame <= 1) move += carry;
+
+        // V0.7.11 (7.14) : tenu en laisse, le joueur soumis ne s'éloigne pas à plus de 5 m de son maître : il est traîné derrière lui.
+        if (Tether.HasValue)
+        {
+            Vector3 d = rb.position - Tether.Value;
+            d.y = 0f;
+            float over = d.magnitude - TetherLength;
+            if (over > 0f)
+            {
+                Vector3 outward = d.normalized;
+                float away = Vector3.Dot(move, outward);
+                if (away > 0f) move -= outward * away;
+                move -= outward * Mathf.Min(over * 8f, 25f);
+            }
+        }
 
         Vector3 vel = rb.velocity;
         vel.x = move.x;

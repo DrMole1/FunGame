@@ -8,8 +8,18 @@ using UnityEngine;
 // posé par le jeu sur la feuille, pour rester net et traduit. V0.7.2 : la feuille est noircie et le texte écrit en blanc
 // (lisible en blanc sur fond noir). V0.7.9 : chaque règle finit, sur la même ligne, par l'image de son glyphe, sans arrière-plan,
 // à l'encre blanche comme le texte (rester assis : glyphe 1 ; aboyer : glyphe 3 ; aller à la niche : glyphe 2).
+// V0.7.11 : la même planche sert à la Notice du Hub II (7.17 : même modèle, texte "Pour porter les os." et l'image Notice), et
+// une feuille de journal, sans plaque, sert aux vieux Journaux J1 à J5 (17.5 : texte manuscrit à l'encre noire).
+public enum DocumentKind { Protocole = 0, Notice = 1, Journal1 = 2, Journal2 = 3, Journal3 = 4, Journal4 = 5, Journal5 = 6 }
+
 public static class ProtocolBoard
 {
+    public static bool IsDocument(ItemType type) => type == ItemType.Protocole || Items.IsReadable(type);
+
+    public static DocumentKind KindOf(ItemType type) =>
+        type == ItemType.Notice ? DocumentKind.Notice : Items.IsJournal(type) ? DocumentKind.Journal1 + (type - ItemType.Journal1) : DocumentKind.Protocole;
+
+    static bool IsJournal(DocumentKind kind) => kind >= DocumentKind.Journal1;
     // Plaque : largeur x hauteur (m), le papier un peu plus petit.
     public const float Width = 0.4f, Height = 0.58f, Thickness = 0.012f;
     // Feuille (proportions de la texture Meshy, 760 x 1084).
@@ -44,13 +54,23 @@ public static class ProtocolBoard
     // Place laissée à l'image du glyphe, en caractères.
     const int GlyphChars = 3;
 
-    public static float SizeFor(string text)
+    public static float SizeFor(string text, DocumentKind kind = DocumentKind.Protocole)
     {
         int longest = 1;
         string[] lines = text.Split('\n');
         for (int i = 0; i < lines.Length; i++)
-            longest = Mathf.Max(longest, lines[i].Length + (i >= 1 && i <= RuleGlyphs.Length ? GlyphChars : 0));
-        return TextSize * Mathf.Min(1f, FitChars / (float)longest);
+            longest = Mathf.Max(longest, lines[i].Length + (kind == DocumentKind.Protocole && i >= 1 && i <= RuleGlyphs.Length ? GlyphChars : 0));
+        // Journaux : le texte, plus long, ne doit pas dépasser de la feuille, ni en largeur ni en hauteur (GDD 17.5).
+        float size = TextSize * Mathf.Min(1f, FitChars / (float)longest);
+        if (IsJournal(kind)) size = Mathf.Min(size, TextSize * 13f / Mathf.Max(13, lines.Length));
+        return size;
+    }
+
+    public static string Text(DocumentKind kind)
+    {
+        if (kind == DocumentKind.Notice) return Loc.T("Pour porter les os.");
+        if (IsJournal(kind)) return Journals.Text(kind - DocumentKind.Journal1);
+        return Text();
     }
 
     public static string Text() =>
@@ -75,8 +95,10 @@ public static class ProtocolBoard
         return glyphInk[type];
     }
 
+    static Material journalPaper, noticeImage;
+
     // Planche dressée : la face avec le texte regarde vers +Z (local), le bas à y = 0. 'scale' : 1 au sol ou en main.
-    public static GameObject Build(Transform parent, float scale = 1f, bool castShadows = true)
+    public static GameObject Build(Transform parent, float scale = 1f, bool castShadows = true, DocumentKind kind = DocumentKind.Protocole)
     {
         if (plate == null)
         {
@@ -88,19 +110,28 @@ public static class ProtocolBoard
             paper = sheetMat != null ? new Material(sheetMat) { name = "PapierNoirci", color = new Color(0.07f, 0.065f, 0.065f) }
                                      : GameArt.Lit("ProtocolePapier", new Color(0.05f, 0.05f, 0.05f), null, 0.05f);
         }
-        var root = new GameObject("Protocole");
+        bool journal = IsJournal(kind);
+        if (journal && journalPaper == null)
+        {
+            // Vieux journal jauni, beige et marron, aux bords noircis (texture de la feuille du Protocole, teintée).
+            var sheetMat = Resources.Load<Material>("Art/Protocole/PapierMat");
+            journalPaper = sheetMat != null ? new Material(sheetMat) { name = "PapierJournal", color = new Color(0.86f, 0.76f, 0.58f) }
+                                            : GameArt.Lit("PapierJournal", new Color(0.8f, 0.7f, 0.52f), null, 0.05f);
+        }
+        var root = new GameObject(kind == DocumentKind.Protocole ? "Protocole" : kind == DocumentKind.Notice ? "Notice" : "Journal");
         root.transform.SetParent(parent, false);
         root.transform.localScale = Vector3.one * scale;
         var t = root.transform;
-        // Plaque rouillée (texture sur ses deux faces).
-        Prim(t, new Vector3(0f, Height * 0.5f, 0f), new Vector3(Width, Height, Thickness), plate);
+        // Plaque rouillée (texture sur ses deux faces) ; le Journal n'en a pas (une simple feuille, un peu épaisse).
+        if (!journal) Prim(t, new Vector3(0f, Height * 0.5f, 0f), new Vector3(Width, Height, Thickness), plate);
+        else Prim(t, new Vector3(0f, Height * 0.5f, 0f), new Vector3(PaperW * 1.08f, PaperH * 1.04f, 0.002f), journalPaper);
         // Feuille de papier, légèrement de travers, à plat sur la plaque.
         var sheet = new GameObject("Feuille").transform;
         sheet.SetParent(t, false);
         sheet.localPosition = new Vector3(0.004f, Height * 0.5f, Thickness * 0.5f + 0.0015f);
         sheet.localRotation = Quaternion.Euler(0f, 0f, -1.6f);
         // Le quad se voit depuis son -Z : retourné vers l'avant de la plaque.
-        var quad = GameArt.Prim(PrimitiveType.Quad, sheet, Vector3.zero, new Vector3(PaperW, PaperH, 1f), paper);
+        var quad = GameArt.Prim(PrimitiveType.Quad, sheet, Vector3.zero, new Vector3(PaperW, PaperH, 1f), journal ? journalPaper : paper);
         quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
         foreach (var c in quad.GetComponentsInChildren<Collider>()) Object.Destroy(c);
         float hx = PaperW * 0.5f, hy = PaperH * 0.5f;
@@ -114,9 +145,21 @@ public static class ProtocolBoard
             text.font = Hand;
             text.GetComponent<MeshRenderer>().sharedMaterial = HandMaterial;
         }
-        text.color = Ink;   // encre blanche
+        // Encre blanche sur la feuille noircie (Protocole, Notice) ; noir d'encre sur le Journal.
+        text.color = journal ? new Color(0.04f, 0.035f, 0.03f) : Ink;
         text.lineSpacing = 0.95f;
-        text.gameObject.AddComponent<ProtocolText>().Init(text, sheet);
+        text.gameObject.AddComponent<ProtocolText>().Init(text, sheet, kind);
+        // Notice : l'image (Assets/Sprite/Notice.png) en bas du texte, à l'encre blanche.
+        if (kind == DocumentKind.Notice)
+        {
+            if (noticeImage == null)
+                noticeImage = new Material(Shader.Find("Sprites/Default")) { name = "ImageNotice", color = Ink, mainTexture = Resources.Load<Texture2D>("Art/Protocole/Notice") };
+            float iw = PaperW * 0.8f, ih = iw * 392f / 627f;
+            var image = GameArt.Prim(PrimitiveType.Quad, sheet, new Vector3(0f, -hy + ih * 0.5f + 0.05f, 0.0015f), new Vector3(iw, ih, 1f), noticeImage);
+            image.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            foreach (var c in image.GetComponentsInChildren<Collider>()) Object.Destroy(c);
+            image.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
         foreach (var r in root.GetComponentsInChildren<Renderer>())
             if (!castShadows) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         return root;
@@ -135,13 +178,16 @@ public class ProtocolText : MonoBehaviour
 {
     TextMesh text;
     Transform sheet;
+    DocumentKind kind;
     readonly Transform[] glyphs = new Transform[ProtocolBoard.RuleGlyphs.Length];
 
-    public void Init(TextMesh mesh, Transform paper)
+    public void Init(TextMesh mesh, Transform paper, DocumentKind document = DocumentKind.Protocole)
     {
         text = mesh;
         sheet = paper;
-        for (int i = 0; i < glyphs.Length; i++)
+        kind = document;
+        // Seul le Protocole porte les images des glyphes.
+        for (int i = 0; i < glyphs.Length && kind == DocumentKind.Protocole; i++)
         {
             var quad = GameArt.Prim(PrimitiveType.Quad, sheet, Vector3.zero, Vector3.one, ProtocolBoard.GlyphInk(ProtocolBoard.RuleGlyphs[i]));
             quad.name = "Glyphe" + (ProtocolBoard.RuleGlyphs[i] + 1);
@@ -163,8 +209,8 @@ public class ProtocolText : MonoBehaviour
     void Refresh()
     {
         if (text == null) return;
-        text.text = ProtocolBoard.Text();
-        text.characterSize = ProtocolBoard.SizeFor(text.text);
+        text.text = ProtocolBoard.Text(kind);
+        text.characterSize = ProtocolBoard.SizeFor(text.text, kind);
         PlaceGlyphs();
     }
 
@@ -201,6 +247,7 @@ public class ProtocolText : MonoBehaviour
 public class ProtocolView : MonoBehaviour
 {
     GameObject board;
+    DocumentKind kind;
     float shown;
 
     public static ProtocolView Create(Camera cam)
@@ -208,16 +255,25 @@ public class ProtocolView : MonoBehaviour
         var go = new GameObject("VueProtocole");
         go.transform.SetParent(cam.transform, false);
         var view = go.AddComponent<ProtocolView>();
-        view.board = ProtocolBoard.Build(go.transform, 1f, false);
-        // Le texte regarde vers +Z : on le tourne vers la caméra.
-        view.board.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-        foreach (var r in view.board.GetComponentsInChildren<Renderer>()) r.gameObject.layer = 2;
+        view.Rebuild(DocumentKind.Protocole);
         go.SetActive(false);
         return view;
     }
 
-    public void Show(bool on)
+    void Rebuild(DocumentKind document)
     {
+        if (board != null) Destroy(board);
+        kind = document;
+        board = ProtocolBoard.Build(transform, 1f, false, document);
+        // Le texte regarde vers +Z : on le tourne vers la caméra.
+        board.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+        foreach (var r in board.GetComponentsInChildren<Renderer>()) r.gameObject.layer = 2;
+    }
+
+    public void Show(bool on, DocumentKind document = DocumentKind.Protocole)
+    {
+        if (on && document != kind) Rebuild(document);
+
         if (on && !gameObject.activeSelf)
         {
             shown = 0f;

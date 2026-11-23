@@ -5,7 +5,7 @@ using UnityEditor.Animations;
 using UnityEngine;
 
 // Contenu de la V0.4 du GDD : La Tour et La Cloche (modèles Meshy riggés, Assets/Models/<Nom>/), objets du Terminal
-// (Téléporteur, Station Curative, tête du Pion : Resources/Art) et icônes d'inventaire. V0.7.10 : plus de Balise Améliorée ni de
+// (Téléporteur, tête du Pion : Resources/Art) et icônes d'inventaire. V0.7.10 : plus de Balise Améliorée ni de
 // Balises de Hub recolorées (seul leur orbe prend la couleur du Hub).
 public static class EntitySetup
 {

@@ -59,7 +59,7 @@ public class PlayerInteractor : MonoBehaviour
         if (it == null || !it.CanInteract) return null;
         Vector3 pos = transform.position;
         float dist = Vector3.Distance(hit.collider.ClosestPoint(pos), pos);
-        return dist <= GameRules.InteractRange ? it : null;
+        return dist <= it.Range ? it : null;
     }
 
     void SetCurrent(Interactable it)

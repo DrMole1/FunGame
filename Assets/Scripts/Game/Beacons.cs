@@ -6,8 +6,8 @@ using UnityEngine;
 // Peluches et Boule de Disco (V0.7.2 : Super Monticules), posées et ramassées comme une Balise, hors du réseau d'énergie.
 public enum DeviceKind : byte
 {
-    // V0.7.10 : plus de Balise Améliorée (1 ne sert plus).
-    Beacon = 0, Teleporter = 2, Station = 3, Canon = 4, Television = 5, Trampoline = 6, Bell = 7,
+    // V0.7.10 : plus de Balise Améliorée (1 ne sert plus). V0.7.11 : plus de Station Curative (3 ne sert plus).
+    Beacon = 0, Teleporter = 2, Canon = 4, Television = 5, Trampoline = 6, Bell = 7,
     // V0.7.2 : une seule Boule de Disco, arc-en-ciel (13 et 14, anciennes boules or et diamant, ne servent plus).
     Lapin = 8, Pingouin = 9, Singe = 10, Chat = 11, Disco = 12,
     // V0.6.3 (note 06 du chapitre 7) : canards posés au sol. CanardColore : palier 1 ; les paliers suivants suivent.
@@ -16,6 +16,9 @@ public enum DeviceKind : byte
     BellZone = 200,
     // V0.6.13 (7.10) : Protocole posé au sol (à plat, le texte vers le haut).
     Protocole = 190,
+    // V0.7.11 : Métronome (7.12), Super Balle (7.13), Notice (7.17) et Journaux (17.5) posés au sol ; Sac à Os (7.16) : SacOs + nombre
+    // d'Os qu'il contient (150 à 165).
+    Metronome = 140, SuperBalle = 141, Notice = 142, Journal1 = 143, Journal5 = 147, SacOs = 150, SacOsPlein = 165,
 }
 
 // Balise (GDD 7.1) : petite borne posée au sol, ramassable. La Balise du Hub, plus grande, ne se ramasse pas : elle est
@@ -24,18 +27,22 @@ public enum DeviceKind : byte
 // elles partagent la même charge.
 // V0.7.10 : nouveau modèle (pion d'échecs blanc) ; un orbe fantomatique, à la couleur du flux, flotte au niveau de la boule blanche
 // d'une Balise chargée (aucun orbe sur une Balise non chargée). Les Balises des Hubs, plus grandes, ont le même modèle : leur orbe,
-// toujours présent, prend la couleur du Hub. Plus de Balise Améliorée. Téléporteur (7.2), Station Curative (7.3) et Canon (7.4) :
+// toujours présent, prend la couleur du Hub. Plus de Balise Améliorée. Téléporteur (7.2) et Canon (7.3) :
 // chargés s'ils voient une Balise chargée. Le Canon de cirque tourne avec la visée du joueur qui est dedans, et recule en crachant des confettis au tir.
 // Note 03 du chapitre 7 (V0.4.7) : un objet posé au sol joue une légère animation rapide (il s'écrase puis rebondit).
 public class Beacon : Interactable
 {
-    public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f, StationHeight = 1.15f;
+    public const float HubHeight = 1.5f, Height = 0.85f, PadHeight = 0.16f;
     // Canon posé au sol : 0,64 fois la taille d'un personnage (1,8 m), soit environ 2,4 m de long ; fût à 80 % de sa hauteur.
     public const float CanonHeight = 0.64f * 1.8f, CanonBarrel = CanonHeight * 0.8f, CanonHalfLength = 1.2f;
     public const DeviceKind LastKind = DeviceKind.CanardColore + Items.MaxDuckTier - 1;
     public const DeviceKind MaxKind = DeviceKind.BellZone + Items.MaxBellZone;
     public static bool IsBellKind(DeviceKind kind) => kind == DeviceKind.Bell || kind > DeviceKind.BellZone + 1 && kind <= MaxKind;
     public const float PlushHeight = 0.9f, DuckHeight = 0.45f, DiscoHeight = 0.8f, DiscoChain = 0.25f, ColoredDuckHeight = 0.6f;
+    // V0.7.11 : Métronome, Super Balle ("légèrement plus petite que la taille d'un joueur"), Sac à Os posé.
+    public const float MetronomeHeight = 0.6f, SuperBallSize = 1.4f, BagHeight = 0.65f;
+    public static bool IsPaperKind(DeviceKind kind) => kind == DeviceKind.Notice || kind >= DeviceKind.Journal1 && kind <= DeviceKind.Journal5;
+    public static bool IsBagKind(DeviceKind kind) => kind >= DeviceKind.SacOs && kind <= DeviceKind.SacOsPlein;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
 
     public int Id { get; private set; }   // -N : Balise principale du Hub N
@@ -49,7 +56,7 @@ public class Beacon : Interactable
     public static int ColorIndex(int hub) => (Mathf.Max(1, hub) - 1) % HubColors.Length;
     // Hub dont provient le flux qui alimente cet appareil (0 : aucun).
     public int FluxHub { get; private set; }
-    // Balises : elles relaient l'énergie ; Téléporteur et Station ne font que la recevoir.
+    // Balises : elles relaient l'énergie ; Téléporteur et Canon ne font que la recevoir.
     public bool Relays => Kind == DeviceKind.Beacon;
     // Relié au réseau d'énergie (chargé s'il voit une Balise chargée) : ni la Télévision (V0.7.8), ni le Trampoline, ni la
     // Cloche Décorative, ni les peluches, ni la Boule de Disco.
@@ -61,6 +68,12 @@ public class Beacon : Interactable
     public void ActivateDisco() { if (disco != null) disco.Activate(); }
     public static bool IsDiscoKind(DeviceKind kind) => kind == DeviceKind.Disco;
     public bool IsDuck => Kind >= DeviceKind.Canard && Kind <= LastKind;
+    // V0.7.11 : Métronome qui bat la mesure, Super Balle qui roule.
+    MetronomeDevice metronome;
+    SuperBall ball;
+    public MetronomeDevice Metronome => metronome;
+    public SuperBall Ball => ball;
+
     public const float ProtocolHeight = 0.06f;
     // Boule à facettes suspendue au plafond (point de pose au plafond).
     public bool Hanging { get; private set; }
@@ -77,11 +90,15 @@ public class Beacon : Interactable
         if (kind > DeviceKind.BellZone) return Items.ZoneBellOf(kind - DeviceKind.BellZone);
         // Avant les canards colorés : son numéro (190) est au-delà de leur plage, pas dedans.
         if (kind == DeviceKind.Protocole) return ItemType.Protocole;
+        if (kind >= DeviceKind.SacOs && kind <= DeviceKind.SacOsPlein) return Items.BoneBagOf(kind - DeviceKind.SacOs);
+        if (kind >= DeviceKind.Journal1 && kind <= DeviceKind.Journal5) return ItemType.Journal1 + (kind - DeviceKind.Journal1);
+        if (kind == DeviceKind.Metronome) return ItemType.Metronome;
+        if (kind == DeviceKind.SuperBalle) return ItemType.SuperBalle;
+        if (kind == DeviceKind.Notice) return ItemType.Notice;
         if (kind >= DeviceKind.CanardColore && kind <= LastKind) return ItemType.CanardColore + (kind - DeviceKind.CanardColore + 1);
         switch (kind)
         {
             case DeviceKind.Teleporter: return ItemType.Teleporteur;
-            case DeviceKind.Station: return ItemType.StationCurative;
             case DeviceKind.Canon: return ItemType.Canon;
             case DeviceKind.Television: return ItemType.Television;
             case DeviceKind.Trampoline: return ItemType.Trampoline;
@@ -103,6 +120,11 @@ public class Beacon : Interactable
         if (Items.IsColoredDuck(item)) return (DeviceKind)((int)DeviceKind.CanardColore + Items.DuckTier(item) - 1);
         if (Items.IsZoneBell(item)) return (DeviceKind)((int)DeviceKind.BellZone + Items.BellZone(item));
         if (item == ItemType.Protocole) return DeviceKind.Protocole;
+        if (Items.IsBoneBag(item)) return (DeviceKind)((int)DeviceKind.SacOs + Items.BonesIn(item));
+        if (Items.IsJournal(item)) return (DeviceKind)((int)DeviceKind.Journal1 + (item - ItemType.Journal1));
+        if (item == ItemType.Metronome) return DeviceKind.Metronome;
+        if (item == ItemType.SuperBalle) return DeviceKind.SuperBalle;
+        if (item == ItemType.Notice) return DeviceKind.Notice;
         for (var k = DeviceKind.Beacon; k <= DeviceKind.Canard; k++) if (ItemOf(k) == item) return k;
         return DeviceKind.Beacon;
     }
@@ -110,12 +132,14 @@ public class Beacon : Interactable
     public static float HeightOf(DeviceKind kind)
     {
         if (IsBellKind(kind)) return GameRules.BellHeight;
-        if (kind == DeviceKind.Protocole) return ProtocolHeight;
+        if (kind == DeviceKind.Protocole || IsPaperKind(kind)) return ProtocolHeight;
+        if (kind == DeviceKind.Metronome) return MetronomeHeight;
+        if (kind == DeviceKind.SuperBalle) return SuperBallSize;
+        if (IsBagKind(kind)) return BagHeight;
         if (kind >= DeviceKind.CanardColore) return ColoredDuckHeight;
         switch (kind)
         {
             case DeviceKind.Teleporter: return PadHeight;
-            case DeviceKind.Station: return StationHeight;
             case DeviceKind.Canon: return CanonHeight;
             case DeviceKind.Television: return GameRules.TvHeight;
             case DeviceKind.Trampoline: return GameRules.TrampolineHeight;
@@ -136,7 +160,6 @@ public class Beacon : Interactable
     GameObject halo;
     Light glow;
     MaterialPropertyBlock block;
-    ParticleSystem gas;
     Transform visualRoot;
     float recoil = -1f, placedPop = -1f;
 
@@ -158,10 +181,19 @@ public class Beacon : Interactable
         visual.SetParent(go.transform, false);
         beacon.visualRoot = visual;
         if (beacon.IsDuck) BuildDuck(visual, kind, height);
-        else if (kind == DeviceKind.Protocole)
+        else if (kind == DeviceKind.Metronome) beacon.metronome = MetronomeDevice.Build(go, visual, height);
+        else if (kind == DeviceKind.SuperBalle) beacon.ball = SuperBall.Build(go, visual, height);
+        else if (IsBagKind(kind))
+        {
+            if (GameArt.SpawnModelFloor("SacOs", visual, height) == null)
+                GameArt.Prim(PrimitiveType.Cube, visual, new Vector3(0f, height * 0.5f, 0f), new Vector3(height * 0.7f, height, height * 0.4f), GameArt.Lit("SacOsToile", new Color(0.5f, 0.38f, 0.24f), null, 0.2f));
+        }
+        else if (kind >= DeviceKind.Journal1 && kind <= DeviceKind.Journal5 && GameArt.SpawnModelFloor("Journal", visual, 0.5f) != null) { }
+        else if (kind == DeviceKind.Protocole || IsPaperKind(kind))
         {
             // À plat sur le sol, le texte vers le ciel, le haut de la feuille vers l'avant de l'appareil.
-            var board = ProtocolBoard.Build(visual);
+            var board = ProtocolBoard.Build(visual, 1f, true, kind == DeviceKind.Protocole ? DocumentKind.Protocole
+                : ProtocolBoard.KindOf(ItemOf(kind)));
             board.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
             board.transform.localPosition = new Vector3(0f, ProtocolBoard.Thickness * 0.5f + 0.004f, ProtocolBoard.Height * 0.5f);
         }
@@ -212,14 +244,6 @@ public class Beacon : Interactable
             case DeviceKind.Disco:
                 beacon.disco = BuildDiscoBall(go, visual, height, beacon.Hanging);
                 break;
-            case DeviceKind.Station:
-                if (GameArt.SpawnModel("StationCurative", visual, height) == null)
-                {
-                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.12f, 0f), new Vector3(0.45f, 0.12f, 0.45f), GameArt.Metal);
-                    GameArt.Prim(PrimitiveType.Cylinder, visual, new Vector3(0f, 0.6f, 0f), new Vector3(0.32f, 0.38f, 0.32f), GameArt.Lit("StationGlass", new Color(0.7f, 0.9f, 0.75f), null, 0.9f));
-                }
-                beacon.gas = BuildGas(go.transform, height);
-                break;
             default:
                 // V0.7.10 : pion d'échecs blanc (Meshy). Repli : un pion blanc en primitives.
                 if (GameArt.SpawnModel("Balise", visual, height) == null)
@@ -240,12 +264,10 @@ public class Beacon : Interactable
         // Le Canard Coloré scintille, posé comme à terre.
         if (Items.IsColoredDuck(beacon.Item)) Fx.Sparkle(go.transform, Items.Get(beacon.Item).color);
         // Orbe fantomatique quand l'appareil est chargé : celui d'une Balise, au niveau de la boule blanche, prend la couleur du flux
-        // (SetFlux ; bleu du Hub 1 par défaut). Vert sur la Station Curative ; aucun sur le Téléporteur.
-        if (kind == DeviceKind.Beacon || kind == DeviceKind.Station)
-        {
-            Material aura = kind == DeviceKind.Station ? GameArt.BeaconHalo("Green", new Color(0.3f, 1f, 0.4f)) : OrbMaterial(0);
-            beacon.halo = NewHalo(go.transform, beacon.Top - pos, kind == DeviceKind.Station ? 0.55f : height * OrbSize, aura);
-        }
+        // (SetFlux ; bleu du Hub 1 par défaut). Aucun sur le Téléporteur.
+        if (kind == DeviceKind.Beacon)
+            beacon.halo = NewHalo(go.transform, beacon.Top - pos, height * OrbSize, OrbMaterial(0));
+
         if (hub)
         {
             Color color = HubColor(-id);
@@ -260,18 +282,28 @@ public class Beacon : Interactable
             beacon.glow.range = 4f;
             beacon.glow.intensity = 1.4f;
             beacon.glow.shadows = LightShadows.None;
+            // V0.7.11 (9.1, Note 08) : numéro du Hub en chiffres romains, écrit en noir sur le bas de la Balise, du côté que voit le
+            // joueur qui entre dans le Hub (par le sud).
+            var number = GameArt.CreateText(go.transform, "NumeroHub", Vector3.zero, 0.075f, new Color(0.02f, 0.02f, 0.02f));
+            number.text = GameRules.Roman(-id);
+            number.fontStyle = FontStyle.Bold;
+            number.transform.SetPositionAndRotation(pos + new Vector3(0f, height * 0.16f, -HubNumberRadius), Quaternion.identity);
             // Socle solide : on ne traverse pas la grande Balise.
             var solid = go.AddComponent<CapsuleCollider>();
             solid.center = new Vector3(0f, height * 0.5f, 0f);
             solid.height = height;
             solid.radius = 0.22f;
         }
-        beacon.FitTrigger(kind == DeviceKind.Protocole ? new Vector3(ProtocolBoard.Width + 0.1f, 0.2f, ProtocolBoard.Height + 0.1f)
+        beacon.FitTrigger(kind == DeviceKind.Protocole || IsPaperKind(kind) ? new Vector3(ProtocolBoard.Width + 0.1f, 0.2f, ProtocolBoard.Height + 0.1f)
+            : kind == DeviceKind.SuperBalle ? Vector3.one * SuperBallSize * 1.05f
             : kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.76f, CanonHeight, 1.76f)
             : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.9f, 0.9f, 0.9f) : new Vector3(0.6f, height, 0.6f));
         beacon.SetCharged(false);
         return beacon;
     }
+
+    // Rayon du socle de la grande Balise, à la hauteur du numéro du Hub (juste devant sa surface).
+    const float HubNumberRadius = 0.36f;
 
     // L'orbe (halo) est un carré face à la caméra : il ne reçoit pas le contour blanc, sinon un carré apparaît autour de la
     // boule du pion quand on vise la Balise.
@@ -397,38 +429,6 @@ public class Beacon : Interactable
     // Point d'où la musique disco se diffuse (centre de la boule).
     public Vector3 DiscoCenter => transform.position + Vector3.down * (Hanging ? DiscoChain + VisualHeight * 0.5f : -VisualHeight * 0.5f);
 
-    // Gaz vert pétillant dans le tube de la Station Curative.
-    static ParticleSystem BuildGas(Transform parent, float height)
-    {
-        var go = new GameObject("Gaz");
-        go.transform.SetParent(parent, false);
-        go.transform.localPosition = new Vector3(0f, height * 0.25f, 0f);
-        go.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
-        var ps = go.AddComponent<ParticleSystem>();
-        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        var main = ps.main;
-        main.loop = true;
-        main.startLifetime = 1.3f;
-        main.startSpeed = new ParticleSystem.MinMaxCurve(0.15f, 0.45f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.03f, 0.08f);
-        main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.3f, 1f, 0.35f, 0.9f), new Color(0.75f, 1f, 0.5f, 0.9f));
-        main.maxParticles = 60;
-        main.simulationSpace = ParticleSystemSimulationSpace.Local;
-        var emission = ps.emission;
-        emission.rateOverTime = 28f;
-        var shape = ps.shape;
-        shape.shapeType = ParticleSystemShapeType.Circle;
-        shape.radius = 0.12f;
-        var color = ps.colorOverLifetime;
-        color.enabled = true;
-        var g = new Gradient();
-        g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-                  new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.2f), new GradientAlphaKey(0f, 1f) });
-        color.color = g;
-        go.GetComponent<ParticleSystemRenderer>().sharedMaterial = GameArt.Spark;
-        return ps;
-    }
-
     public void SetCharged(bool on)
     {
         // Le Trampoline et la Cloche Décorative ne sont pas reliés au réseau : jamais grisés.
@@ -436,7 +436,6 @@ public class Beacon : Interactable
         Charged = on;
         if (halo != null) halo.SetActive(on);
         if (glow != null) glow.enabled = on;
-        if (gas != null) { if (on && !gas.isPlaying) gas.Play(); else if (!on && gas.isPlaying) gas.Stop(); }
         if (block == null) block = new MaterialPropertyBlock();
         // La Boule de Disco, les canards colorés et le Protocole (papier noirci, V0.7.2) gardent leur teinte.
         if (IsDisco || IsDuck || Kind == DeviceKind.Protocole) return;
@@ -524,7 +523,7 @@ public class Beacon : Interactable
 
 // Ensemble des Balises d'une partie : charge des Balises principales des Hubs, propagation de la charge (vision directe,
 // aucun mur entre deux Balises) et rayons d'énergie bleus, qui circulent des Balises éloignées vers leur Hub.
-// Téléporteurs et Stations Curatives se chargent en voyant une Balise chargée, sans relayer l'énergie.
+// Téléporteurs et Canons se chargent en voyant une Balise chargée, sans relayer l'énergie.
 // V0.6 : une Balise reliée à deux Balises principales se rattache à celle du Hub le plus haut.
 // Les lignes de vue sont gardées en mémoire : les Balises ne bougent pas. Elles sont revérifiées quelques-unes par image, et bien plus
 // vite juste après un changement du décor (porte, pont cassé) ; le réseau n'est recalculé que si quelque chose a changé.
@@ -721,7 +720,7 @@ public class BeaconNetwork : MonoBehaviour
                 }
             }
         }
-        // Téléporteurs et Stations : reliés à la Balise chargée la plus proche qu'ils voient.
+        // Téléporteurs et Canons : reliés à la Balise chargée la plus proche qu'ils voient.
         foreach (var leaf in leaves)
         {
             Beacon best = null;
@@ -754,7 +753,7 @@ public class BeaconNetwork : MonoBehaviour
         int inHub = WorldBuilder.HubAt(p);
         if (inHub > 0) return inHub >= hub;
         int zone = WorldBuilder.ZoneAt(p);
-        return zone < 1 || zone >= 2 * hub - 1;
+        return zone < 1 || zone >= hub;   // V0.7.11 : le Hub N est au sud de la zone N
     }
 
     // Une Balise principale (chargée ou non) voit cet appareil, sans élément du décor entre eux.
@@ -830,7 +829,7 @@ public class BeaconNetwork : MonoBehaviour
             if (!beams.TryGetValue(kv.Key, out var line) || line == null) beams[kv.Key] = line = NewBeam();
             if (!line.gameObject.activeSelf) line.gameObject.SetActive(true);
             // De la Balise éloignée vers celle qui la relie au Hub : l'énergie circule dans ce sens. Un appareil (Téléporteur,
-            // Station, Canon, Télévision) : le rayon touche son point le plus proche de la Balise.
+            // Canon, Télévision) : le rayon touche son point le plus proche de la Balise.
             Vector3 from = kv.Key.Relays ? kv.Key.Top : kv.Key.BeamEnd(kv.Value.Top);
             ShowBeam(line, kv.Key, from, kv.Value.Top);
         }

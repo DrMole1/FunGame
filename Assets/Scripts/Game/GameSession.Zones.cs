@@ -3,8 +3,9 @@ using System.Diagnostics;
 using UnityEngine;
 
 // V0.6 : remaniement du terrain. Les zones se génèrent au fil de l'avancée des joueurs (la zone où ils se trouvent et les
-// zones voisines) ; un Hub toutes les deux zones ; glyphes impairs (Neutral Room) et pairs (Acquisition Room), certains sous
-// boîtier de verre (V0.7.9) ; Sanction (La Tête de Cloche) ; Chenil où l'on peut se réfugier.
+// zones voisines) ; V0.7.11 : un Hub au sud de chaque zone, une Neutral Room au bout de chaque zone (ses trois glyphes ouvrent
+// sa porte, vers le Hub suivant), certains glyphes sous boîtier de verre (V0.7.9) ; Sanction (La Tête de Cloche) ; Chenil où
+// l'on peut se réfugier.
 // Messages : GX|type|glyphe|écoulé (glyphe -1 : fin)              hôte -> tous : ordre d'un glyphe en cours (un seul à la fois)
 //            NH|glyphe|0/1 -> NL|glyphe|icônes                    clic maintenu sur un glyphe
 //            NG|glyphe -> NP|zone|type                            glyphe actionné (entendu par les joueurs de la zone)
@@ -79,8 +80,8 @@ public partial class GameSession
         if (zoneSteps > 0) stepsPerZone = zoneSteps;
         zoneSteps = 0;
         zones.Add(zone);
-        // Le Hub N est au sud de la zone 2N - 1.
-        if (index > 1 && index % 2 == 1) AddHubFixtures(WorldBuilder.BuildHub(worldRoot, (index + 1) / 2));
+        // V0.7.11 : le Hub N est au sud de la zone N.
+        if (index > 1) AddHubFixtures(WorldBuilder.BuildHub(worldRoot, index));
         if (itemsRound == round) SpawnZoneItems(zone);
         RefreshGlyphPaws();
     }
@@ -93,8 +94,8 @@ public partial class GameSession
         zoneBuild = null;
         foreach (var z in zones)
         {
-            // Une porte de chapiteau scellée a quitté sa zone.
-            if (z.acquisitionDoor != null) Destroy(z.acquisitionDoor.gameObject);
+            // Une porte de Neutral Room scellée a quitté sa zone.
+            if (z.door != null) Destroy(z.door.gameObject);
             if (z.root != null) Destroy(z.root);
         }
         zones.Clear();
@@ -176,12 +177,13 @@ public partial class GameSession
     // Nouvelle partie : boîtiers, glyphes, Hubs et portes de chapiteau refermés ; la Zone 1 et la Zone 2 à générer.
     void ClearProgress()
     {
+        ClearPerfume();
+        ClearNewItems();
         ResetSecret();
         brokenCases.Clear();
         activatedGlyphs.Clear();
         sealedZones = 0;
         openedHubs.Clear();
-        openedAcquisitions.Clear();
         brokenBridges.Clear();
         itemZones = 2;
         zoneCount = GameRules.InitialZones;
@@ -190,17 +192,16 @@ public partial class GameSession
         nightmaresSpawned.Clear();
     }
 
-    // Porte numéro 'door' (entre la zone 2 x door - 1 et la zone 2 x door) : ouverte quand ses trois glyphes impairs sont actionnés.
+    // Porte de la Neutral Room de la zone 'door' (vers le Hub door + 1) : ouverte quand ses trois glyphes sont actionnés.
     bool DoorOpen(int door)
     {
         for (int t = 0; t < GameRules.GlyphTypes; t++)
-            if (!activatedGlyphs.Contains(GameRules.NeutralGlyphId(door * 2 - 1, t))) return false;
+            if (!activatedGlyphs.Contains(GameRules.NeutralGlyphId(door, t))) return false;
         return true;
     }
 
-    // Zone accessible : la Zone 1, une zone paire dont la porte de la Neutral Room est ouverte, une zone impaire dont le Hub a ouvert
-    // sa porte.
-    bool ZoneUnlocked(int zone) => zone == 1 || (zone % 2 == 0 ? DoorOpen(zone / 2) : openedHubs.Contains((zone + 1) / 2));
+    // Zone accessible (V0.7.11) : la Zone 1, une zone dont le Hub (au sud) a ouvert sa porte.
+    bool ZoneUnlocked(int zone) => zone == 1 || openedHubs.Contains(zone);
 
     // Zone où se trouve un joueur, ou voisine (9.2 : on ne garde d'entités que là).
     bool ZoneActive(int zone)
@@ -217,31 +218,18 @@ public partial class GameSession
         return !any && zone <= 2;
     }
 
-    // Glyphes (impairs et pairs), portes des Neutral Rooms, portes des chapiteaux (refermées si leur zone est scellée), portes des
-    // Hubs 2+.
+    // Glyphes, portes des Neutral Rooms (refermées si leur zone est scellée), portes des Hubs 2+.
     void UpdateDoors(bool animate)
     {
         foreach (var z in zones)
         {
             foreach (var g in z.neutralGlyphs) g.SetState(brokenCases.Contains(g.Id), activatedGlyphs.Contains(g.Id), animate);
-            // Glyphes pairs actionnés (V0.7.4) : câble blanc, et leur glyphe allumé sur la porte du chapiteau.
-            for (int k = 0; k < z.acquisitionGlyphs.Count; k++)
-            {
-                Glyph g = z.acquisitionGlyphs[k];
-                bool on = activatedGlyphs.Contains(g.Id);
-                g.SetState(brokenCases.Contains(g.Id), on, animate);
-                if (z.acquisitionDoor != null) z.acquisitionDoor.SetGlyphLit(k, on);
-            }
             foreach (var b in z.bridges) b.SetBroken(brokenBridges.Contains(b.Id), animate);
+            UpdateCastleDoors(z, animate);
             if (z.door != null)
             {
-                bool open = DoorOpen(z.doorNumber);
+                bool open = DoorOpen(z.doorNumber) && z.index > sealedZones;
                 if (open != z.door.IsOpen || !animate) z.door.SetOpen(open, !animate);
-            }
-            if (z.acquisitionDoor != null)
-            {
-                bool open = openedAcquisitions.Contains(z.index) && z.index > sealedZones;
-                if (open != z.acquisitionDoor.IsOpen || !animate) z.acquisitionDoor.SetOpen(open, !animate);
             }
         }
         for (int i = 1; i < hubs.Count; i++)
@@ -309,13 +297,13 @@ public partial class GameSession
 
     // ================= Fermeture des zones trop en arrière (chapitre 9.2, V0.6.5) =================
 
-    // Hôte : dès la Zone 7, chaque zone impaire X débloquée referme, une fois tous les joueurs en vie à partir de la zone X - 4,
-    // la porte d'entrée du chapiteau entre les zones X - 5 et X - 4.
+    // Hôte : dès la Zone 7, chaque zone X débloquée referme, une fois tous les joueurs en vie à partir de la zone X - 4, la porte
+    // de la Neutral Room de la zone X - 5 (vers le Hub X - 4) : les zones 1 à X - 5 et leurs Hubs sont fermés (V0.7.11).
     void UpdateSealing()
     {
         if (phase == Phase.GameOver) return;
         int target = sealedZones;
-        for (int x = GameRules.FirstSealingZone; x <= Mathf.Max(lastZone, zones.Count); x += 2)
+        for (int x = GameRules.FirstSealingZone; x <= Mathf.Max(lastZone, zones.Count); x++)
         {
             if (!ZoneUnlocked(x) && lastZone < x) break;
             if (AllPlayersFrom(x - 4)) target = Mathf.Max(target, x - 5);
@@ -356,25 +344,25 @@ public partial class GameSession
 
         if (sealedZones < deactivatedZones) { RestoreSealedZones(); return; }
         if (sealedZones == deactivatedZones || sealedZones > zones.Count) return;
-        var door = zones[sealedZones - 1].acquisitionDoor;
+        var door = zones[sealedZones - 1].door;
         if (door != null && !door.FullyClosed) return;
 
         foreach (var z in zones)
         {
             if (z.index > sealedZones || !z.root.activeSelf) continue;
-            if (z.acquisitionDoor != null)
+            if (z.door != null)
             {
-                z.acquisitionDoor.transform.SetParent(worldRoot, true);
-                z.acquisitionDoor.gameObject.SetActive(z.index == sealedZones);
+                z.door.transform.SetParent(worldRoot, true);
+                z.door.gameObject.SetActive(z.index == sealedZones);
             }
             z.root.SetActive(false);
         }
         // Seule la dernière porte scellée reste visible, depuis le chapiteau.
         foreach (var z in zones)
-            if (z.index < sealedZones && z.acquisitionDoor != null) z.acquisitionDoor.gameObject.SetActive(false);
+            if (z.index < sealedZones && z.door != null) z.door.gameObject.SetActive(false);
         deactivatedZones = sealedZones;
-        SetHubsActive(1, sealedZones / 2, false);
-        beacons.SealHubs(sealedZones / 2);
+        SetHubsActive(1, sealedZones, false);
+        beacons.SealHubs(sealedZones);
         RemoveSealedItems();
     }
 
@@ -384,14 +372,14 @@ public partial class GameSession
         {
             if (z.index <= sealedZones || z.root.activeSelf) continue;
             z.root.SetActive(true);
-            if (z.acquisitionDoor != null)
+            if (z.door != null)
             {
-                z.acquisitionDoor.transform.SetParent(z.root.transform, true);
-                z.acquisitionDoor.gameObject.SetActive(true);
+                z.door.transform.SetParent(z.root.transform, true);
+                z.door.gameObject.SetActive(true);
             }
         }
-        SetHubsActive(sealedZones / 2 + 1, hubs.Count, true);
-        beacons.SealHubs(sealedZones / 2);
+        SetHubsActive(sealedZones + 1, hubs.Count, true);
+        beacons.SealHubs(sealedZones);
         deactivatedZones = sealedZones;
     }
 
@@ -494,7 +482,7 @@ public partial class GameSession
             if (!ZoneActive(z.index) || !z.nav.Ready) continue;
             var rnd = new System.Random(seed * 17 + round * 613 + z.index * 7907 + nextEntityId * 131);
             if ((!first || played >= GameRules.LateNormalsDelay) && normalsSpawned.Add(z.index))
-                for (int k = 0; k < GameRules.NormalsPerZone; k++) SpawnNormal(z.index, rnd);
+                for (int k = 0; k < GameRules.NormalsPerZone(round); k++) SpawnNormal(z.index, rnd);
             bool nightmares = first ? z.index == 1 && played >= GameRules.LateNightmareDelay : played >= GameRules.NightmareDelay;
             if (nightmares && nightmaresSpawned.Add(z.index))
                 for (int k = 0, n = first ? 1 : GameRules.NightmaresPerZone; k < n; k++) SpawnNightmare(z.index, rnd, k);
@@ -563,7 +551,6 @@ public partial class GameSession
     {
         int zone = id / 100;
         if (zone < 1 || zone > zones.Count) return null;
-        foreach (var g in zones[zone - 1].acquisitionGlyphs) if (g.Id == id) return g;
         foreach (var g in zones[zone - 1].neutralGlyphs) if (g.Id == id) return g;
         return null;
     }
@@ -656,7 +643,6 @@ public partial class GameSession
         foreach (var z in zones)
         {
             foreach (var g in z.neutralGlyphs) g.SetPawCount(count);
-            foreach (var g in z.acquisitionGlyphs) g.SetPawCount(count);
         }
     }
 
@@ -691,29 +677,16 @@ public partial class GameSession
         foreach (int id in new List<int>(glyphHolders.Keys)) if (glyphHolders[id].Count > 0) CheckGlyphHold(id);
     }
 
-    // Hôte : glyphe actionné (V0.7.9 : pair ou impair). Son ordre s'impose à tous (son en boucle partout, icône en bas à droite de
-    // l'écran) ; un seul ordre à la fois. Impair : la porte de la Neutral Room s'ouvre quand les trois glyphes de la zone le sont.
-    // Pair : la porte du chapiteau (Acquisition Room) s'ouvre, pour de bon, quand ceux de la zone le sont.
+    // Hôte : glyphe actionné. Son ordre s'impose à tous (son en boucle partout, icône en bas à droite de l'écran) ; un seul ordre
+    // à la fois. La porte de la Neutral Room s'ouvre quand les trois glyphes de la zone le sont.
     void ActivateGlyph(Glyph g)
     {
         if (g == null || phase == Phase.GameOver || (g.Boxed && !brokenCases.Contains(g.Id)) || OrderPlaying || !activatedGlyphs.Add(g.Id)) return;
         // Le son du glyphe se joue alors en boucle chez tous les joueurs (hors manche : une fois, pour la zone).
         if (phase == Phase.Running) net.ToAll("GX|" + g.Type + "|" + g.Id + "|0");
         else net.ToAll("NP|" + g.Zone + "|" + g.Type);
-        if (g.Odd)
-        {
-            int door = (g.Zone + 1) / 2;
-            if (DoorOpen(door)) Log("Les trois glyphes sont actionnés : la porte de la Zone {0} s'ouvre !", (door * 2).ToString());
-        }
-        else
-        {
-            var z = g.Zone >= 1 && g.Zone <= zones.Count ? zones[g.Zone - 1] : null;
-            if (z != null && !openedAcquisitions.Contains(z.index) && z.acquisitionGlyphs.TrueForAll(a => activatedGlyphs.Contains(a.Id)))
-            {
-                openedAcquisitions.Add(z.index);
-                Log("Tous les glyphes de la Zone {0} sont actionnés : la porte du chapiteau s'ouvre !", z.index.ToString());
-            }
-        }
+        if (DoorOpen(g.Zone)) Log("Tous les glyphes de la Zone {0} sont actionnés : la porte du chapiteau s'ouvre !", g.Zone.ToString());
+
         UpdateDoors(true);
         BroadcastState();
     }

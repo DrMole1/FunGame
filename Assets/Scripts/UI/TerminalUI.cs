@@ -137,8 +137,7 @@ public class TerminalUI : MonoBehaviour
         if (then.Length > 0) Print(then);
     }
 
-    // Objets achetables, avec leur ID et leur prix. La Boussole n'y est plus une fois achetée, ni le Téléporteur Inversé
-    // une fois présent dans le Hub de ce Terminal.
+    // Objets achetables, avec leur ID et leur prix. Le Téléporteur Inversé n'y est plus une fois présent dans le Hub de ce Terminal.
     string ItemList()
     {
         var sb = new System.Text.StringBuilder();
@@ -216,6 +215,13 @@ public class TerminalUI : MonoBehaviour
             if (result == null) Error(Loc.T("Commande invalide.") + Quit);
             else Print(result + Quit);
         }
+        else if (lower.StartsWith("/head ") && session.IsHost)
+        {
+            // V0.7.11 (3.6) : "/head 2" double le volume des têtes de tous les personnages (de 1 à 3, décimales permises).
+            string result = session.SetHeadVolume(text.Substring(6).Trim());
+            if (result == null) Error(Loc.T("Commande invalide.") + Quit);
+            else Print(result + Quit);
+        }
         else if (lower == "/pw" && session.IsHost)
         {
             Print(session.AutoPassword() + Quit);
@@ -260,14 +266,13 @@ public class TerminalUI : MonoBehaviour
     {
         waitingBuy = false;
         if (!IsOpen || def == null) return;
-        if (ok && def.type == ItemType.Boussole)
-            Print(Loc.F("Vous avez acheté la Boussole pour {0} !\nElle s'affiche désormais en haut de l'écran de tous les sujets.", Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
-        else if (ok && def.type == ItemType.TeleporteurInverse)
+        if (ok && def.type == ItemType.TeleporteurInverse)
             Print(Loc.F("Vous avez acheté le Téléporteur Inversé pour {0} !\nIl est apparu au centre du Hub.", Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
         else if (ok)
             Print(Loc.F("Vous avez acheté {0} pour {1} !", def.name, Items.Price(session.Godmode ? 0 : def.buyPrice)) + Quit);
         else if (alreadyOwned)
-            Print((def.type == ItemType.TeleporteurInverse ? Loc.T("Ce Hub possède déjà un Téléporteur Inversé.") : Loc.T("La Boussole a déjà été achetée.")) + Quit);
+            Print(Loc.T("Ce Hub possède déjà un Téléporteur Inversé.") + Quit);
+
         else
             Print(Loc.F("Gamelle insuffisante pour acheter {0} ({1}).", def.name, Items.Price(def.buyPrice)) + Quit);
     }

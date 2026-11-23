@@ -1,9 +1,9 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-// Interface du joueur en jeu : jauges de vie (rouge) et de sérénité (bleue), 5 cases d'inventaire, boussole,
-// viseur, messages et écran de game over. Textures procédurales selon la DA du GDD :
-// jauges craquelées dans un cadre sombre avec un repère blanc, cases arrondies vert-de-gris, boussole graduée.
+// Interface du joueur en jeu : jauges de vie (rouge) et de sérénité (bleue), 5 cases d'inventaire, viseur, messages et écran
+// de game over (V0.7.11 : plus de boussole). Textures procédurales selon la DA du GDD : jauges craquelées dans un cadre sombre
+// avec un repère blanc, cases arrondies vert-de-gris.
 public class GameHud : MonoBehaviour
 {
     static readonly Color SlotColor = new Color(0.11f, 0.15f, 0.13f, 0.95f);
@@ -12,8 +12,8 @@ public class GameHud : MonoBehaviour
     static readonly Color SerenityColor = new Color(0.3f, 0.62f, 1f);
     // V0.7.2 (chapitre 3.5) : barre de faim orange, entre la vie et la sérénité.
     static readonly Color HungerColor = new Color(1f, 0.62f, 0.1f);
+    public static readonly Color PerfumeColor = new Color(1f, 0.6f, 0.62f);
     const float GaugeWidth = 330f, GaugeHeight = 30f;
-    const float CompassWidth = 420f, CompassHeight = 40f, CompassSpan = 180f;
 
     public static bool GameOverVisible { get; private set; }
 
@@ -25,14 +25,15 @@ public class GameHud : MonoBehaviour
         public float inner;
     }
 
-    GameObject root, gameOverPanel, restartButton, compassRoot;
+    GameObject root, gameOverPanel, restartButton;
     // Chaîne du Roi (V0.4.6) : une barre d'espace enfoncée et relâchée frénétiquement.
     GameObject spaceKey, useKey;
     RectTransform spaceKeyFace;
     Image spaceKeyImage;
     // Dans le Canon (V0.4.6) : le viseur devient un rond blanc et l'inventaire est caché.
     GameObject crosshairDot, crosshairRing, inventoryBar;
-    Gauge health, hunger, serenity;
+    Gauge health, hunger, serenity, perfume;
+    GameObject perfumeFrame;
     Text promptText, toastText, spectateText, gameOverText;
     // V0.7.9 (9.3) : icône de l'ordre en cours, en bas à droite de l'écran (Resources/Art/Ordres, d'après Assets/Sprite/Order01 à
     // 03), d'un blanc modérément lumineux. Elle clignote 3 fois en apparaissant, reste jusqu'à la fin de l'ordre, puis s'efface.
@@ -48,7 +49,8 @@ public class GameHud : MonoBehaviour
     // Icônes d'inventaire (Resources/Icons/<ItemType>, créées par "FunGame/Générer les icônes d'inventaire").
     readonly System.Collections.Generic.Dictionary<ItemType, Sprite> icons = new System.Collections.Generic.Dictionary<ItemType, Sprite>();
     float toastTimer;
-    RawImage damageFlash, whiteFlash, blackFade, dreadVeil, dreadDim;
+    RawImage damageFlash, whiteFlash, blackFade, dreadVeil, dreadDim, peaceVeil;
+    float peace;
     // Pulsations cardiaques : l'écran s'assombrit nettement (bords presque noirs, centre voilé) d'autant plus que le
     // Cauchemar est proche, et fonce à chaque battement. La racine carrée de la tension rend l'effet bien visible dès que
     // les pulsations commencent.
@@ -71,7 +73,6 @@ public class GameHud : MonoBehaviour
     Text wipeTitle, wipeGlow, wipeSubtitle;
     CanvasGroup wipeButton;
     float wipeTime = -1f;
-    readonly System.Collections.Generic.List<(RectTransform rt, float angle)> compassMarks = new System.Collections.Generic.List<(RectTransform, float)>();
 
     // ================= Textures procédurales =================
 
@@ -153,19 +154,6 @@ public class GameHud : MonoBehaviour
             new Vector4(radius + 2, radius + 2, radius + 2, radius + 2));
     }
 
-    // Bande horizontale qui s'efface sur les bords (fond de la boussole).
-    static Texture2D FadeBand(int w)
-    {
-        var tex = new Texture2D(w, 1, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
-        for (int x = 0; x < w; x++)
-        {
-            float k = Mathf.Abs(x / (float)(w - 1) * 2f - 1f);
-            tex.SetPixel(x, 0, new Color(1f, 1f, 1f, 1f - Mathf.SmoothStep(0.55f, 1f, k)));
-        }
-        tex.Apply();
-        return tex;
-    }
-
     // ================= Construction =================
 
     static readonly GameAction[] SlotActions = { GameAction.Slot1, GameAction.Slot2, GameAction.Slot3, GameAction.Slot4, GameAction.Slot5 };
@@ -188,6 +176,8 @@ public class GameHud : MonoBehaviour
         var canvas = UiKit.CreateCanvas(transform, "HudCanvas", 50);
         Texture2D vignette = Vignette(128);
 
+        // V0.7.11 (7.15) : voile rose des Lunettes PEACE, sous tout le reste.
+        peaceVeil = FullScreen(canvas.transform, "VoileRosePeace", null);
         dreadDim = FullScreen(canvas.transform, "VoilePulsations", null);
         dreadVeil = FullScreen(canvas.transform, "AssombrissementPulsations", vignette);
         // Flash rouge des dégâts (sous le reste de l'interface).
@@ -239,6 +229,10 @@ public class GameHud : MonoBehaviour
         health = BuildGauge(r, "JaugeDeVie", new Vector2(20, 102), HealthColor, cracked);
         hunger = BuildGauge(r, "JaugeDeFaim", new Vector2(20, 62), HungerColor, cracked);
         serenity = BuildGauge(r, "JaugeDeSerenite", new Vector2(20, 22), SerenityColor, cracked);
+        // V0.7.11 (7.9) : jauge du Parfum Odorant (rouge pastel), au-dessus de la vie, seulement quand le joueur est parfumé.
+        perfume = BuildGauge(r, "JaugeDeParfum", new Vector2(20, 142), PerfumeColor, cracked);
+        perfumeFrame = perfume.text.transform.parent.gameObject;
+        perfumeFrame.SetActive(false);
 
         // Inventaire : 5 cases arrondies sur une barre.
         Sprite rounded = RoundedSprite(48, 10, 2.5f, 0.35f);
@@ -285,7 +279,6 @@ public class GameHud : MonoBehaviour
         Controls.Changed += RefreshSlotKeys;
         Loc.Changed += RefreshSlotKeys;
 
-        BuildCompass(r);
         BuildSpaceKey(r, rounded);
         BuildUseKey(r, rounded);
 
@@ -403,53 +396,6 @@ public class GameHud : MonoBehaviour
         return g;
     }
 
-    // Boussole en haut de l'écran : graduations tous les 15°, points cardinaux, repère central.
-    void BuildCompass(Transform parent)
-    {
-        compassRoot = new GameObject("Boussole", typeof(RectTransform), typeof(RawImage), typeof(RectMask2D));
-        compassRoot.transform.SetParent(parent, false);
-        var rt = (RectTransform)compassRoot.transform;
-        rt.sizeDelta = new Vector2(CompassWidth, CompassHeight);
-        UiKit.Place(compassRoot, new Vector2(0.5f, 1f), new Vector2(0, -14));
-        var bg = compassRoot.GetComponent<RawImage>();
-        bg.texture = FadeBand(128);
-        bg.color = new Color(0.05f, 0.04f, 0.06f, 0.85f);
-        bg.raycastTarget = false;
-
-        // Ligne horizontale lumineuse.
-        var line = UiKit.Panel(compassRoot.transform, "Ligne", new Vector2(CompassWidth * 0.9f, 1.5f), new Color(1f, 1f, 1f, 0.55f));
-        UiKit.Place(line, new Vector2(0.5f, 0.5f), new Vector2(0, -6)).GetComponent<Image>().raycastTarget = false;
-
-        string[] cardinals = { "N", "E", "S", "O" };
-        for (int a = 0; a < 360; a += 15)
-        {
-            GameObject mark;
-            if (a % 90 == 0)
-            {
-                var label = UiKit.Label(compassRoot.transform, cardinals[a / 90], 17, FontStyle.Bold, Color.white, 22);
-                label.rectTransform.sizeDelta = new Vector2(30, 22);
-                label.gameObject.AddComponent<Outline>().effectColor = new Color(0f, 0f, 0f, 0.6f);
-                mark = label.gameObject;
-            }
-            else
-            {
-                bool major = a % 45 == 0;
-                mark = UiKit.Panel(compassRoot.transform, "Grad" + a, new Vector2(2f, major ? 12f : 8f), new Color(1f, 1f, 1f, major ? 0.85f : 0.6f));
-                mark.GetComponent<Image>().raycastTarget = false;
-            }
-            var mrt = (RectTransform)mark.transform;
-            mrt.anchorMin = mrt.anchorMax = mrt.pivot = new Vector2(0.5f, 0.5f);
-            mrt.anchoredPosition = new Vector2(0, 3);
-            compassMarks.Add((mrt, a));
-        }
-        // Repère central (petit losange sous le centre).
-        var center = UiKit.Panel(compassRoot.transform, "Repere", new Vector2(6, 6), Color.white);
-        var crt = UiKit.Place(center, new Vector2(0.5f, 0.5f), new Vector2(0, -12));
-        crt.localRotation = Quaternion.Euler(0f, 0f, 45f);
-        center.GetComponent<Image>().raycastTarget = false;
-        compassRoot.SetActive(false);
-    }
-
     static Text Floating(Transform parent, Vector2 anchor, Vector2 pos, Vector2 size, int fontSize)
     {
         var t = UiKit.Label(parent, "", fontSize, FontStyle.Bold, Color.white, size.y);
@@ -494,6 +440,32 @@ public class GameHud : MonoBehaviour
     public void SetSerenity(int value, bool dead) => SetGauge(serenity, value, GameRules.MaxSerenity, dead, "Sérénité");
     public void SetHunger(int value, bool dead) => SetGauge(hunger, value, GameRules.MaxHunger, dead, "Faim");
 
+    // V0.7.11 (7.9) : jauge du Parfum (part restante, 0 : cachée). Les 10 dernières secondes, le libellé clignote lentement.
+    public void SetPerfume(float fraction, bool blink)
+    {
+        bool on = fraction > 0f;
+        if (perfumeFrame.activeSelf != on) perfumeFrame.SetActive(on);
+        if (!on) return;
+        float k = Mathf.Clamp01(fraction);
+        var frt = perfume.fill.rectTransform;
+        frt.offsetMax = new Vector2(frt.offsetMin.x + perfume.inner * k, frt.offsetMax.y);
+        perfume.fill.uvRect = new Rect(0f, 0f, k, 1f);
+        perfume.fill.enabled = k > 0.001f;
+        perfume.marker.anchoredPosition = new Vector2(4f + perfume.inner * k, 0f);
+        perfume.marker.gameObject.SetActive(k > 0.001f && k < 0.999f);
+        perfume.text.text = Loc.T("Parfum");
+        Color c = perfume.text.color;
+        c.a = blink ? 0.25f + 0.75f * (0.5f + 0.5f * Mathf.Cos(Time.unscaledTime * Mathf.PI)) : 1f;
+        perfume.text.color = c;
+    }
+
+    // V0.7.11 (7.15) : vision rose avec les Lunettes PEACE (apparaît et disparaît en douceur).
+    public void SetPeace(bool on)
+    {
+        peace = Mathf.MoveTowards(peace, on ? 1f : 0f, Time.unscaledDeltaTime * 1.5f);
+        peaceVeil.color = new Color(1f, 0.45f, 0.72f, 0.16f * peace);
+    }
+
     public void SetInventory(PlayerStatus status)
     {
         for (int i = 0; i < GameRules.InventorySize; i++)
@@ -508,6 +480,8 @@ public class GameHud : MonoBehaviour
             slotIcon[i].color = Items.IsColoredDuck(t) ? Color.Lerp(def.color, Color.white, 0.1f) : Color.white;
             // Le nom ne s'affiche que si l'objet n'a pas d'icône.
             slotName[i].text = def != null && sprite == null ? def.shortName : "";
+            // V0.7.11 (7.16) : compteur d'Os sur l'icône du Sac à Os.
+            if (Items.IsBoneBag(t)) slotName[i].text = Items.BonesIn(t) + " / " + Items.BoneBagMax;
             slotBg[i].color = selected ? SlotSelectedColor : SlotColor;
             // Case sélectionnée (colorée et légèrement grossie) : textes en noir.
             bool light = UiKit.ReadableOn(slotBg[i].color) == Color.black;
@@ -520,23 +494,9 @@ public class GameHud : MonoBehaviour
     Sprite Icon(ItemType type)
     {
         if (type == ItemType.None) return null;
-        if (!icons.TryGetValue(type, out var sprite)) icons[type] = sprite = Resources.Load<Sprite>("Icons/" + (Items.IsColoredDuck(type) ? "CanardGris" : Items.IsZoneBell(type) ? "ClocheDecorative" : type.ToString()));
+        if (!icons.TryGetValue(type, out var sprite)) icons[type] = sprite = Resources.Load<Sprite>("Icons/" + (Items.IsColoredDuck(type) ? "CanardGris" : Items.IsZoneBell(type) ? "ClocheDecorative"
+            : Items.IsBoneBag(type) ? "SacOs" : Items.IsJournal(type) ? "Journal" : type.ToString()));
         return sprite;
-    }
-
-    // Cap de la caméra en degrés (0 = Nord, 90 = Est).
-    public void SetCompass(bool visible, float heading)
-    {
-        if (compassRoot.activeSelf != visible) compassRoot.SetActive(visible);
-        if (!visible) return;
-        float pxPerDegree = CompassWidth / CompassSpan;
-        foreach (var (rt, angle) in compassMarks)
-        {
-            float delta = Mathf.DeltaAngle(heading, angle);
-            bool shown = Mathf.Abs(delta) < CompassSpan * 0.5f;
-            if (rt.gameObject.activeSelf != shown) rt.gameObject.SetActive(shown);
-            if (shown) rt.anchoredPosition = new Vector2(delta * pxPerDegree, rt.anchoredPosition.y);
-        }
     }
 
     public void FlashDamage() => flashTimer = FlashDuration;

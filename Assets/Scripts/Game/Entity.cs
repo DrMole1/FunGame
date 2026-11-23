@@ -127,6 +127,34 @@ public abstract class Entity : MonoBehaviour
         }
     }
 
+    // V0.7.11 : repoussée (onde de choc du Mégaphone, Super Balle lancée) : glisse sur la grille de navigation dans la direction
+    // donnée, sans jamais quitter le sol praticable, puis reprend son chemin (hôte).
+    Vector3 shove;
+
+    public void Shove(Vector3 velocity)
+    {
+        velocity.y = 0f;
+        shove = velocity;
+        path.Clear();
+        repathTimer = 0f;
+    }
+
+    public void ApplyShove(float dt)
+    {
+        if (shove.sqrMagnitude < 0.04f || nav == null) { shove = Vector3.zero; return; }
+        Vector3 next = transform.position + shove * dt;
+        int node = nav.NodeAt(next);
+        if (node >= 0)
+        {
+            Vector3 p = nav.Position(node);
+            if (Mathf.Abs(p.y - transform.position.y) < 0.6f && new Vector2(p.x - next.x, p.z - next.z).magnitude < 0.6f)
+                transform.position = new Vector3(next.x, p.y, next.z);
+            else shove = Vector3.zero;
+        }
+        else shove = Vector3.zero;
+        shove *= Mathf.Exp(-4f * dt);
+    }
+
     // V0.6.13 : percutée par un boulet de canon (Cauchemar ou Sanction), elle vole en éclats, sans sang.
     public bool Shatter()
     {

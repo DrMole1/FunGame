@@ -17,6 +17,17 @@ public static class ControlDecor
 
     const int RandomRuns = 100;
     static readonly float[] Radii = { 0.03f, 0.04f, 0.05f, 0.06f, 0.075f, 0.09f, 0.11f, 0.13f };
+    // V0.7.11 (Note 05) : en plus des mêmes tuyaux, des tuyaux un peu plus gros et quelques-uns beaucoup plus épais.
+    static readonly float[] BigRadii = { 0.16f, 0.19f, 0.22f }, HugeRadii = { 0.3f, 0.36f };
+    const float BigPipeChance = 0.14f, HugePipeChance = 0.06f;
+
+    static float PickRadius(System.Random rnd)
+    {
+        double roll = rnd.NextDouble();
+        if (roll < HugePipeChance) return HugeRadii[rnd.Next(HugeRadii.Length)];
+        if (roll < HugePipeChance + BigPipeChance) return BigRadii[rnd.Next(BigRadii.Length)];
+        return Radii[rnd.Next(Radii.Length)];
+    }
 
     // V0.7.8 : la salle passe à 12 x 18 m. Le long du mur ouest, du nord au sud : moteur-pompe, casiers (sous un bloc de
     // ventilation), Tête-De-Cloche (en face du Vestiaire, à 8 m du mur nord), vannes (sous le second bloc de ventilation).
@@ -146,7 +157,7 @@ public static class ControlDecor
             float pick = (float)rnd.NextDouble() * total;
             Wall wall = walls[0];
             foreach (var w in walls) { if (pick < w.u1 - w.u0) { wall = w; break; } pick -= w.u1 - w.u0; }
-            float radius = Radii[rnd.Next(Radii.Length)];
+            float radius = PickRadius(rnd);
             bool dark = rnd.NextDouble() < 0.45;
             // Cinq épaisseurs de décollement : des tuyaux qui se croisent passent souvent l'un devant l'autre.
             float depth = 0.07f + radius + rnd.Next(5) * 0.13f;

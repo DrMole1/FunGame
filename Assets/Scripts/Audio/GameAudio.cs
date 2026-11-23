@@ -17,7 +17,10 @@ public class GameAudio : MonoBehaviour
     // Sources (du groupe ou en boucle) qui jouent un son d'entité : muettes dans le Hub.
     readonly HashSet<AudioSource> entitySources = new HashSet<AudioSource>();
     int next;
-    AudioSource hubMusic, mazeDrone;
+    AudioSource hubMusic, mazeDrone, peaceMusic;
+    // V0.7.11 (7.15) : Lunettes PEACE dans l'inventaire : hors du Hub, plus de musique angoissante, mais une musique douce et
+    // joyeuse, avec de petits bruits d'oiseaux (y compris pendant le Couvre Feu).
+    public static bool PeaceMode;
     const float HubMusicVolume = 0.2f;
 
     // Couvre Feu en cours (0 ou 1, V0.6.8) : la musique du labyrinthe se coupe net (celle du Hub continue), puis revient progressivement.
@@ -85,6 +88,7 @@ public class GameAudio : MonoBehaviour
         }
         hubMusic = AmbientLoop("hub_music");
         mazeDrone = AmbientLoop("maze_drone");
+        peaceMusic = AmbientLoop("peace_music");
     }
 
     AudioSource AmbientLoop(string clip)
@@ -589,7 +593,9 @@ public class GameAudio : MonoBehaviour
         mazeReturn = CurfewLevel > 0f ? 0f : Mathf.MoveTowards(mazeReturn, 1f, Time.unscaledDeltaTime / GameRules.CurfewMusicReturn);
         mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, hubSide ? 0f : 0.55f * on * tv * mazeReturn * music, k);
         if (CurfewLevel > 0f) mazeDrone.volume = 0f;
-        if (Loading) hubMusic.volume = mazeDrone.volume = 0f;
+        if (PeaceMode) mazeDrone.volume = 0f;
+        peaceMusic.volume = Mathf.Lerp(peaceMusic.volume, PeaceMode && !hubSide ? 0.45f * on * tv * music : 0f, k);
+        if (Loading) hubMusic.volume = mazeDrone.volume = peaceMusic.volume = 0f;
         // Dans le Hub, les sons des entités se taisent (y compris ceux déjà commencés).
         bool hubListener = cam != null && inHub;
         for (int i = loops.Count - 1; i >= 0; i--)

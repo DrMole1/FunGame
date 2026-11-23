@@ -25,6 +25,11 @@ public class NetworkGame : MonoBehaviour
     public const int FlagDead = 1, FlagSneak = 2, FlagTeleport = 4, FlagHidden = 8, FlagCannonball = 16, FlagTerminal = 32, FlagCorpseGone = 64;
     // V0.6.13 : Protocole en main, assis à l'arrivée dans la partie (il se relève), bras tendu vers un glyphe neutre.
     public const int FlagProtocol = 128, FlagSitting = 256, FlagGlyphArm = 512, FlagSeated = 1024;
+    // V0.7.11 : document tenu (3 bits à partir de FlagDocumentShift : Protocole, Notice, Journaux), Lunettes PEACE portées, Sac à Os
+    // dans le dos, Mégaphone en main.
+    public const int FlagDocumentShift = 11, FlagGlasses = 1 << 14, FlagBoneBag = 1 << 15, FlagMegaphone = 1 << 16;
+    // Nombre d'Os du Sac à Os (4 bits, 0 à 15).
+    public const int FlagBonesShift = 17;
 
     enum State { Lobby, Hosting, Joining, InGame }
 
@@ -150,7 +155,11 @@ public class NetworkGame : MonoBehaviour
             int flags = (session.LocalDead ? FlagDead : 0) | (localPlayer.Sneaking ? FlagSneak : 0) | (GameSession.Teleporting ? FlagTeleport : 0)
                 | (GameSession.Hidden ? FlagHidden : 0) | (GameSession.CannonFlying ? FlagCannonball : 0) | (TerminalUI.IsOpen ? FlagTerminal : 0) | (GameSession.CorpseGone ? FlagCorpseGone : 0)
                 | (GameSession.HoldingProtocol ? FlagProtocol : 0) | (GameSession.SittingUp ? FlagSitting : 0) | (GameSession.ArmToGlyph ? FlagGlyphArm : 0)
-                | (PlayerController.SeatedOnFloor ? FlagSeated : 0);
+                | (PlayerController.SeatedOnFloor ? FlagSeated : 0)
+                | ((int)GameSession.HeldDocument << FlagDocumentShift) | (GameSession.WearingGlasses ? FlagGlasses : 0)
+                | (GameSession.WearingBoneBag ? FlagBoneBag : 0) | (GameSession.HoldingMegaphone ? FlagMegaphone : 0)
+                | (GameSession.LocalBagBones << FlagBonesShift);
+
             string msg = "S|" + myId + "|" + F(p.x) + "|" + F(p.y) + "|" + F(p.z) + "|" + F(t.eulerAngles.y)
                 + "|" + (int)localPlayer.CurrentAnimState + "|" + session.LocalHp + "|" + flags + "|" + Clock();
             if (isHost) PeerNet.BroadcastFast(msg);

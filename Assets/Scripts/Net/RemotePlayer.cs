@@ -13,6 +13,10 @@ public class RemotePlayer : MonoBehaviour
     // En téléportation (état reçu, ou trajet encore en cours de rejeu), et d'où il est parti.
     public bool Teleporting => teleporting || tpPath != null;
     public Vector3 TeleportFrom { get; private set; }
+    // V0.7.11 (7.16) : Sac à Os dans le dos, et nombre d'Os qu'il contient (état reçu).
+    public bool HasBoneBag { get; private set; }
+    public int BagBones { get; private set; }
+    public CharacterAvatar Avatar => avatar;
 
     readonly NetSmoother smoother = new NetSmoother();
     bool hasTarget;
@@ -51,6 +55,8 @@ public class RemotePlayer : MonoBehaviour
         rp.nameTag.height = library.height * 0.5f + 0.35f;
         rp.nameTag.Set(playerName, color);
         rp.tagColor = color;
+        // V0.7.11 : cible d'interaction (Collier à Laisse, Os à glisser dans son Sac à Os), active seulement quand elle sert.
+        PlayerTarget.Attach(rp, library.height);
         return rp;
     }
 
@@ -88,7 +94,12 @@ public class RemotePlayer : MonoBehaviour
     {
         bool dead = (flags & NetworkGame.FlagDead) != 0;
         // V0.6.13 : Protocole en main, bras tendu vers un glyphe, assis à l'arrivée (il se relève).
-        avatar.SetHolding((flags & NetworkGame.FlagProtocol) != 0 && !dead);
+        avatar.SetHolding((flags & NetworkGame.FlagProtocol) != 0 && !dead, (DocumentKind)((flags >> NetworkGame.FlagDocumentShift) & 7));
+        // V0.7.11 : Lunettes PEACE, Sac à Os et Mégaphone, vus sur le personnage.
+        avatar.SetEquipment((flags & NetworkGame.FlagGlasses) != 0, (flags & NetworkGame.FlagBoneBag) != 0, (flags & NetworkGame.FlagMegaphone) != 0 && !dead);
+        HasBoneBag = (flags & NetworkGame.FlagBoneBag) != 0;
+        BagBones = (flags >> NetworkGame.FlagBonesShift) & 15;
+
         avatar.SetArmRaised((flags & NetworkGame.FlagGlyphArm) != 0 && !dead);
         avatar.SetSeated((flags & NetworkGame.FlagSeated) != 0 && !dead);
         bool sitting = (flags & NetworkGame.FlagSitting) != 0 && !dead;

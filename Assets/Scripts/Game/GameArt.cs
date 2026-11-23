@@ -218,7 +218,7 @@ public static class GameArt
         return cache[key] = m;
     }
 
-    // Variante colorée de l'aura (Balise Améliorée, Téléporteur, Station Curative, boule d'énergie).
+    // Variante colorée de l'aura (Téléporteur, boule d'énergie).
     public static Material GhostAuraTinted(string key, Color color)
     {
         if (cache.TryGetValue("GhostAura" + key, out var m) && m != null) return m;
@@ -277,6 +277,29 @@ public static class GameArt
         m.SetFloat("_Intensity", intensity);
         m.SetColor("_SmokeColor", smoke);
         return cache[key] = m;
+    }
+
+    // V0.7.11 : volute douce (disque flou blanc, teinté par la couleur des particules), pour le Parfum Odorant et les Lunettes PEACE.
+    public static Material SoftPuff
+    {
+        get
+        {
+            if (cache.TryGetValue("SoftPuff", out var m) && m != null) return m;
+            const int n = 64;
+            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false) { name = "Volute", wrapMode = TextureWrapMode.Clamp };
+            var px = new Color32[n * n];
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float d = new Vector2((x + 0.5f) / n - 0.5f, (y + 0.5f) / n - 0.5f).magnitude * 2f;
+                    float a = Mathf.Clamp01(1f - d);
+                    px[y * n + x] = new Color32(255, 255, 255, (byte)(a * a * 255f));
+                }
+            tex.SetPixels32(px);
+            tex.Apply();
+            m = new Material(Shader.Find("Sprites/Default")) { name = "SoftPuff", mainTexture = tex };
+            return cache["SoftPuff"] = m;
+        }
     }
 
     // Particules d'étincelles (Resources/Materials/Spark).
@@ -461,6 +484,30 @@ public static class GameArt
         go.transform.localScale *= scale;
         b = LocalBounds(holder.transform);
         go.transform.localPosition = new Vector3(-b.center.x, -b.min.y, -b.center.z);
+        return holder;
+    }
+
+    // V0.7.11 : modèle centré sur son origine, sa plus grande dimension ramenée à 'size' (objets portés par les personnages).
+    public static GameObject SpawnModelFit(string name, Transform parent, float size)
+    {
+        var holder = SpawnModel(name, parent, 1f);
+        if (holder == null) return null;
+        Transform go = holder.transform.GetChild(0);
+        Bounds b = LocalBounds(holder.transform);
+        float max = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
+        if (max > 0.0001f) go.localScale *= size / max;
+        b = LocalBounds(holder.transform);
+        go.localPosition -= b.center;
+        return holder;
+    }
+
+    // V0.7.11 : modèle posé au sol (sa base à l'origine), sa plus grande dimension ramenée à 'size' (objets couchés ou plats).
+    public static GameObject SpawnModelFloor(string name, Transform parent, float size)
+    {
+        var holder = SpawnModelFit(name, parent, size);
+        if (holder == null) return null;
+        Transform go = holder.transform.GetChild(0);
+        go.localPosition += Vector3.up * -LocalBounds(holder.transform).min.y;
         return holder;
     }
 

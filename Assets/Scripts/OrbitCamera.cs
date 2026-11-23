@@ -462,7 +462,10 @@ public class OrbitCamera : MonoBehaviour
 
     // V0.7.8 (chapitre 17, Note 02) : secousses accentuées à la première et à la troisième personne : environ 1,7 fois plus
     // amples (hauteur, balancement latéral, roulis), plus un léger hochement de tête à chaque pas ('nod', en degrés).
-    const float BobLift = 0.075f, BobSway = 0.034f, BobRoll = 0.6f, BobNod = 0.55f;
+    // V0.7.11 (Note 06) : secousses haut-bas légèrement réduites (hauteur 0,075 -> 0,062 ; hochement 0,55 -> 0,45).
+    const float BobLift = 0.062f, BobSway = 0.034f, BobRoll = 0.6f, BobNod = 0.45f;
+    // V0.7.11 (7.12) : la caméra penche la tête à droite et à gauche au rythme d'un Métronome regardé (degrés de roulis).
+    public static float MetronomeTilt;
 
     Vector3 HeadBob(PlayerController controller, Quaternion rot, out float roll, out float nod)
     {
@@ -476,7 +479,7 @@ public class OrbitCamera : MonoBehaviour
         float step = Mathf.Sin(bobPhase), sway = Mathf.Sin(bobPhase * 0.5f);
         // Pulsations cardiaques : les saccades des pas se font plus insistantes (jusqu'à 2,3 fois plus amples).
         float tension = 1f + 1.3f * dread;
-        roll = sway * BobRoll * bobWeight * tension;
+        roll = sway * BobRoll * bobWeight * tension + MetronomeTilt / (FirstPerson ? 1f : ThirdPersonBob);
         // La tête plonge un peu à l'impact de chaque pas (au creux du mouvement vertical).
         nod = (0.5f - Mathf.Abs(step)) * BobNod * bobWeight * tension;
         Vector3 right = rot * Vector3.right;

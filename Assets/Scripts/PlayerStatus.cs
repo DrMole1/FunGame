@@ -94,6 +94,16 @@ public class PlayerStatus : MonoBehaviour
         return -1;
     }
 
+    public bool Has(ItemType type) => IndexOf(type) >= 0;
+
+    // V0.7.11 : remplace l'objet d'une case (Sac à Os dont le compteur change).
+    public void Replace(int slot, ItemType type)
+    {
+        if (slot < 0 || slot >= slots.Length || slots[slot] == type) return;
+        slots[slot] = type;
+        Changed?.Invoke();
+    }
+
     public void SetDead(bool dead)
     {
         Dead = dead;

@@ -14,6 +14,8 @@ public abstract class Interactable : MonoBehaviour
     protected virtual bool HasOutline(Renderer r) => true;
 
     public abstract string Prompt { get; }
+    // V0.7.11 : distance d'interaction (le Collier à Laisse se passe à 5 m).
+    public virtual float Range => GameRules.InteractRange;
     public virtual bool CanInteract => true;
     // Simple information (rien à actionner) : le texte s'affiche sans touche, et un clic ne fait rien de spécial.
     public virtual bool InfoOnly => false;
@@ -90,7 +92,9 @@ public class ItemPickup : Interactable
         var visual = new GameObject("Visuel").transform;
         visual.SetParent(go.transform, false);
 
-        if (GameArt.SpawnModel(Items.ModelName(type), visual, ModelHeight(type)) == null)
+        // V0.7.11 : objets plats ou couchés (Journal, Collier, Lunettes, Mégaphone) : leur plus grande dimension.
+        bool flat = Items.IsJournal(type) || type == ItemType.Collier || type == ItemType.Lunettes || type == ItemType.Megaphone;
+        if ((flat ? GameArt.SpawnModelFloor(Items.ModelName(type), visual, 0.5f) : GameArt.SpawnModel(Items.ModelName(type), visual, ModelHeight(type))) == null)
             BuildFallback(visual, type);
         // V0.6.3 : canards colorés (teinte du Hub).
         Items.ApplyLook(visual, type);

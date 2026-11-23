@@ -4,7 +4,19 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.10";
+    public const string Version = "V0.7.11";
+
+    // V0.7.11 (9.1) : les Hubs sont numérotés en chiffres romains (Hub I, Hub II...).
+    public static string Roman(int n)
+    {
+        if (n <= 0) return n.ToString();
+        int[] values = { 1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1 };
+        string[] digits = { "M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I" };
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < values.Length; i++)
+            while (n >= values[i]) { sb.Append(digits[i]); n -= values[i]; }
+        return sb.ToString();
+    }
 
     public const int MaxPlayers = 6;            // V0.7.5 (avant : 8)
     public const int MaxHp = 100;
@@ -74,16 +86,18 @@ public static class GameRules
 
     // ---------- Évolution du terrain (chapitre 10, V0.6) ----------
 
-    // Génération d'objets de valeur d'une zone, en pourcentage du quota : 120 + 30 x nZone - 10 x nManche (jamais négative).
-    // V0.7.2 : plus de bonus aux manches 1 et 2. Les Super Monticules ne comptent pas dans ce tableau.
-    public static float ValuePercent(int round, int zone) => Mathf.Max(0f, 120f + 30f * zone - 10f * round) / 100f;
+    // Génération d'objets de valeur d'une zone, en pourcentage du quota : 100 + 30 x nZone - 10 x nManche (jamais négative ;
+    // V0.7.11, avant : 120). Les Super Monticules ne comptent pas dans ce tableau.
+    public static float ValuePercent(int round, int zone) => Mathf.Max(0f, 100f + 30f * zone - 10f * round) / 100f;
     // V0.6 : à chaque manche, 2 entités de type "Normal" et 2 de type "Cauchemar" apparaissent par zone (choisies au hasard),
-    // et celles de la manche précédente disparaissent.
-    public const int NormalsPerZone = 2;
+    // et celles de la manche précédente disparaissent. V0.7.11 : 3 entités "Normal" par zone à partir de la manche 4.
     public const int NightmaresPerZone = 2;
+    public const int MoreNormalsRound = 4;
+    public static int NormalsPerZone(int round) => round >= MoreNormalsRound ? 3 : 2;
 
-    // Notes 01 et 02 du chapitre 10 : génération d'objets de valeur x3 seul, x2 à deux, x1,5 à trois, x1,2 à quatre.
-    public static float ValueBoost(int players) => players <= 1 ? 3f : players == 2 ? 2f : players == 3 ? 1.5f : players == 4 ? 1.2f : 1f;
+    // Notes 01 et 02 du chapitre 10 : génération d'objets de valeur x2,5 seul (V0.7.11, avant : x3), x2 à deux, x1,5 à trois,
+    // x1,2 à quatre.
+    public static float ValueBoost(int players) => players <= 1 ? 2.5f : players == 2 ? 2f : players == 3 ? 1.5f : players == 4 ? 1.2f : 1f;
 
     // V0.4.6 : les objets de valeur sont dans des monticules ; leur nombre tient compte des chances d'obtention.
     public static int MoundsForRound(int round, int zone, float boost) =>
@@ -283,14 +297,15 @@ public static class GameRules
 
     // Hauteur maximale d'une salle : nZone x 10, sans excéder 50 mètres.
     public static float MaxRoomHeight(int zone) => Mathf.Min(10f * zone, 50f);
-    // Note 01 du chapitre 10.3 : au moins 2 tunnels en Zone 2, 3 en Zone 3, 4 à partir de la Zone 4.
-    public static int MinTunnels(int zone) => zone < 2 ? 0 : Mathf.Min(zone, 4);
+    // Chapitre 11.2 (V0.7.11) : au moins 4 tunnels par zone d'Échiquier (hors Zone 1).
+    public static int MinTunnels(int zone) => zone < 2 ? 0 : 4;
     // Salles de plus de 21 m : la moitié seulement ont les grandes plateformes (au moins 10 m²).
     public const float LargePlatformChance = 0.5f;
     // Chapitre 9.2 (V0.6.6) : les 8 premières zones sont générées à la création de la partie, derrière un écran de chargement.
     public const int InitialZones = 8;
-    // Chapitre 10.3 (V0.6.6) : ponts suspendus (Zone 2 : 2, Zone 3 : 3, ensuite 4), arches et toboggans (Zone 3 : 1, Zone 4 : 2, ensuite 3).
-    public static int BridgesInZone(int zone) => zone < 2 ? 0 : Mathf.Min(zone, 4);
+    // Chapitre 11.2 (V0.7.11) : au moins 4 ponts suspendus par zone d'Échiquier (hors Zone 1), au moins 3 toboggans à partir
+    // de la Zone 3.
+    public static int BridgesInZone(int zone) => zone < 2 ? 0 : 4;
     public const int BridgeBreakPlayers = 3;
     public const float BridgeFallCleanup = 2f;
     public const float ArchChance = 0.25f;
@@ -323,8 +338,8 @@ public static class GameRules
     public const float StatueFilledRoomChance = 0.5f, StatueDogHeadChance = 0.05f;
     // Tête de chien de la statue : base du cou (fractions de l'emprise de la statue) et taille (fraction de sa hauteur).
     public const float StatueNeckHeight = 0.85f, StatueHeadBase = 0.805f, StatueNeckX = 0.5f, StatueNeckZ = 0.6f, StatueDogHeadSize = 0.18f;
-    public static int SlidesInZone(int zone) => zone < 3 ? 0 : Mathf.Min(zone - 2, 3);
-    // Chapitre 9.2 : à partir de cette zone impaire débloquée, les zones trop en arrière sont fermées puis désactivées.
+    public static int SlidesInZone(int zone) => zone < 3 ? 0 : 3;
+    // Chapitre 9.2 : à partir de cette zone débloquée, les zones trop en arrière sont fermées puis désactivées.
     public const int FirstSealingZone = 7;
 
     // ---------- Glyphes (chapitre 9, V0.6) ----------
@@ -338,24 +353,26 @@ public static class GameRules
     // V0.6.13 : icônes de pattes au-dessus d'un glyphe, selon le nombre de joueurs en jeu (1 ; 2-3 ; 4-5 ; 6).
     public static int GlyphPaws(int players) => players <= 1 ? 1 : players <= 3 ? 2 : players <= 5 ? 3 : 4;
     // Durée de l'ordre de chaque glyphe (immobile et accroupi, aller à la niche, aboyer).
-    public static readonly float[] GlyphDuration = { 10f, 30f, 10f };
+    public static readonly float[] GlyphDuration = { 8f, 30f, 8f };   // V0.7.11 (avant : 10, 30, 10)
     public const float GlyphSitDelay = 3.5f;     // "Assis !" : assis au bout de 3,5 secondes, et jusqu'à la fin (V0.7.4)
     public const float GlyphBarkGap = 3.5f;      // "Aboie !" : au plus 3,5 secondes consécutives sans aboyer (V0.7.4, avant : 3)
 
     // ---------- Super Monticules (chapitre 10.2, V0.7.2) ----------
 
-    // 4 + nZone x 2 par zone, 16 au plus, dès la Zone 1 ; 40 % plus gros qu'un monticule ; aucun vide, escalier, obstacle,
-    // monticule, œil ou mur à moins de 0,4 m de leur bord.
+    // 6 + nZone x 2 par zone (V0.7.11, avant : 4 + nZone x 2), 16 au plus, dès la Zone 1 ; 40 % plus gros qu'un monticule ;
+    // aucun vide, escalier, obstacle, monticule, œil ou mur à moins de 0,4 m de leur bord.
     public const int MaxSuperMoundsPerZone = 16;
-    public static int SuperMoundsInZone(int zone) => Mathf.Min(MaxSuperMoundsPerZone, 4 + zone * 2);
+    public static int SuperMoundsInZone(int zone) => Mathf.Min(MaxSuperMoundsPerZone, 6 + zone * 2);
     public const float SuperMoundScale = 1.4f, SuperMoundClearance = 0.4f;
     // Traces de pattes : le même nombre que les icônes des glyphes neutres (chapitre 16.1, Calcul des Icônes).
     public static int SuperMoundPaws(int players) => GlyphPaws(players);
     // Objet déterré (chances d'apparition).
+    // V0.7.11 : peluches 20 / 15 / 10 / 5 %, puis 6,25 % pour chacun des huit objets (le "Ballon" du tableau est la Super Balle).
     public static readonly (ItemType type, float chance)[] SuperMoundLoot =
     {
-        (ItemType.Trampoline, 0.175f), (ItemType.BouleDisco, 0.175f), (ItemType.Television, 0.1f),
-        (ItemType.PelucheLapin, 0.25f), (ItemType.PeluchePingouin, 0.15f), (ItemType.PelucheSinge, 0.1f), (ItemType.PelucheChat, 0.05f),
+        (ItemType.PelucheLapin, 0.2f), (ItemType.PeluchePingouin, 0.15f), (ItemType.PelucheSinge, 0.1f), (ItemType.PelucheChat, 0.05f),
+        (ItemType.Trampoline, 0.0625f), (ItemType.BouleDisco, 0.0625f), (ItemType.Television, 0.0625f), (ItemType.Megaphone, 0.0625f),
+        (ItemType.Metronome, 0.0625f), (ItemType.SuperBalle, 0.0625f), (ItemType.Collier, 0.0625f), (ItemType.Lunettes, 0.0625f),
     };
     public const float DiscoMusicRange = 10f;     // musique disco d'une Boule de Disco posée
 
@@ -373,7 +390,7 @@ public static class GameRules
 
     // V0.7.2 : plus de Chargeur ; les Balises des Hubs restent chargées en permanence.
 
-    // ---------- Téléporteur (7.2) et Station Curative (7.4) ----------
+    // ---------- Téléporteur (7.2) ----------
 
     public const float DeviceRange = 1f;
     public const float TeleportChannel = 3f;
@@ -381,7 +398,6 @@ public static class GameRules
     public const float ReverseTeleporterScale = 5f, ReverseTeleporterCooldown = 120f;
     public const float TeleportSpeed = 70f;   // boule d'énergie le long des liens
     public const float TeleportSkipDelay = 5f; // V0.7.4 : "[sauter] Passer" après 5 secondes de voyage
-    public const float StationHealPerSecond = 10f;
 
     // ---------- Télévision, Trampoline, Cloche Décorative (7.6 à 7.8 ; V0.7.2 : trouvés dans les Super Monticules) ----------
 
@@ -389,8 +405,8 @@ public static class GameRules
     public const float TvSoundRange = 10f;
     // Trampoline : un peu moins que la hauteur entre le sol du Hub et le haut du Chapiteau.
     public const float TrampolineJumpFraction = 0.9f;
-    // V0.6.13 (10.3) : Cloches Décoratives suspendues dans les zones 2+ : 2 en Zone 2, 3 en Zone 3, 4 dans les zones 4 et +.
-    public static int HangingBellsInZone(int zone) => zone < 2 ? 0 : zone == 2 ? 2 : zone == 3 ? 3 : 4;
+    // V0.7.11 (7.6) : Cloches Décoratives en hauteur dans les zones 2+ : 3 en Zone 2, 4 en Zone 3, 5 dans les zones 4 et +.
+    public static int HangingBellsInZone(int zone) => zone < 2 ? 0 : zone == 2 ? 3 : zone == 3 ? 4 : 5;
     // Cloche Décorative : son tintement s'entend (et obnubile) en ligne de vue, jusqu'à cette distance.
     public const float BellSightRange = 80f;
 
@@ -403,9 +419,9 @@ public static class GameRules
 
 public enum ItemType
 {
-    None = 0, CuisseDePoulet = 1, Canard = 2, PostIt = 3, Cle = 4, Boussole = 5, Balise = 6, Chargeur = 7, Teleporteur = 8,
-    // V0.7.10 : plus de Balise Améliorée (9 ne sert plus).
-    StationCurative = 10, Os = 11, Canon = 12, Television = 13, Trampoline = 14, ClocheDecorative = 15,
+    None = 0, CuisseDePoulet = 1, Canard = 2, PostIt = 3, Cle = 4, Balise = 6, Chargeur = 7, Teleporteur = 8,
+    // V0.7.10 : plus de Balise Améliorée (9 ne sert plus). V0.7.11 : plus de Boussole (5) ni de Station Curative (10).
+    Os = 11, Canon = 12, Television = 13, Trampoline = 14, ClocheDecorative = 15,
     // V0.7.2 : plus d'Arcades (ni Jeton WOOF, ni tickets, ni anciennes boules : 16 à 20, 26 et 27 ne servent plus). Peluches et
     // Boule de Disco (arc-en-ciel) sortent des Super Monticules. (Chargeur, 7 : supprimé.)
     PelucheLapin = 21, PeluchePingouin = 22, PelucheSinge = 23, PelucheChat = 24,
@@ -418,12 +434,20 @@ public enum ItemType
     CarteMagnetique1 = 30,
     // V0.7.4 (15.4, S2) : Carte Magnétique 2 ; ouvre la porte entre la Control Room et le Vestiaire (pour l'instant : /give S2).
     CarteMagnetique2 = 31,
-    // V0.6.3 (O7) : Canard en Plastique Coloré. Le type réel est CanardColore + nZone / 2 (101 : Zone 2, 102 : Zone 4...),
-    // ce qui lui donne sa couleur et sa valeur sans rien transmettre de plus sur le réseau.
+    // V0.7.11 (7.9) : Parfum Odorant, acheté au Terminal : il parfume l'acheteur (pas d'objet dans l'inventaire).
+    ParfumOdorant = 32,
+    // V0.7.11 (7.11 à 7.17) : objets des Super Monticules (O13 à O17), Sac à Os et Notice du Hub II (O18, O19).
+    Megaphone = 33, Metronome = 34, SuperBalle = 35, Collier = 36, Lunettes = 37, Notice = 39,
+    // V0.7.11 (17.5) : vieux Journaux J1 à J5, dans un monticule de plus de la Zone 1 (5 premières manches).
+    Journal1 = 41, Journal2 = 42, Journal3 = 43, Journal4 = 44, Journal5 = 45,
+    // V0.6.3 (O4 depuis la V0.7.11) : Canard en Plastique Coloré. Le type réel est CanardColore + nZone (V0.7.11 : 101 : Zone 1,
+    // 102 : Zone 2...), ce qui lui donne sa couleur et sa valeur sans rien transmettre de plus sur le réseau.
     CanardColore = 100,
-    // V0.6.13 (7.8) : Cloche Décorative suspendue dans une zone 2+. Le type réel est ClocheZone + nZone (402 : Zone 2...),
-    // ce qui lui donne sa valeur (nZone x 75) sans rien transmettre de plus.
+    // V0.6.13 (7.6) : Cloche Décorative en hauteur dans une zone 2+. Le type réel est ClocheZone + nZone (402 : Zone 2...),
+    // ce qui lui donne sa valeur (nZone x 50 depuis la V0.7.11) sans rien transmettre de plus.
     ClocheZone = 400,
+    // V0.7.11 (7.16) : Sac à Os. Le type réel est SacOs + nombre d'Os qu'il contient (500 : vide, 515 : plein).
+    SacOs = 500,
     // Tirage d'un monticule seulement (pas un objet) : Le Réveil en sort.
     Reveil = 99,
 }
@@ -432,7 +456,7 @@ public class ItemDef
 {
     public ItemType type;
     public int terminalId; // ID affiché et tapé au Terminal (0 = pas en vente)
-    public string otherId; // ID des "Autres objets" (O1 à O12), pour /give
+    public string otherId; // ID des "Autres objets" (O1 à O19, J1 à J5), pour /give
     // Noms en français (clés de traduction) ; name et shortName les donnent dans la langue choisie.
     public string frName, frShortName;
     public string name { get => Loc.T(frName); set => frName = value; }
@@ -440,7 +464,8 @@ public class ItemDef
     public int buyPrice;   // 0 = non achetable au Terminal
     public int sellPrice;
     public Color color;
-    public bool inventory = true; // la Boussole ne se garde pas dans l'inventaire
+    public bool inventory = true; // le Téléporteur Inversé et le Parfum Odorant ne se gardent pas dans l'inventaire
+    public bool sellable = true;  // V0.7.11 : le Sac à Os ne se vend pas (seuls ses Os se vendent)
 }
 
 public static class Items
@@ -448,29 +473,32 @@ public static class Items
     public const int PostItMaxChars = 20;
     public const float PostItLockSeconds = 2f; // un Post-It ne peut pas être retiré juste après avoir été accroché
 
-    // V0.6.3 : un Canard Coloré par palier (nZone / 2) : valeur 25 + palier x 25, couleur de la Balise du Hub de la zone précédente.
+    // V0.7.11 (Note 14) : un Canard Coloré par zone (son "palier" est le numéro de la zone où il a été ramassé) : valeur
+    // 25 + (nZone / 2) x 25, couleur de la Balise du Hub de la zone précédente (le Hub I, bleu, pour les zones 1 et 2).
     public const int MaxDuckTier = 120;
     static readonly System.Collections.Generic.Dictionary<int, ItemDef> coloredDucks = new System.Collections.Generic.Dictionary<int, ItemDef>();
 
-    static ItemDef ColoredDuck(int tier)
+    static ItemDef ColoredDuck(int zone)
     {
-        if (!coloredDucks.TryGetValue(tier, out var def))
-            coloredDucks[tier] = def = new ItemDef
+        if (!coloredDucks.TryGetValue(zone, out var def))
+            coloredDucks[zone] = def = new ItemDef
             {
-                type = ItemType.CanardColore + tier, otherId = tier == 1 ? "O6" : null, name = "Canard en Plastique Coloré", shortName = "Canard col.",
-                buyPrice = 0, sellPrice = 25 + tier * 25, color = Beacon.HubColor(tier),
+                type = ItemType.CanardColore + zone, otherId = zone == 1 ? "O4" : null, name = "Canard en Plastique Coloré", shortName = "Canard col.",
+                buyPrice = 0, sellPrice = Mathf.RoundToInt(25f + zone / 2f * 25f), color = Beacon.HubColor(DuckHub(zone)),
             };
         return def;
     }
 
+    // Hub dont la Balise donne sa couleur aux canards colorés de cette zone : celui de la zone précédente.
+    public static int DuckHub(int zone) => Mathf.Max(1, zone - 1);
     public static bool IsColoredDuck(ItemType type) => type > ItemType.CanardColore && type <= ItemType.CanardColore + MaxDuckTier;
     public static bool IsDuck(ItemType type) => type == ItemType.Canard || IsColoredDuck(type);
     public static int DuckTier(ItemType type) => type - ItemType.CanardColore;
-    public static ItemType ColoredDuckOf(int zone) => ItemType.CanardColore + Mathf.Clamp(zone / 2, 1, MaxDuckTier);
+    public static ItemType ColoredDuckOf(int zone) => ItemType.CanardColore + Mathf.Clamp(zone, 1, MaxDuckTier);
 
-    // V0.6.13 (7.8) : une Cloche Décorative suspendue dans une zone 2+ vaut nZone x 75 (nZone : zone où elle a été récupérée).
-    // V0.7.2 : il n'y a plus de Cloche Décorative au sol de la Zone 1.
-    public const int MaxBellZone = 55, ZoneBellValue = 75;
+    // V0.6.13 (7.6) : une Cloche Décorative en hauteur d'une zone 2+ vaut nZone x 50 (V0.7.11, avant : 75 ; nZone : zone où elle
+    // a été récupérée). V0.7.2 : il n'y a plus de Cloche Décorative au sol de la Zone 1.
+    public const int MaxBellZone = 55, ZoneBellValue = 50;
     static readonly System.Collections.Generic.Dictionary<int, ItemDef> zoneBells = new System.Collections.Generic.Dictionary<int, ItemDef>();
 
     static ItemDef ZoneBell(int zone)
@@ -491,48 +519,63 @@ public static class Items
 
     static readonly ItemDef[] All =
     {
-        // Objets obtenables au Terminal (ID 1 à 8), dans l'ordre du document. V0.6.14 : la Cuisse de Poulet est supprimée ;
-        // V0.7.2 : le Chargeur aussi (les ID suivants sont décalés d'un cran) ;
-        // V0.7.10 : la Balise Améliorée aussi (Station Curative 5, Canon 6, Téléporteur Inversé 7, Boussole 8).
+        // Objets obtenables au Terminal (ID 1 à 7), dans l'ordre du document. V0.6.14 : la Cuisse de Poulet est supprimée ;
+        // V0.7.2 : le Chargeur aussi (les ID suivants sont décalés d'un cran) ; V0.7.10 : la Balise Améliorée aussi ;
+        // V0.7.11 : la Station Curative et la Boussole aussi ; le Parfum Odorant prend l'ID 5.
         new ItemDef { type = ItemType.Balise, terminalId = 1, name = "Balise", shortName = "Balise", buyPrice = 30, sellPrice = 1, color = new Color(0.3f, 0.6f, 1f) },
         new ItemDef { type = ItemType.PostIt, terminalId = 2, name = "Post-It", shortName = "Post-It", buyPrice = 5, sellPrice = 1, color = new Color(1f, 0.93f, 0.35f) },
         new ItemDef { type = ItemType.Cle, terminalId = 3, name = "Clé", shortName = "Clé", buyPrice = 50, sellPrice = 1, color = new Color(0.55f, 0.8f, 1f) },
         new ItemDef { type = ItemType.Teleporteur, terminalId = 4, name = "Téléporteur", shortName = "Téléport.", buyPrice = 200, sellPrice = 1, color = new Color(1f, 0.7f, 0.15f) },
-        new ItemDef { type = ItemType.StationCurative, terminalId = 5, name = "Station Curative", shortName = "Station", buyPrice = 150, sellPrice = 1, color = new Color(0.4f, 1f, 0.45f) },
+        new ItemDef { type = ItemType.ParfumOdorant, terminalId = 5, name = "Parfum Odorant", shortName = "Parfum", buyPrice = 50, sellPrice = 1, color = new Color(1f, 0.55f, 0.55f), inventory = false },
         new ItemDef { type = ItemType.Canon, terminalId = 6, name = "Canon", shortName = "Canon", buyPrice = 200, sellPrice = 1, color = new Color(0.9f, 0.2f, 0.2f) },
         new ItemDef { type = ItemType.TeleporteurInverse, terminalId = 7, name = "Téléporteur Inversé", shortName = "Télép. inv.", buyPrice = 300, sellPrice = 0, color = new Color(1f, 0.7f, 0.15f), inventory = false },
-        new ItemDef { type = ItemType.Boussole, terminalId = 8, name = "Boussole", shortName = "Boussole", buyPrice = 150, sellPrice = 0, color = new Color(0.9f, 0.9f, 0.9f), inventory = false },
-        // Autres objets (O1 à O12, V0.7.2) : monticules, Super Monticules, Cloches suspendues des zones 2+, Hub de départ.
-        new ItemDef { type = ItemType.Canard, otherId = "O1", name = "Canard en Plastique", shortName = "Canard", buyPrice = 0, sellPrice = 30, color = new Color(1f, 0.84f, 0.15f) },
+        // Autres objets (O1 à O19, V0.7.11) : Hub de départ, monticules, Cloches en hauteur des zones 2+, Super Monticules, Hub II.
+        // O1 : Protocole, dans le Hub de départ ; prix de vente 1.
+        new ItemDef { type = ItemType.Protocole, otherId = "O1", name = "Protocole", shortName = "Protocole", buyPrice = 0, sellPrice = 1, color = new Color(0.86f, 0.8f, 0.64f) },
         new ItemDef { type = ItemType.Os, otherId = "O2", name = "Os", shortName = "Os", buyPrice = 0, sellPrice = 20, color = new Color(0.93f, 0.9f, 0.8f) },
-        new ItemDef { type = ItemType.Television, otherId = "O3", name = "Télévision", shortName = "Télé", buyPrice = 0, sellPrice = 100, color = new Color(0.55f, 0.5f, 0.45f) },
-        new ItemDef { type = ItemType.Trampoline, otherId = "O4", name = "Trampoline", shortName = "Trampo.", buyPrice = 0, sellPrice = 50, color = new Color(0.3f, 0.5f, 1f) },
-        // O5 : la Cloche Décorative (objet en hauteur) ; celle de /give vaut comme une Cloche de la Zone 2 (2 x 75).
-        new ItemDef { type = ItemType.ClocheDecorative, otherId = "O5", name = "Cloche Décorative", shortName = "Cloche", buyPrice = 0, sellPrice = 2 * ZoneBellValue, color = new Color(0.85f, 0.7f, 0.3f) },
-        // O6 : un exemplaire pour /give (celui de la Zone 2) ; les autres paliers sont créés à la demande.
+        new ItemDef { type = ItemType.Canard, otherId = "O3", name = "Canard en Plastique", shortName = "Canard", buyPrice = 0, sellPrice = 30, color = new Color(1f, 0.84f, 0.15f) },
+        // O4 : un exemplaire pour /give (celui de la Zone 1) ; ceux des autres zones sont créés à la demande.
         ColoredDuck(1),
-        // Peluches (O7 à O10, Super Monticules) : leur valeur dépend du quota de la manche où elles sont vendues (SellValue).
-        new ItemDef { type = ItemType.PelucheLapin, otherId = "O7", name = "Lapin en peluche", shortName = "Lapin", buyPrice = 0, color = new Color(0.95f, 0.95f, 0.95f) },
-        new ItemDef { type = ItemType.PeluchePingouin, otherId = "O8", name = "Pingouin en peluche", shortName = "Pingouin", buyPrice = 0, color = new Color(0.4f, 0.5f, 0.65f) },
-        new ItemDef { type = ItemType.PelucheSinge, otherId = "O9", name = "Singe en peluche", shortName = "Singe", buyPrice = 0, color = new Color(0.55f, 0.35f, 0.2f) },
-        new ItemDef { type = ItemType.PelucheChat, otherId = "O10", name = "Chat en peluche", shortName = "Chat", buyPrice = 0, color = new Color(0.7f, 0.7f, 0.72f) },
-        // O11 : Boule de Disco arc-en-ciel (Super Monticules), valeur 50.
-        new ItemDef { type = ItemType.BouleDisco, otherId = "O11", name = "Boule de Disco", shortName = "Disco", buyPrice = 0, sellPrice = 50, color = new Color(0.85f, 0.6f, 1f) },
-        // O12 : Protocole, dans le Hub de départ ; prix de vente 1.
-        new ItemDef { type = ItemType.Protocole, otherId = "O12", name = "Protocole", shortName = "Protocole", buyPrice = 0, sellPrice = 1, color = new Color(0.86f, 0.8f, 0.64f) },
+        // O5 : la Cloche Décorative (objet en hauteur) ; celle de /give vaut comme une Cloche de la Zone 2 (2 x 50).
+        new ItemDef { type = ItemType.ClocheDecorative, otherId = "O5", name = "Cloche Décorative", shortName = "Cloche", buyPrice = 0, sellPrice = 2 * ZoneBellValue, color = new Color(0.85f, 0.7f, 0.3f) },
+        // Peluches (O6 à O9, Super Monticules) : leur valeur dépend du quota de la manche où elles sont vendues (SellValue).
+        new ItemDef { type = ItemType.PelucheLapin, otherId = "O6", name = "Lapin en peluche", shortName = "Lapin", buyPrice = 0, color = new Color(0.95f, 0.95f, 0.95f) },
+        new ItemDef { type = ItemType.PeluchePingouin, otherId = "O7", name = "Pingouin en peluche", shortName = "Pingouin", buyPrice = 0, color = new Color(0.4f, 0.5f, 0.65f) },
+        new ItemDef { type = ItemType.PelucheSinge, otherId = "O8", name = "Singe en peluche", shortName = "Singe", buyPrice = 0, color = new Color(0.55f, 0.35f, 0.2f) },
+        new ItemDef { type = ItemType.PelucheChat, otherId = "O9", name = "Chat en peluche", shortName = "Chat", buyPrice = 0, color = new Color(0.7f, 0.7f, 0.72f) },
+        // O10 à O17 (Super Monticules) : 65 croquettes chacun (V0.7.11).
+        new ItemDef { type = ItemType.BouleDisco, otherId = "O10", name = "Boule de Disco", shortName = "Disco", buyPrice = 0, sellPrice = 65, color = new Color(0.85f, 0.6f, 1f) },
+        new ItemDef { type = ItemType.Television, otherId = "O11", name = "Télévision", shortName = "Télé", buyPrice = 0, sellPrice = 65, color = new Color(0.55f, 0.5f, 0.45f) },
+        new ItemDef { type = ItemType.Trampoline, otherId = "O12", name = "Trampoline", shortName = "Trampo.", buyPrice = 0, sellPrice = 65, color = new Color(0.3f, 0.5f, 1f) },
+        new ItemDef { type = ItemType.Megaphone, otherId = "O13", name = "Mégaphone", shortName = "Mégaphone", buyPrice = 0, sellPrice = 65, color = new Color(0.9f, 0.3f, 0.25f) },
+        new ItemDef { type = ItemType.Metronome, otherId = "O14", name = "Métronome", shortName = "Métronome", buyPrice = 0, sellPrice = 65, color = new Color(0.55f, 0.35f, 0.2f) },
+        new ItemDef { type = ItemType.SuperBalle, otherId = "O15", name = "Super Balle", shortName = "S. Balle", buyPrice = 0, sellPrice = 65, color = new Color(0.6f, 0.38f, 0.2f) },
+        new ItemDef { type = ItemType.Collier, otherId = "O16", name = "Collier à Laisse", shortName = "Collier", buyPrice = 0, sellPrice = 65, color = new Color(0.4f, 0.25f, 0.15f) },
+        new ItemDef { type = ItemType.Lunettes, otherId = "O17", name = "Lunettes PEACE", shortName = "Lunettes", buyPrice = 0, sellPrice = 65, color = new Color(1f, 0.55f, 0.85f) },
+        // O18 : Sac à Os (Hub II), il ne se vend pas (ses Os, si) ; O19 : Notice (Hub II), prix de vente 1.
+        new ItemDef { type = ItemType.SacOs, otherId = "O18", name = "Sac à Os", shortName = "Sac à Os", buyPrice = 0, sellPrice = 0, sellable = false, color = new Color(0.55f, 0.42f, 0.28f) },
+        new ItemDef { type = ItemType.Notice, otherId = "O19", name = "Notice", shortName = "Notice", buyPrice = 0, sellPrice = 1, color = new Color(0.86f, 0.8f, 0.64f) },
+        // 17.5 : vieux Journaux (Zone 1, 5 premières manches), 15 croquettes chez Pogo.
+        new ItemDef { type = ItemType.Journal1, otherId = "J1", name = "Journal", shortName = "Journal", buyPrice = 0, sellPrice = 15, color = new Color(0.8f, 0.7f, 0.5f) },
+        new ItemDef { type = ItemType.Journal2, otherId = "J2", name = "Journal", shortName = "Journal", buyPrice = 0, sellPrice = 15, color = new Color(0.8f, 0.7f, 0.5f) },
+        new ItemDef { type = ItemType.Journal3, otherId = "J3", name = "Journal", shortName = "Journal", buyPrice = 0, sellPrice = 15, color = new Color(0.8f, 0.7f, 0.5f) },
+        new ItemDef { type = ItemType.Journal4, otherId = "J4", name = "Journal", shortName = "Journal", buyPrice = 0, sellPrice = 15, color = new Color(0.8f, 0.7f, 0.5f) },
+        new ItemDef { type = ItemType.Journal5, otherId = "J5", name = "Journal", shortName = "Journal", buyPrice = 0, sellPrice = 15, color = new Color(0.8f, 0.7f, 0.5f) },
         // V0.6.14 (15.4) : objets secrets (S1...), obtenables aussi par /give. Ils ne se vendent pas.
         new ItemDef { type = ItemType.CarteMagnetique1, otherId = "S1", name = "Carte Magnétique 1", shortName = "Carte 1", buyPrice = 0, sellPrice = 0, color = new Color(0.85f, 0.88f, 0.9f) },
         new ItemDef { type = ItemType.CarteMagnetique2, otherId = "S2", name = "Carte Magnétique 2", shortName = "Carte 2", buyPrice = 0, sellPrice = 0, color = new Color(0.75f, 0.82f, 0.95f) },
     };
 
     // Note 06 du chapitre 7 : une peluche vaut une part du quota de la manche en cours au moment où elle est vendue :
-    // 4 % (Lapin), 8 % (Pingouin), 12 % (Singe), 16 % (Chat).
-    static readonly float[] PlushShares = { 0.04f, 0.08f, 0.12f, 0.16f };
+    // 5 % (Lapin), 8 % (Pingouin), 11 % (Singe), 14 % (Chat) (V0.7.11, avant : 4, 8, 12, 16 %).
+    static readonly float[] PlushShares = { 0.05f, 0.08f, 0.11f, 0.14f };
 
     // Valeur de vente d'un objet, avec le quota de la manche en cours (pour les peluches).
     public static int SellValue(ItemType type, int quota)
     {
         if (IsPlush(type)) return Mathf.Max(1, Mathf.RoundToInt(quota * PlushShares[type - ItemType.PelucheLapin]));
+        // V0.7.11 (7.16) : vendre le Sac à Os rapporte le prix de chacun de ses Os.
+        if (IsBoneBag(type)) return BonesIn(type) * (Get(ItemType.Os)?.sellPrice ?? 0);
         return Get(type)?.sellPrice ?? 0;
     }
 
@@ -559,6 +602,17 @@ public static class Items
     }
 
     public static bool IsPlush(ItemType type) => type >= ItemType.PelucheLapin && type <= ItemType.PelucheChat;
+    // V0.7.11 (7.16) : Sac à Os, 15 Os au plus ; au-delà de 5 Os, -4 % de vitesse par Os (40 % au plus).
+    public const int BoneBagMax = 15, BoneBagFreeBones = 5;
+    public const float BoneBagSlowPerBone = 0.04f, BoneBagMaxSlow = 0.4f;
+    public static bool IsBoneBag(ItemType type) => type >= ItemType.SacOs && type <= ItemType.SacOs + BoneBagMax;
+    public static int BonesIn(ItemType type) => IsBoneBag(type) ? type - ItemType.SacOs : 0;
+    public static ItemType BoneBagOf(int bones) => ItemType.SacOs + Mathf.Clamp(bones, 0, BoneBagMax);
+    public static float BoneBagSlow(int bones) => Mathf.Min(BoneBagMaxSlow, Mathf.Max(0, bones - BoneBagFreeBones) * BoneBagSlowPerBone);
+    public static bool IsJournal(ItemType type) => type >= ItemType.Journal1 && type <= ItemType.Journal5;
+    public static ItemType JournalOf(int index) => ItemType.Journal1 + Mathf.Clamp(index, 0, 4);
+    // V0.7.11 : objets qu'on tient entre ses mains pour les lire (Notice, Journaux).
+    public static bool IsReadable(ItemType type) => type == ItemType.Notice || IsJournal(type);
     public static bool IsDiscoBall(ItemType type) => type == ItemType.BouleDisco;
     // Objet précieux (peluches, Boule de Disco) : à terre, il scintille de petites particules.
     public static bool IsPrize(ItemType type) => IsPlush(type) || IsDiscoBall(type);
@@ -579,10 +633,17 @@ public static class Items
             case ItemType.CarteMagnetique2: return "CarteMagnetique";   // construite à la volée (SecretCorpse.BuildCard)
             case ItemType.Television: return "Television";
             case ItemType.Trampoline: return "Trampoline";
+            case ItemType.Megaphone: return "Megaphone";
+            case ItemType.Metronome: return "Metronome";
+            case ItemType.SuperBalle: return "SuperBalle";
+            case ItemType.Collier: return "Collier";
+            case ItemType.Lunettes: return "Lunettes";
             default:
                 if (IsBell(type)) return "ClocheDecorative";
                 if (IsDiscoBall(type)) return "BouleDisco";
                 if (IsColoredDuck(type)) return "DuckSolo";
+                if (IsJournal(type)) return "Journal";
+                if (IsBoneBag(type)) return "SacOs";
                 return "Croquette";
         }
     }
@@ -590,12 +651,11 @@ public static class Items
     // Note 05 du chapitre 14 (V0.5.1) : la monnaie est la croquette (ce ne sont plus des golds). "1 croquette", "30 croquettes".
     public static string Price(int amount) => Loc.Price(amount);
 
-    // Tableaux des monticules (chapitre 9, V0.6.3) : objet trouvé et chance d'obtention, selon la parité de la zone.
+    // Tableau des monticules (chapitre 9, V0.7.11 : le même pour toutes les zones) : objet trouvé et chance d'obtention.
     // ItemType.Reveil n'est pas un objet : l'entité Le Réveil sort du monticule.
-    static readonly (ItemType type, float chance)[] OddMoundLoot = { (ItemType.Os, 0.85f), (ItemType.Canard, 0.1f), (ItemType.Reveil, 0.05f) };
-    static readonly (ItemType type, float chance)[] EvenMoundLoot = { (ItemType.Os, 0.1f), (ItemType.Canard, 0.4f), (ItemType.CanardColore, 0.45f), (ItemType.Reveil, 0.05f) };
+    static readonly (ItemType type, float chance)[] Loot = { (ItemType.Os, 0.8f), (ItemType.Canard, 0.1f), (ItemType.CanardColore, 0.05f), (ItemType.Reveil, 0.05f) };
 
-    static (ItemType type, float chance)[] MoundLoot(int zone) => zone % 2 == 0 ? EvenMoundLoot : OddMoundLoot;
+    static (ItemType type, float chance)[] MoundLoot(int zone) => Loot;
     // Le Canard Coloré d'un tableau est celui de la zone du monticule.
     static ItemType InZone(ItemType type, int zone) => type == ItemType.CanardColore ? ColoredDuckOf(zone) : type;
 
@@ -620,12 +680,11 @@ public static class Items
     }
 
     // V0.7 (Note 08 du chapitre 3.4) : à la mort, tout l'inventaire tombe à terre, sauf les objets détruits : Balises,
-    // Téléporteur, Station Curative, Canon et Post-It (V0.7.2 : plus de Chargeur ; V0.7.10 : plus de Balise Améliorée). Les objets qui se posent
-    // (Télévision, Trampoline, Cloche, peluches, Boule de Disco, canards, Protocole) sont posés près du corps ; les autres
-    // tombent au sol (LeftOnDeath).
+    // Téléporteur, Canon et Post-It (V0.7.2 : plus de Chargeur ; V0.7.10 : plus de Balise Améliorée). Les objets qui se posent
+    // (Télévision, Trampoline, Cloche, peluches, Boule de Disco, canards, Protocole, Métronome, Super Balle, Sac à Os, Notice,
+    // Journaux) sont posés près du corps ; les autres tombent au sol (LeftOnDeath).
     public static bool DestroyedOnDeath(ItemType type) =>
-        type == ItemType.Balise || type == ItemType.Teleporteur || type == ItemType.StationCurative
-        || type == ItemType.Canon || type == ItemType.PostIt;
+        type == ItemType.Balise || type == ItemType.Teleporteur || type == ItemType.Canon || type == ItemType.PostIt;
 
     // Le Pion peut voler dans l'inventaire un objet des monticules (Os, canards).
     public static bool Stealable(ItemType type) => type == ItemType.Os || IsDuck(type);
@@ -637,6 +696,7 @@ public static class Items
     {
         if (IsColoredDuck(type)) return ColoredDuck(DuckTier(type));
         if (IsZoneBell(type)) return ZoneBell(BellZone(type));
+        if (IsBoneBag(type)) type = ItemType.SacOs;
         foreach (var d in All) if (d.type == type) return d;
         return null;
     }
@@ -664,7 +724,10 @@ public static class Items
     // Télévision, Trampoline et Cloche Décorative : posés au sol à la manière d'une Balise, Hub compris.
     public static bool IsUnique(ItemType type) => type == ItemType.Television || type == ItemType.Trampoline || IsBell(type);
     // Posés au sol comme une Balise, Hub compris : objets uniques, peluches et boules à facettes (V0.6.1), canards (V0.6.3).
-    public static bool IsPlaceable(ItemType type) => IsUnique(type) || IsPlush(type) || IsDiscoBall(type) || IsDuck(type) || type == ItemType.Protocole;
+    // V0.7.11 : Métronome, Super Balle, Sac à Os, Notice et Journaux aussi (pas le Mégaphone, le Collier ni les Lunettes).
+    public static bool IsPlaceable(ItemType type) => IsUnique(type) || IsPlush(type) || IsDiscoBall(type) || IsDuck(type) || type == ItemType.Protocole
+        || type == ItemType.Metronome || type == ItemType.SuperBalle || IsBoneBag(type) || IsReadable(type);
+
     // Ils se balancent près d'une Boule de Disco posée.
     public static bool Dances(ItemType type) => IsDuck(type) || IsPlush(type);
 

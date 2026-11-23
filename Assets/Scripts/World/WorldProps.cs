@@ -410,7 +410,7 @@ public class Bobbing : MonoBehaviour
     }
 }
 
-// Porte entre une zone impaire et la zone paire suivante. V0.6.1 : porte d'acier blindée de bunker (modèle Meshy
+// Porte de la Neutral Room d'une zone, vers le Hub suivant (V0.7.11 ; avant : entre une zone impaire et la zone paire suivante). V0.6.1 : porte d'acier blindée de bunker (modèle Meshy
 // "PorteBlindee"), sans voile bleu. Elle s'ouvre (elle s'enfonce dans le sol, un gyrophare orange tourne) quand les trois
 // glyphes neutres de sa zone sont actionnés (V0.6.5).
 public class ZoneDoor : MonoBehaviour
@@ -427,6 +427,8 @@ public class ZoneDoor : MonoBehaviour
 
     public bool IsOpen => open;
     public Collider Blocker => blocker;
+    // V0.7.11 : refermée pour de bon (zones scellées, chapitre 9.2) une fois tout à fait remontée.
+    public bool FullyClosed => !open && openAmount <= 0.001f;
 
     public static ZoneDoor Create(Transform parent, Vector3 pos, Quaternion rot, float width, float height)
     {

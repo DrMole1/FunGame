@@ -503,7 +503,17 @@ public class LobbyUI : MonoBehaviour
         UiKit.Column(list, 34, 3);
         UiKit.Label(list.transform, "Contrôles", 16, FontStyle.Bold, UiKit.MutedText, 24, TextAnchor.MiddleLeft);
         for (int i = 0; i < lines; i++)
-            controlLines.Add(UiKit.Label(list.transform, "", 15, FontStyle.Normal, Color.white, 22, TextAnchor.MiddleLeft));
+        {
+            // V0.7.11 (Note 09) : une ligne trop longue (selon la langue) rétrécit pour tenir sur sa ligne, sans déborder sur celle d'en
+            // dessous.
+            var line = UiKit.Label(list.transform, "", 15, FontStyle.Normal, Color.white, 22, TextAnchor.MiddleLeft);
+            line.horizontalOverflow = HorizontalWrapMode.Wrap;
+            line.verticalOverflow = VerticalWrapMode.Truncate;
+            line.resizeTextForBestFit = true;
+            line.resizeTextMinSize = 9;
+            line.resizeTextMaxSize = 15;
+            controlLines.Add(line);
+        }
         foreach (var g in hintPanel.GetComponentsInChildren<Graphic>()) g.raycastTarget = false;
 
         UiKit.Spacer(list.transform, 6);
@@ -533,7 +543,8 @@ public class LobbyUI : MonoBehaviour
             Loc.F("{0} : sauter", L(GameAction.Jump)),
             Loc.F("{0} : aboyer", L(GameAction.Bark)),
             Loc.T("Souris : orienter la caméra"),
-            Loc.T("Molette : zoom (1re personne au plus près)"),
+            // V0.7.11 (Note 09) : plus de "(1re personne au plus près)".
+            Loc.T("Molette : zoom"),
             Loc.F("{0} : interagir, ramasser, utiliser l'objet", L(GameAction.Interact) + " / " + Loc.T("Clic gauche")),
             Loc.F("{0} : sélectionner un objet", slotKeys),
             Loc.F("{0} : danser", L(GameAction.Dance1) + " / " + L(GameAction.Dance2) + " / " + L(GameAction.Dance3)),

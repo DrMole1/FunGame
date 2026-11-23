@@ -18,7 +18,7 @@ public static class CharacterSetup
     const string SneakPath = "Assets/Models/Animations/SneakyWalk.fbx";
     // Le clip (2 pas en 2,83 s) est accéléré pour suivre la vitesse de la marche discrète.
     const float SneakStateSpeed = 1.5f;
-    // Danse sur un Téléporteur ou une Station Curative : celle du Fou (Humanoid, partagée sans la réimporter).
+    // Danse sur un Téléporteur : celle du Fou (Humanoid, partagée sans la réimporter).
     const string DancePath = "Assets/Models/Fou/Fou_Dance.fbx";
     // V0.4.6 : danses 2 et 3 (touches O et P) et "Creuser", animations Meshy partagées par tous les personnages.
     const string ExtrasPath = "Assets/Models/Animations/PlayerExtras.fbx";

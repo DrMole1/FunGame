@@ -31,6 +31,21 @@ public class TeteDeCloche : Entity
 
     public bool Obsesses(string playerId) => obsessed.Contains(playerId);
 
+    // V0.7.11 (Note 01) : un joueur qui en appelle deux fois un autre par ses aboiements n'est plus obnubilé ; il ne l'est plus
+    // pendant quelques secondes (sinon la cloche le reprendrait aussitôt).
+    public const float ReleaseImmunity = 5f;
+    readonly Dictionary<string, float> released = new Dictionary<string, float>();
+
+    public void Release(string playerId)
+    {
+        obsessed.Remove(playerId);
+        released[playerId] = Time.time + ReleaseImmunity;
+    }
+
+    bool Released(string playerId) => released.TryGetValue(playerId, out float until) && Time.time < until;
+
+
+
     // L'hôte lui désigne le joueur sanctionné.
     public void Setup(string prey)
     {
@@ -154,7 +169,7 @@ public class TeteDeCloche : Entity
     {
         Pulse++;
         foreach (var p in players)
-            if (p != null && p.Alive && p.isActiveAndEnabled && !p.InCannon && !p.Teleporting && !obsessed.Contains(p.PlayerId)
+            if (p != null && p.Alive && p.isActiveAndEnabled && !p.InCannon && !p.Teleporting && !obsessed.Contains(p.PlayerId) && !Released(p.PlayerId)
                 && Sees(p, EyesLocal.y, GameRules.TeteSightRange, 360f, false))
                 obsessed.Add(p.PlayerId);
     }

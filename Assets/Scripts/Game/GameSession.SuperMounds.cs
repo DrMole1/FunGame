@@ -160,8 +160,12 @@ public partial class GameSession
             superDigEnds.Remove(id);
             net.ToAll("UO|" + round + "|" + id);
             // L'objet déterré est posé au sol à la place du tas (ramassable comme une Balise).
+            // V0.7.11 : le Mégaphone, le Collier à Laisse et les Lunettes PEACE ne se posent pas : ils restent à terre, à ramasser.
             if (superLoot.TryGetValue(id, out var loot))
-                PlaceDevice(Beacon.KindOf(loot.type), loot.pos, Random.Range(0f, 360f), "");
+            {
+                if (Items.IsPlaceable(loot.type)) PlaceDevice(Beacon.KindOf(loot.type), loot.pos, Random.Range(0f, 360f), "");
+                else AddDropped(loot.type, loot.pos, -1);
+            }
         }
     }
 

@@ -2,18 +2,18 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-// Construit les Hubs (chapiteaux circulaires) et les zones du labyrinthe procédural (V0.6) : le terrain se génère à
-// l'infini vers le nord (+Z), en suivant le schéma Hub > zone avec Neutral Room et sa porte > zone avec Acquisition Room >
-// Hub suivant... Chaque zone fait 170 m x 170 m ; le Hub N est au sud de la zone 2N - 1, et la porte de son chapiteau
-// est dans l'Acquisition Room de la zone 2N - 2. Une zone dépend uniquement de la graine et de son numéro : tous les
-// clients génèrent la même, et on ne la génère qu'au moment où des joueurs s'en approchent.
-public static class WorldBuilder
+// Construit les Hubs (chapiteaux circulaires) et les zones du terrain procédural : le terrain se génère à l'infini vers le
+// nord (+Z), en suivant le schéma (V0.7.11) Hub > zone avec Neutral Room > Hub > zone avec Neutral Room... Chaque zone fait
+// 170 m x 170 m ; le Hub N est au sud de la zone N, et la porte de la Neutral Room de la zone N - 1 ouvre sur son entrée sud.
+// Plus d'Acquisition Room. Une zone dépend uniquement de la graine et de son numéro : tous les clients génèrent la même, et on
+// ne la génère qu'au moment où des joueurs s'en approchent.
+public static partial class WorldBuilder
 {
     public const float Cell = 5f;
     // V0.6.1 : chaque zone fait 170 m de large et de long (34 x 34 cellules de 5 m ; 200 m en V0.6).
     public const int ZoneCells = 34;
     public const float ZoneSize = ZoneCells * Cell;
-    // Colonne du Hub (et de la porte de chaque chapiteau) ; le Hub occupe 5 x 5 cellules au sud des zones impaires.
+    // Colonne du Hub (et de la porte de chaque chapiteau) ; le Hub occupe 5 x 5 cellules au sud de chaque zone (V0.7.11).
     public const int HubCol = ZoneCells / 2;
     public const int HubMin = HubCol - 2, HubMax = HubCol + 2;
     const int HubRows = 5;
@@ -43,10 +43,10 @@ public static class WorldBuilder
     public const float OriginX = -(HubCol + 0.5f) * Cell;
     public static float ZoneSouth(int zone) => -HubRows * Cell * 0.5f + (zone - 1) * ZoneSize;
     public static Vector3 ZoneOrigin(int zone) => new Vector3(OriginX, 0f, ZoneSouth(zone));
-    // Centre du Hub N (N >= 1) : un Hub toutes les deux zones.
-    public static Vector3 HubCenter(int hub) => new Vector3(0f, 0f, (hub - 1) * 2f * ZoneSize);
-    // Zone impaire qui contient le Hub N, et Hub d'une zone impaire.
-    public static int ZoneOfHub(int hub) => hub * 2 - 1;
+    // Centre du Hub N (N >= 1) : V0.7.11, un Hub au sud de chaque zone.
+    public static Vector3 HubCenter(int hub) => new Vector3(0f, 0f, (hub - 1) * ZoneSize);
+    // Zone qui contient le Hub N.
+    public static int ZoneOfHub(int hub) => hub;
 
     // Angles (degrés, 0 = porte au nord) des emplacements du Hub.
     // V0.7.5 (Note 01) : 6 joueurs au plus, 3 Chenils de chaque côté, toujours espacés de 23 degrés.
@@ -69,8 +69,8 @@ public static class WorldBuilder
         public Quaternion[] kennelRotations;
     }
 
-    // Une zone générée : son bâti, ses emplacements d'objets, sa navigation, et selon sa parité (V0.6.5) la Neutral
-    // Room, sa porte et les glyphes neutres (zones impaires) ou les glyphes d'acquisition et l'Acquisition Room (zones paires).
+    // Une zone générée : son bâti, ses emplacements d'objets, sa navigation, sa Neutral Room, sa porte (vers le Hub suivant) et
+    // ses trois glyphes (V0.7.11 : toutes les zones).
     public class ZoneRefs
     {
         public int index;
@@ -78,10 +78,18 @@ public static class WorldBuilder
         public Transform structure;  // collisions du bâti (sols, murs, rampes), sans le décor
         public readonly List<Vector3> itemSpots = new List<Vector3>();
         public MazeNav nav;
-        public ZoneDoor door;        // zones impaires : porte vers la zone paire suivante
-        public int doorNumber;       // 1 : porte entre la Zone 1 et la Zone 2
-        public readonly List<Glyph> neutralGlyphs = new List<Glyph>(), acquisitionGlyphs = new List<Glyph>();
-        public AcquisitionDoor acquisitionDoor;   // zones paires : porte du chapiteau suivant
+        public ZoneDoor door;        // porte de la Neutral Room, vers le Hub suivant
+        public int doorNumber;       // 1 : porte entre la Zone 1 et le Hub II
+        public readonly List<Glyph> neutralGlyphs = new List<Glyph>();
+        public TerrainKind terrain;  // V0.7.11 (chapitre 11) : environnement de la zone
+        // V0.7.11 (11.3) : leviers des remparts du Château et leurs herses ; (11.4) portes à clé des Blockhaus.
+        public readonly List<CastleLever> levers = new List<CastleLever>();
+        public readonly Dictionary<int, List<CastleGate>> leverGates = new Dictionary<int, List<CastleGate>>();
+        public readonly List<ApartmentDoor> lockedDoors = new List<ApartmentDoor>();
+        // Côté (0 ou 1) d'un point, de part et d'autre du rempart extérieur ou du ravin : une entité Cauchemar de chaque côté.
+        public System.Func<Vector3, int> sideOf;
+        // Plus bas sol possible de la zone (navigation : les Blockhaus descendent à -20 m, leur ravin à -80 m).
+        public float lowestFloor;
         public Vector3 entrance;     // point d'arrivée dans la zone (derrière la porte du Hub ou de la Neutral Room)
         // V0.7.2 (chapitre 10.2) : emplacements possibles des Super Monticules (les étoiles d'abord), choisis à chaque manche.
         public readonly List<Vector3> superSpots = new List<Vector3>();
@@ -158,7 +166,7 @@ public static class WorldBuilder
     // Hub (1, 2, 3...) qui contient le point, 0 ailleurs.
     public static int HubAt(Vector3 p)
     {
-        int hub = Mathf.RoundToInt(p.z / (2f * ZoneSize)) + 1;
+        int hub = Mathf.RoundToInt(p.z / ZoneSize) + 1;
         if (hub < 1) return 0;
         Vector3 d = p - HubCenter(hub);
         return new Vector2(d.x, d.z).sqrMagnitude < HubRadius * HubRadius && d.y < HubWallHeight + 6f ? hub : 0;
@@ -178,11 +186,11 @@ public static class WorldBuilder
     // ================= Hub =================
 
     // Hub N : les Hubs 2 et suivants sont identiques au Hub 1, sans l'Écran des Logs, avec en plus une entrée au sud
-    // (la porte du chapiteau, dans l'Acquisition Room de la zone précédente).
+    // (derrière la porte de la Neutral Room de la zone précédente).
     public static HubRefs BuildHub(Transform parent, int index = 1)
     {
         var refs = new HubRefs { index = index, center = HubCenter(index) };
-        var root = new GameObject(index == 1 ? "Hub" : "Hub " + index).transform;
+        var root = new GameObject(index == 1 ? "Hub" : "Hub " + GameRules.Roman(index)).transform;
         root.SetParent(parent, false);
         root.localPosition = refs.center;
         refs.root = root;
@@ -280,7 +288,7 @@ public static class WorldBuilder
         // Note 06 du chapitre 16 (V0.7) : encadrement noir dans le plan de la porte coulissante, au creux du passage.
         DoorFrame.Inset(root, new Vector3(0f, 0f, HubRadius + 0.15f), DoorWidth * 0.5f, DoorHeight, 0.18f, 0.2f);
 
-        // Hubs 2 et suivants : passage au sud, fermé par la porte du chapiteau (dans le mur de l'Acquisition Room).
+        // Hubs 2 et suivants : passage au sud, fermé par la porte de la Neutral Room de la zone précédente.
         if (entrance)
         {
             foreach (float sx in new[] { -side, side })
@@ -524,7 +532,7 @@ public static class WorldBuilder
         public float pitDepth;    // style Pit : profondeur maximale sous le niveau du Hub
         public RoomStyle style;
         public bool chess;
-        public bool plain;        // Neutral Room, Acquisition Room : sans décor
+        public bool plain;        // Neutral Room : sans décor
         public bool gallery;       // chapitre 10.3 : plateformes fines le long des murs (salle très haute)
         public float statueHeight; // chapitre 10.3 : hauteur de la statue de Pavlov dressée au centre (0 : aucune)
         public bool statueFilled, statueDog; // V0.6.8 : salle gardant son décor ; statue à tête de chien
@@ -555,9 +563,9 @@ public static class WorldBuilder
         public float top, bottom;
     }
 
-    // Une zone du labyrinthe : grille de 40 x 40 cellules de 5 m. Coordonnées (i, j) : i le long de X, j le long de Z
-    // (vers le nord, la zone suivante). Zones impaires : le Hub au sud (5 x 5 cellules), la Neutral Room et sa porte au nord.
-    // Zones paires : on entre au sud par la porte de la Neutral Room précédente, l'Acquisition Room au nord (porte du chapiteau).
+    // Une zone du labyrinthe : grille de 34 x 34 cellules de 5 m. Coordonnées (i, j) : i le long de X, j le long de Z
+    // (vers le nord, la zone suivante). V0.7.11 : le Hub au sud (5 x 5 cellules), la Neutral Room et sa porte au nord, dans la
+    // colonne du Hub (elle ouvre sur l'entrée sud du Hub suivant).
     internal class Maze
     {
         public readonly int zone, N;
@@ -576,13 +584,29 @@ public static class WorldBuilder
         public readonly Vector3 origin;   // coin (x et z minimaux) de la cellule (0, 0)
         public readonly bool hub;
         public readonly Vector2Int start; // cellule d'arrivée (derrière la porte du Hub ou de la Neutral Room précédente)
-        public int doorCol = -1;          // zones impaires : colonne de la porte de la Neutral Room (mur nord)
-        public RectInt neutralRoom, acquisitionRoom;
-        public readonly bool[,] fixedCell; // Neutral Room et Acquisition Room : hors du labyrinthe tiré au hasard
+        public int doorCol = -1;          // colonne de la porte de la Neutral Room (mur nord)
+        public RectInt neutralRoom;
+        public readonly bool[,] fixedCell; // Neutral Room : hors du labyrinthe tiré au hasard
         public readonly HashSet<Vector2Int> keepClear = new HashSet<Vector2Int>(); // cellules sans décor ni piège
         public readonly HashSet<Vector2Int> archCells = new HashSet<Vector2Int>(); // couloirs au bout desquels se dresse une arche
         public readonly Dictionary<Vector2Int, Vector3> bevels = new Dictionary<Vector2Int, Vector3>(); // couloirs à biseau : décalage de la lampe
         public readonly bool[,] eastWall, northWall; // mur entre (i, j) et (i + 1, j) / entre (i, j) et (i, j + 1)
+        // V0.7.11 (chapitre 11) : cellules "vides" des Châteaux et des Blockhaus (cours, remparts, Tours, ravin, cages d'escalier) :
+        // ni sol, ni plafond, ni murs générés ici (leur environnement les construit), sauf le mur qui les sépare du reste, à la
+        // hauteur de l'autre côté. 'voidCeil' : hauteur du dessus de ces cellules (plafond de la zone).
+        public bool[,] voidCell;
+        public float voidCeil = WallHeight;
+        // V0.7.11 : arêtes ouvertes à garnir d'une porte (Blockhaus : entre un couloir et un appartement), clé (i, j, nord ?).
+        public readonly HashSet<(int, int, bool)> doorEdges = new HashSet<(int, int, bool)>();
+        public bool Void(int i, int j) => voidCell != null && InGrid(i, j) && voidCell[i, j];
+        // Chance qu'un couloir ait un renfoncement en biseau (Échiquier : 15 % ; Château et Blockhaus : 30 %, V0.7.11).
+        public float bevelChance = GameRules.BevelChance;
+        // Blockhaus : les murs vers les cellules vides montent jusqu'en haut de l'étage ('voidCeil'), et certaines cellules vides
+        // (au-dessus d'un appartement de double hauteur) n'ont aucun mur.
+        public bool voidWallFull;
+        public bool[,] silentVoid;
+        public bool Silent(int i, int j) => silentVoid != null && InGrid(i, j) && silentVoid[i, j];
+        public TerrainKind terrain;
         public readonly int[,] room;                 // -1 = couloir
         public readonly List<Room> rooms = new List<Room>();
         // Hauteur du mur nord de chaque colonne (la zone suivante complète au-dessus si son plafond est plus haut).
@@ -629,12 +653,13 @@ public static class WorldBuilder
         public float Floor(int i, int j) => RoomAt(i, j)?.floor ?? 0f;
         public bool IsPit(int i, int j) => RoomAt(i, j)?.style == RoomStyle.Pit;
         // Cellule sans sol d'un seul tenant (fosse, ou trémie d'une liaison souterraine).
-        public bool NoPlainFloor(int i, int j) => IsPit(i, j) || shafts.ContainsKey(new Vector2Int(i, j));
+        public bool NoPlainFloor(int i, int j) => IsPit(i, j) || shafts.ContainsKey(new Vector2Int(i, j)) || Void(i, j);
 
         // Hauteur du plafond ; hors de la grille, celle des couloirs.
         public float Ceil(int i, int j)
         {
             if (!InGrid(i, j)) return WallHeight;
+            if (Void(i, j)) return voidCeil;
             return Reserved(i, j) ? WallHeight : RoomAt(i, j)?.ceil ?? WallHeight;
         }
     }
@@ -654,6 +679,7 @@ public static class WorldBuilder
         public float[] ceilings;        // hauteur sous plafond des salles
         public float[] chaoticCeilings; // salles chaotiques (plateformes)
         public float[] pitCeilings;     // hauteur au-dessus du pourtour des salles à profondeurs
+        public bool fixedRooms;         // V0.7.11 : salles de plain-pied seulement (Château, Blockhaus), plafonds pris dans 'ceilings'
     }
 
     // V0.6 : chaque salle a sa propre profondeur et sa propre hauteur, tirées au hasard ; la profondeur maximale vaut
@@ -675,9 +701,43 @@ public static class WorldBuilder
         };
     }
 
-    const float ZoneDoorWidth = 3.4f, ZoneDoorHeight = 3.6f;
     // Arche (modèle Meshy) : part de la largeur prise par l'ouverture, hauteur relative du haut de l'ouverture, épaisseur.
     const float ArchHoleWidth = 0.5f, ArchHoleTop = 0.82f, ArchDepth = 0.45f;
+
+    // V0.7.11 (7.9, Parfum Odorant) : plus court chemin, de cellule en cellule (5 m), entre deux points d'une même zone, selon les
+    // murs du terrain. Calculé chez chaque joueur (la navigation fine des entités n'existe que chez l'hôte). null si les deux points
+    // ne sont pas dans la même zone ou si aucun chemin n'existe.
+    public static List<Vector3> CellPath(ZoneRefs z, Vector3 a, Vector3 b)
+    {
+        Maze m = z?.maze;
+        if (m == null || !m.CellAt(a, out int ai, out int aj) || !m.CellAt(b, out int bi, out int bj)) return null;
+        var from = new Vector2Int(ai, aj);
+        var goal = new Vector2Int(bi, bj);
+        var prev = new Dictionary<Vector2Int, Vector2Int> { [from] = from };
+        var queue = new Queue<Vector2Int>();
+        queue.Enqueue(from);
+        bool found = from == goal;
+        while (queue.Count > 0 && !found)
+        {
+            Vector2Int c = queue.Dequeue();
+            for (int d = 0; d < 4; d++)
+            {
+                var n = new Vector2Int(c.x + DI[d], c.y + DJ[d]);
+                if (!m.InGrid(n.x, n.y) || prev.ContainsKey(n)) continue;
+                bool open = !HasWall(m, c.x, c.y, d) || m.HasWallHole(c.x, c.y, d) || m.Reserved(c.x, c.y) && m.Reserved(n.x, n.y);
+                if (!open) continue;
+                prev[n] = c;
+                if (n == goal) { found = true; break; }
+                queue.Enqueue(n);
+            }
+        }
+        if (!found) return null;
+        var path = new List<Vector3> { b };
+        for (Vector2Int c = prev[goal]; c != from; c = prev[c]) path.Add(m.Center(c.x, c.y));
+        path.Add(a);
+        path.Reverse();
+        return path;
+    }
 
     // Profondeurs (chapitre 9.1) : grille fine de 0,5 m, pourtour praticable de 1,5 m le long des murs de la salle,
     // escaliers un peu plus raides que ceux des salles surélevées.
@@ -723,37 +783,46 @@ public static class WorldBuilder
                 m.room[i, j] = -1;
             }
 
-        // Labyrinthe parfait (exploration en profondeur) à partir de l'entrée de la zone ; la Neutral Room et l'Acquisition
-        // Room n'en font pas partie (elles s'y ouvrent ensuite).
-        Vector2Int seedCell = m.start;
+        // Labyrinthe parfait (exploration en profondeur) à partir de l'entrée de la zone ; la Neutral Room
+        // n'en fait pas partie (elles s'y ouvrent ensuite). V0.7.11 : les cellules vides (Château, Blockhaus) non plus ; chaque
+        // région de cellules qu'elles séparent a son propre labyrinthe (relié aux autres par les cours, les remparts...).
+        bool Usable(int i, int j) => m.InGrid(i, j) && !m.Reserved(i, j) && !m.Fixed(i, j) && !m.Void(i, j);
         var visited = new bool[n, n];
         var stack = new Stack<Vector2Int>();
-        stack.Push(seedCell);
-        visited[seedCell.x, seedCell.y] = true;
         var dirs = new List<int>(4);
-        while (stack.Count > 0)
+        void Carve(Vector2Int seedCell)
         {
-            Vector2Int c = stack.Peek();
-            dirs.Clear();
-            for (int d = 0; d < 4; d++)
+            stack.Push(seedCell);
+            visited[seedCell.x, seedCell.y] = true;
+            while (stack.Count > 0)
             {
-                int ni = c.x + DI[d], nj = c.y + DJ[d];
-                if (m.InGrid(ni, nj) && !m.Reserved(ni, nj) && !m.Fixed(ni, nj) && !visited[ni, nj]) dirs.Add(d);
+                Vector2Int c = stack.Peek();
+                dirs.Clear();
+                for (int d = 0; d < 4; d++)
+                {
+                    int ni = c.x + DI[d], nj = c.y + DJ[d];
+                    if (Usable(ni, nj) && !visited[ni, nj]) dirs.Add(d);
+                }
+                if (dirs.Count == 0) { stack.Pop(); continue; }
+                int dir = dirs[rnd.Next(dirs.Count)];
+                SetWall(m, c.x, c.y, dir, false);
+                visited[c.x + DI[dir], c.y + DJ[dir]] = true;
+                stack.Push(new Vector2Int(c.x + DI[dir], c.y + DJ[dir]));
             }
-            if (dirs.Count == 0) { stack.Pop(); continue; }
-            int dir = dirs[rnd.Next(dirs.Count)];
-            SetWall(m, c.x, c.y, dir, false);
-            visited[c.x + DI[dir], c.y + DJ[dir]] = true;
-            stack.Push(new Vector2Int(c.x + DI[dir], c.y + DJ[dir]));
         }
+        if (Usable(m.start.x, m.start.y)) Carve(m.start);
+        if (m.voidCell != null)
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                    if (Usable(i, j) && !visited[i, j]) Carve(new Vector2Int(i, j));
 
         // Quelques boucles pour éviter un labyrinthe trop linéaire.
         for (int i = 0; i < n; i++)
             for (int j = 0; j < n; j++)
             {
-                if (m.Reserved(i, j) || m.Fixed(i, j)) continue;
-                if (i < n - 1 && !m.Reserved(i + 1, j) && !m.Fixed(i + 1, j) && rnd.NextDouble() < 0.12) m.eastWall[i, j] = false;
-                if (j < n - 1 && !m.Reserved(i, j + 1) && !m.Fixed(i, j + 1) && rnd.NextDouble() < 0.12) m.northWall[i, j] = false;
+                if (!Usable(i, j)) continue;
+                if (i < n - 1 && Usable(i + 1, j) && rnd.NextDouble() < 0.12) m.eastWall[i, j] = false;
+                if (j < n - 1 && Usable(i, j + 1) && rnd.NextDouble() < 0.12) m.northWall[i, j] = false;
             }
 
         // Salles : blocs de cellules ouverts, chacun avec sa hauteur de plancher et de plafond.
@@ -761,7 +830,7 @@ public static class WorldBuilder
         int free = 0;
         for (int i = 0; i < n; i++)
             for (int j = 0; j < n; j++)
-                if (!m.Reserved(i, j) && !m.Fixed(i, j)) free++;
+                if (Usable(i, j)) free++;
         int target = coverage ? Mathf.RoundToInt(free * style.roomCoverage) : int.MaxValue, covered = 0;
         int attempts = coverage ? 12000 : 700;
         for (int attempt = 0; attempt < attempts && m.rooms.Count < style.maxRooms && covered < target; attempt++)
@@ -794,14 +863,21 @@ public static class WorldBuilder
                     var cell = new Vector2Int(i, j);
                     bool inside = i >= i0 && i < i0 + w && j >= j0 && j < j0 + h;
                     // Une cellule d'écart avec le Hub et les portes ; avec les autres salles aussi, sauf si elles peuvent se toucher.
-                    if (m.InGrid(i, j) && (m.Reserved(i, j) || m.Fixed(i, j) || cell == m.start || m.keepClear.Contains(cell)
+                    if (m.InGrid(i, j) && (m.Reserved(i, j) || m.Fixed(i, j) || m.Void(i, j) && inside || cell == m.start || m.keepClear.Contains(cell)
                         || (m.room[i, j] >= 0 && (inside || !coverage)))) ok = false;
                 }
             if (!ok) continue;
 
             var room = new Room { rect = new RectInt(i0, j0, w, h) };
             // Salle à profondeurs : pourtour au niveau du Hub, fosses de formes variées et escaliers pour y descendre.
-            if (w >= 2 && h >= 2 && rnd.NextDouble() < style.pitChance && GenerateDepths(room, style, rnd))
+            if (style.fixedRooms)
+            {
+                // V0.7.11 : Château et Blockhaus : salles de plain-pied, hauteurs de l'environnement.
+                room.style = RoomStyle.Columns;
+                room.floor = 0f;
+                room.ceil = Pick(rnd, style.ceilings);
+            }
+            else if (w >= 2 && h >= 2 && rnd.NextDouble() < style.pitChance && GenerateDepths(room, style, rnd))
             {
                 room.style = RoomStyle.Pit;
                 room.floor = 0f;
@@ -1066,26 +1142,16 @@ public static class WorldBuilder
     static (Vector2Int, Vector2Int) EdgeKey(Vector2Int a, Vector2Int b) =>
         a.x < b.x || (a.x == b.x && a.y < b.y) ? (a, b) : (b, a);
 
-    // Colonne de la porte de la zone impaire 'zone' (dans le mur nord de sa Neutral Room). Tirée d'après la graine seule : la
-    // zone paire suivante place son entrée derrière.
-    static int DoorColumn(int seed, int zone) => new System.Random(seed * 7349 + zone * 104729).Next(3, ZoneCells - 3);
-
-    // Grille de la zone, avant le tirage du labyrinthe : cellule d'arrivée et salle du fond (V0.6.5 : la Neutral Room, au nord
-    // des zones impaires ; l'Acquisition Room, au nord des zones paires).
+    // Grille de la zone, avant le tirage du labyrinthe : cellule d'arrivée (devant la porte du Hub) et salle du fond (la Neutral
+    // Room, au nord, dans la colonne du Hub : sa porte ouvre sur l'entrée sud du Hub suivant).
     static Maze CreateMaze(int seed, int zone)
     {
-        bool odd = zone % 2 == 1;
         int n = ZoneCells;
-        var start = odd ? new Vector2Int(HubCol, HubRows) : new Vector2Int(DoorColumn(seed, zone - 1), 0);
-        var m = new Maze(zone, n, ZoneOrigin(zone), odd, start);
+        var start = new Vector2Int(HubCol, HubRows);
+        var m = new Maze(zone, n, ZoneOrigin(zone), true, start);
         m.keepClear.Add(start);
-        RectInt end;
-        if (odd)
-        {
-            m.doorCol = DoorColumn(seed, zone);
-            end = m.neutralRoom = new RectInt(m.doorCol - 1, n - 3, 3, 3);
-        }
-        else end = m.acquisitionRoom = new RectInt(HubCol - 2, n - 3, 5, 3);
+        m.doorCol = HubCol;
+        RectInt end = m.neutralRoom = new RectInt(m.doorCol - 1, n - 3, 3, 3);
         for (int i = end.xMin; i < end.xMax; i++)
             for (int j = end.yMin; j < end.yMax; j++)
             {
@@ -1099,9 +1165,9 @@ public static class WorldBuilder
     // deux côtés, schémas du chapitre 9). Sa porte est dans le mur nord.
     static void StampFixedRooms(Maze m)
     {
-        RectInt end = m.hub ? m.neutralRoom : m.acquisitionRoom;
-        AddFixedRoom(m, end, m.hub ? 6f : 7f);
-        SetWall(m, m.hub ? m.doorCol : HubCol, end.yMin, 3, false);
+        RectInt end = m.neutralRoom;
+        AddFixedRoom(m, end, 6f);
+        SetWall(m, m.doorCol, end.yMin, 3, false);
         SetWall(m, end.xMin, end.yMin + 1, 1, false);
         SetWall(m, end.xMax - 1, end.yMin + 1, 0, false);
     }
@@ -1146,6 +1212,14 @@ public static class WorldBuilder
     // Tout le tirage est fait d'après la graine, dans un ordre fixe : le découpage en étapes ne change rien au résultat.
     static IEnumerator BuildZoneSteps(ZoneBuild build, Transform parent, int seed, int zone, ZoneRefs previous)
     {
+        // V0.7.11 (chapitre 11) : la Zone 1 est un Échiquier ; ensuite, Château ou Blockhaus selon le tirage.
+        TerrainKind terrain = Terrains.KindOf(seed, zone);
+        if (terrain != TerrainKind.Echiquier)
+        {
+            var custom = terrain == TerrainKind.Chateau ? BuildChateauSteps(build, parent, seed, zone, previous) : BuildBlockhausSteps(build, parent, seed, zone, previous);
+            while (custom.MoveNext()) yield return null;
+            yield break;
+        }
         var rnd = new System.Random(seed * 31 + zone * 7919);
         Maze m = CreateMaze(seed, zone);
         if (previous != null) m.southHeights = previous.maze.northHeights;
@@ -1156,7 +1230,7 @@ public static class WorldBuilder
         ChooseLinks(m, new System.Random(seed * 89 + zone * 281));
         yield return null;
 
-        var refs = new ZoneRefs { index = zone, maze = m, root = new GameObject("Zone " + zone) };
+        var refs = new ZoneRefs { index = zone, maze = m, root = new GameObject("Zone " + zone), terrain = TerrainKind.Echiquier };
         build.Refs = refs;
         Transform root = refs.root.transform;
         root.SetParent(parent, false);
@@ -1168,10 +1242,9 @@ public static class WorldBuilder
         var geometry = BuildGeometry(m, root, colliders, new System.Random(seed * 97 + zone * 173));
         while (geometry.MoveNext()) yield return null;
         var glyphRnd = new System.Random(seed * 59 + zone * 613);
-        if (m.hub) BuildNeutralRoom(m, root, refs, glyphRnd);
-        else BuildAcquisitionRoom(m, root, refs, glyphRnd);
+        BuildNeutralRoom(m, root, refs, glyphRnd);
         yield return null;
-        var templates = BuildTemplates(m, root, colliders.transform, m.hub ? refs.neutralGlyphs : refs.acquisitionGlyphs, refs, new System.Random(seed * 71 + zone * 733));
+        var templates = BuildTemplates(m, root, colliders.transform, refs.neutralGlyphs, refs, new System.Random(seed * 71 + zone * 733));
         while (templates.MoveNext()) yield return null;
         // Après les glyphes : biseaux des couloirs, rambardes des plateformes et fenêtres (V0.6.8).
         BuildBevels(m, root, refs, new System.Random(seed * 53 + zone * 929));
@@ -1194,8 +1267,8 @@ public static class WorldBuilder
         refs.nav.AddZone(m.origin, m.N, Cell, (i, j) => !m.Reserved(i, j), (i, j) => m.Ceil(i, j));
         refs.nav.Prepare(colliders.transform, refs.door != null ? refs.door.Blocker : null);
         AddReflectionProbes(m, root);
-        // 15.3 (V0.7) : le cadavre de Tête de Cloche et la Carte Magnétique 1, sur le plus haut terrain de la Zone 3 atteignable
-        // par un escalier (plateforme d'architecture évolutive ou plancher de salle surélevée).
+        // 17.3 (V0.7.11) : le cadavre de Tête de Cloche et la Carte Magnétique 1, à l'endroit le plus haut de la Zone 3 atteignable
+        // par un joueur (escalier ou sauts : plateformes, planchers surélevés, sommets des salles chaotiques).
         if (zone == GameRules.SecretCorpseZone) PlaceSecretCorpse(m, root);
     }
 
@@ -1228,7 +1301,7 @@ public static class WorldBuilder
             for (int j = 0; j < n; j++)
             {
                 if (j == 0) yield return null;
-                if (m.Reserved(i, j)) continue;
+                if (m.Reserved(i, j) || m.Void(i, j)) continue;
                 Vector3 c = m.Center(i, j);
                 float e = Cell * 0.5f;
                 Chunk ch = ChunkOf(i, j);
@@ -1269,10 +1342,10 @@ public static class WorldBuilder
         for (int j = 0; j < n; j++)
             for (int i = 0; i < n;)
             {
-                if (m.Reserved(i, j)) { i++; continue; }
+                if (m.Reserved(i, j) || m.Void(i, j)) { i++; continue; }
                 float ceil = m.Ceil(i, j);
                 int start = i;
-                while (i < n && !m.Reserved(i, j) && Mathf.Approximately(m.Ceil(i, j), ceil)) i++;
+                while (i < n && !m.Reserved(i, j) && !m.Void(i, j) && Mathf.Approximately(m.Ceil(i, j), ceil)) i++;
                 float a = x0 + start * Cell, b = x0 + i * Cell;
                 AddCollider(new Vector3((a + b) * 0.5f, ceil + 0.5f, m.Center(0, j).z), new Vector3(b - a, 1f, Cell));
             }
@@ -1370,6 +1443,26 @@ public static class WorldBuilder
                 float z = z0 + j * Cell + Cell * 0.5f;
                 MeshBuilder mb = WallsOf(leftIn ? i : i + 1, j);
                 const float tex = 0.5f;
+                // V0.7.11 : à côté d'une cellule vide, un mur à la hauteur de l'autre côté, percé d'une porte si l'arête est ouverte.
+                if (!boundary && (m.Void(i, j) || m.Void(i + 1, j)))
+                {
+                    if (m.Void(i, j) && m.Void(i + 1, j) || m.Silent(i, j) || m.Silent(i + 1, j)) continue;
+                    h = m.voidWallFull ? m.voidCeil : m.Void(i, j) ? m.Ceil(i + 1, j) : m.Ceil(i, j);
+                    wall = true;
+                    if (!m.eastWall[i, j] && !m.wallHoles.ContainsKey((i, j, false)))
+                    {
+                        Doorway(mb, new Vector3(x, 0f, z), false, h, DoorWidth, DoorHeight, tex);
+                        posts.Add(new Vector2Int(i + 1, j)); posts.Add(new Vector2Int(i + 1, j + 1));
+                        continue;
+                    }
+                }
+                // V0.7.11 (Blockhaus) : arête ouverte garnie d'une porte.
+                else if (!boundary && !wall && m.doorEdges.Contains((i, j, false)))
+                {
+                    Doorway(mb, new Vector3(x, 0f, z), false, h, DoorWidth, DoorHeight, tex);
+                    posts.Add(new Vector2Int(i + 1, j)); posts.Add(new Vector2Int(i + 1, j + 1));
+                    continue;
+                }
                 if (wall && m.wallHoles.TryGetValue((i, j, false), out var eastHole))
                 {
                     // Liaison aérienne : ouverture dans le mur, avec son allège en dessous.
@@ -1431,6 +1524,26 @@ public static class WorldBuilder
                 else if (m.Reserved(i, j) && m.Reserved(i, j + 1)) wall = false;
                 else wall = m.northWall[i, j] || m.Reserved(i, j) || m.Reserved(i, j + 1);
                 if (!highIn) m.northHeights[i] = h;
+                // V0.7.11 : à côté d'une cellule vide, un mur à la hauteur de l'autre côté, percé d'une porte si l'arête est ouverte.
+                if (lowIn && highIn && (m.Void(i, j) || m.Void(i, j + 1)))
+                {
+                    if (m.Void(i, j) && m.Void(i, j + 1) || m.Silent(i, j) || m.Silent(i, j + 1)) continue;
+                    h = m.voidWallFull ? m.voidCeil : m.Void(i, j) ? m.Ceil(i, j + 1) : m.Ceil(i, j);
+                    wall = true;
+                    if (!m.northWall[i, j] && !m.wallHoles.ContainsKey((i, j, true)))
+                    {
+                        Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex);
+                        posts.Add(new Vector2Int(i, j + 1)); posts.Add(new Vector2Int(i + 1, j + 1));
+                        continue;
+                    }
+                }
+                else if (lowIn && highIn && !wall && m.doorEdges.Contains((i, j, true)))
+                {
+                    Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex);
+                    posts.Add(new Vector2Int(i, j + 1)); posts.Add(new Vector2Int(i + 1, j + 1));
+                    continue;
+                }
+
 
                 if (!wall)
                 {
@@ -1460,10 +1573,8 @@ public static class WorldBuilder
                 }
                 else if (m.hub && i == HubCol && j == HubRows - 1)
                     Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex); // porte du Hub
-                else if (!highIn && m.hub && i == m.doorCol)
-                    Doorway(mb, new Vector3(x, 0f, z), true, h, ZoneDoorWidth, ZoneDoorHeight, tex); // porte de la Neutral Room
-                else if (!highIn && !m.hub && i == HubCol)
-                    Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex); // porte du chapiteau suivant
+                else if (!highIn && i == m.doorCol)
+                    Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex); // porte de la Neutral Room (Hub suivant)
                 else if (!lowIn && m.zone == 1 && i == HubCol)
                 {
                     // V0.6.14 : passage du tunnel de la Control Room (surélevé : un muret en dessous).
@@ -1483,7 +1594,11 @@ public static class WorldBuilder
         {
             // Les poteaux du mur sud sont ceux de la zone précédente.
             if (p.y == 0 && m.southHeights != null) continue;
-            float h = Mathf.Max(Mathf.Max(m.Ceil(p.x - 1, p.y - 1), m.Ceil(p.x, p.y - 1)), Mathf.Max(m.Ceil(p.x - 1, p.y), m.Ceil(p.x, p.y)));
+            // V0.7.11 : une cellule vide ne compte pour la hauteur du poteau qu'au bord de la zone (le mur d'enceinte y monte jusqu'en haut).
+            bool edge = p.x == 0 || p.y == 0 || p.x == n || p.y == n;
+            float PostCeil(int a, int b) => m.Void(a, b) && !edge ? 0f : m.Ceil(a, b);
+            float h = Mathf.Max(Mathf.Max(PostCeil(p.x - 1, p.y - 1), PostCeil(p.x, p.y - 1)), Mathf.Max(PostCeil(p.x - 1, p.y), PostCeil(p.x, p.y)));
+            if (h <= 0.01f) continue;
             var c = new Vector3(x0 + p.x * Cell, h * 0.5f, z0 + p.y * Cell);
             WallsOf(p.x, p.y).Box(c, new Vector3(Wall, h, Wall), 0.5f, 0b0011_0011);
         }
@@ -1720,8 +1835,9 @@ public static class WorldBuilder
     static void BuildNeutralRoom(Maze m, Transform root, ZoneRefs refs, System.Random rnd)
     {
         Vector3 edge = m.Center(m.doorCol, m.N - 1) + Vector3.forward * (Cell * 0.5f);
-        refs.doorNumber = (m.zone + 1) / 2;
-        refs.door = ZoneDoor.Create(root, edge, Quaternion.LookRotation(Vector3.back), ZoneDoorWidth, ZoneDoorHeight);
+        refs.doorNumber = m.zone;
+        // V0.7.11 : aux dimensions du passage du chapiteau suivant, sur lequel elle ouvre.
+        refs.door = ZoneDoor.Create(root, edge, Quaternion.LookRotation(Vector3.back), DoorWidth, DoorHeight);
 
         var props = new GameObject("Glyphes").transform;
         props.SetParent(root, false);
@@ -1729,19 +1845,36 @@ public static class WorldBuilder
         NeonSign(props, "EnseigneNeutralRoom", "Neutral Room", edge + new Vector3(0f, 5.1f, -Wall * 0.5f), NeutralSignWidth);
 
         // Dans les couloirs (rien ne les y masque), loin du Hub et de la Neutral Room, à au moins 40 m les uns des autres.
+        // V0.7.11 : au Château et dans les Blockhaus, seulement là où un câble peut rejoindre la porte (du côté de la Neutral Room).
+        int[,] doorRoutes = m.voidCell != null ? CableRoutes(m, new Vector2Int(m.doorCol, m.N - 1)) : null;
         var cells = new List<Vector2Int>();
         for (int i = 0; i < m.N; i++)
             for (int j = 0; j < m.N; j++)
-                if (m.RoomAt(i, j) == null && !m.Reserved(i, j) && !m.Fixed(i, j) && !m.keepClear.Contains(new Vector2Int(i, j)) && m.Ceil(i, j) >= 3f) cells.Add(new Vector2Int(i, j));
+                if (m.RoomAt(i, j) == null && !m.Reserved(i, j) && !m.Fixed(i, j) && !m.Void(i, j) && !m.keepClear.Contains(new Vector2Int(i, j)) && m.Ceil(i, j) >= 3f
+                    && (doorRoutes == null || doorRoutes[i, j] >= 0) && !m.bevels.ContainsKey(new Vector2Int(i, j))) cells.Add(new Vector2Int(i, j));
         Vector3 nrCenter = m.Center(m.doorCol, m.N - 2);
         var placed = new List<Vector3>();
         var spots = new List<(Vector2Int cell, Vector3 toWall)>();
-        foreach (float spacing in new[] { 55f, GameRules.GlyphSpacing })
+        // V0.7.11 : si le côté de la Neutral Room est petit (Château, Blockhaus), moins d'écart (non précisé dans le GDD), puis les
+        // salles aussi (pas seulement les couloirs).
+        float[] spacings = m.voidCell != null ? new[] { 55f, GameRules.GlyphSpacing, 30f, 20f, 12f } : new[] { 55f, GameRules.GlyphSpacing };
+        for (int pass = 0; pass < 2 && spots.Count < GameRules.GlyphTypes; pass++)
+        {
+            if (pass == 1)
+            {
+                if (m.voidCell == null) break;
+                for (int i = 0; i < m.N; i++)
+                    for (int j = 0; j < m.N; j++)
+                        if (m.RoomAt(i, j) != null && !m.Reserved(i, j) && !m.Fixed(i, j) && !m.Void(i, j) && !m.keepClear.Contains(new Vector2Int(i, j))
+                            && (doorRoutes == null || doorRoutes[i, j] >= 0)) cells.Add(new Vector2Int(i, j));
+            }
+            if (cells.Count == 0) continue;
+        foreach (float spacing in spacings)
             for (int attempt = 0; attempt < 4000 && spots.Count < GameRules.GlyphTypes; attempt++)
             {
                 Vector2Int c = cells[rnd.Next(cells.Count)];
                 int dir = rnd.Next(4);
-                if (!HasWall(m, c.x, c.y, dir)) continue;
+                if (!HasWall(m, c.x, c.y, dir) || m.Void(c.x + DI[dir], c.y + DJ[dir]) && m.voidWallFull) continue;
                 Vector3 center = m.Center(c.x, c.y);
                 Vector3 toWall = new Vector3(DI[dir], 0f, DJ[dir]);
                 if (Flat(center - nrCenter) < 25f || InBlocks(m, center + toWall * 2f, 0.5f) || placed.Exists(q => Flat(q - center) < spacing)) continue;
@@ -1749,6 +1882,7 @@ public static class WorldBuilder
                 spots.Add((c, toWall));
                 m.keepClear.Add(c);
             }
+        }
 
         Physics.SyncTransforms();
         var towardDoor = CableRoutes(m, new Vector2Int(m.doorCol, m.N - 1));
@@ -1772,7 +1906,7 @@ public static class WorldBuilder
         return new HashSet<int>(types.GetRange(0, GameRules.BoxedGlyphs(zone)));
     }
 
-    // ---------- Câbles entre les glyphes et leur porte : Neutral Room (V0.6.5), Acquisition Room (V0.7.4) ----------
+    // ---------- Câbles entre les glyphes et la porte de la Neutral Room (V0.6.5) ----------
 
     const float CableWidth = 0.05f, CableSpread = 0.14f, CableLift = 0.025f, CableStep = 1f, CableFrontOfDoor = 0.12f, CableProbeHeight = 3.2f;
     // Devant la porte, le câble s'enfonce peu à peu dans le sol en s'affinant, et y disparaît au pied du seuil : sa dernière longueur,
@@ -1889,68 +2023,6 @@ public static class WorldBuilder
         return renderer;
     }
 
-    // Zones paires : glyphes pairs contre des murs pris au hasard, et Acquisition Room avec la porte du chapiteau suivant,
-    // qui porte tous ces glyphes, reliés à cette porte par un câble noir (V0.7.4). V0.7.9 (9.3) : 3 glyphes différents, un de
-    // chaque, à au moins 40 m les uns des autres ; 2 sous boîtier de verre en Zone 2, tous à partir de la Zone 4.
-    static void BuildAcquisitionRoom(Maze m, Transform root, ZoneRefs refs, System.Random rnd)
-    {
-        var props = new GameObject("Glyphes").transform;
-        props.SetParent(root, false);
-
-        // Loin de l'entrée, de la salle du fond et les uns des autres, contre le mur d'une cellule de plain-pied.
-        int count = GameRules.GlyphTypes;
-        var types = new List<int>();
-        for (int k = 0; k < count; k++) types.Add(k);
-        for (int k = types.Count - 1; k > 0; k--) { int r = rnd.Next(k + 1); (types[k], types[r]) = (types[r], types[k]); }
-        var boxed = BoxedGlyphTypes(m.zone, rnd);
-        var cells = new List<Vector2Int>();
-        for (int i = 0; i < m.N; i++)
-            for (int j = 0; j < m.N; j++)
-            {
-                Room room = m.RoomAt(i, j);
-                if (m.Fixed(i, j) || m.keepClear.Contains(new Vector2Int(i, j)) || room != null && (room.style == RoomStyle.Pit || room.floor > 0f)) continue;
-                cells.Add(new Vector2Int(i, j));
-            }
-        var placed = new List<Vector3>();
-        var spots = new List<(Vector2Int cell, Vector3 toWall)>();
-        Vector3 entry = m.Center(m.start.x, m.start.y), arCenter = m.Center(HubCol, m.N - 2);
-        // V0.7.4 : un câble doit pouvoir rejoindre la porte depuis la cellule du glyphe.
-        var towardDoor = CableRoutes(m, new Vector2Int(HubCol, m.N - 1));
-        // 40 m au moins ; si le labyrinthe ne le permet vraiment pas (non précisé dans le GDD), de moins en moins.
-        float[] spacings = { 60f, GameRules.GlyphSpacing, 30f, 15f };
-        foreach (float spacing in spacings)
-            for (int attempt = 0; attempt < 4000 && placed.Count < count; attempt++)
-            {
-                Vector2Int c = cells[rnd.Next(cells.Count)];
-                int dir = rnd.Next(4);
-                if (!HasWall(m, c.x, c.y, dir) || towardDoor[c.x, c.y] < 0) continue;
-                Vector3 center = m.Center(c.x, c.y);
-                if (Flat(center - entry) < 25f || Flat(center - arCenter) < 25f) continue;
-                if (placed.Exists(q => Flat(q - center) < spacing)) continue;
-                // Pas de glyphe devant l'accès d'une liaison.
-                if (InBlocks(m, center + new Vector3(DI[dir], 0f, DJ[dir]) * 2f, 0.5f)) continue;
-                Vector3 toWall = new Vector3(DI[dir], 0f, DJ[dir]);
-                placed.Add(center);
-                spots.Add((c, toWall));
-                m.keepClear.Add(c);
-            }
-
-        // Porte du chapiteau suivant, dans le mur nord de l'Acquisition Room (au milieu de la colonne du Hub).
-        Vector3 edge = m.Center(HubCol, m.N - 1) + Vector3.forward * (Cell * 0.5f);
-        Physics.SyncTransforms();
-        for (int k = 0; k < spots.Count; k++)
-        {
-            var (cell, toWall) = spots[k];
-            Vector3 p = m.Center(cell.x, cell.y) + toWall * (Cell * 0.5f - Wall * 0.5f - 0.04f) + Vector3.up * GlyphHeight;
-            Glyph glyph = Glyph.Create(props, m.zone * 100 + k, types[k], false, boxed.Contains(types[k]), m.zone, p, -toWall, Glyph.Size);
-            refs.acquisitionGlyphs.Add(glyph);
-            glyph.SetCable(BuildCable(m, props, refs.structure, cell, p, toWall, towardDoor, edge, (k - (spots.Count - 1) * 0.5f) * CableSpread));
-        }
-        var glyphTypes = refs.acquisitionGlyphs.ConvertAll(g => g.Type);
-        refs.acquisitionDoor = AcquisitionDoor.Create(root, edge, Quaternion.LookRotation(Vector3.back), DoorWidth, DoorHeight, glyphTypes);
-        NeonSign(props, "EnseigneAcquisitionRoom", "Acquisition Room", edge + new Vector3(0f, 4.6f, -Wall * 0.5f), AcquisitionSignWidth);
-    }
-
     // Hauteur du centre d'un glyphe (V0.7.9 : plus d'ordre écrit en dessous, tous à la même hauteur).
     const float GlyphHeight = 1.7f;
 
@@ -2015,7 +2087,7 @@ public static class WorldBuilder
 
     // Enseignes en lettres de néon blanc (mots 3D générés par Meshy, police soviétique, préparés par "FunGame/Préparer les
     // enseignes néon") : 1,3 fois la largeur des anciens textes (2,65 m et 3,32 m).
-    const float NeutralSignWidth = 2.65f * 1.3f, AcquisitionSignWidth = 3.32f * 1.3f;
+    const float NeutralSignWidth = 2.65f * 1.3f;
 
     // Centrée en 'center', collée au mur nord dont la face est en center.z, tournée vers le sud. Sans le maillage, un texte.
     static void NeonSign(Transform parent, string mesh, string text, Vector3 center, float width)
@@ -2234,7 +2306,7 @@ public static class WorldBuilder
             for (int j = 0; j < m.N; j++)
             {
                 if (j == 0) yield return null;
-                if (m.Reserved(i, j)) continue;
+                if (m.Reserved(i, j) || m.Void(i, j)) continue;
                 Vector3 c = m.Center(i, j);
                 Room room = m.RoomAt(i, j);
                 float floor = m.Floor(i, j), ceil = m.Ceil(i, j);
@@ -2271,7 +2343,7 @@ public static class WorldBuilder
                 }
 
                 // Éclairage : salles, et quelques néons dans les couloirs.
-                if (room == null && rnd.NextDouble() < 0.18) AddLamp(props, c + lampShift + Vector3.up * ceil, 6.5f, 1.1f, rnd);
+                if (room == null && rnd.NextDouble() < 0.18) { if (m.terrain == TerrainKind.Chateau) AddChandelier(props, c + lampShift + Vector3.up * ceil, 6.5f, 1.1f, rnd); else AddLamp(props, c + lampShift + Vector3.up * ceil, 6.5f, 1.1f, rnd); }
 
                 // Yeux dans les murs, le sol et le plafond.
                 if (rnd.NextDouble() < 0.28)
@@ -2293,9 +2365,9 @@ public static class WorldBuilder
                     if (!OnSteps(p, ceil)) AddEye(props, new Vector3(p.x, FloorAt(p, ceil - 0.1f) - 0.15f, p.z), Vector3.up, Rand(rnd, 0.6f, 1f));
                 }
 
-                // Note 05 de la DA (V0.6) : dans les zones 1 à 3, des têtes de chiens (d'après les skins), sans yeux, déchirées et
-                // rapiécées, sortent des murs ou gisent au sol. (Note 06 du chapitre 14 : plus de membres humains.)
-                if (m.zone <= 3 && rnd.NextDouble() < (room != null ? 0.06 : 0.02))
+                // Chapitre 11.1 (V0.7.11, avant : zones 1 à 3) : dans la zone 1, des têtes de chiens (d'après les skins), sans yeux,
+                // déchirées et rapiécées, sortent des murs ou gisent au sol. (Note 06 du chapitre 14 : plus de membres humains.)
+                if (m.zone == 1 && rnd.NextDouble() < (room != null ? 0.06 : 0.02))
                 {
                     int dir = rnd.Next(4);
                     float size = Rand(rnd, 0.7f, 1.5f);
@@ -2323,8 +2395,10 @@ public static class WorldBuilder
             foreach (var c in room.cells) center += m.Center(c.x, c.y);
             center /= room.cells.Count;
             float height = Mathf.Min(16f, room.ceil - room.floor + room.pitDepth);
-            AddLamp(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
-            // Neutral Room et Acquisition Room : vides (rien ne doit gêner le passage ni masquer les glyphes).
+            // V0.7.11 (11.3) : au Château, des lustres à la place des néons.
+            if (m.terrain == TerrainKind.Chateau) AddChandelier(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
+            else AddLamp(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
+            // Neutral Room : vide (rien ne doit gêner le passage ni masquer les glyphes).
             if (room.plain) continue;
 
             // Intérieur de la salle (marge pour les murs et les escaliers).
@@ -2864,6 +2938,8 @@ public static class WorldBuilder
         }
         // Objet à ramasser au sommet (accès difficile).
         spots.Add(new Vector3(p.x, top, p.z));
+        // V0.7.11 (17.3) : le sommet, atteint en sautant, compte parmi les endroits où peut gésir le cadavre de la Zone 3.
+        m.perches.Add((new Vector3(p.x, top, p.z), lastYaw, lastSize));
         // Quelques blocs renversés au sol.
         for (int k = 0; k < 2; k++)
         {
@@ -4005,7 +4081,8 @@ public static class WorldBuilder
         barred.UnionWith(m.keepClear);
         barred.Add(m.start);
         for (int d = 0; d < 4; d++) barred.Add(m.start + new Vector2Int(DI[d], DJ[d]));
-        foreach (Glyph g in refs.acquisitionGlyphs)
+        foreach (Glyph g in refs.neutralGlyphs)
+
             if (m.CellAt(g.transform.position, out int gi, out int gj)) barred.Add(new Vector2Int(gi, gj));
 
         bool Straight(int i, int j, bool alongZ)
@@ -4031,7 +4108,7 @@ public static class WorldBuilder
                         if (barred.Contains(Cell2(t))) allowed = false;
                         t++;
                     }
-                    if (!allowed || rnd.NextDouble() >= GameRules.BevelChance) continue;
+                    if (!allowed || rnd.NextDouble() >= m.bevelChance) continue;
                     if (parent == null)
                     {
                         parent = new GameObject("Biseaux").transform;

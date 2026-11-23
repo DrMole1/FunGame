@@ -19,7 +19,6 @@ public static class IconRenderer
         Render("DuckSolo", ItemType.Canard, new Vector3(8f, -140f, 0f), 0f);
         Render("Balise", ItemType.Balise, new Vector3(10f, -150f, 0f), 0f);
         Render("Teleporteur", ItemType.Teleporteur, new Vector3(45f, -150f, 0f), 0f);
-        Render("StationCurative", ItemType.StationCurative, new Vector3(10f, -150f, 0f), 0f);
         // V0.4.6 : l'Os (monticules) et le Canon (Terminal).
         Render("Os", ItemType.Os, new Vector3(25f, -20f, 0f), 0f);
         Render("CanonSolo", ItemType.Canon, new Vector3(20f, -130f, 0f), 0f);
@@ -37,6 +36,26 @@ public static class IconRenderer
         foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { IconDir }))
             ConfigureSprite(AssetDatabase.GUIDToAssetPath(guid));
         Debug.Log("Icônes d'inventaire générées.");
+    }
+
+    // V0.7.11 (Note 11) : icônes des nouveaux objets (Mégaphone, Métronome, Super Balle, Collier à Laisse, Lunettes PEACE, Sac à Os,
+    // Journal) ; la Notice reprend l'icône du Protocole (même plaque).
+    [MenuItem("FunGame/Générer les icônes V0.7.11")]
+    public static void RenderV0711()
+    {
+        Render("Megaphone", ItemType.Megaphone, new Vector3(10f, -120f, 0f), 0f);
+        Render("Metronome", ItemType.Metronome, new Vector3(10f, -160f, 0f), 0f);
+        Render("SuperBalle", ItemType.SuperBalle, new Vector3(15f, -150f, 0f), 0f);
+        Render("Collier", ItemType.Collier, new Vector3(40f, -150f, 0f), 0f);
+        Render("Lunettes", ItemType.Lunettes, new Vector3(10f, 180f, 0f), 0f);
+        Render("SacOs", ItemType.SacOs, new Vector3(10f, 180f, 0f), 0f);
+        Render("Journal", ItemType.Journal1, new Vector3(60f, 180f, 0f), 0f);
+        AssetDatabase.Refresh();
+        if (File.Exists(IconDir + "/Journal1.png")) { AssetDatabase.DeleteAsset(IconDir + "/Journal.png"); AssetDatabase.MoveAsset(IconDir + "/Journal1.png", IconDir + "/Journal.png"); }
+        if (!File.Exists(IconDir + "/Notice.png")) AssetDatabase.CopyAsset(IconDir + "/Protocole.png", IconDir + "/Notice.png");
+        AssetDatabase.Refresh();
+        foreach (string name in new[] { "Megaphone", "Metronome", "SuperBalle", "Collier", "Lunettes", "SacOs", "Journal", "Notice" })
+            ConfigureSprite(IconDir + "/" + name + ".png");
     }
 
     // V0.7.10 : seule l'icône de la Balise (nouveau modèle : pion d'échecs blanc).

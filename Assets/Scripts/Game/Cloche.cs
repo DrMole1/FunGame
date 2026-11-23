@@ -26,6 +26,21 @@ public class Cloche : Entity
 
     public bool Obsesses(string playerId) => obsessed.Contains(playerId);
 
+    // V0.7.11 (Note 01) : un joueur qui en appelle deux fois un autre par ses aboiements n'est plus obnubilé ; il ne l'est plus
+    // pendant quelques secondes (sinon la cloche le reprendrait aussitôt).
+    public const float ReleaseImmunity = 5f;
+    readonly Dictionary<string, float> released = new Dictionary<string, float>();
+
+    public void Release(string playerId)
+    {
+        obsessed.Remove(playerId);
+        released[playerId] = Time.time + ReleaseImmunity;
+    }
+
+    bool Released(string playerId) => released.TryGetValue(playerId, out float until) && Time.time < until;
+
+
+
     // Scintillement.
     Light flash;
     Renderer[] bodies;
@@ -83,7 +98,7 @@ public class Cloche : Entity
         // Qui la voit (et qu'elle voit) : 360°, 25 m ; seul un mur coupe la vision, même en marche discrète.
         scratch.Clear();
         foreach (var p in players)
-            if (Valid(p) && Sees(p, EyeHeight, GameRules.ClocheSightRange, 360f, false)) scratch.Add(p.PlayerId);
+            if (Valid(p) && !Released(p.PlayerId) && Sees(p, EyeHeight, GameRules.ClocheSightRange, 360f, false)) scratch.Add(p.PlayerId);
         obsessed.RemoveAll(id => !scratch.Contains(id));
         bool newcomer = false;
         foreach (string id in scratch)

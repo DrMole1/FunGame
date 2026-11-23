@@ -18,7 +18,7 @@ public static class SoundBank
         "generator_off", "postit", "orb_on", "orb_break", "zone_door",
         "dame_scream", "dame_attack", "jack_open", "jack_bells", "jack_growl", "jack_hit",
         "tour_step", "tour_breath", "tour_charge", "tour_channel", "tour_impact", "tour_alert", "pion_cry", "cloche_ring",
-        "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heal", "heartbeat", "heart_thump",
+        "spider_hiss", "spider_attack", "teleport", "teleport_charge", "heartbeat", "heart_thump",
         "fou_bells", "fou_alert", "fou_attack", "fou_dance", "fou_poof", "roi_laugh", "roi_chain", "roi_break", "roi_slash", "roi_clink",
         "dig", "dame_step", "cannon_fire", "cannon_impact",
         // V0.4.7 : objets uniques, cri de souffrance de La Dame, Le Cavalier, Le Réveil.
@@ -41,6 +41,9 @@ public static class SoundBank
         // V0.7.2 (GDD 12) : statue de Pavlov approchée, première entrée dans le labyrinthe, première entrée dans la
         // Zone 2 (V0.7.5) (enregistrés seulement).
         "ambience_statue", "ambience_entrance", "ambience_opening",
+        // V0.7.11 : Métronome, musique douce des Lunettes PEACE (oiseaux), onde de choc du Mégaphone, levier du Château, porte
+        // poussée des Blockhaus.
+        "metronome", "peace_music", "shockwave", "lever", "door_push",
     };
 
     // Synthèse des sons étalée sur les premières images : le jeu ne se fige pas au lancement. Un son demandé avant son tour est
@@ -83,6 +86,11 @@ public static class SoundBank
             case "button": return Button();
             case "door": return Door(rnd);
             case "tick": return Click(rnd, 3200f, 1800f, 0.06f);
+            case "metronome": return Click(rnd, 2400f, 1250f, 0.05f);
+            case "peace_music": return PeaceMusic(rnd);
+            case "shockwave": return Shockwave(rnd);
+            case "lever": return Lever(rnd);
+            case "door_push": return DoorPush(rnd);
             case "tock": return Click(rnd, 1400f, 900f, 0.08f);
             case "fanfare": return Fanfare(rnd);
             case "gameover": return GameOver();
@@ -139,7 +147,6 @@ public static class SoundBank
             case "spider_attack": return SpiderAttack(rnd);
             case "teleport": return Teleport(rnd);
             case "teleport_charge": return TeleportCharge(rnd);
-            case "heal": return Heal(rnd);
             case "heartbeat": return Heartbeat();
             case "heart_thump": return HeartThump();
             case "fou_bells": return FouBells(rnd);
@@ -221,6 +228,94 @@ public static class SoundBank
         }
         var lp = new LowPass();
         for (int i = 0; i < d.Length; i++) d[i] = lp.Process(d[i], 5000f);
+        return d;
+    }
+
+    // ---------- V0.7.11 ----------
+
+    // Lunettes PEACE (7.15) : musique douce et joyeuse (arpèges de boîte à musique sur des accords majeurs), avec de petits
+    // gazouillis d'oiseaux ; 8 mesures en boucle.
+    static float[] PeaceMusic(System.Random rnd)
+    {
+        const float beat = 60f / 84f;
+        float loop = beat * 32f;
+        var d = Buffer(loop);
+        int[][] chords = { new[] { 60, 64, 67, 72 }, new[] { 65, 69, 72, 77 }, new[] { 67, 71, 74, 79 }, new[] { 60, 64, 67, 72 },
+                           new[] { 57, 60, 64, 69 }, new[] { 65, 69, 72, 77 }, new[] { 67, 71, 74, 79 }, new[] { 60, 64, 67, 72 } };
+        void Add(int start, int n, System.Func<float, float> f)
+        {
+            for (int i = 0; i < n; i++) d[(start + i) % d.Length] += f((float)i / Rate);
+        }
+        for (int bar = 0; bar < 8; bar++)
+            for (int k = 0; k < 8; k++)
+            {
+                int note = chords[bar][k % 4] + (k >= 4 ? 12 : 0);
+                float f = Midi(note);
+                int at = Mathf.RoundToInt((bar * 4 + k * 0.5f) * beat * Rate);
+                Add(at, Mathf.RoundToInt(1.2f * Rate), t => (Sine(f * t) + 0.3f * Sine(2f * f * t)) * AD(t, 0.004f, 0.5f) * 0.22f);
+                if (k == 0)
+                {
+                    float bass = Midi(chords[bar][0] - 24);
+                    Add(at, Mathf.RoundToInt(beat * 3.8f * Rate), t => Sine(bass * t) * AD(t, 0.02f, 1.4f) * 0.25f);
+                }
+            }
+        // Gazouillis : petits glissandos aigus, par deux ou trois.
+        for (int c = 0; c < 10; c++)
+        {
+            int at = (int)(rnd.NextDouble() * d.Length);
+            int chirps = 2 + rnd.Next(2);
+            float baseF = 2600f + (float)rnd.NextDouble() * 1400f;
+            for (int k = 0; k < chirps; k++)
+            {
+                float phase = 0f;
+                Add(at + Mathf.RoundToInt(k * 0.13f * Rate), Mathf.RoundToInt(0.09f * Rate), t =>
+                {
+                    phase += (baseF + 1800f * t / 0.09f) / Rate;
+                    return Sine(phase) * Mathf.Sin(Mathf.PI * t / 0.09f) * 0.12f;
+                });
+            }
+        }
+        return d;
+    }
+
+    // Mégaphone (7.11) : souffle grave qui part vers l'avant.
+    static float[] Shockwave(System.Random rnd)
+    {
+        var d = Buffer(0.7f);
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            d[i] = (lp.Process(Noise(rnd), 400f + 1400f * Mathf.Exp(-t / 0.1f)) * 1.4f + Sine((70f - 30f * t) * t) * 0.6f) * AD(t, 0.01f, 0.22f);
+        }
+        return d;
+    }
+
+    // Levier du Château : grincement métallique, puis un claquement.
+    static float[] Lever(System.Random rnd)
+    {
+        var d = Buffer(0.9f);
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float creak = t < 0.6f ? Saw((180f + 90f * Mathf.Sin(t * 23f)) * t) * 0.25f * (0.5f + 0.5f * Mathf.Sin(t * 60f)) : 0f;
+            float clank = t >= 0.6f ? (Noise(rnd) * 0.5f + Sine(330f * t) * 0.6f) * Decay(t - 0.6f, 0.06f) : 0f;
+            d[i] = creak + clank;
+        }
+        return d;
+    }
+
+    // Porte poussée (Blockhaus) : gonds qui grincent.
+    static float[] DoorPush(System.Random rnd)
+    {
+        var d = Buffer(1.1f);
+        var lp = new LowPass();
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float f = 260f + 160f * Mathf.Sin(t * 5f) + 40f * Mathf.Sin(t * 37f);
+            d[i] = lp.Process(Saw(f * t) * 0.35f + Noise(rnd) * 0.05f, 2200f) * Mathf.Sin(Mathf.PI * Mathf.Clamp01(t / 1.1f));
+        }
         return d;
     }
 
@@ -1399,25 +1494,6 @@ public static class SoundBank
             float s = (Sine(phase) * 0.5f + Saw(phase * 0.5f) * 0.25f + Sine(phase * 2.01f) * 0.2f) * tremolo;
             s += bp.Process(Noise(rnd), 600f + 3400f * k, 0.25f) * (0.15f + 0.5f * k * k);
             d[i] = s * Mathf.Lerp(0.35f, 1f, k) * Mathf.Min(1f, t / 0.15f) * Mathf.Clamp01((length - t) / 0.05f);
-        }
-        return d;
-    }
-
-    // Station Curative : petit carillon doux et pétillement.
-    static float[] Heal(System.Random rnd)
-    {
-        var d = Buffer(0.8f);
-        int[] notes = { 76, 81, 88 };
-        for (int i = 0; i < d.Length; i++)
-        {
-            float t = (float)i / Rate, s = 0f;
-            for (int n = 0; n < notes.Length; n++)
-            {
-                float u = t - n * 0.08f;
-                if (u >= 0f) s += Sine(Midi(notes[n]) * u) * Decay(u, 0.25f) * 0.5f;
-            }
-            s += (rnd.NextDouble() < 0.004 ? Noise(rnd) : 0f) * 0.8f;
-            d[i] = s;
         }
         return d;
     }

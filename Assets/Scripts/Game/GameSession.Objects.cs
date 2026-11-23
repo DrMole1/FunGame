@@ -62,8 +62,9 @@ public partial class GameSession
     void OnDevicePlaced(Beacon b, string placer, bool live)
     {
         if (b == null) return;
-        // V0.7.3 : la Boule de Disco s'allume quand un joueur la pose (pas en sortant d'un Super Monticule).
-        if (b.IsDisco && placer.Length > 0) b.ActivateDisco();
+        // V0.7.11 (Note 15) : la Boule de Disco s'allume (lumières, musique) dès qu'elle sort d'un Super Monticule, comme quand un
+        // joueur la pose.
+        if (b.IsDisco) b.ActivateDisco();
         if (live && placer.Length > 0)
         {
             b.PlayPlaced();
@@ -154,12 +155,14 @@ public partial class GameSession
     // fixer, jusqu'à ce qu'un mur les sépare (et il perd 20 de sérénité). V0.7.2 : si un Pion l'emporte, elle obnubile
     // encore : la caméra suit la Cloche dans ses bras.
     int bellObsession = -1;
+    // V0.7.11 (Note 01) : libéré d'une cloche par deux aboiements d'un autre joueur, jusqu'à cette heure.
+    float bellImmuneUntil = -10f;
     Vector3 bellLastPoint;
     float bellGoneAt = -1f;
 
     void RingBell(Beacon bell)
     {
-        if (!net.InGame || status.Dead || !BellInSight(bell)) return;
+        if (!net.InGame || status.Dead || Time.time < bellImmuneUntil || !BellInSight(bell)) return;
         GameAudio.Play3D("bell_deco", BellPoint(bell), 1f, GameRules.BellSightRange, 0f);
         bellObsession = bell.Id;
         OrbitCamera.BellStrike();
@@ -226,7 +229,7 @@ public partial class GameSession
 
     // ================= /give (hôte) =================
 
-    // "/give 1" : une Balise (ID du Terminal) ; "/give O4" : un Trampoline (autres objets). La Boussole s'active pour tous.
+    // "/give 1" : une Balise (ID du Terminal) ; "/give O12" : un Trampoline (autres objets) ; "/give 5" : parfumé.
     public string Give(string arg)
     {
         if (!net.IsHost) return null;
@@ -237,12 +240,12 @@ public partial class GameSession
             net.ToAll("VN|" + CurrentHub());
             return Loc.T("Le Téléporteur Inversé est apparu au centre du Hub.");
         }
-        if (!def.inventory)
+        if (def.type == ItemType.ParfumOdorant)
         {
-            compass = true;
-            BroadcastState();
-            return Loc.T("La Boussole s'affiche désormais chez tous les sujets.");
+            StartPerfume();
+            return Loc.T("Vous êtes parfumé.");
         }
+
         if (!HasFreeSlot) return Loc.F("Votre inventaire est plein ! Impossible de recevoir {0}.", def.name);
         status.Add(def.type);
         return Loc.F("Vous avez reçu : {0}.", def.name);

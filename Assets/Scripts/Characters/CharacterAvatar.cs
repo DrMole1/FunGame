@@ -1,7 +1,7 @@
 using System.Collections;
 using UnityEngine;
 
-// Dance : danse 1 (celle du Fou), aussi jouée immobile sur un Téléporteur ou une Station Curative ; Dance2 et Dance3 :
+// Dance : danse 1 (celle du Fou), aussi jouée immobile sur un Téléporteur ; Dance2 et Dance3 :
 // touches O et P ; Dig : creuser un monticule (V0.4.6).
 public enum AnimState : byte { Idle, Walk, Run, Jump, Sneak, SneakIdle, Dance, Dig, Dance2, Dance3 }
 
@@ -9,7 +9,7 @@ public enum AnimState : byte { Idle, Walk, Run, Jump, Sneak, SneakIdle, Dance, D
 public enum PlayerGesture : byte { Bark, PickUp, Place, Use, Eat }
 
 // Modèle 3D animé d'un joueur (local ou distant), enfant du GameObject physique.
-public class CharacterAvatar : MonoBehaviour
+public partial class CharacterAvatar : MonoBehaviour
 {
     // Le clip de saut décolle vers 0,45 s : on saute l'élan, la physique gère l'impulsion.
     const float JumpClipOffset = 0.45f;
@@ -68,6 +68,7 @@ public class CharacterAvatar : MonoBehaviour
         zipper = index == MirkovZipper.Skin ? MirkovZipper.Attach(transform, model, animator) : null;
         if (heldBoard != null) Destroy(heldBoard);
         heldBoard = null;
+        ResetExtras();
         CharacterIndex = index;
         State = AnimState.Idle;
         animator.Play("Idle", 0, 0f);
@@ -217,6 +218,18 @@ public class CharacterAvatar : MonoBehaviour
     public const float SitHold = 0.3f, StandUpDuration = 0.9f;
 
     public void SetHolding(bool on) => holding = on;
+    // V0.7.11 : document tenu (Protocole, Notice, Journal).
+    public void SetHolding(bool on, DocumentKind kind)
+    {
+        holding = on;
+        if (on && kind != heldKind)
+        {
+            heldKind = kind;
+            if (heldBoard != null) Destroy(heldBoard);
+            heldBoard = null;
+        }
+    }
+    DocumentKind heldKind;
     // Note 14 du chapitre 3.2 (V0.6.14) : assis par terre tant que le joueur reste accroupi sans bouger. Il s'assoit en
     // douceur et se relève très vite.
     bool seated;
@@ -420,7 +433,7 @@ public class CharacterAvatar : MonoBehaviour
     {
         if (heldBoard == null)
         {
-            heldBoard = ProtocolBoard.Build(transform, boardScale);
+            heldBoard = ProtocolBoard.Build(transform, boardScale, true, heldKind);
             SetLayerRecursive(heldBoard, gameObject.layer);
         }
         heldBoard.SetActive(holdWeight > 0.5f);
@@ -484,6 +497,7 @@ public class CharacterAvatar : MonoBehaviour
     void LateUpdate()
     {
         UpdatePoses();
+        UpdateExtras();
         float t = Time.time - gestureStart, duration = GestureDuration(gesture);
         if (t < 0f || t > duration || dead || hidden || head == null || !model.activeInHierarchy) return;
         // Angles positifs : vers l'avant (buste, tête) ; négatifs sur le bras : il se lève devant soi.

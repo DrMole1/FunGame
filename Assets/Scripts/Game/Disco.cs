@@ -4,8 +4,7 @@ using UnityEngine;
 // Boule de Disco (V0.7.2, O11) : arc-en-ciel et brillante, trouvée dans les Super Monticules. Posée au sol ou au plafond,
 // elle tourne lentement et projette des lueurs aux couleurs de l'arc-en-ciel. La musique disco qu'elle diffuse est gérée
 // par GameSession (une seule à la fois).
-// V0.7.3 (Note 06) : sortie d'un Super Monticule, elle reste éteinte (ni lumière, ni musique, ni rotation) ; elle ne s'active
-// que lorsqu'un joueur la pose. Ses lumières sont des lumières ponctuelles qui tournent avec elle (pas de projecteurs, dont
+// V0.7.11 (Note 15) : elle s'allume dès qu'elle sort d'un Super Monticule (avant : seulement une fois posée par un joueur). Ses lumières sont des lumières ponctuelles qui tournent avec elle (pas de projecteurs, dont
 // le premier rendu figeait le jeu), créées seulement à l'activation.
 public class DiscoBall : MonoBehaviour
 {
