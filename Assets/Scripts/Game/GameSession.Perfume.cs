@@ -12,7 +12,8 @@ using UnityEngine;
 public partial class GameSession
 {
     public const float PerfumeDuration = 8f * 60f, PerfumeBlink = 10f, PerfumeRange = 50f, PerfumePathInterval = 0.5f;
-    const float PerfumeFade = 1.5f, ScentPerMeter = 2.5f, AuraPerSecond = 3f;
+    // V0.7.13 (Note 04) : volutes deux fois plus nombreuses, deux fois plus petites et plus lentes.
+    const float PerfumeFade = 1.5f, ScentPerMeter = 5f, AuraPerSecond = 6f, ScentSpeed = 0.5f, ScentSize = 0.5f;
     static readonly Color PerfumeTint = new Color(1f, 0.62f, 0.64f, 0.55f);
 
     // Fin du parfum de chaque joueur (Time.time local).
@@ -86,8 +87,8 @@ public partial class GameSession
             scentParticles.Emit(new ParticleSystem.EmitParams
             {
                 position = p.Position + new Vector3(o.x, Random.Range(-0.6f, 0.5f), o.y),
-                velocity = new Vector3(o.x * 0.15f, Random.Range(0.1f, 0.3f), o.y * 0.15f),
-                startSize = Random.Range(0.2f, 0.4f),
+                velocity = new Vector3(o.x * 0.15f, Random.Range(0.1f, 0.3f), o.y * 0.15f) * ScentSpeed,
+                startSize = Random.Range(0.2f, 0.4f) * ScentSize,
                 startLifetime = Random.Range(1.2f, 1.8f),
                 startColor = PerfumeTint,
                 rotation = Random.Range(0f, 360f),
@@ -162,8 +163,8 @@ public partial class GameSession
             var e = new ParticleSystem.EmitParams
             {
                 position = p,
-                velocity = new Vector3(Random.Range(-0.15f, 0.15f), Random.Range(0.05f, 0.25f), Random.Range(-0.15f, 0.15f)),
-                startSize = Random.Range(0.25f, 0.6f),
+                velocity = new Vector3(Random.Range(-0.15f, 0.15f), Random.Range(0.05f, 0.25f), Random.Range(-0.15f, 0.15f)) * ScentSpeed,
+                startSize = Random.Range(0.25f, 0.6f) * ScentSize,
                 startLifetime = Random.Range(1.2f, 2f),
                 startColor = new Color(PerfumeTint.r, PerfumeTint.g, PerfumeTint.b, PerfumeTint.a * trail.weight),
                 rotation = Random.Range(0f, 360f),
@@ -181,7 +182,7 @@ public partial class GameSession
         main.loop = false;
         main.playOnAwake = false;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
-        main.maxParticles = 3000;
+        main.maxParticles = 6000;
         var emission = ps.emission;
         emission.enabled = false;
         var shape = ps.shape;
@@ -200,7 +201,7 @@ public partial class GameSession
         rot.z = new ParticleSystem.MinMaxCurve(-0.8f, 0.8f);
         var noise = ps.noise;
         noise.enabled = true;
-        noise.strength = 0.25f;
+        noise.strength = 0.25f * ScentSpeed;
         noise.frequency = 0.6f;
         go.GetComponent<ParticleSystemRenderer>().sharedMaterial = GameArt.SoftPuff;
         ps.Play();

@@ -21,8 +21,10 @@ using UnityEngine;
 public static partial class WorldBuilder
 {
     public const float ChateauHeight = 60f;
-    const float RampartHeight = 10f, RampartThick = 6f, MoatDepth = 2f, MoatWidth = 6f, GateWidth = 4f, GateHeight = 5f;
+    // V0.7.13 : douves de 4 m de large, 7 m par endroits (avant : 6 et 12 m).
+    const float RampartHeight = 10f, RampartThick = 6f, MoatDepth = 2f, MoatWidth = 4f, MoatWideWidth = 7f, GateWidth = 4f, GateHeight = 5f;
     const float TowerHeight = 30f, MaisonHeight = 15f, MaisonDiameter = 8f;
+    const int MaisonCount = 14;
 
     // Gabarits (coordonnées sur la grille de 4 x 4 de la zone : x d'ouest en est, y du sud (entrée) au nord (Neutral Room)).
     static readonly Vector2[][] OuterRamparts =
@@ -123,7 +125,7 @@ public static partial class WorldBuilder
             var spans = new List<Vector2>();
             if (gateFace)
             {
-                holes.Add(Band(alongX, plan.gateAt - GateWidth * 0.5f - 0.6f, plan.gateAt + GateWidth * 0.5f + 0.6f, line, sign, MoatWidth * 2f + 0.5f));
+                holes.Add(Band(alongX, plan.gateAt - GateWidth * 0.5f - 0.6f, plan.gateAt + GateWidth * 0.5f + 0.6f, line, sign, MoatWideWidth + 0.5f));
                 spans.Add(new Vector2(lo, plan.gateAt - GateWidth * 0.5f - 1.5f));
                 spans.Add(new Vector2(plan.gateAt + GateWidth * 0.5f + 1.5f, hi));
             }
@@ -134,10 +136,10 @@ public static partial class WorldBuilder
                 if (room < run + 5f) continue;
                 float length = Mathf.Min(room, Rand(rnd, run + 6f, run + 11f));
                 float s0 = Rand(rnd, span.x + 1f, span.y - 1f - length), s1 = s0 + length;
-                moat.Add(Band(alongX, s0, s1, line, sign, MoatWidth * 2f));
+                moat.Add(Band(alongX, s0, s1, line, sign, MoatWideWidth));
                 // Escalier contre le bord extérieur de la partie doublée, le long de la douve : il arrive au sol au bout de cette partie
                 // (là où la douve redevient étroite) ; son pied garde de l'espace avant le mur d'en face.
-                float across = line + sign * (MoatWidth * 2f - 1.35f);
+                float across = line + sign * (MoatWideWidth - 1.35f);
                 bool up = rnd.NextDouble() < 0.5;
                 float footAt = up ? s1 - run : s0 + run;
                 Vector3 foot = alongX ? new Vector3(footAt, 0f, across) : new Vector3(across, 0f, footAt);
@@ -298,6 +300,16 @@ public static partial class WorldBuilder
             foreach (var c in rp.front) MarkVoid(c);
             foreach (var c in rp.back) MarkVoid(c);
         }
+        // V0.7.13 : ni salle, ni corridor devant le rempart (côté entrée) : une grande cour, où se dressent les Maisons-Fou.
+        var frontSide = new HashSet<Vector2Int>();
+        for (int i = 0; i < m.N; i++)
+            for (int j = 0; j < m.N; j++)
+            {
+                var c = new Vector2Int(i, j);
+                if (ramparts[0].nrSide.Contains(c) || ramparts[0].cells.Contains(c) || m.Reserved(i, j) || m.Fixed(i, j)) continue;
+                frontSide.Add(c);
+                MarkVoid(c);
+            }
         // Une marge de sol libre devant le Hub et devant la Neutral Room.
         bool NearKeep(int i, int j) => Mathf.Abs(i - m.start.x) + Mathf.Abs(j - m.start.y) <= 2 || m.neutralRoom.Contains(new Vector2Int(i, j))
             || Mathf.Abs(i - m.doorCol) <= 2 && j >= m.N - 5;
@@ -307,14 +319,19 @@ public static partial class WorldBuilder
         // cours au pied des remparts sont permises.
         var rampartArea = new HashSet<Vector2Int>();
         foreach (var rp in ramparts) { rampartArea.UnionWith(rp.cells); rampartArea.UnionWith(rp.moat); }
-        bool PlotFree(Vector3 center, float plot)
+        // side : 0 n'importe où, 1 derrière le rempart extérieur (côté Neutral Room), 2 devant (côté entrée).
+        bool PlotFree(Vector3 center, float plot, int side = 0)
         {
             Vector3 o = m.origin;
             int i0 = Mathf.FloorToInt((center.x - plot - o.x) / Cell), i1 = Mathf.FloorToInt((center.x + plot - o.x) / Cell);
             int j0 = Mathf.FloorToInt((center.z - plot - o.z) / Cell), j1 = Mathf.FloorToInt((center.z + plot - o.z) / Cell);
             for (int i = i0; i <= i1; i++)
                 for (int j = j0; j <= j1; j++)
-                    if (!m.InGrid(i, j) || m.Reserved(i, j) || m.Fixed(i, j) || rampartArea.Contains(new Vector2Int(i, j)) || NearKeep(i, j)) return false;
+                {
+                    var q = new Vector2Int(i, j);
+                    if (!m.InGrid(i, j) || m.Reserved(i, j) || m.Fixed(i, j) || rampartArea.Contains(q) || NearKeep(i, j)) return false;
+                    if (side == 1 && !ramparts[0].nrSide.Contains(q) || side == 2 && !frontSide.Contains(q)) return false;
+                }
             foreach (var other in rounds)
                 if (Flat(other.center - center) < other.radius + plot + 3f) return false;
             return true;
@@ -340,21 +357,22 @@ public static partial class WorldBuilder
                 break;
             }
         }
-        void PlaceRounds(int count, int kind, float minR, float maxR, float height)
+        void PlaceRounds(int count, int kind, float minR, float maxR, float height, int side)
         {
             for (int k = 0; k < count; k++)
                 for (int attempt = 0; attempt < 300; attempt++)
                 {
                     float r = Rand(rnd, minR, maxR);
                     var c = new Vector3(Rand(rnd, OriginX + r + 6f, OriginX + ZoneSize - r - 6f), 0f, Rand(rnd, ZoneSouth(zone) + r + 6f, ZoneSouth(zone) + ZoneSize - r - 6f));
-                    if (!PlotFree(c, r + 2f)) continue;
+                    if (!PlotFree(c, r + 2f, side)) continue;
                     MarkPlot(c, r + 2f);
                     rounds.Add(new RoundPlan { center = c, radius = r, height = height, kind = kind });
                     break;
                 }
         }
-        PlaceRounds(6, 0, 7.5f, 10f, TowerHeight);
-        PlaceRounds(10, 2, MaisonDiameter * 0.5f, MaisonDiameter * 0.5f, MaisonHeight);
+        // V0.7.13 : les 6 Tours derrière le rempart (côté Neutral Room), les 14 Maisons-Fou devant (côté entrée).
+        PlaceRounds(6, 0, 7.5f, 10f, TowerHeight, 1);
+        PlaceRounds(MaisonCount, 2, MaisonDiameter * 0.5f, MaisonDiameter * 0.5f, MaisonHeight, 2);
         yield return null;
 
         // ---------- Salles et corridors (labyrinthe dans les cellules restantes) ----------
@@ -370,6 +388,9 @@ public static partial class WorldBuilder
         foreach (Room room in m.rooms)
             if (!room.plain) { room.plain = true; natures[room] = rnd.Next(RoomNatures); }
         OpenCourtyards(m, rnd);
+        // L'entrée de la zone, seule devant le rempart, s'ouvre sur toute la cour qui l'entoure.
+        for (int d = 0; d < 4; d++)
+            if (m.Void(m.start.x + DI[d], m.start.y + DJ[d])) SetWall(m, m.start.x, m.start.y, d, false);
         // Chemins (Parfum, câbles) : les cours se traversent librement, pas les remparts (sauf par leur passage).
         var rampartCells = new HashSet<Vector2Int>();
         foreach (var rp in ramparts) rampartCells.UnionWith(rp.cells);
@@ -394,6 +415,16 @@ public static partial class WorldBuilder
         refs.entrance = m.Center(m.start.x, m.start.y);
         var outer = ramparts[0];
         refs.sideOf = p => m.CellAt(p, out int ci, out int cj) && outer.nrSide.Contains(new Vector2Int(ci, cj)) ? 1 : 0;
+        // V0.7.13 : dehors (luminosité ambiante relevée) : cours, douves, chemins de ronde et toits ; pas dans les Tours, le Donjon,
+        // les Maisons-Fou ni sous le chemin de ronde.
+        refs.outdoors = p =>
+        {
+            if (!m.CellAt(p, out int oi, out int oj)) return false;
+            foreach (var r in rounds)
+                if (Flat(p - r.center) < r.radius + 0.3f && p.y < r.height + 0.5f) return false;
+            if (rampartCells.Contains(new Vector2Int(oi, oj))) return p.y > RampartHeight - 0.2f;
+            return m.Void(oi, oj) || p.y > m.Ceil(oi, oj) + 0.1f;
+        };
 
         var geometry = BuildGeometry(m, root, colliders, new System.Random(seed * 97 + zone * 173));
         while (geometry.MoveNext()) yield return null;
@@ -418,7 +449,7 @@ public static partial class WorldBuilder
         // ---------- Remparts ----------
         for (int k = 0; k < ramparts.Count; k++)
         {
-            BuildRampart(m, refs, ramparts[k], root, colliders.transform, zone * 10 + k, new System.Random(seed * 41 + zone * 313 + k * 71));
+            BuildRampart(m, refs, ramparts[k], root, colliders.transform, zone * 10 + k, new System.Random(seed * 41 + zone * 313 + k * 71), k == 0);
             yield return null;
         }
 
@@ -748,7 +779,8 @@ public static partial class WorldBuilder
 
     // ---------- Rempart ----------
 
-    static void BuildRampart(Maze m, ZoneRefs refs, RampartPlan plan, Transform root, Transform colliders, int leverId, System.Random rnd)
+    // V0.7.13 : le rempart intérieur ('gated' faux) n'a ni herse, ni levier, ni câble : son passage reste ouvert.
+    static void BuildRampart(Maze m, ZoneRefs refs, RampartPlan plan, Transform root, Transform colliders, int leverId, System.Random rnd, bool gated)
     {
         var kit = new Kit(root, colliders, "Z" + m.zone + "_Rempart" + leverId);
         float west = OriginX, east = OriginX + ZoneSize, south = ZoneSouth(m.zone), north = south + ZoneSize;
@@ -785,13 +817,6 @@ public static partial class WorldBuilder
                 if (gateFace && Mathf.Abs(t - gateAt) < GateWidth) continue;
                 Vector3 p = (alongX ? new Vector3(t, 2.5f, a.y) : new Vector3(a.x, 2.5f, t)) + outward * 0.02f;
                 kit.dark.WorldQuad(p - side * 0.15f - Vector3.up * 0.9f, p + side * 0.15f - Vector3.up * 0.9f, p + side * 0.15f + Vector3.up * 0.9f, p - side * 0.15f + Vector3.up * 0.9f, outward, 1f);
-            }
-            // V0.7.12 : néons à intervalles réguliers, sous les créneaux (visibles depuis le sol).
-            for (float t = lo + 4f; t < hi - 3f; t += RampartNeonSpacing)
-            {
-                if (gateFace && Mathf.Abs(t - gateAt) < GateWidth) continue;
-                Vector3 p = (alongX ? new Vector3(t, RampartHeight - 0.8f, a.y) : new Vector3(a.x, RampartHeight - 0.8f, t)) + outward * 0.06f;
-                AddWallNeon(root, p, outward, 9f, 1.1f, rnd);
             }
         }
 
@@ -862,36 +887,53 @@ public static partial class WorldBuilder
             KitMerlons(kit, a, b, RampartHeight, 0.5f, new Vector3(inward.x, 0f, inward.y), gaps);
         }
 
-        // Herses (de chaque côté du passage) et levier sur le chemin de ronde (V0.7.12), du côté opposé à l'escalier intérieur,
-        // reliés par des câbles noirs.
-        var gates = new List<CastleGate>();
-        Quaternion gateRot = gateAlongX ? Quaternion.identity : Quaternion.Euler(0f, 90f, 0f);
-        foreach (float s in new[] { -1f, 1f })
+        // V0.7.13 : torches posées sur le chemin de ronde, le long du bord intérieur des créneaux, à flamme blanche.
+        foreach (var (a3, b3, inward3) in outline)
         {
-            Vector3 at = gateAlongX ? new Vector3(gateAt, 0f, gr.center.y + s * (RampartThick * 0.5f - 0.5f)) : new Vector3(gr.center.x + s * (RampartThick * 0.5f - 0.5f), 0f, gateAt);
-            gates.Add(CastleGate.Create(root, at, gateRot, GateWidth, GateHeight));
-        }
-        refs.leverGates[leverId] = gates;
-        float away = -(gateAlongX ? dir.x : dir.z) * Rand(rnd, 6f, 10f);
-        Vector3 leverPos = gateAlongX ? new Vector3(gateAt + away, RampartHeight, gr.center.y) : new Vector3(gr.center.x, RampartHeight, gateAt + away);
-        if (gateAlongX) leverPos.x = Mathf.Clamp(leverPos.x, gr.xMin + 3f, gr.xMax - 3f);
-        else leverPos.z = Mathf.Clamp(leverPos.z, gr.yMin + 3f, gr.yMax - 3f);
-        var lever = CastleLever.Create(root, leverId, leverPos, gateAlongX ? 0f : 90f);
-        refs.levers.Add(lever);
-        foreach (var g in gates)
-        {
-            // Le câble descend le long de la face intérieure, puis court sur le sol jusqu'au pied de la herse.
-            Vector3 gp = g.transform.position;
-            Vector3 wallSide = gateAlongX ? new Vector3(leverPos.x, 0f, gr.yMax - 1.05f) : new Vector3(gr.xMax - 1.05f, 0f, leverPos.z);
-            var points = new List<Vector3>
+            Vector3 ta = new Vector3(a3.x, RampartHeight, a3.y), tb = new Vector3(b3.x, RampartHeight, b3.y);
+            Vector3 inw = new Vector3(inward3.x, 0f, inward3.y);
+            float len = Vector3.Distance(ta, tb);
+            for (float t = 6f; t < len - 4f; t += RampartTorchSpacing)
             {
-                leverPos + Vector3.up * 0.05f,
-                new Vector3(wallSide.x, leverPos.y + 0.03f, wallSide.z),
-                new Vector3(wallSide.x, 0.03f, wallSide.z),
-                new Vector3(gateAlongX ? gp.x : wallSide.x, 0.03f, gateAlongX ? wallSide.z : gp.z),
-                gp + Vector3.up * 0.03f,
-            };
-            lever.AddCable(KitRibbon(root, points, 0.06f));
+                Vector3 tp = ta + (tb - ta) / len * t + inw * 1.5f;
+                if (holes.Exists(h => h.Contains(new Vector2(tp.x, tp.z)))) continue;
+                AddTorch(root, tp, -inw, false, rnd);
+            }
+        }
+
+        if (gated)
+        {
+            // Herses (de chaque côté du passage) et levier sur le chemin de ronde (V0.7.12), du côté opposé à l'escalier intérieur,
+            // reliés par des câbles noirs.
+            var gates = new List<CastleGate>();
+            Quaternion gateRot = gateAlongX ? Quaternion.identity : Quaternion.Euler(0f, 90f, 0f);
+            foreach (float s in new[] { -1f, 1f })
+            {
+                Vector3 at = gateAlongX ? new Vector3(gateAt, 0f, gr.center.y + s * (RampartThick * 0.5f - 0.5f)) : new Vector3(gr.center.x + s * (RampartThick * 0.5f - 0.5f), 0f, gateAt);
+                gates.Add(CastleGate.Create(root, at, gateRot, GateWidth, GateHeight));
+            }
+            refs.leverGates[leverId] = gates;
+            float away = -(gateAlongX ? dir.x : dir.z) * Rand(rnd, 6f, 10f);
+            Vector3 leverPos = gateAlongX ? new Vector3(gateAt + away, RampartHeight, gr.center.y) : new Vector3(gr.center.x, RampartHeight, gateAt + away);
+            if (gateAlongX) leverPos.x = Mathf.Clamp(leverPos.x, gr.xMin + 3f, gr.xMax - 3f);
+            else leverPos.z = Mathf.Clamp(leverPos.z, gr.yMin + 3f, gr.yMax - 3f);
+            var lever = CastleLever.Create(root, leverId, leverPos, gateAlongX ? 0f : 90f);
+            refs.levers.Add(lever);
+            foreach (var g in gates)
+            {
+                // Le câble descend le long de la face intérieure, puis court sur le sol jusqu'au pied de la herse.
+                Vector3 gp = g.transform.position;
+                Vector3 wallSide = gateAlongX ? new Vector3(leverPos.x, 0f, gr.yMax - 1.05f) : new Vector3(gr.xMax - 1.05f, 0f, leverPos.z);
+                var points = new List<Vector3>
+                {
+                    leverPos + Vector3.up * 0.05f,
+                    new Vector3(wallSide.x, leverPos.y + 0.03f, wallSide.z),
+                    new Vector3(wallSide.x, 0.03f, wallSide.z),
+                    new Vector3(gateAlongX ? gp.x : wallSide.x, 0.03f, gateAlongX ? wallSide.z : gp.z),
+                    gp + Vector3.up * 0.03f,
+                };
+                lever.AddCable(KitRibbon(root, points, 0.06f));
+            }
         }
 
         // Tourelles décoratives (modèle Meshy de tour) aux angles du chemin de ronde, et lustres sous le chemin de ronde.
@@ -910,7 +952,8 @@ public static partial class WorldBuilder
         kit.Flush();
     }
 
-    const float RampartNeonSpacing = 10f;
+    const float RampartTorchSpacing = 14f;
+    const float RoomTorchChance = 0.33f;
 
     // Bords de la réunion des rectangles (sans ceux posés sur le bord de la zone) : (début, fin, direction vers l'intérieur).
     static List<(Vector2 a, Vector2 b, Vector2 inward)> OutlineEdges(List<Rect> rects, float west, float east, float south, float north)
@@ -1013,7 +1056,25 @@ public static partial class WorldBuilder
         KitDisc(kit, c, R - 0.4f, 8.2f, 0.4f, sides);
         // V0.7.12 : un lustre suspendu au plafond de la salle.
         AddChandelier(kit.root, c + Vector3.up * 7.8f, 10f, 1.1f, rnd);
-        // Corps effilé (anneaux de plus en plus étroits), col, mitre (pas de collision au-dessus de la salle).
+        // V0.7.13 (Note 16) : toit de Kremlin noir et blanc (modèle Meshy "ToitKremlin"), posé sur la dalle du plafond, aussi large
+        // que le mur, avec sa collision (son maillage). Sans le modèle : l'ancien corps effilé de fou.
+        var roof = GameArt.SpawnModel("ToitKremlin", kit.root, 1f);
+        if (roof != null)
+        {
+            Bounds rb = GameArt.LocalBounds(roof.transform);
+            float width = Mathf.Max(rb.size.x, rb.size.z);
+            float scale = (R * 2f + 0.1f) / width;
+            // Hauteur limitée à celle du bâtiment (15 m) : le dôme est un peu tassé s'il le faut.
+            float squash = Mathf.Min(1f, (MaisonHeight - 8f) / (rb.size.y * scale));
+            roof.transform.localScale = new Vector3(scale, scale * squash, scale);
+            roof.transform.position = c + Vector3.up * 8f;   // sur le haut du mur (la dalle reste cachée dessous)
+            foreach (var mf in roof.GetComponentsInChildren<MeshFilter>())
+            {
+                if (mf.sharedMesh == null || !mf.sharedMesh.isReadable) continue;
+                mf.gameObject.AddComponent<MeshCollider>().sharedMesh = mf.sharedMesh;
+            }
+            return;
+        }
         float y = 8.2f;
         foreach (var (radius, height) in new[] { (R * 0.85f, 1.6f), (R * 0.7f, 1.4f), (R * 0.95f, 0.4f), (R * 0.75f, 1.2f), (R * 0.6f, 1.2f), (R * 0.42f, 1f), (R * 0.22f, 0.8f) })
         {
@@ -1026,7 +1087,6 @@ public static partial class WorldBuilder
             }
             y += height;
         }
-        // Bouton au sommet de la mitre.
         var top = GameArt.Prim(PrimitiveType.Sphere, kit.root, c + Vector3.up * (y + 0.4f), Vector3.one * 0.9f, GameArt.CheckerWall);
         foreach (var col in top.GetComponentsInChildren<Collider>()) Object.Destroy(col);
     }
@@ -1097,7 +1157,7 @@ public static partial class WorldBuilder
                 var go = GameArt.SpawnModelFloor(model, props, ModelHeight(model));
                 if (go == null) continue;
                 bool ok = spot == Spot.Floor
-                    ? PlaceOnFloor(m, room, go, cell, 0f, Rand(rnd, 0f, 360f), placed, rnd)
+                    ? PlaceOnFloor(m, room, go, cell, 0f, Rand(rnd, 0f, 360f), placed, rnd) && FitInCell(m, room, go, cell)
                     : PlaceAgainstWall(m, go, cell, rnd.Next(4), spot == Spot.Hung ? Rand(rnd, 1.5f, 2.1f) : 0f, spot == Spot.Near ? 0.25f : 0.02f, placed, rnd);
                 if (!ok) { Object.Destroy(go); continue; }
                 // Portrait d'un chien (skin) dans les tableaux.
@@ -1110,7 +1170,55 @@ public static partial class WorldBuilder
                     col.size = b.size;
                 }
             }
+            // V0.7.13 : une torche contre un mur, à flamme blanche, dans une salle sur trois seulement (les lustres éclairent déjà).
+            int torches = rnd.NextDouble() < RoomTorchChance ? 1 : 0;
+            for (int attempt = 0; attempt < 12 && torches > 0; attempt++)
+            {
+                var cell = room.cells[rnd.Next(room.cells.Count)];
+                int d = rnd.Next(4);
+                if (m.keepClear.Contains(cell) || !HasWall(m, cell.x, cell.y, d) || m.HasWallHole(cell.x, cell.y, d)) continue;
+                Vector3 n = new Vector3(DI[d], 0f, DJ[d]), side = new Vector3(DJ[d], 0f, DI[d]);
+                Vector3 p = m.Center(cell.x, cell.y) + n * (Cell * 0.5f - Wall * 0.5f) + side * Rand(rnd, -1.2f, 1.2f) + Vector3.up * 2.4f;
+                if (placed.Exists(q => Flat(q - p) < 1.4f)) continue;
+                placed.Add(p);
+                AddTorch(props, p, -n, true, rnd);
+                torches--;
+            }
         }
+    }
+
+    // V0.7.13 (Note 24) : l'objet posé au sol reste dans sa cellule, sans entrer dans les murs (ni boucher une porte) : il est
+    // repoussé à l'intérieur ; s'il est trop grand pour la cellule, il n'est pas posé.
+    static bool FitInCell(Maze m, Room room, GameObject go, Vector2Int cell)
+    {
+        Bounds wb = WorldBounds(go.transform);
+        Vector3 c = m.Center(cell.x, cell.y), shift = Vector3.zero;
+        float lim = Cell * 0.5f - Wall * 0.5f - 0.08f;
+        bool Closed(int d)
+        {
+            int ni = cell.x + DI[d], nj = cell.y + DJ[d];
+            return !m.InGrid(ni, nj) || m.RoomAt(ni, nj) != room || HasWall(m, cell.x, cell.y, d);
+        }
+        if (Closed(0) && Closed(1) && wb.size.x > lim * 2f || Closed(2) && Closed(3) && wb.size.z > lim * 2f) return false;
+        if (Closed(0) && wb.max.x > c.x + lim) shift.x -= wb.max.x - (c.x + lim);
+        if (Closed(1) && wb.min.x + shift.x < c.x - lim) shift.x += (c.x - lim) - (wb.min.x + shift.x);
+        if (Closed(2) && wb.max.z > c.z + lim) shift.z -= wb.max.z - (c.z + lim);
+        if (Closed(3) && wb.min.z + shift.z < c.z - lim) shift.z += (c.z - lim) - (wb.min.z + shift.z);
+        go.transform.position += shift;
+        return true;
+    }
+
+    // Boîte englobante (monde) des rendus d'un objet.
+    static Bounds WorldBounds(Transform t)
+    {
+        var b = new Bounds(t.position, Vector3.zero);
+        bool any = false;
+        foreach (var r in t.GetComponentsInChildren<Renderer>())
+        {
+            if (!any) { b = r.bounds; any = true; }
+            else b.Encapsulate(r.bounds);
+        }
+        return b;
     }
 
     // Objet posé au sol, quelque part dans la cellule (assez loin des murs et des autres objets).

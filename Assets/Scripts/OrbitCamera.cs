@@ -265,6 +265,8 @@ public class OrbitCamera : MonoBehaviour
     const float LobbyZoomFov = 0.65f, LobbyZoomIn = 1.2f, LobbyZoomOut = 0.3f;
     // V0.7.12 (Note 07) : en zoomant, la caméra descend et se redresse (on voit la bouche des skins, moins par le dessus).
     const float LobbyZoomPitchDrop = 15f, LobbyZoomLift = 0.12f;
+    // V0.7.13 (Note 02) : hauteur des pieds à l'écran une fois zoomé (part de la hauteur de l'écran, depuis le bas).
+    const float LobbyFeetViewport = 0.06f;
 
     // Zoom dans le Canon et secousses (tir, impact).
     void UpdateLens()
@@ -449,6 +451,23 @@ public class OrbitCamera : MonoBehaviour
         // Jamais sous les pieds du personnage (le pivot est au centre de la capsule).
         pos.y = Mathf.Max(pos.y, target.position.y - MaxDropBelowCenter);
         Quaternion camRotation = Quaternion.LookRotation(focus - pos);
+        // V0.7.13 (Note 02) : zoom du lobby : la caméra s'incline vers le bas jusqu'à ce que les pieds du personnage soient juste
+        // au-dessus du bas de l'écran (environ 2 cm).
+        if (!ControlsEnabled && lobbyZoom > 0f)
+        {
+            var view = GetComponent<Camera>();
+            var body = target.GetComponent<Collider>();
+            float feetY = body != null ? body.bounds.min.y : target.position.y - 0.9f;
+            Vector3 flat = target.position - pos;
+            flat.y = 0f;
+            if (view != null && flat.sqrMagnitude > 0.0001f)
+            {
+                float feetElevation = Mathf.Atan2(feetY - pos.y, flat.magnitude) * Mathf.Rad2Deg;
+                float below = Mathf.Atan((LobbyFeetViewport - 0.5f) * 2f * Mathf.Tan(view.fieldOfView * 0.5f * Mathf.Deg2Rad)) * Mathf.Rad2Deg;
+                Quaternion framed = Quaternion.Euler(-(feetElevation - below), Quaternion.LookRotation(flat).eulerAngles.y, 0f);
+                camRotation = Quaternion.Slerp(camRotation, framed, Mathf.SmoothStep(0f, 1f, lobbyZoom));
+            }
+        }
         // V0.7.4 (Note 02) : à la troisième personne aussi, un très léger balancement au rythme des pas (le même qu'à la première
         // personne, en bien plus discret).
         if (controller != null && tunnelK < 0.01f)

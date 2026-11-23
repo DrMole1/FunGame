@@ -81,13 +81,27 @@ public partial class GameSession
     {
         pulledLevers.Clear();
         unlockedDoors.Clear();
+        ClearCollars();
+        hubTwoItemsPlaced = false;
+        OrbitCamera.MetronomeTilt = 0f;
+        GameAudio.PeaceMode = false;
+    }
+
+    // Plus aucun Collier ni chaîne (fin de partie, retour au lobby).
+    void ClearCollars()
+    {
         collars.Clear();
         foreach (var list in chains.Values) foreach (var l in list) if (l != null) Destroy(l.gameObject);
         chains.Clear();
         if (player != null) player.Tether = null;
-        hubTwoItemsPlaced = false;
-        OrbitCamera.MetronomeTilt = 0f;
-        GameAudio.PeaceMode = false;
+        if (avatar != null) avatar.SetCollar(false);
+    }
+
+    // V0.7.13 (Note 10) : un joueur qui quitte la partie (ou en est expulsé) ne porte plus de Collier et ne tient plus personne.
+    void ForgetCollarsOf(string id)
+    {
+        foreach (var kv in new List<KeyValuePair<string, string>>(collars))
+            if (kv.Key == id || kv.Value == id) collars.Remove(kv.Key);
     }
 
     void SendNewItemsSnapshot(string to)
@@ -351,8 +365,7 @@ public partial class GameSession
 
     // ---------- Lunettes PEACE ----------
 
-    ParticleSystem hearts, rainbows;
-    float rainbowTimer;
+    ParticleSystem hearts;
 
     void UpdatePeace()
     {
@@ -362,7 +375,6 @@ public partial class GameSession
         if (!on) return;
         Vector3 me = player.transform.position;
         if (hearts == null) hearts = BuildPeaceParticles("CoeursRoses", PeaceTextures.Heart, 0.25f, 0.5f);
-        if (rainbows == null) rainbows = BuildPeaceParticles("ArcsEnCiel", PeaceTextures.Rainbow, 1.6f, 3.2f);
         // Des cœurs roses sortent régulièrement du sol, autour du joueur, et tourbillonnent légèrement.
         if (Random.value < Time.deltaTime * 6f)
         {
@@ -376,32 +388,8 @@ public partial class GameSession
                 startSize = Random.Range(0.2f, 0.4f), startLifetime = Random.Range(2.2f, 3.2f), startColor = new Color(1f, 0.55f, 0.78f, 0.9f),
             }, 1);
         }
-        // Des arcs-en-ciel animés apparaissent depuis le sol et les murs. V0.7.12 (Note 10) : trois fois moins, et toujours en dessous
-        // de la hauteur de la tête du personnage.
-        rainbowTimer -= Time.deltaTime;
-        if (rainbowTimer <= 0f)
-        {
-            rainbowTimer = Random.Range(0.6f, 1.4f) * RainbowRarity;
-            Vector3 dir = Random.onUnitSphere;
-            dir.y = -Mathf.Abs(dir.y);
-            float headY = me.y + RainbowHeadHeight;
-            if (Physics.Raycast(me + Vector3.up * 0.3f, dir, out RaycastHit hit, 12f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
-            {
-                float size = Random.Range(1.4f, 2.6f);
-                Vector3 p = hit.point + hit.normal * 0.6f;
-                p.y = Mathf.Min(p.y, headY - size * 0.5f);
-                rainbows.Emit(new ParticleSystem.EmitParams
-                {
-                    position = p,
-                    velocity = new Vector3(hit.normal.x, 0f, hit.normal.z) * 0.25f,
-                    startSize = size, startLifetime = Random.Range(2.5f, 3.5f), startColor = new Color(1f, 1f, 1f, 0.75f),
-                }, 1);
-            }
-        }
+        // V0.7.13 (Note 08) : plus d'arcs-en-ciel dans le décor ; des bordures arc-en-ciel en haut et en bas de l'écran (GameHud).
     }
-
-    // Hauteur de la tête au-dessus du centre du personnage ; écart entre deux arcs-en-ciel multiplié par 3.
-    const float RainbowHeadHeight = 0.8f, RainbowRarity = 3f;
 
     ParticleSystem BuildPeaceParticles(string name, Texture2D texture, float minSize, float maxSize)
     {
@@ -724,7 +712,8 @@ public class MegaphoneShockwave : MonoBehaviour
             // Le tore est dans le plan XY (axe Z) : face à la direction de la voix.
             rings[k].SetPositionAndRotation(origin + direction * d, Quaternion.LookRotation(direction));
             rings[k].localScale = new Vector3(radius, radius, 1f);
-            mats[k].color = new Color(1f, 1f, 1f, 0.55f * (1f - t));
+            // V0.7.13 (Note 06) : onde moins visible (opacité 0,55 -> 0,25).
+            mats[k].color = new Color(1f, 1f, 1f, 0.25f * (1f - t));
         }
     }
 

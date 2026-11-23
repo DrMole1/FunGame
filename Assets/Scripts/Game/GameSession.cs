@@ -418,6 +418,13 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         EndTeleport(false);
         ResetHubFixtures();
         status.ClearInventory();
+        // V0.7.13 (Note 10) : de retour au lobby, plus de Lunettes PEACE, de Sac à Os, de Mégaphone ni de Collier.
+        WearingGlasses = WearingBoneBag = HoldingMegaphone = false;
+        if (avatar != null)
+        {
+            avatar.SetEquipment(false, false, false);
+            avatar.SetCollar(false);
+        }
         status.SetDead(false);
         status.SetHp(GameRules.MaxHp);
         status.SetSerenity(GameRules.MaxSerenity);
@@ -779,6 +786,16 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     }
 
     float farFogAmount;
+    float outdoorBlend;
+    const float OutdoorAmbientGain = 5f, OutdoorFogScale = 0.45f;
+
+    bool IsOutdoors(Vector3 p)
+    {
+        int zone = WorldBuilder.ZoneAt(p);
+        if (zone < 1 || zone > zones.Count || zones[zone - 1] == null) return false;
+        var f = zones[zone - 1].outdoors;
+        return f != null && f(p);
+    }
     static readonly Color PeaceAmbient = new Color(0.32f, 0.2f, 0.26f);
 
     void UpdateAtmosphere()
@@ -791,9 +808,14 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         float bright = Brightness.Factor;
         // V0.7.11 (7.15) : avec les Lunettes PEACE, la vision tire sur le rose et la luminosité est légèrement augmentée (Couvre Feu
         // compris).
-        Color mazeAmbient = WearingGlasses ? Color.Lerp(MazeAmbient * bright, PeaceAmbient, 0.6f) : MazeAmbient * bright;
+        // V0.7.13 : dehors (cours du Château, ravin du Blockhaus), l'ambiance est plus lumineuse et le brouillard plus léger : on
+        // distingue les remparts, les fenêtres d'en face.
+        bool outside = !inHub && player != null && IsOutdoors(player.transform.position);
+        outdoorBlend = Mathf.MoveTowards(outdoorBlend, outside ? 1f : 0f, Time.deltaTime * 1.5f);
+        Color baseAmbient = MazeAmbient * Mathf.Lerp(1f, OutdoorAmbientGain, outdoorBlend);
+        Color mazeAmbient = WearingGlasses ? Color.Lerp(baseAmbient * bright, PeaceAmbient, 0.6f) : baseAmbient * bright;
         RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, inHub ? HubAmbient : mazeAmbient, k);
-        RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog / bright, k);
+        RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog * Mathf.Lerp(1f, OutdoorFogScale, outdoorBlend) / bright, k);
         // Pendant la mort, la lampe éclaire encore le corps puis faiblit, jusqu'au noir.
         bool dying = status.Dead && OrbitCamera.DeathView >= 0f;
         playerLight.enabled = net.InGame && (!status.Dead || dying) && !WorldBuilder.IsInHub(player.transform.position);
@@ -2690,6 +2712,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
     public void OnPlayerLeft(string id, string playerName)
     {
+        ForgetCollarsOf(id);
         if (net.IsHost)
         {
             Log("Le sujet {0} est déconnecté.", playerName);
@@ -2806,6 +2829,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         if (WipedOut || quotaFailed) return;
         quotaFailed = true;
+        // V0.7.13 (Note 10) : game over : inventaire vidé (à la mort, plus bas), Colliers retirés.
+        ClearCollars();
         terminal.Close(false);
         postItUI.Close();
         ClearEntities();

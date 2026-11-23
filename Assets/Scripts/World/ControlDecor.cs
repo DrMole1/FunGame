@@ -89,6 +89,32 @@ public static class ControlDecor
         FloorModel("Decor/Vannes", new Vector3(-hw + 0.42f, 0f, s + WestValvesFromSouth), 90f, 1.4f, box);
     }
 
+    // V0.7.13 : les mêmes tuyaux, posés ailleurs (couloirs des Blockhaus) : BeginPipes, des Pipe (points en coordonnées de 'parent'),
+    // puis EndPipes, qui fusionne le tout (avec sa collision).
+    public static void BeginPipes(Transform parent)
+    {
+        if (rust == null)
+        {
+            rust = GameArt.Lit("TuyauRouille", new Color(0.42f, 0.36f, 0.31f), GameArt.Noise("rust", 64, 0.55f, 0.35f, 23), 0.45f);
+            rust.SetFloat("_Metallic", 0.55f);
+            rustDark = GameArt.Lit("TuyauRouilleSombre", new Color(0.27f, 0.22f, 0.19f), GameArt.Noise("rust", 64, 0.5f, 0.4f, 7), 0.35f);
+            rustDark.SetFloat("_Metallic", 0.5f);
+        }
+        holder = parent;
+        pipesLight = new PipeMesh();
+        pipesDark = new PipeMesh();
+    }
+
+    public static void Pipe(float radius, bool dark, params Vector3[] points) => Run(radius, dark, points);
+
+    public static float RandomPipeRadius(System.Random rnd) => PickRadius(rnd);
+
+    public static void EndPipes()
+    {
+        Flush(pipesLight, "Tuyaux", rust);
+        Flush(pipesDark, "TuyauxSombres", rustDark);
+    }
+
     static void Flush(PipeMesh pipes, string name, Material mat)
     {
         if (pipes.Empty) return;

@@ -51,7 +51,7 @@ public class GameHud : MonoBehaviour
     // Icônes d'inventaire (Resources/Icons/<ItemType>, créées par "FunGame/Générer les icônes d'inventaire").
     readonly System.Collections.Generic.Dictionary<ItemType, Sprite> icons = new System.Collections.Generic.Dictionary<ItemType, Sprite>();
     float toastTimer;
-    RawImage damageFlash, whiteFlash, blackFade, dreadVeil, dreadDim, peaceVeil;
+    RawImage damageFlash, whiteFlash, blackFade, dreadVeil, dreadDim, peaceVeil, peaceTop, peaceBottom;
     float peace;
     // Pulsations cardiaques : l'écran s'assombrit nettement (bords presque noirs, centre voilé) d'autant plus que le
     // Cauchemar est proche, et fonce à chaque battement. La racine carrée de la tension rend l'effet bien visible dès que
@@ -180,6 +180,9 @@ public class GameHud : MonoBehaviour
 
         // V0.7.11 (7.15) : voile rose des Lunettes PEACE, sous tout le reste.
         peaceVeil = FullScreen(canvas.transform, "VoileRosePeace", null);
+        // V0.7.13 (Note 08) : bordures arc-en-ciel en haut et en bas de l'écran (à la place des arcs-en-ciel du décor).
+        peaceTop = RainbowBorder(canvas.transform, "ArcEnCielHaut", true);
+        peaceBottom = RainbowBorder(canvas.transform, "ArcEnCielBas", false);
         dreadDim = FullScreen(canvas.transform, "VoilePulsations", null);
         dreadVeil = FullScreen(canvas.transform, "AssombrissementPulsations", vignette);
         // Flash rouge des dégâts (sous le reste de l'interface).
@@ -472,6 +475,53 @@ public class GameHud : MonoBehaviour
     {
         peace = Mathf.MoveTowards(peace, on ? 1f : 0f, Time.unscaledDeltaTime * 1.5f);
         peaceVeil.color = new Color(1f, 0.45f, 0.72f, 0.16f * peace);
+        // Les bordures ondulent doucement.
+        float wave = 0.85f + 0.15f * Mathf.Sin(Time.unscaledTime * 2.2f);
+        peaceTop.color = peaceBottom.color = new Color(1f, 1f, 1f, 0.8f * peace * wave);
+        peaceTop.uvRect = peaceBottom.uvRect = new Rect(Mathf.Repeat(Time.unscaledTime * 0.05f, 1f), 0f, 1f, 1f);
+    }
+
+    const float RainbowBorderHeight = 0.07f;
+
+    // Bande arc-en-ciel collée au bord haut (ou bas) de l'écran : rouge au bord, violet vers l'intérieur, qui s'efface vers le centre.
+    static RawImage RainbowBorder(Transform parent, string name, bool top)
+    {
+        var img = FullScreen(parent, name, RainbowBand(top));
+        var rt = img.rectTransform;
+        rt.anchorMin = new Vector2(0f, top ? 1f - RainbowBorderHeight : 0f);
+        rt.anchorMax = new Vector2(1f, top ? 1f : RainbowBorderHeight);
+        rt.offsetMin = rt.offsetMax = Vector2.zero;
+        return img;
+    }
+
+    static Texture2D RainbowBand(bool top)
+    {
+        Color[] bands =
+        {
+            new Color(1f, 0.25f, 0.3f), new Color(1f, 0.6f, 0.2f), new Color(1f, 0.92f, 0.3f), new Color(0.35f, 0.9f, 0.4f),
+            new Color(0.3f, 0.65f, 1f), new Color(0.55f, 0.4f, 0.95f), new Color(0.85f, 0.45f, 0.95f),
+        };
+        const int w = 64, h = 64;
+        var tex = new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Bilinear, name = "BordureArcEnCiel" };
+        var pixels = new Color[w * h];
+        for (int y = 0; y < h; y++)
+        {
+            // Distance au bord de l'écran (0 au bord, 1 vers l'intérieur).
+            float fromEdge = top ? 1f - y / (h - 1f) : y / (h - 1f);
+            float f = fromEdge * (bands.Length - 1);
+            int a = Mathf.Min(bands.Length - 2, Mathf.FloorToInt(f));
+            Color band = Color.Lerp(bands[a], bands[a + 1], f - a);
+            float alpha = Mathf.Clamp01(1.15f - fromEdge * fromEdge * 1.1f);
+            for (int x = 0; x < w; x++)
+            {
+                // Légère ondulation le long de la bande.
+                float shimmer = 0.9f + 0.1f * Mathf.Sin(x / (float)w * Mathf.PI * 4f + fromEdge * 3f);
+                pixels[y * w + x] = new Color(band.r * shimmer, band.g * shimmer, band.b * shimmer, alpha);
+            }
+        }
+        tex.SetPixels(pixels);
+        tex.Apply();
+        return tex;
     }
 
     public void SetInventory(PlayerStatus status)
@@ -484,8 +534,8 @@ public class GameHud : MonoBehaviour
             Sprite sprite = Icon(t);
             slotIcon[i].sprite = sprite;
             slotIcon[i].enabled = sprite != null;
-            // Canard Coloré : l'icône désaturée du canard, à la couleur de son Hub.
-            slotIcon[i].color = Items.IsColoredDuck(t) ? Color.Lerp(def.color, Color.white, 0.1f) : Color.white;
+            // Canard Coloré : l'icône désaturée du canard, à la couleur du canard ramassé (V0.7.13).
+            slotIcon[i].color = Items.IsColoredDuck(t) ? Items.ColoredDuckTint(Items.DuckTier(t)) : Color.white;
             // Le nom ne s'affiche que si l'objet n'a pas d'icône.
             slotName[i].text = def != null && sprite == null ? def.shortName : "";
             // V0.7.11 (7.16) : compteur d'Os sur l'icône du Sac à Os (V0.7.12 : en bas à droite).

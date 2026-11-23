@@ -14,7 +14,21 @@ public partial class CharacterAvatar
 {
     public const float LookRange = 7f, LookMaxAngle = 45f, LookSpeed = 120f;
     static readonly Quaternion MegaphoneTurn = Quaternion.Euler(0f, -90f, 0f);
-    const float GlassesDrop = 0.06f;
+    const float GlassesDrop = 0.06f, GlassesMaxWidth = 0.85f;
+    // V0.7.13 (Note 09) : hauteur des yeux propre à chaque skin (aucun n'a d'os des yeux), en part de la taille de la tête.
+    static float GlassesLift(int skin) => skin == 3 ? 0.12f : 0f;   // Jerk : yeux plus hauts
+    // V0.7.13 (Note 07) : le Mégaphone a la même taille pour tous les skins (plus petit qu'avant), tenu devant le museau, sans le
+    // toucher ('MegaphoneGap' entre le bout du museau et l'embout).
+    const float MegaphoneSize = 0.3f, MegaphoneGap = 0.08f;
+    // Bout du museau (à hauteur de la bouche), dans le repère de l'os de la tête ; mesuré avec les Lunettes.
+    Vector3 snoutLocal;
+    bool snoutMeasured;
+    // V0.7.13 (Note 11) : Sac à Os plaqué contre le dos mesuré du skin (point le plus en arrière du torse, dans le repère de l'os du
+    // torse), plus gros pour Peepoo et Princess.
+    Vector3 backLocal;
+    float torsoHalf;
+    bool backMeasured, backTried;
+    static float BagScale(int skin) => skin == 2 || skin == 5 ? 1.45f : 1f;   // Princess, Peepoo
     // Volume des têtes (facteur d'échelle de l'os de la tête, appliqué en racine cubique du volume).
     public const float HeadVolume = 2.7f;
 
@@ -42,7 +56,7 @@ public partial class CharacterAvatar
     public Vector3 CollarPoint => neck != null ? neck.position : head != null ? head.position : transform.position + Vector3.up * 0.4f;
     // Pavillon du Mégaphone tenu (sinon, devant la bouche) : départ de l'onde de choc.
     public Vector3 MegaphoneMouth => megaphone != null && megaphone.activeInHierarchy
-        ? megaphone.transform.position + model.transform.forward * (headSize * 0.5f)
+        ? megaphone.transform.position + model.transform.forward * (MegaphoneSize * 0.5f)
         : head != null && model != null ? head.position + model.transform.forward * (headSize * 0.6f) : transform.position + Vector3.up * 0.6f;
     // Main droite (le maître tient la chaîne).
     public Vector3 HandPoint => hand != null ? hand.position : transform.position;
@@ -53,6 +67,8 @@ public partial class CharacterAvatar
         glasses = bag = megaphone = collar = null;
         headMeasured = false;
         glassesCalibrated = false;
+        snoutMeasured = false;
+        backMeasured = backTried = false;
         glassesWidth = -1f;
         lookYaw = 0f;
     }
@@ -95,13 +111,21 @@ public partial class CharacterAvatar
         Place(ref glasses, wearGlasses, "Lunettes", head, glassesWidth > 0f ? glassesWidth * k : size * 0.75f, () => head.TransformPoint(glassesLocalPos), () => head.rotation * glassesLocalRot, BuildGlasses);
         Transform back = chest != null ? chest : spine;
         if (back != null)
-            Place(ref bag, wearBag, "SacOs", back, armLength * 0.8f, () =>
-                back.position - m.forward * (armLength * 0.32f) - m.up * (armLength * 0.1f), () => Quaternion.LookRotation(-m.forward, m.up), BuildBag);
+        {
+            if (!backTried) MeasureBack(m, back);
+            float bagSize = Mathf.Max(armLength * 0.8f, torsoHalf * 1.5f) * BagScale(CharacterIndex);
+            Place(ref bag, wearBag, "SacOs", back, bagSize, () =>
+            {
+                float halfDepth = bag != null ? GameArt.LocalBounds(bag.transform).extents.z : bagSize * 0.2f;
+                Vector3 surface = backMeasured ? back.TransformPoint(backLocal) : back.position - m.forward * (armLength * 0.22f);
+                return surface - m.forward * (halfDepth + 0.02f) - m.up * (armLength * 0.08f);
+            }, () => Quaternion.LookRotation(-m.forward, m.up), BuildBag);
+        }
         if (hand != null)
             // V0.7.12 (Note 11) : le pavillon du modèle est le long de son axe X : un quart de tour le tourne vers l'avant, l'embout
-            // contre la bouche.
-            Place(ref megaphone, holdMegaphone && megaphoneWeight > 0.5f, "Megaphone", hand, size * 0.9f, () =>
-                hand.position + m.forward * (size * 0.45f), () => Quaternion.LookRotation(m.forward, m.up) * MegaphoneTurn, BuildMegaphone);
+            // vers la bouche. V0.7.13 : devant le bout du museau, à distance.
+            Place(ref megaphone, holdMegaphone && megaphoneWeight > 0.5f, "Megaphone", hand, MegaphoneSize, () => MegaphoneCenter(m, size),
+                () => Quaternion.LookRotation(m.forward, m.up) * MegaphoneTurn, BuildMegaphone);
         Transform throat = neck != null ? neck : head;
         Place(ref collar, wearCollar, "Collier", throat, size * 0.75f, () => throat.position + m.up * (size * 0.05f),
             () => Quaternion.LookRotation(m.forward, m.up), BuildCollar);
@@ -118,7 +142,7 @@ public partial class CharacterAvatar
         float span = eyes ? Vector3.Distance(le.position, re.position) : size * 0.4f;
         float front = eyes ? span * 0.9f : size * 0.48f, halfWidth = size * 0.5f;
         bool measured = false;
-        float maxFront = float.MinValue, maxSide = 0f;
+        float maxFront = float.MinValue, maxSide = 0f, snoutFront = float.MinValue, snoutUp = 0f;
         var band = new List<Vector2>();   // (côté, avant) des points du maillage à hauteur des yeux
         var baked = new Mesh();
         foreach (var smr in model.GetComponentsInChildren<SkinnedMeshRenderer>())
@@ -129,23 +153,57 @@ public partial class CharacterAvatar
             {
                 Vector3 d = toWorld.MultiplyPoint3x4(local) - eye;
                 float up = Vector3.Dot(d, m.up), side = Vector3.Dot(d, m.right), fwd = Vector3.Dot(d, m.forward);
+                // Museau : le point le plus en avant sous les yeux, au milieu du visage.
+                if (up < size * 0.05f && up > -size * 0.6f && Mathf.Abs(side) < size * 0.3f && fwd > snoutFront) { snoutFront = fwd; snoutUp = up; }
                 if (Mathf.Abs(up) > size * 0.1f || fwd < -size) continue;
-                if (Mathf.Abs(side) < span * 0.75f && fwd > maxFront) { maxFront = fwd; measured = true; }
+                // V0.7.13 (Note 09) : devant les yeux (de part et d'autre du museau), pas au bout du museau.
+                bool eyeColumn = Mathf.Abs(side) > size * 0.12f && Mathf.Abs(side) < size * 0.32f;
+                if (eyeColumn && fwd > maxFront) { maxFront = fwd; measured = true; }
                 band.Add(new Vector2(Mathf.Abs(side), fwd));
             }
         }
         Destroy(baked);
         // Largeur du visage : seulement l'avant de la tête (ni les oreilles, ni la fourrure de l'arrière).
-        foreach (var b in band) if (b.y > maxFront - size * 0.22f && b.x > maxSide) maxSide = b.x;
+        foreach (var b in band) if (b.y > maxFront - size * 0.15f && b.x > maxSide) maxSide = b.x;
         if (measured) front = Mathf.Clamp(maxFront + size * 0.03f, 0f, size * 1.2f);
         if (maxSide > 0.01f) halfWidth = maxSide;
-        glassesWidth = Mathf.Clamp(halfWidth * 2.2f, size * 0.6f, size * 1.2f);
+        glassesWidth = Mathf.Clamp(halfWidth * 2.1f, size * 0.55f, size * GlassesMaxWidth);
         // (Un peu sous les os des yeux : les verres couvrent les yeux de tous les skins.)
-        Vector3 pos = eye + m.forward * front - m.up * (size * GlassesDrop);
+        Vector3 pos = eye + m.forward * front - m.up * (size * (GlassesDrop - GlassesLift(CharacterIndex)));
+        if (snoutFront > float.MinValue)
+        {
+            snoutLocal = head.InverseTransformPoint(eye + m.forward * Mathf.Max(snoutFront, front) + m.up * Mathf.Min(snoutUp, -size * 0.1f));
+            snoutMeasured = true;
+        }
         glassesLocalPos = head.InverseTransformPoint(pos);
         glassesLocalRot = Quaternion.Inverse(head.rotation) * Quaternion.LookRotation(m.forward, m.up);
         // (La largeur est mesurée avec l'échelle actuelle de la tête ; les Lunettes suivent ensuite l'os.)
         glassesWidth /= Mathf.Max(0.0001f, head.lossyScale.y / Mathf.Max(0.0001f, m.lossyScale.y));
+    }
+
+    // Dos du skin (au repos) : le point le plus en arrière du maillage à hauteur du torse, et la demi-largeur du torse.
+    void MeasureBack(Transform m, Transform back)
+    {
+        backMeasured = backTried = true;
+        float minBack = float.MaxValue, half = 0f;
+        var baked = new Mesh();
+        foreach (var smr in model.GetComponentsInChildren<SkinnedMeshRenderer>())
+        {
+            smr.BakeMesh(baked, true);
+            Matrix4x4 toWorld = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one);
+            foreach (Vector3 local in baked.vertices)
+            {
+                Vector3 d = toWorld.MultiplyPoint3x4(local) - back.position;
+                float up = Vector3.Dot(d, m.up), side = Vector3.Dot(d, m.right), fwd = Vector3.Dot(d, m.forward);
+                if (Mathf.Abs(up) > armLength * 0.35f || Mathf.Abs(side) > armLength * 0.6f) continue;
+                if (Mathf.Abs(side) < armLength * 0.2f && fwd < minBack) minBack = fwd;
+                if (Mathf.Abs(fwd) < armLength * 0.3f && Mathf.Abs(side) > half) half = Mathf.Abs(side);
+            }
+        }
+        Destroy(baked);
+        torsoHalf = half > 0.01f ? half : armLength * 0.3f;
+        if (minBack < float.MaxValue && minBack < 0f) backLocal = back.InverseTransformPoint(back.position + m.forward * minBack);
+        else backMeasured = false;
     }
 
     // Copie des Lunettes, détachée et lâchée (physique) ; elle disparaît après quelques secondes.
@@ -213,13 +271,21 @@ public partial class CharacterAvatar
         }
     }
 
-    // 7.11 : le bras droit monte, la main devant la bouche.
+    // Milieu du Mégaphone tenu : devant le bout du museau (mesuré), l'embout à 'MegaphoneGap' de lui.
+    Vector3 MegaphoneCenter(Transform m, float size)
+    {
+        Vector3 snout = snoutMeasured ? head.TransformPoint(snoutLocal) : head.position + m.up * (size * 0.2f) + m.forward * (size * 0.6f);
+        return snout + m.forward * (MegaphoneGap + MegaphoneSize * 0.5f);
+    }
+
+    // 7.11 : le bras droit monte, la main sous le Mégaphone, devant la bouche.
     void MegaphonePose()
     {
         megaphoneWeight = Mathf.MoveTowards(megaphoneWeight, holdMegaphone ? 1f : 0f, Time.deltaTime * 5f);
         if (megaphoneWeight <= 0f || upperArm == null || lowerArm == null || hand == null) return;
         Transform m = model.transform;
-        Vector3 mouth = head.position + m.up * (headSize * 0.2f) + m.forward * (headSize * 0.35f) + m.right * (headSize * 0.05f);
+        float k = head.lossyScale.y / Mathf.Max(0.0001f, m.lossyScale.y);
+        Vector3 mouth = MegaphoneCenter(m, headSize * k) - m.up * (MegaphoneSize * 0.2f);
         Vector3 pole = upperArm.position - m.up * armLength + m.right * armLength * 0.6f;
         SolveArm(upperArm, lowerArm, hand, mouth, pole, megaphoneWeight);
     }

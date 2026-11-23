@@ -54,6 +54,7 @@ public class CastleGate : MonoBehaviour
         if (instant) Apply(open ? 1f : 0f);
     }
 
+    // V0.7.13 (Note 22) : plus de bruit de porte ; une fois déverrouillée, la porte reste grande ouverte.
     void Update()
     {
         float goal = open ? 1f : 0f;
@@ -183,16 +184,6 @@ public class ApartmentDoor : Interactable
 
     void Update()
     {
-        if (!Locked)
-        {
-            // Poussée par le joueur local qui passe tout près.
-            var session = GameSession.Instance;
-            var me = session != null ? session.LocalPresence : null;
-            bool near = me != null && (me.Position - transform.position).sqrMagnitude < 1.6f * 1.6f;
-            float goal = near ? Pushed : Ajar;
-            if (near && target < Pushed - 1f) GameAudio.Play3D("door_push", transform.position + Vector3.up, 0.6f, 15f, 0.1f);
-            target = goal;
-        }
         angle = Mathf.MoveTowards(angle, target, (target > angle ? 240f : 60f) * Time.deltaTime);
         leaf.localRotation = Quaternion.Euler(0f, angle, 0f);
     }

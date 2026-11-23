@@ -78,7 +78,8 @@ public static class GameSetup
         CreateMaterial("HubFloor", "Standard", m =>
         {
             m.mainTexture = ground;
-            m.color = new Color(1f, 0.92f, 0.82f);
+            // V0.7.13 (Note 03) : gravier un peu plus foncé, couleur de rocaille.
+            m.color = new Color(0.8f, 0.75f, 0.69f);
             m.SetFloat("_Glossiness", 0.08f);
             m.SetFloat("_Metallic", 0f);
         });
@@ -223,8 +224,8 @@ public static class GameSetup
 
     // Modèles statiques Meshy : pas d'animation, matériaux et textures extraits à côté du modèle.
     // Grands décors vus de près (entrée du chapiteau) : texture en 1024.
-    static readonly string[] ReadableArt = { "Tringle", "SuperMonticule1", "SuperMonticule2", "SuperMonticule3", "SuperMonticule4", "PogoCouvercle", "PorteChapiteau", "Trampoline", "MasseCavalier" };
-    static readonly string[] LargeArt = { "EntreeChapiteau", "Rideau", "PorteBlindee", "PogoCouvercle", "PorteChapiteau" };
+    static readonly string[] ReadableArt = { "Tringle", "SuperMonticule1", "SuperMonticule2", "SuperMonticule3", "SuperMonticule4", "PogoCouvercle", "PorteChapiteau", "Trampoline", "MasseCavalier", "ToitKremlin" };
+    static readonly string[] LargeArt = { "EntreeChapiteau", "Rideau", "PorteBlindee", "PogoCouvercle", "PorteChapiteau", "ToitKremlin" };
 
     internal static void ImportArt()
     {

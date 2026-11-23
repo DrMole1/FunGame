@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.12";
+    public const string Version = "V0.7.13";
 
     // V0.7.11 (9.1) : les Hubs sont numérotés en chiffres romains (Hub I, Hub II...).
     public static string Roman(int n)
@@ -592,11 +592,14 @@ public static class Items
 
     // Texture du canard désaturée (menu "FunGame/Préparer les modèles V0.6.3"), teintée par la couleur du Hub. Le doré est
     // métallique : il ne se confond pas avec le simple canard jaune.
+    // V0.7.13 (Note 01) : teinte du canard coloré, la même au sol et dans l'inventaire.
+    public static Color ColoredDuckTint(int tier) => Color.Lerp(Beacon.HubColor(tier), Color.white, 0.08f);
+
     static Material ColoredDuckMaterial(int tier)
     {
         int colorIndex = (tier - 1) % 4;
         bool gold = colorIndex == 3;
-        Material m = GameArt.Lit("CanardColore" + colorIndex, Color.Lerp(Beacon.HubColor(tier), Color.white, 0.08f) * 1.25f, Resources.Load<Texture2D>("Art/DuckGris"), gold ? 0.85f : 0.6f);
+        Material m = GameArt.Lit("CanardColore" + colorIndex, ColoredDuckTint(tier) * 1.25f, Resources.Load<Texture2D>("Art/DuckGris"), gold ? 0.85f : 0.6f);
         if (gold) m.SetFloat("_Metallic", 0.9f);
         return m;
     }

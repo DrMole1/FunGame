@@ -334,7 +334,23 @@ public static partial class WorldBuilder
             var ring = GameArt.MeshObject("Anneau", go.transform, ItemPickup.Torus(0.55f, 0.04f, 24, 6), iron);
             ring.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
         }
-        else model.transform.localPosition = Vector3.down * 0.4f;
+        else
+        {
+            model.transform.localPosition = Vector3.down * 0.4f;
+            // V0.7.13 (Note 20) : un lustre au pourtour bien circulaire (même largeur en X et en Z).
+            Transform mesh = model.transform.GetChild(0);
+            Bounds lb = GameArt.LocalBounds(model.transform);
+            float round = Mathf.Max(lb.size.x, lb.size.z);
+            if (lb.size.x > 0.01f && lb.size.z > 0.01f)
+            {
+                Vector3 k = new Vector3(round / lb.size.x, 1f, round / lb.size.z);
+                // Échelle appliquée dans le repère du modèle (rotation d'import comprise).
+                Vector3 local = Quaternion.Inverse(mesh.localRotation) * k;
+                mesh.localScale = Vector3.Scale(mesh.localScale, new Vector3(Mathf.Abs(local.x), Mathf.Abs(local.y), Mathf.Abs(local.z)));
+                Bounds nb = GameArt.LocalBounds(model.transform);
+                mesh.localPosition -= new Vector3(nb.center.x, 0f, nb.center.z);
+            }
+        }
         GameArt.Prim(PrimitiveType.Cylinder, go.transform, Vector3.up * 0.65f, new Vector3(0.02f, 0.65f, 0.02f), GameArt.Metal);
         var bulb = GameArt.Prim(PrimitiveType.Sphere, go.transform, Vector3.zero, Vector3.one * 0.16f, flame);
         foreach (var c in go.GetComponentsInChildren<Collider>()) Object.Destroy(c);
@@ -342,4 +358,47 @@ public static partial class WorldBuilder
         var l = AddLight(go.transform, Vector3.down * 0.3f, new Color(1f, 0.78f, 0.55f), intensity, range);
         go.AddComponent<FlickerLight>().Init(l, glow, rnd.NextDouble() < 0.3);
     }
+
+    // ---------- Torches (V0.7.13, Château) ----------
+
+    // Torche noire (modèle Meshy "Torche", sinon un manche de fer) à flamme blanche lumineuse : accrochée à un mur ('onWall' :
+    // 'pos' sur la face du mur, 'facing' vers la pièce) ou posée au sol ('pos' au sol). Elle s'éteint pendant le Couvre Feu.
+    static void AddTorch(Transform parent, Vector3 pos, Vector3 facing, bool onWall, System.Random rnd)
+    {
+        var go = new GameObject("Torche");
+        go.transform.SetParent(parent, false);
+        go.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(facing));
+        float height = onWall ? WallTorchHeight : FloorTorchHeight;
+        var model = GameArt.SpawnModel("Torche", go.transform, height);
+        float top;
+        if (model != null)
+        {
+            Bounds b = GameArt.LocalBounds(model.transform);
+            // Au mur : centrée sur le point donné, le dos contre le mur ; au sol : posée.
+            model.transform.localPosition = onWall ? new Vector3(0f, -height * 0.5f, -b.min.z) : Vector3.zero;
+            foreach (var r in model.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            top = onWall ? height * 0.5f : height;
+            if (!onWall)
+            {
+                var col = go.AddComponent<CapsuleCollider>();
+                col.center = Vector3.up * (height * 0.5f);
+                col.height = height;
+                col.radius = 0.12f;
+            }
+        }
+        else
+        {
+            Material iron = GameArt.Lit("TorcheFer", new Color(0.06f, 0.06f, 0.06f), null, 0.3f);
+            float y0 = onWall ? -height * 0.5f : 0f;
+            var stick = GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, y0 + height * 0.5f, onWall ? 0.18f : 0f), new Vector3(0.07f, height * 0.5f, 0.07f), iron);
+            if (onWall) foreach (var c in stick.GetComponentsInChildren<Collider>()) Object.Destroy(c);
+            top = y0 + height;
+        }
+        var flame = GameArt.Prim(PrimitiveType.Sphere, go.transform, new Vector3(0f, top + 0.12f, onWall ? 0.18f : 0f), new Vector3(0.16f, 0.26f, 0.16f), GameArt.Unlit("FlammeBlanche", new Color(1f, 1f, 0.97f)));
+        foreach (var c in flame.GetComponentsInChildren<Collider>()) Object.Destroy(c);
+        var l = AddLight(go.transform, new Vector3(0f, top + 0.3f, onWall ? 0.5f : 0f), new Color(0.95f, 0.96f, 1f), TorchIntensity * LampDim, TorchRange * LampReach);
+        go.AddComponent<FlickerLight>().Init(l, flame.GetComponent<Renderer>(), rnd.NextDouble() < 0.25);
+    }
+
+    const float WallTorchHeight = 0.9f, FloorTorchHeight = 1.7f, TorchIntensity = 1.5f, TorchRange = 10f;
 }

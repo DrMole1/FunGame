@@ -93,8 +93,9 @@ public partial class GameSession
     // ---------- Trampoline ----------
 
     // Un peu moins que la hauteur du sol du Hub au sommet du Chapiteau ; un plafond l'arrête (collision normale).
-    static float TrampolineSpeed => Mathf.Sqrt(2f * -GameRules.Gravity * GameRules.AirGravityMultiplier(false)
-        * WorldBuilder.ChapiteauTop * GameRules.TrampolineJumpFraction);
+    static float TrampolineSpeed => Mathf.Sqrt(2f * -GameRules.Gravity * GameRules.AirGravityMultiplier(false) * TrampolineReach);
+    // Hauteur d'un rebond (joueurs, Super Balles).
+    public static float TrampolineReach => WorldBuilder.ChapiteauTop * GameRules.TrampolineJumpFraction;
     // V0.7.5 (Note 04) : on rebondit dès qu'on retombe sur la toile (1,2 m de large), pas seulement en son centre : un Trampoline
     // déterré, au milieu des joueurs qui l'entourent, s'utilise tout de suite (avant : 0,6 m, le centre seulement).
     const float TrampolineRadius = 0.85f, BounceCooldown = 0.35f;
@@ -130,6 +131,11 @@ public partial class GameSession
             else remoteOnTrampoline.Remove(rp.PlayerId);
         }
     }
+
+    public static void TrampolineBounce(Beacon pad) => Bounce(pad);
+
+    // Trampoline sous des pieds (ou sous une Super Balle) à cet endroit.
+    public Beacon TrampolineAtFeet(Vector3 feet) => TrampolineUnder(feet + Vector3.up * 0.9f);
 
     static void Bounce(Beacon pad)
     {

@@ -12,7 +12,8 @@ using UnityEngine;
 // CK|entité -> EX|x|y|z|entité|éclats (entité percutée : 1 = explosion et membres en éclats, 0 = mort simple), CP|joueur|dx|dz -> KB|dx|dz (joueur percuté, repoussé).
 public partial class GameSession
 {
-    const float CannonSpeed = 22f, CannonGravity = 6f, CannonRadius = 0.3f, CannonMaxFlight = 6f;
+    // V0.7.13 (Note 14) : le boulet est plus lourd, il retombe plus vite (gravité 6 -> 9).
+    const float CannonSpeed = 22f, CannonGravity = 9f, CannonRadius = 0.3f, CannonMaxFlight = 6f;
     const float CannonHitRadius = 1.3f, CannonKnockback = 9f;
     public const float CannonRespawnDelay = 90f;
 

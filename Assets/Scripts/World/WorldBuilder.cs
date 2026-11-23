@@ -90,6 +90,8 @@ public static partial class WorldBuilder
         public readonly List<Vector3> forcedSupers = new List<Vector3>(), forcedMounds = new List<Vector3>();
         // Côté (0 ou 1) d'un point, de part et d'autre du rempart extérieur ou du ravin : une entité Cauchemar de chaque côté.
         public System.Func<Vector3, int> sideOf;
+        // V0.7.13 : vrai si le point est dehors (cours du Château, ravin du Blockhaus) : la luminosité ambiante y est relevée.
+        public System.Func<Vector3, bool> outdoors;
         // Plus bas sol possible de la zone (navigation : les Blockhaus descendent à -20 m, leur ravin à -80 m).
         public float lowestFloor;
         public Vector3 entrance;     // point d'arrivée dans la zone (derrière la porte du Hub ou de la Neutral Room)
@@ -723,6 +725,7 @@ public static partial class WorldBuilder
 
     // Arche (modèle Meshy) : part de la largeur prise par l'ouverture, hauteur relative du haut de l'ouverture, épaisseur.
     const float ArchHoleWidth = 0.5f, ArchHoleTop = 0.82f, ArchDepth = 0.45f;
+    const float ArchSillTop = 0.05f;
 
     static Vector3[] archVerticesCache;
     static int[] archTrianglesCache;
@@ -736,7 +739,16 @@ public static partial class WorldBuilder
             Mesh arch = Resources.Load<Mesh>("Art/Decor/Arche");
             if (arch == null) return;
             archVerticesCache = arch.vertices;
-            archTrianglesCache = arch.triangles;
+            // V0.7.13 (Note 19) : sans la barre basse du modèle, qui faisait une marche sous l'arche.
+            var kept = new List<int>();
+            int[] all = arch.triangles;
+            for (int t = 0; t < all.Length; t += 3)
+            {
+                Vector3 a = archVerticesCache[all[t]], b = archVerticesCache[all[t + 1]], c = archVerticesCache[all[t + 2]];
+                bool sill = Mathf.Max(a.y, Mathf.Max(b.y, c.y)) < ArchSillTop && Mathf.Abs((a.x + b.x + c.x) / 3f) < ArchHoleWidth * 0.5f;
+                if (!sill) { kept.Add(all[t]); kept.Add(all[t + 1]); kept.Add(all[t + 2]); }
+            }
+            archTrianglesCache = kept.ToArray();
         }
         mb.WorldMesh(archVerticesCache, archTrianglesCache,
             Matrix4x4.TRS(floorCenter, rot, new Vector3(holeWidth / ArchHoleWidth, holeHeight / ArchHoleTop, depth)), 0.5f);
@@ -1506,9 +1518,13 @@ public static partial class WorldBuilder
                 {
                     // Liaison aérienne : ouverture dans le mur, avec son allège en dessous.
                     Doorway(mb, new Vector3(x, 0f, z), false, h, AerialHoleWidth, eastHole.high, tex);
-                    var sill = new Vector3(x, eastHole.low * 0.5f, z);
-                    mb.Box(sill, new Vector3(Wall, eastHole.low, AerialHoleWidth), tex);
-                    AddCollider(sill, new Vector3(Wall, eastHole.low, AerialHoleWidth));
+                    // (V0.7.13 : une ouverture jusqu'au sol n'a pas d'allège.)
+                    if (eastHole.low > 0.01f)
+                    {
+                        var sill = new Vector3(x, eastHole.low * 0.5f, z);
+                        mb.Box(sill, new Vector3(Wall, eastHole.low, AerialHoleWidth), tex);
+                        AddCollider(sill, new Vector3(Wall, eastHole.low, AerialHoleWidth));
+                    }
                     posts.Add(new Vector2Int(i + 1, j)); posts.Add(new Vector2Int(i + 1, j + 1));
                     continue;
                 }
@@ -1606,9 +1622,13 @@ public static partial class WorldBuilder
                 {
                     // Liaison aérienne : ouverture dans le mur, avec son allège en dessous.
                     Doorway(mb, new Vector3(x, 0f, z), true, h, AerialHoleWidth, northHole.high, tex);
-                    var sill = new Vector3(x, northHole.low * 0.5f, z);
-                    mb.Box(sill, new Vector3(AerialHoleWidth, northHole.low, Wall), tex);
-                    AddCollider(sill, new Vector3(AerialHoleWidth, northHole.low, Wall));
+                    // (V0.7.13 : une ouverture jusqu'au sol n'a pas d'allège.)
+                    if (northHole.low > 0.01f)
+                    {
+                        var sill = new Vector3(x, northHole.low * 0.5f, z);
+                        mb.Box(sill, new Vector3(AerialHoleWidth, northHole.low, Wall), tex);
+                        AddCollider(sill, new Vector3(AerialHoleWidth, northHole.low, Wall));
+                    }
                 }
                 else if (m.hub && i == HubCol && j == HubRows - 1)
                     Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex); // porte du Hub

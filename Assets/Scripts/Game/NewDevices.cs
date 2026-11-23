@@ -107,7 +107,14 @@ public class SuperBall : MonoBehaviour
 
     public static SuperBall Build(GameObject go, Transform visual, float size)
     {
-        if (GameArt.SpawnModel("SuperBalle", visual, size) == null)
+        var model = GameArt.SpawnModel("SuperBalle", visual, size);
+        if (model != null)
+        {
+            // V0.7.13 (Note 05) : bien sphérique (le modèle est ramené à la même largeur que sa hauteur, dans les deux sens).
+            Bounds b = GameArt.LocalBounds(model.transform);
+            if (b.size.x > 0.001f && b.size.z > 0.001f) model.transform.localScale = new Vector3(size / b.size.x, 1f, size / b.size.z);
+        }
+        else
             GameArt.Prim(PrimitiveType.Sphere, visual, new Vector3(0f, size * 0.5f, 0f), Vector3.one * size, GameArt.Lit("SuperBalleCuir", new Color(0.45f, 0.27f, 0.13f), null, 0.35f));
         var ball = go.AddComponent<SuperBall>();
         ball.device = go.GetComponent<Beacon>();
@@ -151,8 +158,8 @@ public class SuperBall : MonoBehaviour
         if (velocity.sqrMagnitude < StopSpeed * StopSpeed) velocity = Vector3.zero;
     }
 
-    // Elle suit le sol (pentes, marches) et tombe dans le vide.
-    float fall;
+    // Elle suit le sol (pentes, marches) et tombe dans le vide ('fall' : vitesse de chute ; négative, elle monte).
+    float fall, bouncedAt = -10f;
 
     void Settle(float dt)
     {
@@ -162,10 +169,26 @@ public class SuperBall : MonoBehaviour
         {
             float ground = hit.point.y;
             float y = transform.position.y;
-            if (y - ground > 0.05f)
+            // V0.7.13 (Note 05) : sur un Trampoline, elle rebondit comme un joueur (aussi haut).
+            var session = GameSession.Instance;
+            if (fall >= 0f && y - ground < 0.4f && Time.time - bouncedAt > 0.35f && session != null && session.TrampolineAtFeet(transform.position) is Beacon pad)
+            {
+                bouncedAt = Time.time;
+                fall = -Mathf.Sqrt(2f * Gravity * GameSession.TrampolineReach);
+                GameSession.TrampolineBounce(pad);
+            }
+            if (y - ground > 0.05f || fall < 0f)
             {
                 fall += Gravity * dt;
-                y = Mathf.Max(ground, y - fall * dt);
+                float next = y - fall * dt;
+                // Un plafond l'arrête dans sa montée.
+                if (fall < 0f && Physics.SphereCast(transform.position + Vector3.up * radius, radius * 0.9f, Vector3.up, out RaycastHit roof, -fall * dt + 0.05f,
+                        Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) && !roof.collider.transform.IsChildOf(transform))
+                {
+                    fall = 0f;
+                    next = y;
+                }
+                y = Mathf.Max(ground, next);
             }
             else
             {
