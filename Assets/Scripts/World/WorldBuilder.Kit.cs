@@ -298,6 +298,22 @@ public static partial class WorldBuilder
         return r;
     }
 
+    // ---------- Néons muraux (V0.7.12 : remparts du Château, fenêtres des Blockhaus) ----------
+
+    // Néon accroché à un mur, face à 'outward' ; il s'éteint pendant le Couvre Feu et clignote près d'un Roi, comme les autres.
+    static void AddWallNeon(Transform parent, Vector3 pos, Vector3 outward, float range, float intensity, System.Random rnd)
+    {
+        intensity *= LampDim;
+        range *= LampReach;
+        var go = new GameObject("NeonMural");
+        go.transform.SetParent(parent, false);
+        go.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(outward));
+        var bulb = GameArt.Prim(PrimitiveType.Cube, go.transform, Vector3.zero, new Vector3(1.1f, 0.07f, 0.07f), GameArt.Unlit("Neon", new Color(0.7f, 0.7f, 0.66f)));
+        foreach (var c in bulb.GetComponentsInChildren<Collider>()) Object.Destroy(c);
+        var l = AddLight(go.transform, Vector3.forward * 0.45f, new Color(0.85f, 0.87f, 0.9f), intensity, range);
+        go.AddComponent<FlickerLight>().Init(l, bulb.GetComponent<Renderer>(), rnd.NextDouble() < 0.2);
+    }
+
     // ---------- Lustres (Château) ----------
 
     // Lustre de fer (modèle Meshy "Lustre", sinon un anneau de bougies) suspendu au plafond, avec sa lumière chaude ; il s'éteint

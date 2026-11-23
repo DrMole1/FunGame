@@ -113,9 +113,8 @@ public class CastleLever : Interactable
     public override void Interact() => GameSession.Instance.PullLever(this);
 }
 
-// V0.7.11 (11.4) : porte entrouverte des Blockhaus, entre un couloir et un appartement : le joueur qui s'en approche la pousse (elle
-// pivote en grinçant, puis se referme doucement). Elle ne bloque ni les joueurs ni les entités. 10 % des portes sont fermées à clé,
-// un cadenas sur la serrure : elles bloquent le passage jusqu'à ce qu'un joueur les ouvre avec une Clé (qui disparaît).
+// V0.7.11 (11.4) : porte d'appartement des Blockhaus. V0.7.12 : il n'y en a plus qu'aux appartements fermés, sous cadenas : elle bloque le passage ; la Clé sélectionnée la rend interactive, et l'ouvrir enlève le cadenas et ouvre la
+// porte (la Clé disparaît).
 public class ApartmentDoor : Interactable
 {
     public int Id { get; private set; }
@@ -138,9 +137,25 @@ public class ApartmentDoor : Interactable
         door.leaf = new GameObject("Battant").transform;
         door.leaf.SetParent(go.transform, false);
         door.leaf.localPosition = new Vector3(-width * 0.5f, 0f, 0f);
-        Material wood = GameArt.Lit("PorteBlockhaus", new Color(0.32f, 0.3f, 0.26f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.3f);
-        var slab = GameArt.Prim(PrimitiveType.Cube, door.leaf, new Vector3(width * 0.5f, height * 0.5f, 0f), new Vector3(width, height, 0.06f), wood);
-        foreach (var c in slab.GetComponentsInChildren<Collider>()) Destroy(c);
+        // V0.7.12 (Note 21) : vieille porte usée en damier noir et blanc (modèle Meshy), étirée aux dimensions du passage.
+        var model = GameArt.SpawnModel("PorteAppart", door.leaf, height);
+        if (model != null)
+        {
+            // (Bornes dans le repère du modèle : si sa largeur est le long de Z, il est tourné d'un quart de tour.)
+            Bounds b = GameArt.LocalBounds(model.transform);
+            bool turned = b.size.z > b.size.x;
+            float across = Mathf.Max(0.01f, turned ? b.size.z : b.size.x), thick = Mathf.Max(0.01f, turned ? b.size.x : b.size.z);
+            if (turned) model.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
+            model.transform.localScale = turned ? new Vector3(0.08f / thick, 1f, width / across) : new Vector3(width / across, 1f, 0.08f / thick);
+            model.transform.localPosition = new Vector3(width * 0.5f, 0f, 0f);
+            foreach (var c in model.GetComponentsInChildren<Collider>()) Destroy(c);
+        }
+        else
+        {
+            Material wood = GameArt.Lit("PorteBlockhaus", new Color(0.32f, 0.3f, 0.26f), GameArt.Noise("concrete", 128, 0.75f, 0.2f, 11), 0.3f);
+            var slab = GameArt.Prim(PrimitiveType.Cube, door.leaf, new Vector3(width * 0.5f, height * 0.5f, 0f), new Vector3(width, height, 0.06f), wood);
+            foreach (var c in slab.GetComponentsInChildren<Collider>()) Destroy(c);
+        }
         if (locked)
         {
             door.padlock = GameArt.Prim(PrimitiveType.Cube, door.leaf, new Vector3(width * 0.88f, height * 0.45f, 0.06f), new Vector3(0.1f, 0.12f, 0.05f), ItemPickup.KeyIron);
@@ -162,7 +177,7 @@ public class ApartmentDoor : Interactable
         if (blocker != null) blocker.enabled = false;
         if (padlock != null) padlock.SetActive(false);
         if (animate) GameAudio.Play3D("key", transform.position + Vector3.up, 0.8f, 15f, 0.05f);
-        target = Ajar;
+        target = Pushed;
         RefreshOutline();
     }
 

@@ -45,6 +45,8 @@ public class GameHud : MonoBehaviour
     readonly Image[] slotBg = new Image[GameRules.InventorySize];
     readonly Text[] slotName = new Text[GameRules.InventorySize];
     readonly Text[] slotNumber = new Text[GameRules.InventorySize];
+    // V0.7.12 (Note 02) : compteur d'Os du Sac à Os, en bas à droite de la case (40 % plus grand que le nom d'un objet).
+    readonly Text[] slotCount = new Text[GameRules.InventorySize];
     readonly Image[] slotIcon = new Image[GameRules.InventorySize];
     // Icônes d'inventaire (Resources/Icons/<ItemType>, créées par "FunGame/Générer les icônes d'inventaire").
     readonly System.Collections.Generic.Dictionary<ItemType, Sprite> icons = new System.Collections.Generic.Dictionary<ItemType, Sprite>();
@@ -273,6 +275,12 @@ public class GameHud : MonoBehaviour
             slotName[i] = UiKit.Label(slot.transform, "", 11, FontStyle.Bold, Color.white, size);
             UiKit.Stretch(slotName[i].rectTransform, 4f);
             slotName[i].rectTransform.offsetMax = new Vector2(-4, -14);
+            slotCount[i] = UiKit.Label(slot.transform, "", Mathf.RoundToInt(11 * 1.4f), FontStyle.Bold, Color.white, size, TextAnchor.LowerRight);
+            UiKit.Stretch(slotCount[i].rectTransform, 7f);
+            slotCount[i].horizontalOverflow = HorizontalWrapMode.Overflow;
+            var countShadow = slotCount[i].gameObject.AddComponent<Shadow>();
+            countShadow.effectColor = new Color(0f, 0f, 0f, 0.8f);
+            countShadow.effectDistance = new Vector2(1f, -1f);
         }
 
         RefreshSlotKeys();
@@ -480,13 +488,14 @@ public class GameHud : MonoBehaviour
             slotIcon[i].color = Items.IsColoredDuck(t) ? Color.Lerp(def.color, Color.white, 0.1f) : Color.white;
             // Le nom ne s'affiche que si l'objet n'a pas d'icône.
             slotName[i].text = def != null && sprite == null ? def.shortName : "";
-            // V0.7.11 (7.16) : compteur d'Os sur l'icône du Sac à Os.
-            if (Items.IsBoneBag(t)) slotName[i].text = Items.BonesIn(t) + " / " + Items.BoneBagMax;
+            // V0.7.11 (7.16) : compteur d'Os sur l'icône du Sac à Os (V0.7.12 : en bas à droite).
+            slotCount[i].text = Items.IsBoneBag(t) ? Items.BonesIn(t) + "/" + Items.BoneBagMax : "";
             slotBg[i].color = selected ? SlotSelectedColor : SlotColor;
             // Case sélectionnée (colorée et légèrement grossie) : textes en noir.
             bool light = UiKit.ReadableOn(slotBg[i].color) == Color.black;
             slotName[i].color = light ? Color.black : def != null ? Color.Lerp(def.color, Color.white, 0.35f) : Color.white;
             slotNumber[i].color = light ? Color.black : UiKit.MutedText;
+            slotCount[i].color = light ? Color.black : Color.white;
             slotBg[i].rectTransform.localScale = Vector3.one * (selected ? 1.15f : 1f);
         }
     }

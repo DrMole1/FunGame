@@ -509,7 +509,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             int j = rnd.Next(i + 1);
             (spots[i], spots[j]) = (spots[j], spots[i]);
         }
-        int count = Mathf.Min(GameRules.MoundsForRound(round, zone.index, valueBoost), spots.Count, MoundIdsPerZone);
+        // V0.7.12 : les deux monticules des appartements fermés des Blockhaus d'abord, toujours présents.
+        spots.InsertRange(0, zone.forcedMounds);
+        int count = Mathf.Max(zone.forcedMounds.Count, Mathf.Min(GameRules.MoundsForRound(round, zone.index, valueBoost), spots.Count, MoundIdsPerZone));
         // V0.7.11 (17.5) : durant les 5 premières manches, un monticule simple de plus dans la Zone 1, avec un vieux Journal.
         ItemType journal = zone.index == 1 ? RoundJournal() : ItemType.None;
         if (journal != ItemType.None) count = Mathf.Min(count + 1, spots.Count, MoundIdsPerZone);
@@ -739,6 +741,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
 
         UpdateObjects();
         UpdatePerfume();
+        UpdateRavineFall();
         UpdateNewItems();
         UpdateCloches();
         UpdateRoi();
@@ -1327,7 +1330,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         int slot = status.Selected;
         if (slot < 0 || Eating) return;
-        if (Items.IsColoredDuck(status[slot]) || Items.IsZoneBell(status[slot]))
+        // V0.7.12 (Note 01) : le Sac à Os se pose au sol comme les Peluches (avec les os qu'il contient).
+        if (Items.IsColoredDuck(status[slot]) || Items.IsZoneBell(status[slot]) || Items.IsBoneBag(status[slot]))
         {
             TryPlaceBeacon(slot, Beacon.KindOf(status[slot]));
             return;
@@ -1353,6 +1357,10 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             case ItemType.PelucheSinge:
             case ItemType.PelucheChat:
             case ItemType.BouleDisco:
+            // V0.7.12 (Note 01) : posés au sol en visant le sol ; le Métronome bat dès qu'il est posé.
+            case ItemType.Metronome:
+            case ItemType.SuperBalle:
+            case ItemType.Notice:
                 TryPlaceBeacon(slot, Beacon.KindOf(status[slot]));
                 break;
             case ItemType.PostIt:

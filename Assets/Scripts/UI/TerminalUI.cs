@@ -215,13 +215,6 @@ public class TerminalUI : MonoBehaviour
             if (result == null) Error(Loc.T("Commande invalide.") + Quit);
             else Print(result + Quit);
         }
-        else if (lower.StartsWith("/head ") && session.IsHost)
-        {
-            // V0.7.11 (3.6) : "/head 2" double le volume des têtes de tous les personnages (de 1 à 3, décimales permises).
-            string result = session.SetHeadVolume(text.Substring(6).Trim());
-            if (result == null) Error(Loc.T("Commande invalide.") + Quit);
-            else Print(result + Quit);
-        }
         else if (lower == "/pw" && session.IsHost)
         {
             Print(session.AutoPassword() + Quit);

@@ -95,7 +95,6 @@ public partial class GameSession
         foreach (var kv in collars) net.ToPeer(to, "CC|" + kv.Key + "|" + kv.Value);
         foreach (int id in pulledLevers) net.ToPeer(to, "LO|" + id);
         foreach (int id in unlockedDoors) net.ToPeer(to, "DO|" + id);
-        if (!Mathf.Approximately(CharacterAvatar.HeadVolume, 1f)) net.ToPeer(to, "HV|" + NetworkGame.F(CharacterAvatar.HeadVolume));
     }
 
     // ================= Chaque image =================
@@ -120,6 +119,21 @@ public partial class GameSession
         OrbitCamera.MetronomeTilt = metronomeWeight * MetronomeDevice.HeadTilt * Mathf.Sin(MetronomeDevice.Beats * Mathf.PI);
     }
 
+    // ---------- Ravin des Blockhaus (V0.7.12, Note 20) ----------
+
+    // Tomber dans le ravin (sous le dernier étage, à -20 m) tue le joueur.
+    void UpdateRavineFall()
+    {
+        if (status.Dead || !net.InGame || Teleporting || phase == Phase.GameOver) return;
+        Vector3 p = player.transform.position;
+        if (p.y > -WorldBuilder.BlockhausDepth - RavineKillDrop) return;
+        int zone = WorldBuilder.ZoneAt(p);
+        if (zone < 1 || zone > zones.Count || zones[zone - 1].terrain != TerrainKind.Blockhaus) return;
+        KillLocal("le Ravin");
+    }
+
+    const float RavineKillDrop = 3f;
+
     // ---------- Mégaphone ----------
 
     // Onde de choc (chez chaque joueur) : le joueur local est repoussé s'il est dans le cône, les balles aussi.
@@ -128,6 +142,9 @@ public partial class GameSession
         Vector3 origin = barker.position, forward = barker.forward;
         forward.y = 0f;
         forward.Normalize();
+        // V0.7.12 (Note 11) : l'onde de choc se voit, elle part du Mégaphone et file dans la direction de la voix.
+        var who = barker.GetComponentInChildren<CharacterAvatar>();
+        MegaphoneShockwave.Spawn(who != null ? who.MegaphoneMouth : origin + Vector3.up * 0.6f + forward * 0.5f, forward);
         bool InCone(Vector3 p)
         {
             Vector3 d = p - origin;
@@ -182,7 +199,7 @@ public partial class GameSession
     {
         if (status.Dead || Invincible || WorldBuilder.IsInHub(player.transform.position)) return;
         player.Knockback(velocity, SuperBallKnockback);
-        DamageLocal(SuperBallDamage, "superball");
+        DamageLocal(SuperBallDamage, "la Super Balle");
     }
 
     // Hôte : une balle lancée vite repousse violemment les entités de type "normale" qu'elle percute.
@@ -359,21 +376,32 @@ public partial class GameSession
                 startSize = Random.Range(0.2f, 0.4f), startLifetime = Random.Range(2.2f, 3.2f), startColor = new Color(1f, 0.55f, 0.78f, 0.9f),
             }, 1);
         }
-        // Des arcs-en-ciel animés apparaissent depuis le sol, les murs et les plafonds.
+        // Des arcs-en-ciel animés apparaissent depuis le sol et les murs. V0.7.12 (Note 10) : trois fois moins, et toujours en dessous
+        // de la hauteur de la tête du personnage.
         rainbowTimer -= Time.deltaTime;
         if (rainbowTimer <= 0f)
         {
-            rainbowTimer = Random.Range(0.6f, 1.4f);
+            rainbowTimer = Random.Range(0.6f, 1.4f) * RainbowRarity;
             Vector3 dir = Random.onUnitSphere;
-            if (Physics.Raycast(me + Vector3.up * 0.8f, dir, out RaycastHit hit, 12f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            dir.y = -Mathf.Abs(dir.y);
+            float headY = me.y + RainbowHeadHeight;
+            if (Physics.Raycast(me + Vector3.up * 0.3f, dir, out RaycastHit hit, 12f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            {
+                float size = Random.Range(1.4f, 2.6f);
+                Vector3 p = hit.point + hit.normal * 0.6f;
+                p.y = Mathf.Min(p.y, headY - size * 0.5f);
                 rainbows.Emit(new ParticleSystem.EmitParams
                 {
-                    position = hit.point + hit.normal * 0.6f,
-                    velocity = hit.normal * 0.25f,
-                    startSize = Random.Range(1.4f, 2.6f), startLifetime = Random.Range(2.5f, 3.5f), startColor = new Color(1f, 1f, 1f, 0.75f),
+                    position = p,
+                    velocity = new Vector3(hit.normal.x, 0f, hit.normal.z) * 0.25f,
+                    startSize = size, startLifetime = Random.Range(2.5f, 3.5f), startColor = new Color(1f, 1f, 1f, 0.75f),
                 }, 1);
+            }
         }
     }
+
+    // Hauteur de la tête au-dessus du centre du personnage ; écart entre deux arcs-en-ciel multiplié par 3.
+    const float RainbowHeadHeight = 0.8f, RainbowRarity = 3f;
 
     ParticleSystem BuildPeaceParticles(string name, Texture2D texture, float minSize, float maxSize)
     {
@@ -401,7 +429,10 @@ public partial class GameSession
         size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 0.3f, 1f, 1f));
         var velocity = ps.velocityOverLifetime;
         velocity.enabled = true;
+        // Les trois courbes orbitales doivent être dans le même mode (deux constantes).
+        velocity.orbitalX = new ParticleSystem.MinMaxCurve(0f, 0f);
         velocity.orbitalY = new ParticleSystem.MinMaxCurve(0.6f, 1.2f);
+        velocity.orbitalZ = new ParticleSystem.MinMaxCurve(0f, 0f);
         var r = go.GetComponent<ParticleSystemRenderer>();
         r.sharedMaterial = new Material(Shader.Find("Sprites/Default")) { name = name, mainTexture = texture };
         ps.Play();
@@ -470,9 +501,6 @@ public partial class GameSession
                 unlockedDoors.Add(NetworkGame.I(f[1]));
                 UpdateDoors(true);
                 return true;
-            case "HV" when f.Length >= 2:
-                CharacterAvatar.HeadVolume = Mathf.Clamp(NetworkGame.P(f[1]), 1f, 3f);
-                return true;
             case "CC" when f.Length >= 3:
                 if (f[2].Length == 0) collars.Remove(f[1]);
                 else collars[f[1]] = f[2];
@@ -497,19 +525,6 @@ public partial class GameSession
                 return true;
         }
         return false;
-    }
-
-    // ---------- /head (3.6) ----------
-
-    // Hôte : volume des têtes de tous les personnages connectés (1 à 3).
-    public string SetHeadVolume(string arg)
-    {
-        if (!net.IsHost) return null;
-        arg = arg.Replace(',', '.');
-        if (!float.TryParse(arg, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v) || v < 1f || v > 3f)
-            return null;
-        net.ToAll("HV|" + NetworkGame.F(v));
-        return Loc.F("Volume des têtes : x{0}.", v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
     }
 
     // ---------- Leviers du Château, portes à clé des Blockhaus ----------
@@ -654,5 +669,67 @@ public class PlayerTarget : Interactable
         if (!bagMode) return true;
         for (Transform t = r.transform; t != null && t != transform; t = t.parent) if (t.name == "SacOs") return true;
         return false;
+    }
+}
+
+// V0.7.12 (Note 11) : anneaux translucides qui sortent du pavillon du Mégaphone et s'élargissent en avançant (le cône de l'onde de
+// choc), puis s'effacent.
+public class MegaphoneShockwave : MonoBehaviour
+{
+    const float Duration = 0.55f, Rings = 3, RingDelay = 0.09f;
+    static Mesh ring;
+    static Material material;
+
+    Vector3 origin, direction;
+    readonly List<Transform> rings = new List<Transform>();
+    readonly List<Material> mats = new List<Material>();
+    float age;
+
+    public static void Spawn(Vector3 origin, Vector3 direction)
+    {
+        if (direction.sqrMagnitude < 0.001f) return;
+        if (ring == null) ring = ItemPickup.Torus(1f, 0.06f, 32, 6);
+        if (material == null) material = new Material(Shader.Find("Sprites/Default")) { name = "OndeDeChoc" };
+        var go = new GameObject("OndeDeChoc");
+        var w = go.AddComponent<MegaphoneShockwave>();
+        w.origin = origin;
+        w.direction = direction.normalized;
+        for (int k = 0; k < Rings; k++)
+        {
+            var r = GameArt.MeshObject("Anneau", go.transform, ring, material);
+            var mat = new Material(material);
+            r.GetComponent<Renderer>().sharedMaterial = mat;
+            r.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            foreach (var c in r.GetComponentsInChildren<Collider>()) Destroy(c);
+            r.SetActive(false);
+            w.rings.Add(r.transform);
+            w.mats.Add(mat);
+        }
+        Destroy(go, Duration + Rings * RingDelay + 0.1f);
+    }
+
+    void Update()
+    {
+        age += Time.deltaTime;
+        float range = GameSession.MegaphoneWaveRange * 0.6f, spread = Mathf.Tan(GameSession.MegaphoneWaveAngle * Mathf.Deg2Rad);
+        for (int k = 0; k < rings.Count; k++)
+        {
+            float t = (age - k * RingDelay) / Duration;
+            bool on = t > 0f && t < 1f;
+            if (rings[k].gameObject.activeSelf != on) rings[k].gameObject.SetActive(on);
+            if (!on) continue;
+            float e = 1f - (1f - t) * (1f - t);
+            float d = e * range;
+            float radius = 0.15f + d * spread;
+            // Le tore est dans le plan XY (axe Z) : face à la direction de la voix.
+            rings[k].SetPositionAndRotation(origin + direction * d, Quaternion.LookRotation(direction));
+            rings[k].localScale = new Vector3(radius, radius, 1f);
+            mats[k].color = new Color(1f, 1f, 1f, 0.55f * (1f - t));
+        }
+    }
+
+    void OnDestroy()
+    {
+        foreach (var m in mats) if (m != null) Destroy(m);
     }
 }

@@ -228,6 +228,9 @@ public class FlickerLight : MonoBehaviour
     public static bool CurfewWarning { get; set; }
     // Positions des Rois (mises à jour par GameSession chez chaque joueur).
     public static readonly System.Collections.Generic.List<Vector3> Frenzy = new System.Collections.Generic.List<Vector3>();
+    // V0.7.12 : lumière d'une Balise, qui reste allumée pendant le Couvre Feu ; Gate dit si elle doit briller (chargée, hors du Hub).
+    public bool IgnoreCurfew;
+    public System.Func<bool> Gate;
 
     Light lightSource;
     Renderer bulb;
@@ -292,7 +295,8 @@ public class FlickerLight : MonoBehaviour
 
     void Update()
     {
-        if (Power <= 0f)
+        float power = IgnoreCurfew ? 1f : Power;
+        if (power <= 0f || Gate != null && !Gate())
         {
             lightSource.enabled = false;
             if (bulb != null) bulb.enabled = false;
@@ -307,7 +311,7 @@ public class FlickerLight : MonoBehaviour
             level = 1f;
             if (bulb != null) bulb.enabled = true;
         }
-        lightSource.intensity = baseIntensity * level * Brightness.Factor * Power;
+        lightSource.intensity = baseIntensity * level * Brightness.Factor * power;
         bool wasFrantic = frantic;
         frantic = CurfewWarning || Frenzy.Count > 0 && Frantic;
         // (Un néon qui grésille peut attendre 2,5 s sa prochaine coupure : l'avertissement commence tout de suite.)

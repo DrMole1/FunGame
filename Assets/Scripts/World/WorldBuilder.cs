@@ -86,6 +86,8 @@ public static partial class WorldBuilder
         public readonly List<CastleLever> levers = new List<CastleLever>();
         public readonly Dictionary<int, List<CastleGate>> leverGates = new Dictionary<int, List<CastleGate>>();
         public readonly List<ApartmentDoor> lockedDoors = new List<ApartmentDoor>();
+        // V0.7.12 (11.4) : contenu obligatoire des appartements fermés : Super Monticules et monticules simples, à chaque manche.
+        public readonly List<Vector3> forcedSupers = new List<Vector3>(), forcedMounds = new List<Vector3>();
         // Côté (0 ou 1) d'un point, de part et d'autre du rempart extérieur ou du ravin : une entité Cauchemar de chaque côté.
         public System.Func<Vector3, int> sideOf;
         // Plus bas sol possible de la zone (navigation : les Blockhaus descendent à -20 m, leur ravin à -80 m).
@@ -259,7 +261,12 @@ public static partial class WorldBuilder
         roofCol.transform.SetParent(root, false);
         roofCol.center = new Vector3(0f, HubWallHeight + 6.5f, 0f);
         roofCol.size = new Vector3(Cell * 5f, 1f, Cell * 5f);
-        GameArt.Prim(PrimitiveType.Sphere, root, new Vector3(0f, HubWallHeight + 5.6f, 0f), Vector3.one * 0.6f, gold);
+        // V0.7.12 (Note 05) : vue de l'extérieur, la toile est opaque (on ne voit plus l'intérieur du chapiteau).
+        var outerRoof = new MeshBuilder();
+        outerRoof.InnerCone(new Vector3(0f, HubWallHeight - 0.02f, 0f), HubRadius + 0.66f, 6.08f, segments, 16f, true);
+        GameArt.MeshObject("RoofOutside", root, outerRoof.Build("HubRoofOutside"), GameArt.Lit("HubRoof", Color.white, GameArt.CanvasStripes(red, cream), 0.8f));
+        // V0.7.12 (Note 06) : le Pompon (et la boule dorée du sommet, à laquelle il pend) n'est que dans le Hub 1.
+        if (index == 1) GameArt.Prim(PrimitiveType.Sphere, root, new Vector3(0f, HubWallHeight + 5.6f, 0f), Vector3.one * 0.6f, gold);
 
         // Passage vers le labyrinthe et porte.
         // Montants et linteau s'arrêtent à la face du mur du dédale (axe à HubRadius + 0,5) : entrer dans son épaisseur
@@ -598,6 +605,19 @@ public static partial class WorldBuilder
         public float voidCeil = WallHeight;
         // V0.7.11 : arêtes ouvertes à garnir d'une porte (Blockhaus : entre un couloir et un appartement), clé (i, j, nord ?).
         public readonly HashSet<(int, int, bool)> doorEdges = new HashSet<(int, int, bool)>();
+        // V0.7.12 (chapitre 11) : arches. archChance >= 0 : chance d'une arche sur toute ouverture entre deux espaces différents (salle,
+        // couloir, cour), salles de plain-pied comprises (Château : 1) ; archDoorways : arche autour des portes vers les cellules vides
+        // (cours du Château) ; archEdges : portes (doorEdges) garnies d'une arche au lieu d'un battant (Blockhaus, 40 %).
+        public float archChance = -1f;
+        // V0.7.12 : épaisseur de la collision des plafonds, posée sur eux (Château : 0,3 m, le dessus des toits où l'on marche) ;
+        // sans collision de plafond (Blockhaus, sauf le dernier étage : le sol de l'étage du dessus en tient lieu ; avant, la collision
+        // de 1 m dépassait dans l'étage du dessus et formait un sol invisible, Note 19).
+        public float ceilingSlab = 1f;
+        // Hauteur des couloirs (Château, V0.7.12 : 8 m comme les salles les plus basses, pour que leurs toits se rejoignent).
+        public float corridorCeil = WallHeight;
+        public bool noCeilingColliders;
+        public bool archDoorways;
+        public readonly HashSet<(int, int, bool)> archEdges = new HashSet<(int, int, bool)>();
         public bool Void(int i, int j) => voidCell != null && InGrid(i, j) && voidCell[i, j];
         // Chance qu'un couloir ait un renfoncement en biseau (Échiquier : 15 % ; Château et Blockhaus : 30 %, V0.7.11).
         public float bevelChance = GameRules.BevelChance;
@@ -660,7 +680,7 @@ public static partial class WorldBuilder
         {
             if (!InGrid(i, j)) return WallHeight;
             if (Void(i, j)) return voidCeil;
-            return Reserved(i, j) ? WallHeight : RoomAt(i, j)?.ceil ?? WallHeight;
+            return Reserved(i, j) ? WallHeight : RoomAt(i, j)?.ceil ?? corridorCeil;
         }
     }
 
@@ -703,6 +723,24 @@ public static partial class WorldBuilder
 
     // Arche (modèle Meshy) : part de la largeur prise par l'ouverture, hauteur relative du haut de l'ouverture, épaisseur.
     const float ArchHoleWidth = 0.5f, ArchHoleTop = 0.82f, ArchDepth = 0.45f;
+
+    static Vector3[] archVerticesCache;
+    static int[] archTrianglesCache;
+
+    // V0.7.12 : arche (même modèle) autour d'une porte de 'holeWidth' x 'holeHeight' : son ouverture épouse celle de la porte, ses
+    // piliers et son sommet débordent du mur de chaque côté ('depth' un peu plus épais que lui). Visuelle seulement (le mur collisionne).
+    static void DoorArch(MeshBuilder mb, Vector3 floorCenter, Quaternion rot, float holeWidth, float holeHeight, float depth)
+    {
+        if (archVerticesCache == null)
+        {
+            Mesh arch = Resources.Load<Mesh>("Art/Decor/Arche");
+            if (arch == null) return;
+            archVerticesCache = arch.vertices;
+            archTrianglesCache = arch.triangles;
+        }
+        mb.WorldMesh(archVerticesCache, archTrianglesCache,
+            Matrix4x4.TRS(floorCenter, rot, new Vector3(holeWidth / ArchHoleWidth, holeHeight / ArchHoleTop, depth)), 0.5f);
+    }
 
     // V0.7.11 (7.9, Parfum Odorant) : plus court chemin, de cellule en cellule (5 m), entre deux points d'une même zone, selon les
     // murs du terrain. Calculé chez chaque joueur (la navigation fine des entités n'existe que chez l'hôte). null si les deux points
@@ -1339,7 +1377,7 @@ public static partial class WorldBuilder
         }
         yield return null;
         // Plafonds : une collision par suite de cellules de même hauteur sur chaque rangée (rien au-dessus du Hub).
-        for (int j = 0; j < n; j++)
+        for (int j = 0; j < n && !m.noCeilingColliders; j++)
             for (int i = 0; i < n;)
             {
                 if (m.Reserved(i, j) || m.Void(i, j)) { i++; continue; }
@@ -1347,12 +1385,13 @@ public static partial class WorldBuilder
                 int start = i;
                 while (i < n && !m.Reserved(i, j) && !m.Void(i, j) && Mathf.Approximately(m.Ceil(i, j), ceil)) i++;
                 float a = x0 + start * Cell, b = x0 + i * Cell;
-                AddCollider(new Vector3((a + b) * 0.5f, ceil + 0.5f, m.Center(0, j).z), new Vector3(b - a, 1f, Cell));
+                AddCollider(new Vector3((a + b) * 0.5f, ceil + m.ceilingSlab * 0.5f, m.Center(0, j).z), new Vector3(b - a, m.ceilingSlab, Cell));
             }
 
         // Ouverture dans un mur (porte) : deux piliers et un linteau.
-        void Doorway(MeshBuilder mb, Vector3 edge, bool alongX, float h, float width, float height, float tex)
+        void Doorway(MeshBuilder mb, Vector3 edge, bool alongX, float h, float width, float height, float tex, bool arch = false)
         {
+            if (arch) DoorArch(mb, edge, alongX ? Quaternion.identity : Quaternion.Euler(0f, 90f, 0f), width, height, Wall + 0.2f);
             float side = (Cell - Wall - width) * 0.5f;
             Vector3 axis = alongX ? Vector3.right : Vector3.forward;
             Vector3 Size(float length, float hh) => alongX ? new Vector3(length, hh, Wall) : new Vector3(Wall, hh, length);
@@ -1451,7 +1490,7 @@ public static partial class WorldBuilder
                     wall = true;
                     if (!m.eastWall[i, j] && !m.wallHoles.ContainsKey((i, j, false)))
                     {
-                        Doorway(mb, new Vector3(x, 0f, z), false, h, DoorWidth, DoorHeight, tex);
+                        Doorway(mb, new Vector3(x, 0f, z), false, h, DoorWidth, DoorHeight, tex, m.archDoorways);
                         posts.Add(new Vector2Int(i + 1, j)); posts.Add(new Vector2Int(i + 1, j + 1));
                         continue;
                     }
@@ -1459,7 +1498,7 @@ public static partial class WorldBuilder
                 // V0.7.11 (Blockhaus) : arête ouverte garnie d'une porte.
                 else if (!boundary && !wall && m.doorEdges.Contains((i, j, false)))
                 {
-                    Doorway(mb, new Vector3(x, 0f, z), false, h, DoorWidth, DoorHeight, tex);
+                    Doorway(mb, new Vector3(x, 0f, z), false, h, DoorWidth, DoorHeight, tex, m.archEdges.Contains((i, j, false)));
                     posts.Add(new Vector2Int(i + 1, j)); posts.Add(new Vector2Int(i + 1, j + 1));
                     continue;
                 }
@@ -1532,14 +1571,14 @@ public static partial class WorldBuilder
                     wall = true;
                     if (!m.northWall[i, j] && !m.wallHoles.ContainsKey((i, j, true)))
                     {
-                        Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex);
+                        Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex, m.archDoorways);
                         posts.Add(new Vector2Int(i, j + 1)); posts.Add(new Vector2Int(i + 1, j + 1));
                         continue;
                     }
                 }
                 else if (lowIn && highIn && !wall && m.doorEdges.Contains((i, j, true)))
                 {
-                    Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex);
+                    Doorway(mb, new Vector3(x, 0f, z), true, h, DoorWidth, DoorHeight, tex, m.archEdges.Contains((i, j, true)));
                     posts.Add(new Vector2Int(i, j + 1)); posts.Add(new Vector2Int(i + 1, j + 1));
                     continue;
                 }
@@ -1666,10 +1705,20 @@ public static partial class WorldBuilder
                 if (!m.InGrid(i, j) || !m.InGrid(ni, nj) || m.Reserved(i, j) || m.Reserved(ni, nj) || m.Fixed(i, j) || m.Fixed(ni, nj)) return;
                 if (north ? m.northWall[i, j] : m.eastWall[i, j]) return;
                 Room a = m.RoomAt(i, j), b = m.RoomAt(ni, nj);
-                if ((a == null) == (b == null)) return;
-                Room room = a ?? b;
-                if (room.plain || room.floor > 0f || m.NoPlainFloor(i, j) || m.NoPlainFloor(ni, nj) || m.HasWallHole(i, j, north ? 2 : 0)) return;
-                if (archRnd.NextDouble() >= GameRules.ArchChance) return;
+                if (m.archChance >= 0f)
+                {
+                    // V0.7.12 (Château) : toute ouverture entre deux espaces différents (salle, autre salle, couloir).
+                    if (m.Void(i, j) || m.Void(ni, nj) || a == b || m.HasWallHole(i, j, north ? 2 : 0) || m.doorEdges.Contains((i, j, north))) return;
+                    if ((a != null && a.floor > 0f) || (b != null && b.floor > 0f) || m.NoPlainFloor(i, j) || m.NoPlainFloor(ni, nj)) return;
+                    if (archRnd.NextDouble() >= m.archChance) return;
+                }
+                else
+                {
+                    if ((a == null) == (b == null)) return;
+                    Room plainRoom = a ?? b;
+                    if (plainRoom.plain || plainRoom.floor > 0f || m.NoPlainFloor(i, j) || m.NoPlainFloor(ni, nj) || m.HasWallHole(i, j, north ? 2 : 0)) return;
+                    if (archRnd.NextDouble() >= GameRules.ArchChance) return;
+                }
                 float height = Mathf.Min(m.Ceil(i, j), m.Ceil(ni, nj));
                 Vector3 center = (m.Center(i, j) + m.Center(ni, nj)) * 0.5f;
                 Quaternion turn = north ? Quaternion.identity : Quaternion.Euler(0f, 90f, 0f);
@@ -1679,7 +1728,7 @@ public static partial class WorldBuilder
                     AddCollider(center + turn * Vector3.right * (s * offset) + Vector3.up * (height * 0.5f), north ? new Vector3(pillar, height, ArchDepth) : new Vector3(ArchDepth, height, pillar));
                 float top = height * ArchHoleTop;
                 AddCollider(center + Vector3.up * ((top + height) * 0.5f), north ? new Vector3(Cell, height - top, ArchDepth) : new Vector3(ArchDepth, height - top, Cell));
-                m.archCells.Add(a == null ? new Vector2Int(i, j) : new Vector2Int(ni, nj));
+                if (a == null || b == null) m.archCells.Add(a == null ? new Vector2Int(i, j) : new Vector2Int(ni, nj));
             }
             for (int i = 0; i < n; i++)
                 for (int j = 0; j < n; j++)
@@ -4087,7 +4136,7 @@ public static partial class WorldBuilder
 
         bool Straight(int i, int j, bool alongZ)
         {
-            if (!m.InGrid(i, j) || m.RoomAt(i, j) != null || m.Reserved(i, j) || m.Fixed(i, j) || m.NoPlainFloor(i, j) || !Mathf.Approximately(m.Ceil(i, j), WallHeight)) return false;
+            if (!m.InGrid(i, j) || m.RoomAt(i, j) != null || m.Reserved(i, j) || m.Fixed(i, j) || m.NoPlainFloor(i, j) || !Mathf.Approximately(m.Ceil(i, j), m.corridorCeil)) return false;
             int side = alongZ ? 0 : 2;
             return HasWall(m, i, j, side) && HasWall(m, i, j, side + 1) && !m.HasWallHole(i, j, side) && !m.HasWallHole(i, j, side + 1);
         }
@@ -4126,7 +4175,7 @@ public static partial class WorldBuilder
     static void AddBevelRun(Maze m, Transform parent, MeshBuilder[,] builders, System.Func<int, Vector2Int> cellAt, int first, int end, bool alongZ, System.Random rnd)
     {
         const float texScale = 0.5f, overlap = 0.03f;
-        float height = WallHeight, width = Cell - Wall, halfWidth = width * 0.5f;
+        float height = m.corridorCeil, width = Cell - Wall, halfWidth = width * 0.5f;
         int kind = rnd.Next(3);
         bool both = kind == 2;
         Vector3 c0 = m.Center(cellAt(first).x, cellAt(first).y);

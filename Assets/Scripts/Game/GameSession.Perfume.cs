@@ -12,7 +12,7 @@ using UnityEngine;
 public partial class GameSession
 {
     public const float PerfumeDuration = 8f * 60f, PerfumeBlink = 10f, PerfumeRange = 50f, PerfumePathInterval = 0.5f;
-    const float PerfumeFade = 1.5f;
+    const float PerfumeFade = 1.5f, ScentPerMeter = 2.5f, AuraPerSecond = 3f;
     static readonly Color PerfumeTint = new Color(1f, 0.62f, 0.64f, 0.55f);
 
     // Fin du parfum de chaque joueur (Time.time local).
@@ -71,6 +71,28 @@ public partial class GameSession
         float left = PerfumeLeft(net.MyId);
         hud.SetPerfume(left / PerfumeDuration, left <= PerfumeBlink);
         UpdateScentTrails();
+        UpdatePerfumeAura();
+    }
+
+    // V0.7.12 (Note 16) : quelques volutes autour de chaque joueur parfumé (le joueur local compris), sans en mettre trop.
+    void UpdatePerfumeAura()
+    {
+        foreach (var p in PlayerPresence.All)
+        {
+            if (p == null || string.IsNullOrEmpty(p.PlayerId) || !p.isActiveAndEnabled || !p.Alive || PerfumeLeft(p.PlayerId) <= 0f) continue;
+            if (Random.value >= AuraPerSecond * Time.deltaTime) continue;
+            if (scentParticles == null) scentParticles = BuildScentParticles();
+            Vector2 o = Random.insideUnitCircle.normalized * Random.Range(0.35f, 0.7f);
+            scentParticles.Emit(new ParticleSystem.EmitParams
+            {
+                position = p.Position + new Vector3(o.x, Random.Range(-0.6f, 0.5f), o.y),
+                velocity = new Vector3(o.x * 0.15f, Random.Range(0.1f, 0.3f), o.y * 0.15f),
+                startSize = Random.Range(0.2f, 0.4f),
+                startLifetime = Random.Range(1.2f, 1.8f),
+                startColor = PerfumeTint,
+                rotation = Random.Range(0f, 360f),
+            }, 1);
+        }
     }
 
     // Volutes vers chaque joueur parfumé à moins de 50 m (hors du joueur local lui-même).
@@ -116,8 +138,8 @@ public partial class GameSession
     void EmitScent(ScentTrail trail)
     {
         if (scentParticles == null) scentParticles = BuildScentParticles();
-        // Environ 10 volutes par mètre et par seconde, à pleine intensité.
-        float rate = trail.length * 10f * trail.weight * Time.deltaTime;
+        // V0.7.12 (Note 17) : environ 2,5 volutes par mètre et par seconde, à pleine intensité (4 fois moins qu'avant).
+        float rate = trail.length * ScentPerMeter * trail.weight * Time.deltaTime;
         int count = Mathf.FloorToInt(rate) + (Random.value < rate - Mathf.Floor(rate) ? 1 : 0);
         for (int k = 0; k < count; k++)
         {

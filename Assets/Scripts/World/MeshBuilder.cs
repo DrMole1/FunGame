@@ -93,7 +93,8 @@ public class MeshBuilder
     }
 
     // Cône intérieur (toit de chapiteau) : rayures selon l'angle, faces tournées vers l'intérieur.
-    public void InnerCone(Vector3 baseCenter, float radius, float height, int segments, float stripeRepeat)
+    // V0.7.12 : outside = true, les faces regardent vers l'extérieur (toile du chapiteau vue du dehors).
+    public void InnerCone(Vector3 baseCenter, float radius, float height, int segments, float stripeRepeat, bool outside = false)
     {
         Vector3 apex = baseCenter + Vector3.up * height;
         for (int i = 0; i < segments; i++)
@@ -103,6 +104,7 @@ public class MeshBuilder
             Vector3 p1 = baseCenter + new Vector3(Mathf.Sin(a1), 0f, Mathf.Cos(a1)) * radius;
             Vector3 mid = (p0 + p1) * 0.5f;
             Vector3 inward = ((baseCenter - mid).normalized * height + Vector3.down * radius).normalized;
+            if (outside) inward = -inward;
             float u0 = (float)i / segments * stripeRepeat, u1 = (float)(i + 1) / segments * stripeRepeat;
             int i0 = Vert(p0, inward, new Vector2(u0, 0f));
             int i1 = Vert(p1, inward, new Vector2(u1, 0f));

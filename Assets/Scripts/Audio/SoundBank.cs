@@ -922,7 +922,8 @@ public static class SoundBank
     }
 
     // Nappe grave du labyrinthe : basses qui battent, souffle, grincements métalliques lointains.
-    const float BassLevel = 0.5f;
+    // V0.7.12 (Note 14) : le va-et-vient grave, hors du Hub, 30 % moins fort (0,5 -> 0,35).
+    const float BassLevel = 0.35f;
 
     static float[] MazeDrone(System.Random rnd)
     {

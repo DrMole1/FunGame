@@ -282,12 +282,7 @@ public class Beacon : Interactable
             beacon.glow.range = 4f;
             beacon.glow.intensity = 1.4f;
             beacon.glow.shadows = LightShadows.None;
-            // V0.7.11 (9.1, Note 08) : numéro du Hub en chiffres romains, écrit en noir sur le bas de la Balise, du côté que voit le
-            // joueur qui entre dans le Hub (par le sud).
-            var number = GameArt.CreateText(go.transform, "NumeroHub", Vector3.zero, 0.075f, new Color(0.02f, 0.02f, 0.02f));
-            number.text = GameRules.Roman(-id);
-            number.fontStyle = FontStyle.Bold;
-            number.transform.SetPositionAndRotation(pos + new Vector3(0f, height * 0.16f, -HubNumberRadius), Quaternion.identity);
+            // V0.7.12 (Note 03) : plus de numéro du Hub sur la Balise principale.
             // Socle solide : on ne traverse pas la grande Balise.
             var solid = go.AddComponent<CapsuleCollider>();
             solid.center = new Vector3(0f, height * 0.5f, 0f);
@@ -298,12 +293,31 @@ public class Beacon : Interactable
             : kind == DeviceKind.SuperBalle ? Vector3.one * SuperBallSize * 1.05f
             : kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.76f, CanonHeight, 1.76f)
             : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.9f, 0.9f, 0.9f) : new Vector3(0.6f, height, 0.6f));
+        // V0.7.12 (9.1) : hors du Hub, une Balise chargée éclaire la zone (un peu moins qu'un néon), clignote près d'un Roi comme
+        // les néons, et reste allumée pendant le Couvre-Feu.
+        if (kind == DeviceKind.Beacon && !hub)
+        {
+            var lampGo = new GameObject("Eclairage");
+            lampGo.transform.SetParent(go.transform, false);
+            lampGo.transform.localPosition = new Vector3(0f, height * 0.9f, 0f);
+            var lamp = lampGo.AddComponent<Light>();
+            lamp.type = LightType.Point;
+            lamp.color = new Color(0.85f, 0.87f, 0.9f);
+            lamp.intensity = BeaconLampIntensity;
+            lamp.range = BeaconLampRange;
+            lamp.shadows = LightShadows.None;
+            var flicker = lampGo.AddComponent<FlickerLight>();
+            flicker.Init(lamp, null, false);
+            flicker.IgnoreCurfew = true;
+            flicker.Gate = () => beacon != null && beacon.Charged && !WorldBuilder.IsInHub(beacon.transform.position);
+        }
         beacon.SetCharged(false);
         return beacon;
     }
 
-    // Rayon du socle de la grande Balise, à la hauteur du numéro du Hub (juste devant sa surface).
-    const float HubNumberRadius = 0.36f;
+    // Un néon de couloir : environ 0,65 d'intensité sur 7 m (WorldBuilder.AddLamp) ; la Balise, un peu moins.
+    const float BeaconLampIntensity = 0.55f, BeaconLampRange = 7f;
+
 
     // L'orbe (halo) est un carré face à la caméra : il ne reçoit pas le contour blanc, sinon un carré apparaît autour de la
     // boule du pion quand on vise la Balise.

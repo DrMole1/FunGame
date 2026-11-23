@@ -47,7 +47,9 @@ public partial class GameSession
         Shuffle(stars, rnd);
         Shuffle(others, rnd);
         stars.AddRange(others);
-        int count = Mathf.Min(GameRules.SuperMoundsInZone(zone.index), stars.Count);
+        // V0.7.12 : ceux des appartements fermés des Blockhaus d'abord, toujours présents.
+        stars.InsertRange(0, zone.forcedSupers);
+        int count = Mathf.Max(zone.forcedSupers.Count, Mathf.Min(GameRules.SuperMoundsInZone(zone.index), stars.Count));
         int paws = GameRules.SuperMoundPaws(Mathf.Max(1, net.Roster.Count));
         for (int k = 0; k < count; k++)
         {

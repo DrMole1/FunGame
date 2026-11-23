@@ -4,17 +4,29 @@ using UnityEngine;
 
 // V0.7.11 (chapitre 11.4) : environnement Blockhaus. Interconnexion d'appartements et de couloirs sur 4 étages de 10 m (de -20 m à
 // +20 m : 20 m de hauteur et 20 m de profondeur), damier noir et blanc. 20 % de couloirs pour 80 % de pièces d'appartements.
-// - Entre un couloir et un appartement, une porte entrouverte que l'on pousse ; 10 % des portes sont fermées à clé (cadenas).
-// - Des cages d'escalier (escaliers en colimaçon) relient les étages ; joueurs et entités les empruntent.
-// - 20 % des appartements font 10 m de plus en hauteur (ils rognent l'étage supérieur) ; d'autres, des plateformes chaotiques.
-// - Couloirs éclairés par des néons ; 25 % des appartements ne sont pas éclairés. 30 % des couloirs ont un renfoncement en biseau.
-// - Un ravin de 40 m de large (12 gabarits) coupe la zone en deux, de -80 m à +80 m ; des fenêtres s'ouvrent sur lui à chaque étage
-//   (on le franchit en Canon, en visant une fenêtre d'en face) ; plus haut et plus bas, des fenêtres factices. Y tomber tue.
+// - Entre un couloir et un appartement : une ouverture, garnie d'une arche 40 % du temps (V0.7.12 : plus de portes poussées).
+// - V0.7.12 : environ 5 % des appartements sont fermés par une porte sous cadenas, leur seule entrée : la Clé sélectionnée rend la
+//   porte interactive, l'ouvrir enlève le cadenas. Ils contiennent un Super Monticule, une Cloche Décorative ou deux monticules
+//   simples ; en Zone 3, l'un d'eux abrite le cadavre de Tête-de-Cloche.
+// - Des cages d'escalier (escaliers en colimaçon, 70 % avec une rambarde) relient les étages ; joueurs et entités les empruntent.
+//   V0.7.12 : plus de cages d'escalier, et plus de bifurcations dans les couloirs.
+// - 20 % des appartements font 10 m de plus en hauteur (ils rognent l'étage supérieur). Plus de plateformes chaotiques (V0.7.12).
+// - Couloirs éclairés par des néons ; 25 % des appartements ne sont pas éclairés, 40 % ont un plafond gris. Plinthes noires de 0,8 m
+//   au pied de tous les murs. 30 % des couloirs ont un renfoncement en biseau.
+// - Mobilier soviétique en marbre blanc (modèles Meshy) contre les murs : lavabos à hauteur des mains, pommeaux de douche au-dessus
+//   de la tête, armoires, urinoirs à hauteur du bassin, baignoires au sol ; boîtes aux lettres à toutes les hauteurs. Rien ne flotte.
+// - Un ravin de 20 m de large (V0.7.12 ; 12 gabarits) coupe la zone en deux, de -80 m à +80 m ; des fenêtres s'ouvrent sur lui à
+//   chaque étage, un néon au-dessus de chacune (on le franchit en Canon, en visant une fenêtre d'en face) ; plus haut et plus bas, des
+//   fenêtres factices. Y tomber tue (GameSession).
 public static partial class WorldBuilder
 {
-    const float StoreyHeight = 10f, BlockhausDepth = 20f, RavineHalfWidth = 20f, RavineReach = 80f;
+    // V0.7.12 : ravin de 20 m de large (avant : 40 m).
+    public const float BlockhausDepth = 20f;
+    const float StoreyHeight = 10f, RavineHalfWidth = 10f, RavineReach = 80f;
     static readonly float[] StoreyLevels = { -20f, -10f, 0f, 10f };
     const int HubStorey = 2;
+    const float BlockArchChance = 0.4f, LockedRoomChance = 0.05f, ExtraCorridorLink = 0.35f, GreyCeilingChance = 0.4f, RailingChance = 0.7f;
+    const float PlinthHeight = 0.8f;
 
     static readonly Vector2[][] Ravines =
     {
@@ -39,6 +51,9 @@ public static partial class WorldBuilder
         return Vector2.Distance(p, a + ab * t);
     }
 
+    // Appartement fermé sous cadenas : son étage, la pièce, l'arête de sa porte.
+    class LockedRoom { public int storey; public Room room; public (int, int, bool) edge; }
+
     static IEnumerator BuildBlockhausSteps(ZoneBuild build, Transform parent, int seed, int zone, ZoneRefs previous)
     {
         var rnd = new System.Random(seed * 43 + zone * 5381);
@@ -59,9 +74,9 @@ public static partial class WorldBuilder
                     if (DistanceToSegment(p, GridPoint(zone, ravine[k]), GridPoint(zone, ravine[k + 1])) <= RavineHalfWidth) { ravineCells.Add(new Vector2Int(i, j)); break; }
             }
         var nrSide = Flood(main, new Vector2Int(main.doorCol, n - 2), ravineCells);
-        // Cages d'escalier (2 x 2 cellules) de part et d'autre du ravin.
+        // Cages d'escalier (2 x 2 cellules) de part et d'autre du ravin (V0.7.12 : 4 de chaque côté).
         var wells = new List<Vector2Int>();
-        foreach (bool northSide in new[] { false, true, false, true, rnd.NextDouble() < 0.5 })
+        foreach (bool northSide in new[] { false, true, false, true, false, true, false, true })
             for (int attempt = 0; attempt < 300; attempt++)
             {
                 var c = new Vector2Int(rnd.Next(1, n - 2), rnd.Next(HubRows + 1, n - 4));
@@ -92,6 +107,7 @@ public static partial class WorldBuilder
 
         // ---------- Les 4 étages ----------
         var storeys = new Maze[StoreyLevels.Length];
+        var locked = new List<LockedRoom>();
         bool[,] doubleBelow = new bool[n, n];
         var style = new ZoneStyle
         {
@@ -120,6 +136,8 @@ public static partial class WorldBuilder
             m.bevelChance = 0.3f;
             m.voidWallFull = true;
             m.voidCeil = StoreyHeight;
+            // Le sol de l'étage du dessus sert de plafond (pas de collision de plafond qui dépasserait chez lui).
+            m.noCeilingColliders = s < StoreyLevels.Length - 1;
             m.voidCell = new bool[n, n];
             m.silentVoid = new bool[n, n];
             foreach (var c in ravineCells) m.voidCell[c.x, c.y] = true;
@@ -136,6 +154,15 @@ public static partial class WorldBuilder
             Generate(m, rnd, style);
             if (s == HubStorey) StampFixedRooms(m);
             foreach (Room room in m.rooms) room.plain = true;
+            // V0.7.12 : plus de bifurcations, les couloirs voisins s'ouvrent souvent les uns sur les autres.
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                    foreach (int d in new[] { 0, 2 })
+                    {
+                        int ni = i + DI[d], nj = j + DJ[d];
+                        if (!Corridor(m, i, j) || !Corridor(m, ni, nj) || !HasWall(m, i, j, d) || rnd.NextDouble() >= ExtraCorridorLink) continue;
+                        SetWall(m, i, j, d, false);
+                    }
             // Appartements de double hauteur (rognant l'étage du dessus), sauf au dernier étage et sous la Neutral Room / le Hub.
             doubleBelow = new bool[n, n];
             if (s < StoreyLevels.Length - 1)
@@ -161,8 +188,7 @@ public static partial class WorldBuilder
                     {
                         int ni = i + DI[d], nj = j + DJ[d];
                         if (!ravineCells.Contains(new Vector2Int(ni, nj)) || rnd.NextDouble() > 0.6) continue;
-                        var key = d == 0 ? (i, j, false) : d == 1 ? (i - 1, j, false) : d == 2 ? (i, j, true) : (i, j - 1, true);
-                        m.wallHoles[key] = (1f, 2.9f);
+                        m.wallHoles[EdgeKey(i, j, d)] = (1f, 2.9f);
                     }
                 }
             // Cages d'escalier : une porte vers un couloir ou un appartement voisin à chaque étage.
@@ -180,6 +206,11 @@ public static partial class WorldBuilder
                 var (cell, dir) = sides[rnd.Next(sides.Count)];
                 SetWall(m, cell.x, cell.y, dir, false);
             }
+            // V0.7.12 : appartements fermés sous cadenas (leur porte est leur seule entrée).
+            LockRooms(m, s, wellCells, locked, rnd);
+            // Les autres portes : 40 % d'arches (sans battant).
+            foreach (var e in m.doorEdges)
+                if (!locked.Exists(l => l.storey == s && l.edge.Equals(e)) && rnd.NextDouble() < BlockArchChance) m.archEdges.Add(e);
             storeys[s] = m;
         }
         yield return null;
@@ -216,31 +247,60 @@ public static partial class WorldBuilder
         {
             Maze m = storeys[s];
             float y = StoreyLevels[s];
+            // Seuls les appartements fermés ont une porte (sous cadenas) ; les autres passages restent ouverts.
             foreach (var (i, j, north) in m.doorEdges)
             {
+                bool isLocked = locked.Exists(l => l.storey == s && l.edge.Equals((i, j, north)));
+                if (!isLocked) continue;
                 Vector3 edge = m.Center(i, j) + (north ? Vector3.forward : Vector3.right) * (Cell * 0.5f) + Vector3.up * y;
-                bool locked = rnd.NextDouble() < 0.1;
-                var door = ApartmentDoor.Create(props, zone * 100000 + doorIds++, edge, Quaternion.Euler(0f, north ? 0f : 90f, 0f), DoorWidth - 0.1f, DoorHeight - 0.05f, locked);
-                if (locked) refs.lockedDoors.Add(door);
+                var door = ApartmentDoor.Create(props, zone * 100000 + doorIds++, edge, Quaternion.Euler(0f, north ? 0f : 90f, 0f), DoorWidth - 0.1f, DoorHeight - 0.05f, isLocked);
+                if (isLocked) refs.lockedDoors.Add(door);
             }
-            DecorateStorey(m, y, props, refs, rnd, s == HubStorey);
+            var finish = new Kit(props, colliders.transform, "Z" + zone + "_Finitions" + s);
+            DecorateStorey(m, y, props, finish, refs, rnd, s == HubStorey, locked.FindAll(l => l.storey == s));
+            finish.Flush();
             yield return null;
         }
 
         // Cloches Décoratives : à l'étage le plus haut, suspendues au plafond.
         Maze top = storeys[storeys.Length - 1];
-        var topRooms = top.rooms.FindAll(r => !top.Fixed(r.cells[0].x, r.cells[0].y) && r.cells.Count >= 2);
+        var topRooms = top.rooms.FindAll(r => !top.Fixed(r.cells[0].x, r.cells[0].y) && r.cells.Count >= 2 && !locked.Exists(l => l.room == r));
         Shuffle(topRooms, rnd);
         foreach (Room room in topRooms)
         {
             if (refs.bellSpots.Count >= GameRules.HangingBellsInZone(zone)) break;
-            Vector3 c = Vector3.zero;
-            foreach (var cell in room.cells) c += top.Center(cell.x, cell.y);
-            c /= room.cells.Count;
-            const float chain = 1.6f;
-            refs.bellSpots.Add((new Vector3(c.x, StoreyLevels[storeys.Length - 1] + room.ceil - chain - GameRules.BellHeight, c.z), chain));
-            // 17.3 : l'endroit le plus haut atteignable (cadavre de la Zone 3).
+            Vector3 c = RoomFloorCenter(top, room, StoreyLevels[storeys.Length - 1]);
+            refs.bellSpots.Add((HangingBellSpot(c, room.ceil), BellChain));
+            // 17.3 : l'endroit le plus haut atteignable.
             main.perches.Add((new Vector3(c.x + 2f, StoreyLevels[storeys.Length - 1], c.z), 0f, 3f));
+        }
+
+        // V0.7.12 : contenu des appartements fermés (Super Monticule, Cloche Décorative ou deux monticules simples) ; en Zone 3, le
+        // cadavre de Tête-de-Cloche dans l'un d'eux (sous une Cloche, rien au sol).
+        bool corpsePlaced = false;
+        Physics.SyncTransforms();
+        foreach (var l in locked)
+        {
+            Maze m = storeys[l.storey];
+            Vector3 c = RoomFloorCenter(m, l.room, StoreyLevels[l.storey]);
+            if (zone == GameRules.SecretCorpseZone && !corpsePlaced)
+            {
+                SecretCorpse.Build(root, c, 0f, 2f);
+                corpsePlaced = true;
+                refs.bellSpots.Add((HangingBellSpot(c, l.room.ceil), BellChain));
+                continue;
+            }
+            int content = rnd.Next(3);
+            if (content == 0) refs.forcedSupers.Add(c);
+            else if (content == 1) refs.bellSpots.Add((HangingBellSpot(c, l.room.ceil), BellChain));
+            else
+            {
+                // Deux monticules, dans deux cellules de l'appartement s'il en a plusieurs.
+                Vector3 lift = Vector3.up * StoreyLevels[l.storey];
+                bool two = l.room.cells.Count > 1;
+                refs.forcedMounds.Add(two ? m.Center(l.room.cells[0].x, l.room.cells[0].y) + lift : c - Vector3.right * 1.6f);
+                refs.forcedMounds.Add(two ? m.Center(l.room.cells[1].x, l.room.cells[1].y) + lift : c + Vector3.right * 1.6f);
+            }
         }
 
         BuildNeutralRoom(main, root, refs, new System.Random(seed * 59 + zone * 613));
@@ -253,9 +313,105 @@ public static partial class WorldBuilder
         refs.nav.AddZone(main.origin, n, Cell, (i, j) => !main.Reserved(i, j), (i, j) => BlockhausDepth + 2f, refs.lowestFloor);
         refs.nav.Prepare(colliders.transform, refs.door != null ? refs.door.Blocker : null);
         AddReflectionProbes(main, root);
-        if (zone == GameRules.SecretCorpseZone) PlaceSecretCorpse(main, root);
+        if (zone == GameRules.SecretCorpseZone && !corpsePlaced) PlaceSecretCorpse(main, root);
         // Hauteur du mur nord (la zone suivante complète au-dessus) : 20 m, 80 m au droit du ravin.
         for (int i = 0; i < n; i++) main.northHeights[i] = ravineCells.Contains(new Vector2Int(i, n - 1)) ? RavineReach : BlockhausDepth;
+    }
+
+    const float BellChain = 1.6f;
+
+    static Vector3 HangingBellSpot(Vector3 floorCenter, float ceil) => floorCenter + Vector3.up * (ceil - BellChain - GameRules.BellHeight);
+
+    // La cellule de la pièce la plus proche de son centre (une pièce en L n'a pas son centre chez elle), au niveau 'y'.
+    static Vector3 RoomFloorCenter(Maze m, Room room, float y)
+    {
+        Vector3 c = Vector3.zero;
+        foreach (var cell in room.cells) c += m.Center(cell.x, cell.y);
+        c /= room.cells.Count;
+        Vector3 best = m.Center(room.cells[0].x, room.cells[0].y);
+        foreach (var cell in room.cells)
+        {
+            Vector3 p = m.Center(cell.x, cell.y);
+            if (Flat(p - c) < Flat(best - c)) best = p;
+        }
+        best.y = y;
+        return best;
+    }
+
+    static bool Corridor(Maze m, int i, int j) => m.InGrid(i, j) && !m.Void(i, j) && !m.Reserved(i, j) && !m.Fixed(i, j) && m.RoomAt(i, j) == null;
+
+    // Clé d'une arête (i, j, nord ?) depuis la cellule (i, j) et une direction.
+    static (int, int, bool) EdgeKey(int i, int j, int d) => d == 0 ? (i, j, false) : d == 1 ? (i - 1, j, false) : d == 2 ? (i, j, true) : (i, j - 1, true);
+
+    // Environ 5 % des appartements (hors Hub et Neutral Room, hors appartements de double hauteur et voisins des cages d'escalier)
+    // n'ont plus qu'une porte, sous cadenas : toutes leurs autres ouvertures (portes, passages vers les appartements voisins, fenêtres)
+    // sont murées. Un appartement par lequel il faut passer pour atteindre d'autres pièces n'est jamais fermé.
+    static void LockRooms(Maze m, int storey, HashSet<Vector2Int> wellCells, List<LockedRoom> locked, System.Random rnd)
+    {
+        var rooms = new List<Room>(m.rooms);
+        Shuffle(rooms, rnd);
+        foreach (Room room in rooms)
+        {
+            if (room.cells.Count == 0 || rnd.NextDouble() >= LockedRoomChance || room.ceil > StoreyHeight + 0.01f) continue;
+            if (room.cells.Exists(c => m.Fixed(c.x, c.y) || m.Reserved(c.x, c.y) || m.keepClear.Contains(c))) continue;
+            var cellSet = new HashSet<Vector2Int>(room.cells);
+            bool nearWell = false;
+            foreach (var c in room.cells)
+                for (int d = 0; d < 4; d++) if (wellCells.Contains(c + new Vector2Int(DI[d], DJ[d]))) nearWell = true;
+            if (nearWell) continue;
+            var doors = new List<(int, int, bool)>();
+            foreach (var e in m.doorEdges)
+            {
+                var (i, j, north) = e;
+                var a = new Vector2Int(i, j);
+                var b = north ? new Vector2Int(i, j + 1) : new Vector2Int(i + 1, j);
+                if (cellSet.Contains(a) != cellSet.Contains(b)) doors.Add(e);
+            }
+            if (doors.Count == 0) continue;
+            if (Components(m, cellSet) != Components(m, null)) continue;
+            var door = doors[rnd.Next(doors.Count)];
+            foreach (var c in room.cells)
+                for (int d = 0; d < 4; d++)
+                {
+                    var nb = c + new Vector2Int(DI[d], DJ[d]);
+                    if (cellSet.Contains(nb) || !m.InGrid(nb.x, nb.y)) continue;
+                    var key = EdgeKey(c.x, c.y, d);
+                    if (key.Equals(door)) continue;
+                    m.wallHoles.Remove(key);
+                    m.doorEdges.Remove(key);
+                    SetWall(m, c.x, c.y, d, true);
+                }
+            locked.Add(new LockedRoom { storey = storey, room = room, edge = door });
+        }
+    }
+
+    // Nombre d'ensembles de cellules reliées (sans mur entre elles) à cet étage, sans compter 'without'.
+    static int Components(Maze m, HashSet<Vector2Int> without)
+    {
+        var seen = new bool[m.N, m.N];
+        int count = 0;
+        for (int i = 0; i < m.N; i++)
+            for (int j = 0; j < m.N; j++)
+            {
+                if (seen[i, j] || m.Void(i, j) || without != null && without.Contains(new Vector2Int(i, j))) continue;
+                count++;
+                var queue = new Queue<Vector2Int>();
+                queue.Enqueue(new Vector2Int(i, j));
+                seen[i, j] = true;
+                while (queue.Count > 0)
+                {
+                    var q = queue.Dequeue();
+                    for (int d = 0; d < 4; d++)
+                    {
+                        int ni = q.x + DI[d], nj = q.y + DJ[d];
+                        if (!m.InGrid(ni, nj) || seen[ni, nj] || m.Void(ni, nj) || without != null && without.Contains(new Vector2Int(ni, nj))) continue;
+                        if (HasWall(m, q.x, q.y, d)) continue;
+                        seen[ni, nj] = true;
+                        queue.Enqueue(new Vector2Int(ni, nj));
+                    }
+                }
+            }
+        return count;
     }
 
     // Fond du ravin (-80 m), plafond (+80 m), et les façades au-dessus et au-dessous des étages, percées de fenêtres factices.
@@ -298,15 +454,17 @@ public static partial class WorldBuilder
         }
     }
 
-    // Cage d'escalier (2 x 2 cellules) : un colimaçon de -20 m à +20 m autour d'un pilier, des paliers vers les portes de chaque étage.
+    // Cage d'escalier (2 x 2 cellules) : un colimaçon de -20 m à +20 m autour d'un pilier, des paliers vers les portes de chaque étage ;
+    // V0.7.12 : 70 % ont une rambarde du côté du vide (ouverte à hauteur des paliers).
     static void BuildStairwell(Maze main, Maze[] storeys, Vector2Int w, Kit kit, System.Random rnd)
     {
         Vector3 center = (main.Center(w.x, w.y) + main.Center(w.x + 1, w.y + 1)) * 0.5f;
         float half = Cell;
         kit.Floor(Rect.MinMaxRect(center.x - half, center.z - half, center.x + half, center.z + half), -BlockhausDepth);
         kit.Box(center + Vector3.up * 0f, new Vector3(1.6f, BlockhausDepth * 2f, 1.6f));
-        float start = Rand(rnd, 0f, 360f);
-        KitSpiral(kit, center, 1f, half - 0.6f, -BlockhausDepth, BlockhausDepth, start);
+        float start = Rand(rnd, 0f, 360f), rIn = 1f, rOut = half - 0.6f;
+        KitSpiral(kit, center, rIn, rOut, -BlockhausDepth, BlockhausDepth, start);
+        if (rnd.NextDouble() < RailingChance) KitSpiralRailing(kit, center, rIn, rOut, -BlockhausDepth, BlockhausDepth, start);
         // Paliers : à chaque étage, une dalle entre l'escalier et le mur de la cage (le joueur passe de l'un à l'autre).
         for (int s = 0; s < storeys.Length; s++)
         {
@@ -327,22 +485,68 @@ public static partial class WorldBuilder
             new Vector3(center.x + half, BlockhausDepth, center.z + half), new Vector3(center.x + half, BlockhausDepth, center.z - half), Vector3.down, 0.5f);
     }
 
+    // Rambarde noire au bord extérieur d'un colimaçon (montants toutes les 4 marches, main courante), avec sa collision ; elle s'ouvre
+    // autour de chaque étage, là où l'on passe de l'escalier au palier.
+    static void KitSpiralRailing(Kit kit, Vector3 center, float rIn, float rOut, float y0, float y1, float start)
+    {
+        float rMid = (rIn + rOut) * 0.5f, stepAngle = SpiralTread / rMid * Mathf.Rad2Deg, r = rOut - 0.08f;
+        int steps = Mathf.Max(1, Mathf.CeilToInt((y1 - y0) / SpiralRise));
+        float rise = (y1 - y0) / steps;
+        const int every = 4;
+        const float height = 0.95f;
+        Vector3 Point(int k) => center + Quaternion.Euler(0f, start + k * stepAngle, 0f) * Vector3.forward * r + Vector3.up * (y0 + k * rise);
+        bool NearLanding(float y)
+        {
+            foreach (float level in StoreyLevels) if (Mathf.Abs(y - level) < 1.3f) return true;
+            return false;
+        }
+        for (int k = every; k + every <= steps; k += every)
+        {
+            Vector3 a = Point(k), b = Point(k + every);
+            if (NearLanding(a.y) || NearLanding(b.y)) continue;
+            Vector3 ta = a + Vector3.up * height, tb = b + Vector3.up * height;
+            Vector3 d = tb - ta;
+            kit.dark.WorldMesh(UnitCube.vertices, UnitCube.triangles, Matrix4x4.TRS((ta + tb) * 0.5f, Quaternion.LookRotation(d), new Vector3(0.05f, 0.05f, d.magnitude)), 1f);
+            kit.dark.WorldMesh(UnitCube.vertices, UnitCube.triangles, Matrix4x4.TRS(a + Vector3.up * (height * 0.5f), Quaternion.identity, new Vector3(0.04f, height, 0.04f)), 1f);
+            // Collision : une planche inclinée sous la main courante.
+            var go = new GameObject("Rambarde");
+            go.transform.SetParent(kit.colliders, false);
+            go.transform.SetPositionAndRotation((a + b) * 0.5f + Vector3.up * (height * 0.5f), Quaternion.LookRotation(b - a));
+            go.AddComponent<BoxCollider>().size = new Vector3(0.08f, height, (b - a).magnitude);
+        }
+    }
+
     static readonly string[] BlockhausFurniture = { "Lavabo", "Douche", "Armoire", "Urinoir", "Baignoire" };
 
     static float BlockhausModelHeight(string model) =>
-        model == "Armoire" ? 2f : model == "Baignoire" ? 1.7f : model == "Douche" ? 1f : model == "Urinoir" ? 0.8f : 0.7f;
+        model == "Armoire" ? 2f : model == "Baignoire" ? 1.7f : model == "Douche" ? 1f : model == "Urinoir" ? 0.8f : model == "BoiteLettres" ? 0.55f : 0.7f;
 
-    // Étage d'un Blockhaus : néons des couloirs, appartements éclairés trois fois sur quatre, mobilier soviétique (modèles Meshy),
-    // plateformes chaotiques dans certains appartements, quelques yeux, emplacements des monticules.
-    static void DecorateStorey(Maze m, float y, Transform props, ZoneRefs refs, System.Random rnd, bool hubStorey)
+    // Hauteur du milieu de l'objet au-dessus du sol (contre le mur) ; 0 : posé au sol.
+    static float BlockhausMountHeight(string model, System.Random rnd)
     {
+        switch (model)
+        {
+            case "Lavabo": return 0.8f;                 // à hauteur des mains
+            case "Douche": return 2.15f;                // au-dessus de la tête
+            case "Urinoir": return 0.75f;               // à hauteur du bassin
+            default: return 0f;
+        }
+    }
+
+    // Étage d'un Blockhaus : néons des couloirs, appartements éclairés trois fois sur quatre, plafonds gris (40 %), plinthes noires,
+    // néons au-dessus des fenêtres du ravin, mobilier soviétique contre les murs (modèles Meshy), boîtes aux lettres, quelques yeux,
+    // emplacements des monticules.
+    static void DecorateStorey(Maze m, float y, Transform props, Kit finish, ZoneRefs refs, System.Random rnd, bool hubStorey, List<LockedRoom> lockedHere)
+    {
+        var placed = new List<Vector3>();
         for (int i = 0; i < m.N; i++)
             for (int j = 0; j < m.N; j++)
             {
                 if (m.Void(i, j) || m.Reserved(i, j) || m.Fixed(i, j)) continue;
+                var cell = new Vector2Int(i, j);
                 Vector3 c = m.Center(i, j) + Vector3.up * y;
                 Room room = m.RoomAt(i, j);
-                bool clear = hubStorey && m.keepClear.Contains(new Vector2Int(i, j));
+                bool clear = hubStorey && m.keepClear.Contains(cell);
                 if (room == null && (i + j) % 2 == 0) AddLamp(props, c + Vector3.up * m.Ceil(i, j), 7f, 1.1f, rnd);
                 if (!clear && rnd.NextDouble() < 0.55)
                 {
@@ -355,51 +559,88 @@ public static partial class WorldBuilder
                     int d = rnd.Next(4);
                     if (HasWall(m, i, j, d))
                     {
-                        Vector3 n = -new Vector3(DI[d], 0f, DJ[d]);
-                        AddEye(props, c - n * (Cell * 0.5f - Wall * 0.5f) + Vector3.up * Rand(rnd, 1.5f, 3f), n, Rand(rnd, 0.6f, 1f));
+                        Vector3 nn = -new Vector3(DI[d], 0f, DJ[d]);
+                        AddEye(props, c - nn * (Cell * 0.5f - Wall * 0.5f) + Vector3.up * Rand(rnd, 1.5f, 3f), nn, Rand(rnd, 0.6f, 1f));
+                    }
+                }
+                for (int d = 0; d < 4; d++)
+                {
+                    Vector3 dir = new Vector3(DI[d], 0f, DJ[d]), side = new Vector3(DJ[d], 0f, DI[d]);
+                    Vector3 face = c + dir * (Cell * 0.5f - Wall * 0.5f);
+                    int ni = i + DI[d], nj = j + DJ[d];
+                    bool doorway = !HasWall(m, i, j, d) && (m.doorEdges.Contains(EdgeKey(i, j, d)) || m.Void(ni, nj));
+                    // Plinthes noires au pied des murs (de part et d'autre des portes).
+                    if (HasWall(m, i, j, d)) Plinth(finish, face, dir, Cell - Wall, y);
+                    else if (doorway)
+                    {
+                        float part = (Cell - Wall - DoorWidth) * 0.5f;
+                        foreach (float sgn in new[] { -1f, 1f }) Plinth(finish, face + side * (sgn * (DoorWidth * 0.5f + part * 0.5f)), dir, part, y);
+                    }
+                    // Néon au-dessus des vraies fenêtres, côté ravin.
+                    if (m.HasWallHole(i, j, d) && m.Void(ni, nj))
+                        AddWallNeon(props, c + dir * (Cell * 0.5f + Wall * 0.5f + 0.06f) + Vector3.up * 3.3f, dir, 8f, 1f, rnd);
+                }
+                // Boîtes aux lettres dans les couloirs, en colonnes contre un mur plein (à toutes les hauteurs).
+                if (room == null && !clear && rnd.NextDouble() < 0.1)
+                {
+                    var box = GameArt.SpawnModelFloor("BoiteLettres", props, BlockhausModelHeight("BoiteLettres"));
+                    if (box != null)
+                    {
+                        float h = GameArt.LocalBounds(box.transform).size.y;
+                        float bottom = Rand(rnd, 0.3f, 1f);
+                        if (!PlaceAgainstWall(m, box, cell, rnd.Next(4), bottom, 0.02f, placed, rnd, y)) Object.Destroy(box);
+                        else
+                            for (float above = bottom + h + 0.08f; above + h < 2.9f && rnd.NextDouble() < 0.7; above += h + 0.08f)
+                            {
+                                var more = Object.Instantiate(box, props);
+                                more.transform.SetPositionAndRotation(box.transform.position + Vector3.up * (above - bottom), box.transform.rotation);
+                            }
                     }
                 }
             }
         foreach (Room room in m.rooms)
         {
             if (room.cells.Count == 0 || m.Fixed(room.cells[0].x, room.cells[0].y)) continue;
-            Vector3 center = Vector3.zero;
-            foreach (var cell in room.cells) center += m.Center(cell.x, cell.y);
-            center /= room.cells.Count;
-            center.y = y;
             // 25 % des appartements ne sont pas éclairés.
-            if (rnd.NextDouble() >= 0.25) AddLamp(props, center + Vector3.up * room.ceil, 10f, 1.3f, rnd);
-            Vector3 min = m.Center(room.rect.xMin, room.rect.yMin) - new Vector3(Cell, 0f, Cell) * 0.5f, max = m.Center(room.rect.xMax - 1, room.rect.yMax - 1) + new Vector3(Cell, 0f, Cell) * 0.5f;
+            if (rnd.NextDouble() >= 0.25) AddLamp(props, RoomFloorCenter(m, room, y) + Vector3.up * room.ceil, 10f, 1.3f, rnd);
+            // V0.7.12 : 40 % ont un plafond gris.
+            if (rnd.NextDouble() < GreyCeilingChance)
+                foreach (var cell in room.cells)
+                {
+                    Vector3 c = m.Center(cell.x, cell.y);
+                    float e = Cell * 0.5f, top = y + room.ceil - 0.02f;
+                    finish.grey.WorldQuad(new Vector3(c.x - e, top, c.z - e), new Vector3(c.x - e, top, c.z + e), new Vector3(c.x + e, top, c.z + e), new Vector3(c.x + e, top, c.z - e), Vector3.down, 0.5f);
+                }
+            // L'appartement fermé garde le sol libre pour son contenu.
+            if (lockedHere.Exists(l => l.room == room)) continue;
             int count = 1 + rnd.Next(room.cells.Count + 1);
             for (int k = 0; k < count; k++)
             {
                 string model = BlockhausFurniture[rnd.Next(BlockhausFurniture.Length)];
-                int d = rnd.Next(4);
-                float t = (float)rnd.NextDouble();
-                Vector3 p = d == 0 ? new Vector3(max.x - 0.6f, y, Mathf.Lerp(min.z + 1.2f, max.z - 1.2f, t)) : d == 1 ? new Vector3(min.x + 0.6f, y, Mathf.Lerp(min.z + 1.2f, max.z - 1.2f, t))
-                    : d == 2 ? new Vector3(Mathf.Lerp(min.x + 1.2f, max.x - 1.2f, t), y, max.z - 0.6f) : new Vector3(Mathf.Lerp(min.x + 1.2f, max.x - 1.2f, t), y, min.z + 0.6f);
-                if (!m.CellAt(p, out int ci, out int cj) || m.RoomAt(ci, cj) != room) continue;
+                var cell = room.cells[rnd.Next(room.cells.Count)];
                 var go = GameArt.SpawnModelFloor(model, props, BlockhausModelHeight(model));
                 if (go == null) continue;
-                if (model == "Douche" || model == "Lavabo" || model == "Urinoir") p.y += model == "Douche" ? 0.6f : 0.4f;
-                go.transform.position = p;
-                go.transform.rotation = Quaternion.Euler(0f, d == 0 ? -90f : d == 1 ? 90f : d == 2 ? 180f : 0f, 0f);
+                float mount = BlockhausMountHeight(model, rnd);
+                float bottom = mount > 0f ? mount - GameArt.LocalBounds(go.transform).size.y * 0.5f : 0f;
+                if (!PlaceAgainstWall(m, go, cell, rnd.Next(4), bottom, model == "Baignoire" ? 0.15f : 0.02f, placed, rnd, y))
+                {
+                    Object.Destroy(go);
+                    continue;
+                }
                 Bounds b = GameArt.LocalBounds(go.transform);
                 var col = go.AddComponent<BoxCollider>();
                 col.center = b.center;
                 col.size = b.size;
             }
-            // Plateformes chaotiques (un appartement sur cinq).
-            if (rnd.NextDouble() < 0.2 && room.cells.Count >= 2)
-            {
-                var spots = new List<Vector3>();
-                var storeyMaze = m;
-                var platformRoot = new GameObject("Plateformes").transform;
-                platformRoot.SetParent(props, false);
-                platformRoot.localPosition = Vector3.up * y;
-                AddPlatforms(platformRoot, storeyMaze, room, min.x + 1.2f, max.x - 1.2f, min.z + 1.2f, max.z - 1.2f, rnd, spots);
-                foreach (var sp in spots) refs.itemSpots.Add(sp + Vector3.up * y);
-            }
         }
+    }
+
+    // Plinthe noire de 0,8 m au pied d'un mur ('face' : milieu de la face du mur, 'dir' : vers le mur), sur 'length'.
+    static void Plinth(Kit kit, Vector3 face, Vector3 dir, float length, float floorY)
+    {
+        if (length < 0.05f) return;
+        Vector3 c = new Vector3(face.x, floorY + PlinthHeight * 0.5f, face.z) - dir * 0.02f;
+        Vector3 size = Mathf.Abs(dir.x) > 0.5f ? new Vector3(0.04f, PlinthHeight, length) : new Vector3(length, PlinthHeight, 0.04f);
+        kit.dark.Box(c, size, 1f);
     }
 }

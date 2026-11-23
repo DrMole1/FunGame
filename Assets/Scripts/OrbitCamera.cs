@@ -263,6 +263,8 @@ public class OrbitCamera : MonoBehaviour
     // Zoom du lobby (survol des flèches du skin) : champ de vision réduit à 65 %, atteint en 1,2 s, quitté en 0,3 s.
     float lobbyZoom;
     const float LobbyZoomFov = 0.65f, LobbyZoomIn = 1.2f, LobbyZoomOut = 0.3f;
+    // V0.7.12 (Note 07) : en zoomant, la caméra descend et se redresse (on voit la bouche des skins, moins par le dessus).
+    const float LobbyZoomPitchDrop = 15f, LobbyZoomLift = 0.12f;
 
     // Zoom dans le Canon et secousses (tir, impact).
     void UpdateLens()
@@ -426,6 +428,12 @@ public class OrbitCamera : MonoBehaviour
         // Vers un tunnel (ou en en sortant) : le point visé descend vers les yeux et la distance fond vers zéro.
         float tunnelK = Mathf.SmoothStep(0f, 1f, tunnelBlend);
         Vector3 focus = target.position + Vector3.up * Mathf.Lerp(height, eyeHeight, tunnelK);
+        if (!ControlsEnabled && lobbyZoom > 0f)
+        {
+            float zk = Mathf.SmoothStep(0f, 1f, lobbyZoom);
+            rot = Quaternion.Euler(pitch - LobbyZoomPitchDrop * zk, yaw, 0f);
+            focus += Vector3.up * (LobbyZoomLift * zk);
+        }
         float wanted = Mathf.Lerp(ControlsEnabled ? distance : 5f, 0.05f, tunnelK);
         // Tout près des yeux, le corps masquerait la vue.
         if (tunnelK > 0.7f) HideTarget(target);

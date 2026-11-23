@@ -47,6 +47,8 @@ public class Footsteps : MonoBehaviour
     void Step(float volume, float pitch)
     {
         Vector3 feet = transform.position + Vector3.down * 0.85f;
-        GameAudio.Play3D(WorldBuilder.IsInHub(feet) ? "step_dirt" : "step_tile", feet, volume, 18f, 0.12f, pitch);
+        // V0.7.12 (Note 15) : pas sur le gravier des Hubs 30 % moins forts.
+        bool hub = WorldBuilder.IsInHub(feet);
+        GameAudio.Play3D(hub ? "step_dirt" : "step_tile", feet, hub ? volume * 0.7f : volume, 18f, 0.12f, pitch);
     }
 }

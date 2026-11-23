@@ -149,13 +149,13 @@ public static class ProtocolBoard
         text.color = journal ? new Color(0.04f, 0.035f, 0.03f) : Ink;
         text.lineSpacing = 0.95f;
         text.gameObject.AddComponent<ProtocolText>().Init(text, sheet, kind);
-        // Notice : l'image (Assets/Sprite/Notice.png) en bas du texte, à l'encre blanche.
+        // Notice : l'image (Assets/Sprite/Notice.png) à l'encre blanche, juste sous le texte (V0.7.12, Note 04 : plus haut sur le papier).
         if (kind == DocumentKind.Notice)
         {
             if (noticeImage == null)
                 noticeImage = new Material(Shader.Find("Sprites/Default")) { name = "ImageNotice", color = Ink, mainTexture = Resources.Load<Texture2D>("Art/Protocole/Notice") };
             float iw = PaperW * 0.8f, ih = iw * 392f / 627f;
-            var image = GameArt.Prim(PrimitiveType.Quad, sheet, new Vector3(0f, -hy + ih * 0.5f + 0.05f, 0.0015f), new Vector3(iw, ih, 1f), noticeImage);
+            var image = GameArt.Prim(PrimitiveType.Quad, sheet, new Vector3(0f, hy - 0.11f - ih * 0.5f, 0.0015f), new Vector3(iw, ih, 1f), noticeImage);
             image.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
             foreach (var c in image.GetComponentsInChildren<Collider>()) Object.Destroy(c);
             image.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
