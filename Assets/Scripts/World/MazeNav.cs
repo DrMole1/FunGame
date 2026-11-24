@@ -164,7 +164,7 @@ public class MazeNav
             int count = Physics.RaycastNonAlloc(new Vector3(p.x, top, p.z), Vector3.down, hits, top - info.lowest + 2f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
             surfaces.Clear();
             for (int k = 0; k < count; k++)
-                if (hits[k].transform.IsChildOf(structure) && hits[k].normal.y > 0.5f) surfaces.Add(hits[k].point.y);
+                if (Floor(hits[k]) && hits[k].normal.y > 0.5f) surfaces.Add(hits[k].point.y);
             surfaces.Sort((a, b) => b.CompareTo(a));
             int layer = 0;
             float above = top + Headroom;
@@ -268,8 +268,30 @@ public class MazeNav
         int count = Physics.RaycastNonAlloc(new Vector3(mid.x, start, mid.z), Vector3.down, hits, 2f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
         float best = float.NegativeInfinity;
         for (int k = 0; k < count; k++)
-            if (hits[k].transform.IsChildOf(structure) && hits[k].point.y > best) best = hits[k].point.y;
+            if (Floor(hits[k]) && hits[k].point.y > best) best = hits[k].point.y;
         return !float.IsNegativeInfinity(best) && Mathf.Abs(best - mid.y) < 0.2f;
+    }
+
+    // Sol praticable : le bâti, et (V0.7.14, Note 08) le tablier des ponts suspendus.
+    bool Floor(RaycastHit hit) => hit.transform.IsChildOf(structure) || SuspendedBridge.IsDeck(hit.collider);
+
+    // V0.7.14 : retire de la navigation les points d'un sol disparu (pont cassé) : plus aucun lien vers eux.
+    public void Cut(System.Func<Vector3, bool> inside)
+    {
+        if (height == null) return;
+        for (int n = 0; n < height.Length; n++)
+        {
+            if (float.IsNaN(height[n]) || links[n] == 0 || !inside(Position(n))) continue;
+            for (int dir = 0; dir < 8; dir++)
+            {
+                if (!Linked(n, dir)) continue;
+                int m = Neighbor(n, dir), back = (dir + 4) % 8;
+                links[m] &= (byte)~(1 << back);
+                doorLinks[m] &= (byte)~(1 << back);
+            }
+            links[n] = 0;
+            doorLinks[n] = 0;
+        }
     }
 
     void TryDiagonal(int a, int dir)

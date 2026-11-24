@@ -2,325 +2,118 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-// V0.7.11 (chapitre 11.3) : environnement Château. Une zone de 60 m de haut, damier noir et blanc partout, plafond supérieur gris.
-// - Rempart extérieur tiré parmi 12 gabarits (ligne brisée sur la grille de 4 x 4 de la zone). V0.7.12 : 10 m de haut, 6 m
-//   d'épaisseur, creux (rez-de-chaussée, et chemin de ronde à l'air libre entre les créneaux, relié par un escalier intérieur), néons
-//   sous les créneaux. Une herse fermée de chaque côté ; un levier sur le chemin de ronde, relié aux deux herses par des câbles noirs,
-//   les ouvre pour de bon. Douve de 2 m de profondeur accolée au rempart (côté entrée), large de 6 m et doublée par endroits, où des
-//   escaliers (dans le sens de la longueur) permettent d'en sortir ; une chaussée mène à la herse. 3 à 5 escaliers derrière (côté
-//   Neutral Room) montent sur le rempart. On ne le franchit autrement qu'en Canon.
-// - À partir de la Zone 4, un rempart intérieur autour de la Neutral Room (3 gabarits), aux mêmes propriétés.
-// - 6 Tours (30 m, 15 à 20 m de diamètre, créneaux, au moins 15 meurtrières, escalier en colimaçon de 3 m de large jusqu'au sommet,
-//   étages à 10 et 20 m une fois sur deux), 1 Donjon au centre (une Tour 50 % plus haute et plus large), 10 Maisons-Fou (15 m, 8 m de
-//   diamètre, un lustre au plafond).
-// - Entre eux, des salles de 8 à 12 m de haut (côtés de 5 à 20 m), aux toits ceints de créneaux, reliés entre eux et au sol par des
-//   escaliers (au moins 8 depuis le sol), et des corridors (15 % de corridors pour 85 % de salles ; 30 % des corridors ont un
-//   renfoncement en biseau) : cachots, salles d'armes, salles de banquet, chapelles (V0.7.12 : plus de halls). Chaque entrée a son
-//   arche ; aucun objet décoratif ne flotte. Éclairage par des lustres. Les cours (remparts, douves, abords des Tours) sont les
-//   endroits sans bâtiment.
+// Chapitre 11.3 : structure Château. V0.7.14 : le Château n'est plus une zone entière mais une structure posée dans une zone
+// d'Échiquier (parcelles bleues d'un gabarit, WorldBuilder.Structure) :
+// - délimitée par ses remparts de 20 m de haut, sur lesquels on ne peut ni monter ni sauter (l'enceinte de la structure monte
+//   jusqu'à son plafond gris, à 60 m), visibles malgré la distance et l'éclairage (briques lumineuses), surmontés de créneaux. Un
+//   rempart face à chaque partie de l'Échiquier (côté entrée, côté Neutral Room), chacun avec 3 entrées espacées d'au moins 30 m :
+//   une herse ouverte sous une arche et un pont qui survole la douve ;
+// - devant chaque rempart, une douve de 2 m de profondeur accolée à lui, large de 3 m (5 m par endroits, où un escalier dans le
+//   sens de la longueur permet d'en sortir), et un rebord de 2 m le long de l'Échiquier ;
+// - murs en briques noires et blanches, sols en damier, plafonds gris (béton) ;
+// - jusqu'à 6 Tours (30 m, 15 à 20 m de diamètre, créneaux, au moins 15 meurtrières, escalier en colimaçon de 3 m de large jusqu'au
+//   dernier étage, sans accès au toit ; étages à 10 et 20 m une fois sur deux) et 1 Donjon (une Tour 50 % plus haute et plus large),
+//   au centre de la zone de préférence ;
+// - entre eux, des salles de 8 à 12 m de haut (côtés de 5 à 20 m), aux toits ceints de créneaux et reliés entre eux et au sol par
+//   des escaliers, et des corridors (15 % pour 85 % de salles ; 30 % des corridors ont un renfoncement en biseau) : cachots, salles
+//   d'armes, salles de banquet, chapelles. Chaque entrée a son arche ; éclairage par des lustres ; aucun objet décoratif ne flotte.
+//   V0.7.14 (Note 01) : plus de torches.
 public static partial class WorldBuilder
 {
     public const float ChateauHeight = 60f;
-    // V0.7.13 : douves de 4 m de large, 7 m par endroits (avant : 6 et 12 m).
-    const float RampartHeight = 10f, RampartThick = 6f, MoatDepth = 2f, MoatWidth = 4f, MoatWideWidth = 7f, GateWidth = 4f, GateHeight = 5f;
-    const float TowerHeight = 30f, MaisonHeight = 15f, MaisonDiameter = 8f;
-    const int MaisonCount = 14;
+    // V0.7.14 : remparts de 20 m (une cellule d'épaisseur), douves de 3 m (5 m par endroits), rebord de 2 m.
+    const float RampartHeight = 20f, MoatDepth = 2f, LedgeWidth = 2f, MoatEnd = 5f, GateWidth = 4f, GateHeight = 5f;
+    const float TowerHeight = 30f;
+    const int MaxTowers = 6;
+    const float WideMoatChance = 0.3f;
 
-    // Gabarits (coordonnées sur la grille de 4 x 4 de la zone : x d'ouest en est, y du sud (entrée) au nord (Neutral Room)).
-    static readonly Vector2[][] OuterRamparts =
+    // Tour ronde posée dans la structure : centre, rayon, hauteur.
+    internal class RoundPlan { public Vector3 center; public float radius, height; public int kind; }   // kind : 0 Tour, 1 Donjon
+
+    internal class ChateauPlan
     {
-        new[] { new Vector2(0, 2), new Vector2(1, 2), new Vector2(1, 1), new Vector2(4, 1) },
-        new[] { new Vector2(0, 2), new Vector2(2, 2), new Vector2(2, 1), new Vector2(4, 1) },
-        new[] { new Vector2(0, 2), new Vector2(1, 2), new Vector2(1, 1), new Vector2(3, 1), new Vector2(3, 2), new Vector2(4, 2) },
-        new[] { new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 2), new Vector2(3, 2), new Vector2(3, 1), new Vector2(4, 1) },
-        new[] { new Vector2(0, 1), new Vector2(3, 1), new Vector2(3, 2), new Vector2(4, 2) },
-        new[] { new Vector2(0, 1), new Vector2(2, 1), new Vector2(2, 2), new Vector2(4, 2) },
-        new[] { new Vector2(0, 2), new Vector2(2, 2), new Vector2(2, 1), new Vector2(3, 1), new Vector2(3, 2), new Vector2(4, 2) },
-        new[] { new Vector2(0, 2), new Vector2(1, 2), new Vector2(1, 1), new Vector2(2, 1), new Vector2(2, 2), new Vector2(4, 2) },
-        new[] { new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 2), new Vector2(2, 2), new Vector2(2, 1), new Vector2(3, 1), new Vector2(3, 2), new Vector2(4, 2) },
-        new[] { new Vector2(0, 2), new Vector2(1, 2), new Vector2(1, 1), new Vector2(2, 1), new Vector2(2, 2), new Vector2(3, 2), new Vector2(3, 1), new Vector2(4, 1) },
-        new[] { new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 2), new Vector2(4, 2) },
-        new[] { new Vector2(0, 2), new Vector2(3, 2), new Vector2(3, 1), new Vector2(4, 1) },
-    };
-
-    static readonly Vector2[][] InnerRamparts =
-    {
-        new[] { new Vector2(1, 4), new Vector2(1, 3), new Vector2(3, 3), new Vector2(3, 4) },
-        new[] { new Vector2(0, 3), new Vector2(3, 3), new Vector2(3, 4) },
-        new[] { new Vector2(1, 4), new Vector2(1, 3), new Vector2(4, 3) },
-    };
-
-    // Point d'une grille de gabarit (4 x 4) en coordonnées monde (x, z).
-    static Vector2 GridPoint(int zone, Vector2 g) => new Vector2(OriginX + g.x * ZoneSize / 4f, ZoneSouth(zone) + g.y * ZoneSize / 4f);
-
-    internal class RampartPlan
-    {
-        public readonly List<Rect> rects = new List<Rect>();          // emprise de chaque segment (6 m d'épaisseur)
-        public readonly List<bool> horizontal = new List<bool>();
-        public readonly HashSet<Vector2Int> cells = new HashSet<Vector2Int>(), moat = new HashSet<Vector2Int>(), front = new HashSet<Vector2Int>(), back = new HashSet<Vector2Int>();
-        public HashSet<Vector2Int> nrSide;                              // cellules du côté de la Neutral Room
-        public int gateSegment = -1;
-        public Vector2 gate;                                            // milieu du passage (x, z)
-        public bool gateAlongX;
-        public float gateAt;
-        public readonly List<Rect> moatRects = new List<Rect>();       // V0.7.12 : emprise des douves (x, z), accolées au rempart
-        public readonly List<(Vector3 foot, Vector3 dir)> moatStairs = new List<(Vector3, Vector3)>();
+        public StructureSite site;
+        public System.Random rnd;
+        public readonly HashSet<Vector2Int> ring1 = new HashSet<Vector2Int>(), ring2 = new HashSet<Vector2Int>();
+        public readonly HashSet<Vector2Int> courts = new HashSet<Vector2Int>();      // cours intérieures (cellules vides)
+        public readonly HashSet<Vector2Int> wide = new HashSet<Vector2Int>();        // douve de 5 m
+        public readonly Dictionary<Vector2Int, Vector2Int> wideStairs = new Dictionary<Vector2Int, Vector2Int>();   // vers la voisine
+        public readonly Dictionary<Vector2Int, Vector2Int> outward = new Dictionary<Vector2Int, Vector2Int>();     // vers l'Échiquier
+        public readonly List<RoundPlan> rounds = new List<RoundPlan>();
+        public readonly Dictionary<Room, int> natures = new Dictionary<Room, int>();
     }
 
-    static RampartPlan PlanRampart(Maze m, Vector2[] template, System.Random rnd)
+    // Avant l'Échiquier : structure, remparts, entrées, Tours et Donjon, puis les salles et corridors du Château.
+    static ChateauPlan PlanChateau(Maze m, int seed, int zone)
     {
-        var plan = new RampartPlan();
-        float half = RampartThick * 0.5f, west = OriginX, east = OriginX + ZoneSize, south = ZoneSouth(m.zone), north = south + ZoneSize;
-        for (int k = 0; k + 1 < template.Length; k++)
-        {
-            Vector2 a = GridPoint(m.zone, template[k]), b = GridPoint(m.zone, template[k + 1]);
-            bool horizontal = Mathf.Abs(a.y - b.y) < 0.01f;
-            Rect r = horizontal
-                ? Rect.MinMaxRect(Mathf.Min(a.x, b.x) - half, a.y - half, Mathf.Max(a.x, b.x) + half, a.y + half)
-                : Rect.MinMaxRect(a.x - half, Mathf.Min(a.y, b.y) - half, a.x + half, Mathf.Max(a.y, b.y) + half);
-            // Les bouts qui touchent le bord de la zone s'arrêtent au mur d'enceinte.
-            r = Rect.MinMaxRect(Mathf.Max(r.xMin, west), Mathf.Max(r.yMin, south), Mathf.Min(r.xMax, east), Mathf.Min(r.yMax, north));
-            plan.rects.Add(r);
-            plan.horizontal.Add(horizontal);
-        }
-        // Cellules couvertes par le rempart.
-        for (int i = 0; i < m.N; i++)
-            for (int j = 0; j < m.N; j++)
-            {
-                Vector3 c = m.Center(i, j);
-                var cell = Rect.MinMaxRect(c.x - Cell * 0.5f + 0.05f, c.z - Cell * 0.5f + 0.05f, c.x + Cell * 0.5f - 0.05f, c.z + Cell * 0.5f - 0.05f);
-                if (plan.rects.Exists(r => r.Overlaps(cell))) plan.cells.Add(new Vector2Int(i, j));
-            }
-        // Côté de la Neutral Room : tout ce qu'on atteint depuis elle sans traverser le rempart.
-        plan.nrSide = Flood(m, new Vector2Int(m.doorCol, m.N - 2), plan.cells);
-
-        // Passage (herses) : sur le plus long segment horizontal, loin de ses extrémités.
-        int best = -1;
-        for (int k = 0; k < plan.rects.Count; k++)
-            if (plan.horizontal[k] && (best < 0 || plan.rects[k].width > plan.rects[best].width)) best = k;
-        if (best < 0) best = 0;
-        plan.gateSegment = best;
-        Rect gr = plan.rects[best];
-        plan.gateAlongX = plan.horizontal[best];
-        plan.gateAt = plan.gateAlongX ? Rand(rnd, gr.xMin + 14f, gr.xMax - 14f) : Rand(rnd, gr.yMin + 14f, gr.yMax - 14f);
-        plan.gate = plan.gateAlongX ? new Vector2(plan.gateAt, gr.center.y) : new Vector2(gr.center.x, plan.gateAt);
-
-        // V0.7.12 : douves accolées au rempart, du côté de l'entrée de la zone : 6 m de large, doublées par endroits (où descendent
-        // les escaliers, dans le sens de la longueur) ; elles épousent les coins ; une chaussée mène à la herse.
-        var moat = new List<Rect>();
-        var holes = new List<Rect>(plan.rects);
-        float run = StairRun(MoatDepth);
-        foreach (var (a, b, inward) in OutlineEdges(plan.rects, west, east, south, north))
-        {
-            Vector2 outward = -inward, mid = (a + b) * 0.5f;
-            Vector2 probe = mid + outward * (MoatWidth + 1f);
-            if (!m.CellAt(new Vector3(probe.x, 0f, probe.y), out int pi, out int pj) || plan.nrSide.Contains(new Vector2Int(pi, pj))) continue;
-            bool alongX = inward.x == 0f;
-            float lo = alongX ? Mathf.Min(a.x, b.x) : Mathf.Min(a.y, b.y), hi = alongX ? Mathf.Max(a.x, b.x) : Mathf.Max(a.y, b.y);
-            float line = alongX ? a.y : a.x, sign = alongX ? outward.y : outward.x;
-            moat.Add(Band(alongX, lo - MoatWidth, hi + MoatWidth, line, sign, MoatWidth));
-            // Face du passage : la chaussée, et un endroit doublé de chaque côté de la herse.
-            bool gateFace = alongX == plan.gateAlongX && plan.gateAt > lo && plan.gateAt < hi
-                && Mathf.Abs(line - (plan.gateAlongX ? (sign > 0f ? gr.yMax : gr.yMin) : (sign > 0f ? gr.xMax : gr.xMin))) < 0.01f;
-            var spans = new List<Vector2>();
-            if (gateFace)
-            {
-                holes.Add(Band(alongX, plan.gateAt - GateWidth * 0.5f - 0.6f, plan.gateAt + GateWidth * 0.5f + 0.6f, line, sign, MoatWideWidth + 0.5f));
-                spans.Add(new Vector2(lo, plan.gateAt - GateWidth * 0.5f - 1.5f));
-                spans.Add(new Vector2(plan.gateAt + GateWidth * 0.5f + 1.5f, hi));
-            }
-            else if (hi - lo > 20f && rnd.NextDouble() < 0.75) spans.Add(new Vector2(lo, hi));
-            foreach (var span in spans)
-            {
-                float room = span.y - span.x - 2f;
-                if (room < run + 5f) continue;
-                float length = Mathf.Min(room, Rand(rnd, run + 6f, run + 11f));
-                float s0 = Rand(rnd, span.x + 1f, span.y - 1f - length), s1 = s0 + length;
-                moat.Add(Band(alongX, s0, s1, line, sign, MoatWideWidth));
-                // Escalier contre le bord extérieur de la partie doublée, le long de la douve : il arrive au sol au bout de cette partie
-                // (là où la douve redevient étroite) ; son pied garde de l'espace avant le mur d'en face.
-                float across = line + sign * (MoatWideWidth - 1.35f);
-                bool up = rnd.NextDouble() < 0.5;
-                float footAt = up ? s1 - run : s0 + run;
-                Vector3 foot = alongX ? new Vector3(footAt, 0f, across) : new Vector3(across, 0f, footAt);
-                Vector3 dir = (alongX ? Vector3.right : Vector3.forward) * (up ? 1f : -1f);
-                plan.moatStairs.Add((foot, dir));
-            }
-        }
-        // Ni sur le Hub, la Neutral Room et l'entrée de la zone, ni hors de la zone.
-        for (int i = 0; i < m.N; i++)
-            for (int j = 0; j < m.N; j++)
-                if (m.Reserved(i, j) || m.Fixed(i, j) || Mathf.Abs(i - m.start.x) + Mathf.Abs(j - m.start.y) <= 1)
-                {
-                    Vector3 c = m.Center(i, j);
-                    holes.Add(Rect.MinMaxRect(c.x - Cell * 0.5f, c.z - Cell * 0.5f, c.x + Cell * 0.5f, c.z + Cell * 0.5f));
-                }
-        var pieces = new List<Rect>();
-        foreach (Rect r in moat)
-        {
-            Rect clipped = Rect.MinMaxRect(Mathf.Max(r.xMin, west), Mathf.Max(r.yMin, south), Mathf.Min(r.xMax, east), Mathf.Min(r.yMax, north));
-            if (clipped.width > 0.05f && clipped.height > 0.05f) pieces.Add(clipped);
-        }
-        // Morceaux disjoints (sols sans recouvrement).
-        foreach (Rect r in pieces)
-            foreach (Rect p in Subtract(Subtract(new List<Rect> { r }, holes), plan.moatRects))
-                if (p.width > 0.3f && p.height > 0.3f) plan.moatRects.Add(p);
-        // Un escalier dont la partie doublée a été rognée (Hub, chaussée) n'est gardé que s'il est tout entier dans la douve.
-        plan.moatStairs.RemoveAll(st => !InRects(plan.moatRects, st.foot - st.dir * 0.5f) || !InRects(plan.moatRects, st.foot + st.dir * (run - 0.2f)));
-
-        foreach (var c in plan.cells)
-            for (int d = 0; d < 4; d++)
-            {
-                var n = c + new Vector2Int(DI[d], DJ[d]);
-                if (!m.InGrid(n.x, n.y) || plan.cells.Contains(n) || m.Reserved(n.x, n.y) || m.Fixed(n.x, n.y)) continue;
-                if (plan.nrSide.Contains(n)) plan.back.Add(n);
-            }
-        // Cellules des douves, et une bande de sol devant elles.
-        for (int i = 0; i < m.N; i++)
-            for (int j = 0; j < m.N; j++)
-            {
-                var c = new Vector2Int(i, j);
-                if (plan.cells.Contains(c) || m.Reserved(i, j) || m.Fixed(i, j)) continue;
-                Vector3 cc = m.Center(i, j);
-                var cell = Rect.MinMaxRect(cc.x - Cell * 0.5f + 0.05f, cc.z - Cell * 0.5f + 0.05f, cc.x + Cell * 0.5f - 0.05f, cc.z + Cell * 0.5f - 0.05f);
-                if (plan.moatRects.Exists(r => r.Overlaps(cell))) plan.moat.Add(c);
-            }
-        foreach (var c in plan.moat)
-            for (int d = 0; d < 4; d++)
-            {
-                var n = c + new Vector2Int(DI[d], DJ[d]);
-                if (!m.InGrid(n.x, n.y) || plan.cells.Contains(n) || plan.moat.Contains(n) || plan.nrSide.Contains(n) || m.Reserved(n.x, n.y) || m.Fixed(n.x, n.y)) continue;
-                plan.front.Add(n);
-            }
-        plan.moat.Remove(m.start);
-        plan.front.Remove(m.start);
-        return plan;
-    }
-
-    // Bande le long d'une arête (alongX : arête parallèle à X, à z = line), de 'lo' à 'hi', large de 'width' du côté 'sign'.
-    static Rect Band(bool alongX, float lo, float hi, float line, float sign, float width)
-    {
-        float a = line, b = line + sign * width;
-        return alongX ? Rect.MinMaxRect(lo, Mathf.Min(a, b), hi, Mathf.Max(a, b)) : Rect.MinMaxRect(Mathf.Min(a, b), lo, Mathf.Max(a, b), hi);
-    }
-
-    static bool InRects(List<Rect> rects, Vector3 p) => rects.Exists(r => r.Contains(new Vector2(p.x, p.z)));
-
-    // Contour de la réunion de rectangles disjoints (bords de la zone compris) : (début, fin, direction vers l'intérieur).
-    static List<(Vector2 a, Vector2 b, Vector2 inward)> UnionOutline(List<Rect> rects)
-    {
-        var result = new List<(Vector2, Vector2, Vector2)>();
-        foreach (Rect r in rects)
-        {
-            var edges = new[]
-            {
-                (new Vector2(r.xMin, r.yMin), new Vector2(r.xMax, r.yMin), new Vector2(0f, 1f)),
-                (new Vector2(r.xMin, r.yMax), new Vector2(r.xMax, r.yMax), new Vector2(0f, -1f)),
-                (new Vector2(r.xMin, r.yMin), new Vector2(r.xMin, r.yMax), new Vector2(1f, 0f)),
-                (new Vector2(r.xMax, r.yMin), new Vector2(r.xMax, r.yMax), new Vector2(-1f, 0f)),
-            };
-            foreach (var (a, b, inward) in edges)
-            {
-                bool alongX = inward.x == 0f;
-                float line = alongX ? a.y : a.x, outside = alongX ? -inward.y : -inward.x;
-                var spans = new List<Vector2> { alongX ? new Vector2(a.x, b.x) : new Vector2(a.y, b.y) };
-                // Retire ce qu'un autre rectangle couvre juste de l'autre côté de l'arête.
-                float probe = line + outside * 0.02f;
-                foreach (Rect o in rects)
-                {
-                    if (o == r) continue;
-                    float cLo = alongX ? o.yMin : o.xMin, cHi = alongX ? o.yMax : o.xMax;
-                    if (probe <= cLo || probe >= cHi) continue;
-                    float oLo = alongX ? o.xMin : o.yMin, oHi = alongX ? o.xMax : o.yMax;
-                    var next = new List<Vector2>();
-                    foreach (var s in spans)
-                    {
-                        if (s.y <= oLo || s.x >= oHi) { next.Add(s); continue; }
-                        if (s.x < oLo) next.Add(new Vector2(s.x, oLo));
-                        if (s.y > oHi) next.Add(new Vector2(oHi, s.y));
-                    }
-                    spans = next;
-                }
-                foreach (var s in spans)
-                    if (s.y - s.x > 0.05f)
-                        result.Add(alongX ? (new Vector2(s.x, line), new Vector2(s.y, line), inward) : (new Vector2(line, s.x), new Vector2(line, s.y), inward));
-            }
-        }
-        return result;
-    }
-
-    // Cellules atteintes depuis 'from' sans passer par 'blocked' (ni par le Hub).
-    static HashSet<Vector2Int> Flood(Maze m, Vector2Int from, HashSet<Vector2Int> blocked)
-    {
-        var seen = new HashSet<Vector2Int>();
-        if (!m.InGrid(from.x, from.y)) return seen;
-        var queue = new Queue<Vector2Int>();
-        queue.Enqueue(from);
-        seen.Add(from);
-        while (queue.Count > 0)
-        {
-            var c = queue.Dequeue();
-            for (int d = 0; d < 4; d++)
-            {
-                var n = c + new Vector2Int(DI[d], DJ[d]);
-                if (!m.InGrid(n.x, n.y) || seen.Contains(n) || blocked.Contains(n) || m.Reserved(n.x, n.y)) continue;
-                seen.Add(n);
-                queue.Enqueue(n);
-            }
-        }
-        return seen;
-    }
-
-    // Tour ronde posée dans la zone : centre, rayon, hauteur (Tours, Donjon, Maisons-Fou).
-    internal class RoundPlan { public Vector3 center; public float radius, height; public int kind; }   // kind : 0 Tour, 1 Donjon, 2 Maison-Fou
-
-    static IEnumerator BuildChateauSteps(ZoneBuild build, Transform parent, int seed, int zone, ZoneRefs previous)
-    {
-        var rnd = new System.Random(seed * 37 + zone * 6151);
-        Maze m = CreateMaze(seed, zone);
-        m.terrain = TerrainKind.Chateau;
-        m.voidCell = new bool[m.N, m.N];
+        var plan = new ChateauPlan { rnd = new System.Random(seed * 37 + zone * 6151) };
+        var rnd = plan.rnd;
+        var site = plan.site = MarkStructure(m, TerrainKind.Chateau, Terrains.TemplateOf(seed, zone));
+        int n = m.N;
+        m.voidCell = new bool[n, n];
         m.voidCeil = ChateauHeight;
-        m.bevelChance = 0.3f;
-        // V0.7.12 : toutes les entrées (salles, corridors, portes des cours) ont leur arche.
+        m.structureBevelChance = 0.3f;
         m.archChance = 1f;
         m.archDoorways = true;
-        m.ceilingSlab = RoofSlab;
-        m.corridorCeil = 8f;
-        if (previous != null) m.southHeights = previous.maze.northHeights;
+        m.structureCeilingSlab = RoofSlab;
+        m.structureCorridorCeil = 8f;
+        m.brickWalls = true;
+        m.greyCeilings = true;
 
-        // ---------- Plan : remparts, Tours, Donjon, Maisons-Fou ----------
-        var ramparts = new List<RampartPlan> { PlanRampart(m, OuterRamparts[rnd.Next(OuterRamparts.Length)], rnd) };
-        if (zone >= 4) ramparts.Add(PlanRampart(m, InnerRamparts[rnd.Next(InnerRamparts.Length)], rnd));
-        void MarkVoid(Vector2Int c) { if (m.InGrid(c.x, c.y) && !m.Reserved(c.x, c.y) && !m.Fixed(c.x, c.y) && c != m.start) m.voidCell[c.x, c.y] = true; }
-        foreach (var rp in ramparts)
-        {
-            foreach (var c in rp.cells) MarkVoid(c);
-            foreach (var c in rp.moat) MarkVoid(c);
-            foreach (var c in rp.front) MarkVoid(c);
-            foreach (var c in rp.back) MarkVoid(c);
-        }
-        // V0.7.13 : ni salle, ni corridor devant le rempart (côté entrée) : une grande cour, où se dressent les Maisons-Fou.
-        var frontSide = new HashSet<Vector2Int>();
-        for (int i = 0; i < m.N; i++)
-            for (int j = 0; j < m.N; j++)
+        // Douve et rebord (à 1 cellule de l'Échiquier), rempart (à 2 cellules).
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
             {
+                if (!m.InStructure(i, j) || m.Fixed(i, j)) continue;
                 var c = new Vector2Int(i, j);
-                if (ramparts[0].nrSide.Contains(c) || ramparts[0].cells.Contains(c) || m.Reserved(i, j) || m.Fixed(i, j)) continue;
-                frontSide.Add(c);
-                MarkVoid(c);
+                if (site.dist[i, j] == 1) plan.ring1.Add(c);
+                else if (site.dist[i, j] == 2) plan.ring2.Add(c);
+                else continue;
+                m.voidCell[i, j] = true;
             }
-        // Une marge de sol libre devant le Hub et devant la Neutral Room.
+        // Entrées : une ligne droite à travers la douve et le rempart, jusqu'à une cour intérieure.
+        PickCrossings(m, site, 3, c => true, rnd);
+        foreach (var c in site.crossings)
+        {
+            var landing = c.At(3);
+            m.voidCell[landing.x, landing.y] = true;
+            plan.courts.Add(landing);
+        }
+        // Douve de 5 m par endroits (bord droit, loin des entrées), avec un escalier vers une voisine au bord droit.
+        foreach (var c in plan.ring1)
+        {
+            int toE = -1, count = 0;
+            for (int d = 0; d < 4; d++)
+            {
+                var q = c + new Vector2Int(DI[d], DJ[d]);
+                if (m.InGrid(q.x, q.y) && !m.InStructure(q.x, q.y)) { toE = d; count++; }
+            }
+            if (count != 1) continue;
+            plan.outward[c] = new Vector2Int(DI[toE], DJ[toE]);
+        }
+        var ringList = new List<Vector2Int>(plan.ring1);
+        ringList.Sort((a, b) => a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y));
+        foreach (var c in ringList)
+        {
+            if (!plan.outward.TryGetValue(c, out var o) || rnd.NextDouble() >= WideMoatChance) continue;
+            if (site.crossings.Exists(g => Mathf.Abs(g.At(1).x - c.x) + Mathf.Abs(g.At(1).y - c.y) <= 2)) continue;
+            if (System.Linq.Enumerable.Any(plan.wide, w => Mathf.Abs(w.x - c.x) + Mathf.Abs(w.y - c.y) <= 3)) continue;
+            var side = new Vector2Int(o.y, o.x);
+            var options = new List<Vector2Int>();
+            foreach (var s in new[] { side, -side })
+            {
+                var nb = c + s;
+                if (plan.outward.TryGetValue(nb, out var no) && no == o && !plan.wide.Contains(nb)) options.Add(s);
+            }
+            if (options.Count == 0) continue;
+            plan.wide.Add(c);
+            plan.wideStairs[c] = options[rnd.Next(options.Count)];
+        }
+
+        // Tours et Donjon : sur des cours dégagées, loin des remparts, du Hub et de la Neutral Room.
         bool NearKeep(int i, int j) => Mathf.Abs(i - m.start.x) + Mathf.Abs(j - m.start.y) <= 2 || m.neutralRoom.Contains(new Vector2Int(i, j))
             || Mathf.Abs(i - m.doorCol) <= 2 && j >= m.N - 5;
-
-        var rounds = new List<RoundPlan>();
-        // Emprise libre : ni rempart, ni douve, ni autre bâtiment rond (3 m d'écart), ni les abords du Hub et de la Neutral Room ; les
-        // cours au pied des remparts sont permises.
-        var rampartArea = new HashSet<Vector2Int>();
-        foreach (var rp in ramparts) { rampartArea.UnionWith(rp.cells); rampartArea.UnionWith(rp.moat); }
-        // side : 0 n'importe où, 1 derrière le rempart extérieur (côté Neutral Room), 2 devant (côté entrée).
-        bool PlotFree(Vector3 center, float plot, int side = 0)
+        bool PlotFree(Vector3 center, float plot)
         {
             Vector3 o = m.origin;
             int i0 = Mathf.FloorToInt((center.x - plot - o.x) / Cell), i1 = Mathf.FloorToInt((center.x + plot - o.x) / Cell);
@@ -328,11 +121,10 @@ public static partial class WorldBuilder
             for (int i = i0; i <= i1; i++)
                 for (int j = j0; j <= j1; j++)
                 {
-                    var q = new Vector2Int(i, j);
-                    if (!m.InGrid(i, j) || m.Reserved(i, j) || m.Fixed(i, j) || rampartArea.Contains(q) || NearKeep(i, j)) return false;
-                    if (side == 1 && !ramparts[0].nrSide.Contains(q) || side == 2 && !frontSide.Contains(q)) return false;
+                    if (!m.InStructure(i, j) || m.Fixed(i, j) || site.dist[i, j] < 3 || NearKeep(i, j) || plan.courts.Contains(new Vector2Int(i, j))) return false;
+                    if (site.crossings.Exists(g => g.At(3) == new Vector2Int(i, j) || g.At(4) == new Vector2Int(i, j))) return false;
                 }
-            foreach (var other in rounds)
+            foreach (var other in plan.rounds)
                 if (Flat(other.center - center) < other.radius + plot + 3f) return false;
             return true;
         }
@@ -341,250 +133,341 @@ public static partial class WorldBuilder
             Vector3 o = m.origin;
             for (int i = Mathf.FloorToInt((center.x - plot - o.x) / Cell); i <= Mathf.FloorToInt((center.x + plot - o.x) / Cell); i++)
                 for (int j = Mathf.FloorToInt((center.z - plot - o.z) / Cell); j <= Mathf.FloorToInt((center.z + plot - o.z) / Cell); j++)
-                    MarkVoid(new Vector2Int(i, j));
+                {
+                    if (!m.InStructure(i, j)) continue;
+                    m.voidCell[i, j] = true;
+                    plan.courts.Add(new Vector2Int(i, j));
+                }
         }
-        // Donjon d'abord, au centre de la zone (les 4 parts centrales de la grille de 4 x 4).
+        // Cellules libres de la structure (pour tirer un centre).
+        var inner = new List<Vector2Int>();
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
+                if (m.InStructure(i, j) && site.dist[i, j] >= 3 && !m.Fixed(i, j)) inner.Add(new Vector2Int(i, j));
+        bool TryRound(float radius, float height, int kind, Rect? area, int attempts)
+        {
+            if (inner.Count == 0) return false;
+            for (int attempt = 0; attempt < attempts; attempt++)
+            {
+                var cell = inner[rnd.Next(inner.Count)];
+                Vector3 c = m.Center(cell.x, cell.y) + new Vector3(Rand(rnd, -2.5f, 2.5f), 0f, Rand(rnd, -2.5f, 2.5f));
+                if (area.HasValue && !area.Value.Contains(new Vector2(c.x, c.z))) continue;
+                if (!PlotFree(c, radius + 2f)) continue;
+                MarkPlot(c, radius + 2f);
+                plan.rounds.Add(new RoundPlan { center = c, radius = radius, height = height, kind = kind });
+                return true;
+            }
+            return false;
+        }
+        // Le Donjon d'abord, au centre de la zone (les 4 parcelles du milieu) si la structure y passe ; sinon ailleurs, plus petit s'il
+        // le faut.
         {
             float radius = Rand(rnd, 15f, 20f) * 1.5f * 0.5f;
             Vector2 lo = GridPoint(zone, new Vector2(1f, 1f)), hi = GridPoint(zone, new Vector2(3f, 3f));
-            for (int attempt = 0; attempt < 400; attempt++)
-            {
-                float r = attempt < 300 ? radius : radius * 0.8f;
-                var c = new Vector3(Rand(rnd, lo.x + r, hi.x - r), 0f, Rand(rnd, lo.y + r, hi.y - r));
-                if (!PlotFree(c, r + 3f)) continue;
-                MarkPlot(c, r + 3f);
-                rounds.Add(new RoundPlan { center = c, radius = r, height = TowerHeight * 1.5f, kind = 1 });
-                break;
-            }
+            var center = Rect.MinMaxRect(lo.x, lo.y, hi.x, hi.y);
+            if (!TryRound(radius, TowerHeight * 1.5f, 1, center, 300) && !TryRound(radius * 0.8f, TowerHeight * 1.5f, 1, center, 200)
+                && !TryRound(radius * 0.8f, TowerHeight * 1.5f, 1, null, 300))
+                TryRound(radius * 0.6f, TowerHeight * 1.5f, 1, null, 300);
         }
-        void PlaceRounds(int count, int kind, float minR, float maxR, float height, int side)
-        {
-            for (int k = 0; k < count; k++)
-                for (int attempt = 0; attempt < 300; attempt++)
-                {
-                    float r = Rand(rnd, minR, maxR);
-                    var c = new Vector3(Rand(rnd, OriginX + r + 6f, OriginX + ZoneSize - r - 6f), 0f, Rand(rnd, ZoneSouth(zone) + r + 6f, ZoneSouth(zone) + ZoneSize - r - 6f));
-                    if (!PlotFree(c, r + 2f, side)) continue;
-                    MarkPlot(c, r + 2f);
-                    rounds.Add(new RoundPlan { center = c, radius = r, height = height, kind = kind });
-                    break;
-                }
-        }
-        // V0.7.13 : les 6 Tours derrière le rempart (côté Neutral Room), les 14 Maisons-Fou devant (côté entrée).
-        PlaceRounds(6, 0, 7.5f, 10f, TowerHeight, 1);
-        PlaceRounds(MaisonCount, 2, MaisonDiameter * 0.5f, MaisonDiameter * 0.5f, MaisonHeight, 2);
-        yield return null;
+        // Jusqu'à 6 Tours.
+        int towers = 3 + rnd.Next(MaxTowers - 2);
+        for (int k = 0; k < towers; k++) TryRound(Rand(rnd, 7.5f, 10f), TowerHeight, 0, null, 120);
 
-        // ---------- Salles et corridors (labyrinthe dans les cellules restantes) ----------
+        // Salles et corridors dans le reste de la structure.
         var style = new ZoneStyle
         {
             maxRooms = 400, minRoomSize = 1, maxRoomSize = 4, roomCoverage = 0.85f, pitChance = 0f, minPitDepth = 1.5f, maxPitDepth = 0f,
             maxLayerDepth = 0f, bridgeChance = 0f, maxHeight = 12f, floors = new[] { 0f }, ceilings = new[] { 8f, 9f, 10f, 11f, 12f },
             chaoticCeilings = new[] { 8f, 10f, 12f }, pitCeilings = new[] { 8f }, fixedRooms = true,
         };
-        Generate(m, rnd, style);
-        StampFixedRooms(m);
-        var natures = new Dictionary<Room, int>();
+        Generate(m, rnd, style, (i, j) => m.InStructure(i, j));
         foreach (Room room in m.rooms)
-            if (!room.plain) { room.plain = true; natures[room] = rnd.Next(RoomNatures); }
-        OpenCourtyards(m, rnd);
-        // L'entrée de la zone, seule devant le rempart, s'ouvre sur toute la cour qui l'entoure.
-        for (int d = 0; d < 4; d++)
-            if (m.Void(m.start.x + DI[d], m.start.y + DJ[d])) SetWall(m, m.start.x, m.start.y, d, false);
-        // Chemins (Parfum, câbles) : les cours se traversent librement, pas les remparts (sauf par leur passage).
-        var rampartCells = new HashSet<Vector2Int>();
-        foreach (var rp in ramparts) rampartCells.UnionWith(rp.cells);
-        for (int i = 0; i < m.N; i++)
-            for (int j = 0; j < m.N; j++)
-                foreach (int d in new[] { 0, 2 })
-                {
-                    int ni = i + DI[d], nj = j + DJ[d];
-                    if (!m.Void(i, j) || !m.Void(ni, nj)) continue;
-                    if (rampartCells.Contains(new Vector2Int(i, j)) || rampartCells.Contains(new Vector2Int(ni, nj))) continue;
-                    SetWall(m, i, j, d, false);
-                }
-        yield return null;
-
-        var refs = new ZoneRefs { index = zone, maze = m, root = new GameObject("Zone " + zone), terrain = TerrainKind.Chateau };
-        build.Refs = refs;
-        Transform root = refs.root.transform;
-        root.SetParent(parent, false);
-        var colliders = new GameObject("Colliders");
-        colliders.transform.SetParent(root, false);
-        refs.structure = colliders.transform;
-        refs.entrance = m.Center(m.start.x, m.start.y);
-        var outer = ramparts[0];
-        refs.sideOf = p => m.CellAt(p, out int ci, out int cj) && outer.nrSide.Contains(new Vector2Int(ci, cj)) ? 1 : 0;
-        // V0.7.13 : dehors (luminosité ambiante relevée) : cours, douves, chemins de ronde et toits ; pas dans les Tours, le Donjon,
-        // les Maisons-Fou ni sous le chemin de ronde.
-        refs.outdoors = p =>
-        {
-            if (!m.CellAt(p, out int oi, out int oj)) return false;
-            foreach (var r in rounds)
-                if (Flat(p - r.center) < r.radius + 0.3f && p.y < r.height + 0.5f) return false;
-            if (rampartCells.Contains(new Vector2Int(oi, oj))) return p.y > RampartHeight - 0.2f;
-            return m.Void(oi, oj) || p.y > m.Ceil(oi, oj) + 0.1f;
-        };
-
-        var geometry = BuildGeometry(m, root, colliders, new System.Random(seed * 97 + zone * 173));
-        while (geometry.MoveNext()) yield return null;
-
-        // ---------- Cours, douves, toits, enceinte de 60 m ----------
-        var shell = new Kit(root, colliders.transform, "Z" + zone + "_Chateau");
-        BuildCourtyards(m, ramparts, shell);
-        // Cours où les escaliers des toits ne vont pas : remparts, douves, abords des Tours, du Hub et de la Neutral Room.
-        var busy = new HashSet<Vector2Int>();
-        foreach (var rp in ramparts) { busy.UnionWith(rp.cells); busy.UnionWith(rp.moat); busy.UnionWith(rp.back); }
-        for (int i = 0; i < m.N; i++)
-            for (int j = 0; j < m.N; j++)
-            {
-                Vector3 cc = m.Center(i, j);
-                if (NearKeep(i, j) || rounds.Exists(r => Flat(r.center - cc) < r.radius + 2.6f)) busy.Add(new Vector2Int(i, j));
-            }
-        BuildRoofs(m, shell, rnd, busy);
-        BuildEnclosure(m, shell, ChateauHeight, previous);
-        shell.Flush();
-        yield return null;
-
-        // ---------- Remparts ----------
-        for (int k = 0; k < ramparts.Count; k++)
-        {
-            BuildRampart(m, refs, ramparts[k], root, colliders.transform, zone * 10 + k, new System.Random(seed * 41 + zone * 313 + k * 71), k == 0);
-            yield return null;
-        }
-
-        // ---------- Tours, Donjon, Maisons-Fou ----------
-        float highest = float.MinValue;
-        foreach (var plan in rounds)
-        {
-            var kit = new Kit(root, colliders.transform, "Z" + zone + (plan.kind == 2 ? "_MaisonFou" : plan.kind == 1 ? "_Donjon" : "_Tour"));
-            if (plan.kind == 2) BuildMaisonFou(kit, plan, rnd);
-            else
-            {
-                Vector3 summit = BuildTower(kit, plan, rnd, root);
-                // Cloches Décoratives tout en haut des Tours et du Donjon (chapitre 7.6).
-                refs.bellSpots.Add((summit + new Vector3(Rand(rnd, -1.5f, 1.5f), 0f, Rand(rnd, -1.5f, 1.5f)), 0f));
-                if (summit.y > highest) highest = summit.y;
-                m.perches.Add((summit + Vector3.right * 2f, 0f, 3f));
-            }
-            kit.Flush();
-            yield return null;
-        }
-        // Le plus haut d'abord : les Cloches de la zone y apparaissent en priorité.
-        refs.bellSpots.Sort((a, b) => b.pos.y.CompareTo(a.pos.y));
-        int bells = GameRules.HangingBellsInZone(zone);
-        if (refs.bellSpots.Count > bells) refs.bellSpots.RemoveRange(bells, refs.bellSpots.Count - bells);
-
-        BuildNeutralRoom(m, root, refs, new System.Random(seed * 59 + zone * 613));
-        BuildBevels(m, root, refs, new System.Random(seed * 53 + zone * 929));
-        yield return null;
-
-        // Décor des salles (lustres, emplacements des monticules), puis le mobilier selon la nature de chaque salle.
-        Physics.SyncTransforms();
-        floorEyes = new List<Vector3>();
-        statueLog = refs.statues;
-        var decor = Decorate(m, root, colliders.transform, rnd, refs.itemSpots);
-        while (decor.MoveNext()) yield return null;
-        statueLog = null;
-        FurnishCastle(m, root, natures, rnd);
-        CourtyardSpots(m, refs, rnd);
-        yield return null;
-        var supers = FindSuperMoundSpots(m, refs, new System.Random(seed * 67 + zone * 389));
-        while (supers.MoveNext()) yield return null;
-
-        refs.lowestFloor = -MoatDepth - 1f;
-        refs.nav = new MazeNav();
-        refs.nav.AddZone(m.origin, m.N, Cell, (i, j) => !m.Reserved(i, j), (i, j) => TowerHeight * 1.5f + 2f, refs.lowestFloor);
-        refs.nav.Prepare(colliders.transform, refs.door != null ? refs.door.Blocker : null);
-        AddReflectionProbes(m, root);
-        if (zone == GameRules.SecretCorpseZone) PlaceSecretCorpse(m, root);
-        // Le mur nord de la zone monte jusqu'au plafond gris : la zone suivante n'a rien à compléter.
-        for (int i = 0; i < m.N; i++) m.northHeights[i] = ChateauHeight;
+            if (!room.plain) { room.plain = true; plan.natures[room] = rnd.Next(RoomNatures); }
+        return plan;
     }
 
-    // Les cours (cellules vides) s'ouvrent sur les salles et corridors voisins : chaque région de salles est reliée à au moins une
-    // cour (sauf celle de la Neutral Room et celle du Hub, déjà reliées au reste), et chaque cour à plusieurs portes.
-    static void OpenCourtyards(Maze m, System.Random rnd)
+    // Point d'une grille de gabarit (4 x 4) en coordonnées monde (x, z).
+    static Vector2 GridPoint(int zone, Vector2 g) => new Vector2(OriginX + g.x * ZoneSize / 4f, ZoneSouth(zone) + g.y * ZoneSize / 4f);
+
+    // Après l'Échiquier : passages des entrées, cours reliées aux salles.
+    static void FinishChateauPlan(Maze m, ChateauPlan plan)
     {
-        var edges = new List<(Vector2Int town, int dir)>();
-        for (int i = 0; i < m.N; i++)
-            for (int j = 0; j < m.N; j++)
+        foreach (var c in plan.site.crossings)
+            for (int k = 0; k < 3; k++)
             {
-                if (m.Void(i, j) || m.Reserved(i, j) || m.Fixed(i, j)) continue;
-                for (int d = 0; d < 4; d++)
-                {
-                    int ni = i + DI[d], nj = j + DJ[d];
-                    if (m.Void(ni, nj)) edges.Add((new Vector2Int(i, j), d));
-                }
+                var q = c.At(k);
+                SetWall(m, q.x, q.y, c.d, false);
             }
-        Shuffle(edges, rnd);
-        // Régions de salles (cellules reliées sans mur) : chacune reçoit une porte vers une cour, puis une sur cinq de plus.
-        var region = new Dictionary<Vector2Int, int>();
-        int regions = 0;
+        // Le rebord se longe librement ; les cours voisines communiquent.
+        foreach (var set in new[] { plan.ring1, plan.courts })
+            foreach (var c in set)
+                foreach (int d in new[] { 0, 2 })
+                    if (set.Contains(c + new Vector2Int(DI[d], DJ[d]))) SetWall(m, c.x, c.y, d, false);
+        OpenCourtyards(m, plan.courts, plan.rnd);
+    }
+
+    // Les cours s'ouvrent sur les salles et corridors voisins : tout ce qui se touche finit relié (chaque cour et chaque ensemble de
+    // salles), puis environ une arête sur douze de plus.
+    static void OpenCourtyards(Maze m, HashSet<Vector2Int> courts, System.Random rnd)
+    {
+        bool Town(int i, int j) => m.InStructure(i, j) && !m.Void(i, j) && !m.Reserved(i, j);
+        var node = new Dictionary<Vector2Int, int>();
+        int nodes = 0;
+        // Ensembles de salles (cellules reliées sans mur).
         for (int i = 0; i < m.N; i++)
             for (int j = 0; j < m.N; j++)
             {
                 var c = new Vector2Int(i, j);
-                if (m.Void(i, j) || m.Reserved(i, j) || region.ContainsKey(c)) continue;
+                if (!Town(i, j) || node.ContainsKey(c)) continue;
                 var queue = new Queue<Vector2Int>();
                 queue.Enqueue(c);
-                region[c] = regions;
+                node[c] = nodes;
                 while (queue.Count > 0)
                 {
                     var q = queue.Dequeue();
                     for (int d = 0; d < 4; d++)
                     {
-                        var n = q + new Vector2Int(DI[d], DJ[d]);
-                        if (!m.InGrid(n.x, n.y) || m.Void(n.x, n.y) || m.Reserved(n.x, n.y) || region.ContainsKey(n) || HasWall(m, q.x, q.y, d)) continue;
-                        region[n] = regions;
-                        queue.Enqueue(n);
+                        var nb = q + new Vector2Int(DI[d], DJ[d]);
+                        if (!Town(nb.x, nb.y) || node.ContainsKey(nb) || HasWall(m, q.x, q.y, d)) continue;
+                        node[nb] = nodes;
+                        queue.Enqueue(nb);
                     }
                 }
-                regions++;
+                nodes++;
             }
-        var served = new HashSet<int>();
+        // Cours (cellules vides voisines).
+        foreach (var c in courts)
+        {
+            if (node.ContainsKey(c)) continue;
+            var queue = new Queue<Vector2Int>();
+            queue.Enqueue(c);
+            node[c] = nodes;
+            while (queue.Count > 0)
+            {
+                var q = queue.Dequeue();
+                for (int d = 0; d < 4; d++)
+                {
+                    var nb = q + new Vector2Int(DI[d], DJ[d]);
+                    if (!courts.Contains(nb) || node.ContainsKey(nb)) continue;
+                    node[nb] = nodes;
+                    queue.Enqueue(nb);
+                }
+            }
+            nodes++;
+        }
+        var parent = new int[nodes];
+        for (int k = 0; k < nodes; k++) parent[k] = k;
+        int Find(int k) { while (parent[k] != k) k = parent[k] = parent[parent[k]]; return k; }
+        var edges = new List<(Vector2Int town, int dir)>();
+        foreach (var c in courts)
+            for (int d = 0; d < 4; d++)
+            {
+                var t = c + new Vector2Int(DI[d], DJ[d]);
+                if (Town(t.x, t.y) && !m.Fixed(t.x, t.y)) edges.Add((t, d ^ 1));
+            }
+        edges.Sort((a, b) => a.town.x != b.town.x ? a.town.x.CompareTo(b.town.x) : a.town.y != b.town.y ? a.town.y.CompareTo(b.town.y) : a.dir.CompareTo(b.dir));
+        Shuffle(edges, rnd);
         foreach (var (town, dir) in edges)
         {
-            int reg = region.TryGetValue(town, out int r) ? r : -1;
-            if (m.Fixed(town.x, town.y)) continue;
-            // Une porte au moins par région, puis environ une arête sur douze.
-            if (served.Contains(reg) && rnd.NextDouble() > 0.08) continue;
-            served.Add(reg);
+            var court = town + new Vector2Int(DI[dir], DJ[dir]);
+            int a = Find(node[town]), b = Find(node[court]);
+            if (a == b && rnd.NextDouble() > 0.08) continue;
+            parent[a] = b;
             SetWall(m, town.x, town.y, dir, false);
         }
     }
 
-    // Sol des cours (au niveau du Hub) ; V0.7.12 : douves de 2 m, accolées au rempart (morceaux disjoints), leurs parois et leurs
-    // escaliers (dans les endroits doublés).
-    static void BuildCourtyards(Maze m, List<RampartPlan> ramparts, Kit kit)
+    // Après la géométrie de l'Échiquier : enceinte, plafond, douves, remparts, entrées, toits, Tours et Donjon.
+    static IEnumerator BuildChateauSteps(Maze m, ChateauPlan plan, ZoneRefs refs, Transform root, Transform colliders, int zone)
     {
-        var moat = new List<Rect>();
-        foreach (var rp in ramparts)
-            foreach (Rect r in rp.moatRects)
-                foreach (Rect p in Subtract(new List<Rect> { r }, moat)) moat.Add(p);
+        var rnd = plan.rnd;
+        var site = plan.site;
+        var shell = new Kit(root, colliders, "Z" + zone + "_Chateau");
+        var walls = new Kit(root, colliders, "Z" + zone + "_Remparts");
+
+        // Sol des cours intérieures.
+        {
+            var mask = new bool[m.N, m.N];
+            foreach (var c in plan.courts) mask[c.x, c.y] = true;
+            foreach (Rect r in MaskRects(mask, m.origin.x, m.origin.z, Cell)) shell.Floor(r, 0f);
+        }
+        BuildMoatsAndRamparts(m, plan, shell, walls);
+        yield return null;
+        // Entrées : passage sous le rempart (herse ouverte, arche de chaque côté) et pont au-dessus de la douve.
+        foreach (var c in site.crossings) BuildCastleEntrance(m, c, root, shell, walls);
+        if (site.crossings.Count > 0)
+        {
+            var first = site.crossings[0];
+            refs.structureEntry = m.Center(first.e.x, first.e.y);
+        }
+        StructureShell(m, shell, ChateauHeight);
+        // Toits des salles (escaliers depuis les cours, sauf sur les douves, les remparts et les abords des Tours).
+        var busy = new HashSet<Vector2Int>(plan.ring1);
+        busy.UnionWith(plan.ring2);
+        foreach (var c in site.crossings) busy.Add(c.At(3));
         for (int i = 0; i < m.N; i++)
             for (int j = 0; j < m.N; j++)
             {
-                if (!m.Void(i, j)) continue;
-                Vector3 c = m.Center(i, j);
-                var cell = Rect.MinMaxRect(c.x - Cell * 0.5f, c.z - Cell * 0.5f, c.x + Cell * 0.5f, c.z + Cell * 0.5f);
-                foreach (Rect p in Subtract(new List<Rect> { cell }, moat)) kit.Floor(p, 0f);
+                Vector3 cc = m.Center(i, j);
+                if (plan.rounds.Exists(r => Flat(r.center - cc) < r.radius + 2.6f)) busy.Add(new Vector2Int(i, j));
             }
-        foreach (Rect r in moat) kit.Floor(r, -MoatDepth);
-        // Parois : tout le contour de la douve (le long du rempart aussi, sous son pied).
-        foreach (var (a, b, inward) in UnionOutline(moat))
+        BuildRoofs(m, shell, rnd, busy);
+        shell.Flush(GameArt.BrickWall);
+        walls.Flush(RampartBrick);
+        yield return null;
+
+        // Tours et Donjon.
+        foreach (var round in plan.rounds)
+        {
+            var kit = new Kit(root, colliders, "Z" + zone + (round.kind == 1 ? "_Donjon" : "_Tour"));
+            var (topFloor, roofAbove) = BuildTower(kit, round, rnd, root);
+            // Cloche Décorative au dernier étage (chapitre 7.6), suspendue sous le toit ; c'est l'endroit le plus haut atteignable.
+            Vector3 aside = Quaternion.Euler(0f, Rand(rnd, 0f, 360f), 0f) * Vector3.forward * Mathf.Min(2.5f, round.radius * 0.3f);
+            refs.bellSpots.Insert(0, HangingBell(topFloor + aside, roofAbove));
+            m.perches.Add((topFloor + Vector3.right * 2f, 0f, 3f));
+            kit.Flush(GameArt.BrickWall);
+            yield return null;
+        }
+        int bells = GameRules.HangingBellsInZone(zone);
+        if (refs.bellSpots.Count > bells) refs.bellSpots.RemoveRange(bells, refs.bellSpots.Count - bells);
+
+        // Dehors (luminosité ambiante relevée) : cours, douves, rebords et toits ; pas dans les Tours ni le Donjon.
+        refs.outdoors = p =>
+        {
+            if (!m.CellAt(p, out int oi, out int oj) || !m.InStructure(oi, oj)) return false;
+            foreach (var r in plan.rounds)
+                if (Flat(p - r.center) < r.radius + 0.3f && p.y < r.height + 0.5f) return false;
+            return m.Void(oi, oj) || p.y > m.Ceil(oi, oj) + 0.1f;
+        };
+    }
+
+    // Douves, rebords et remparts, dessinés sur une grille fine de 1 m d'après la distance à l'Échiquier : rebord jusqu'à 2 m, douve
+    // jusqu'à 5 m (toute la largeur aux endroits élargis), rempart de 5 à 10 m.
+    static void BuildMoatsAndRamparts(Maze m, ChateauPlan plan, Kit shell, Kit walls)
+    {
+        const int sub = 5;   // cases de 1 m par cellule
+        int n = m.N * sub;
+        var dist = new int[n, n];
+        var queue = new Queue<Vector2Int>();
+        for (int x = 0; x < n; x++)
+            for (int z = 0; z < n; z++)
+            {
+                if (m.InStructure(x / sub, z / sub)) dist[x, z] = int.MaxValue;
+                else queue.Enqueue(new Vector2Int(x, z));
+            }
+        while (queue.Count > 0)
+        {
+            var c = queue.Dequeue();
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    int nx = c.x + dx, nz = c.y + dz;
+                    if (nx < 0 || nz < 0 || nx >= n || nz >= n || dist[nx, nz] <= dist[c.x, c.y] + 1) continue;
+                    dist[nx, nz] = dist[c.x, c.y] + 1;
+                    queue.Enqueue(new Vector2Int(nx, nz));
+                }
+        }
+        var gateCells = new HashSet<Vector2Int>();
+        foreach (var c in plan.site.crossings) gateCells.Add(c.At(2));
+        var ledge = new bool[n, n];
+        var moat = new bool[n, n];
+        var rampart = new bool[n, n];     // dessus du rempart (créneaux), passages compris
+        var solid = new bool[n, n];       // blocs pleins du rempart (sans les passages)
+        for (int x = 0; x < n; x++)
+            for (int z = 0; z < n; z++)
+            {
+                var cell = new Vector2Int(x / sub, z / sub);
+                bool r1 = plan.ring1.Contains(cell), r2 = plan.ring2.Contains(cell);
+                if (!r1 && !r2) continue;
+                int k = dist[x, z];
+                if (k <= LedgeWidth && r1 && !plan.wide.Contains(cell)) ledge[x, z] = true;
+                else if (k <= MoatEnd && r1) moat[x, z] = true;
+                else
+                {
+                    rampart[x, z] = true;
+                    if (!gateCells.Contains(cell)) solid[x, z] = true;
+                }
+            }
+        float x0 = m.origin.x, z0 = m.origin.z;
+        foreach (Rect r in MaskRects(ledge, x0, z0, 1f)) shell.Floor(r, 0f);
+        foreach (Rect r in MaskRects(moat, x0, z0, 1f)) shell.Floor(r, -MoatDepth);
+        foreach (Rect r in MaskRects(solid, x0, z0, 1f))
+            walls.Box(new Vector3(r.center.x, (RampartHeight - MoatDepth) * 0.5f, r.center.y), new Vector3(r.width, RampartHeight + MoatDepth, r.height));
+        // Parois des douves (sauf contre le rempart, qui descend jusqu'au fond).
+        bool Inside(int x, int z) => x >= 0 && z >= 0 && x < n && z < n;
+        foreach (var (a, b, inward) in MaskEdges(moat, x0, z0, 1f, (x, z) => !Inside(x, z) || !moat[x, z] && !solid[x, z]))
         {
             bool alongX = inward.x == 0f;
             float length = alongX ? Mathf.Abs(b.x - a.x) : Mathf.Abs(b.y - a.y);
-            Vector2 mid = (a + b) * 0.5f - inward * 0.15f;
+            Vector2 mid = (a + b) * 0.5f + inward * 0.1f;
             float h = MoatDepth - 0.01f;
-            kit.Box(new Vector3(mid.x, -MoatDepth + h * 0.5f, mid.y), alongX ? new Vector3(length + 0.3f, h, 0.3f) : new Vector3(0.3f, h, length + 0.3f));
+            shell.Box(new Vector3(mid.x, -MoatDepth + h * 0.5f, mid.y), alongX ? new Vector3(length, h, 0.2f) : new Vector3(0.2f, h, length));
         }
-        foreach (var rp in ramparts)
-            foreach (var (foot, dir) in rp.moatStairs) KitStairs(kit, foot, dir, 2.4f, -MoatDepth, 0f);
+        // Créneaux au sommet du rempart, sur ses deux bords.
+        foreach (var (a, b, inward) in MaskEdges(rampart, x0, z0, 1f, (x, z) => !Inside(x, z) || !rampart[x, z] && m.InStructure(x / sub, z / sub)))
+            KitMerlons(walls, new Vector3(a.x, 0f, a.y), new Vector3(b.x, 0f, b.y), RampartHeight, 0.3f, new Vector3(inward.x, 0f, inward.y), null, null, false);
+        // Escaliers des endroits élargis : contre le bord extérieur de la douve, dans le sens de la longueur, jusqu'au rebord voisin.
+        float run = StairRun(MoatDepth);
+        foreach (var kv in plan.wideStairs)
+        {
+            Vector2Int c = kv.Key, along = kv.Value, o = plan.outward[c];
+            Vector3 center = m.Center(c.x, c.y), dir = new Vector3(along.x, 0f, along.y), toE = new Vector3(o.x, 0f, o.y);
+            Vector3 lane = center + toE * (Cell * 0.5f - LedgeWidth * 0.5f);
+            Vector3 head = lane + dir * (Cell * 0.5f);
+            KitStairs(shell, head - dir * run, dir, LedgeWidth, -MoatDepth, 0f);
+        }
     }
 
-    // Toits des salles et corridors (visibles depuis les remparts et les Tours), ceints de créneaux au-dessus des cours.
+    // Entrée d'un rempart : pont au-dessus de la douve (avec ses parapets), passage de 4 x 5 m sous le rempart, herse ouverte au
+    // milieu, arche sur chaque face.
+    static void BuildCastleEntrance(Maze m, Crossing c, Transform root, Kit shell, Kit walls)
+    {
+        Vector3 dir = new Vector3(c.Step.x, 0f, c.Step.y), side = new Vector3(c.Step.y, 0f, c.Step.x);
+        bool alongX = Mathf.Abs(dir.x) > 0.5f;
+        Vector3 boundary = m.Center(c.e.x, c.e.y) + dir * (Cell * 0.5f);
+        Vector3 Along(float t, float s, float y) => boundary + dir * t + side * s + Vector3.up * y;
+        Vector3 Size(float lengthAlong, float acrossSide, float h) => alongX ? new Vector3(lengthAlong, h, acrossSide) : new Vector3(acrossSide, h, lengthAlong);
+        Rect Area(float t0, float t1, float s0, float s1)
+        {
+            Vector3 a = Along(t0, s0, 0f), b = Along(t1, s1, 0f);
+            return Rect.MinMaxRect(Mathf.Min(a.x, b.x), Mathf.Min(a.z, b.z), Mathf.Max(a.x, b.x), Mathf.Max(a.z, b.z));
+        }
+        // Pont (de 2 à 5 m du bord), dalle de 0,4 m et parapets.
+        shell.Floor(Area(LedgeWidth - 0.05f, MoatEnd + 0.05f, -GateWidth * 0.5f, GateWidth * 0.5f), 0f, 0.4f);
+        shell.Box(Along((LedgeWidth + MoatEnd) * 0.5f, 0f, -0.21f), Size(MoatEnd - LedgeWidth, GateWidth, 0.4f), false);
+        foreach (float s in new[] { -1f, 1f })
+            shell.Box(Along((LedgeWidth + MoatEnd) * 0.5f, s * (GateWidth * 0.5f - 0.12f), 0.45f), Size(MoatEnd - LedgeWidth, 0.24f, 0.9f));
+        // Passage sous le rempart (de 5 à 10 m du bord).
+        float t0 = Cell, t1 = Cell * 2f, mid = (t0 + t1) * 0.5f, sideWall = (Cell - GateWidth) * 0.5f;
+        shell.Floor(Area(t0, t1, -GateWidth * 0.5f, GateWidth * 0.5f), 0f, MoatDepth);
+        foreach (float s in new[] { -1f, 1f })
+            walls.Box(Along(mid, s * (GateWidth * 0.5f + sideWall * 0.5f), (RampartHeight - MoatDepth) * 0.5f), Size(Cell, sideWall, RampartHeight + MoatDepth));
+        walls.Box(Along(mid, 0f, (GateHeight + RampartHeight) * 0.5f), Size(Cell, GateWidth, RampartHeight - GateHeight));
+        Quaternion rot = alongX ? Quaternion.Euler(0f, 90f, 0f) : Quaternion.identity;
+        foreach (float t in new[] { t0, t1 }) DoorArch(walls.walls, Along(t, 0f, 0f), rot, GateWidth, GateHeight, 0.6f);
+        var gate = CastleGate.Create(root, Along(mid, 0f, 0f), rot, GateWidth, GateHeight);
+        gate.SetOpen(true, true);
+    }
+
+    // Briques noires et blanches des remparts, lumineuses : on les voit malgré la distance et l'éclairage.
+    static Material rampartBrick;
+    static Material RampartBrick
+    {
+        get
+        {
+            if (rampartBrick != null) return rampartBrick;
+            Material brick = GameArt.BrickWall;
+            var mat = new Material(GameArt.Emissive("RempartLumineux", Color.white, Color.white)) { name = "RempartLumineux" };
+            mat.mainTexture = brick.mainTexture;
+            mat.color = brick.color;
+            mat.SetTexture("_EmissionMap", brick.mainTexture);
+            mat.SetColor("_EmissionColor", new Color(0.55f, 0.55f, 0.55f));
+            mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+            return rampartBrick = mat;
+        }
+    }
+
+    // Toits des salles et corridors (visibles depuis les Tours), ceints de créneaux au-dessus des cours.
     // V0.7.12 : les toits sont reliés entre eux par des escaliers (du toit le plus bas vers le plus haut), et au sol par au moins 8
     // escaliers de 2 m de large, posés dans les cours le long d'un mur plein ; les créneaux s'ouvrent là où ils arrivent.
     const int RoofStairsFromGround = 8;
@@ -596,7 +479,8 @@ public static partial class WorldBuilder
     static void BuildRoofs(Maze m, Kit kit, System.Random rnd, HashSet<Vector2Int> busy)
     {
         int n = m.N;
-        bool Building(int i, int j) => m.InGrid(i, j) && !m.Void(i, j) && !m.Reserved(i, j) && !m.Fixed(i, j);
+        bool Building(int i, int j) => m.InGrid(i, j) && m.InStructure(i, j) && !m.Void(i, j) && !m.Reserved(i, j) && !m.Fixed(i, j);
+        bool Court(int i, int j) => m.InGrid(i, j) && m.InStructure(i, j) && m.Void(i, j);
         // Terrasses : toits voisins de même hauteur.
         var region = new int[n, n];
         for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) region[i, j] = -1;
@@ -621,33 +505,28 @@ public static partial class WorldBuilder
                 }
                 regions++;
             }
-        var parent = new int[regions];
-        for (int r = 0; r < regions; r++) parent[r] = r;
+        var parent = new int[regions + 1];
+        for (int r = 0; r <= regions; r++) parent[r] = r;
         int Find(int r) { while (parent[r] != r) r = parent[r] = parent[parent[r]]; return r; }
         var skip = new HashSet<(int, int, int)>();
         var used = new HashSet<Vector2Int>(busy);
-
-        // Escalier vers le bord du toit de la cellule 'top', depuis la cellule voisine 'from' (dans la direction 'd' depuis 'top') : une
-        // cour (depuis le sol) ou un toit plus bas. Il monte droit vers le toit (perpendiculaire), ou le long de son bord (parallèle,
-        // sens 'side'), et n'occupe que des cellules de même niveau que 'from' ; dans une cour, il ne cache aucune porte.
         int ground = regions;   // nœud "sol" de l'union
-        System.Array.Resize(ref parent, regions + 1);
-        parent[ground] = ground;
-        var grounded = new HashSet<int>();
         int placed = 0;
-        bool SameBase(Vector2Int c, Vector2Int from) => from == c || (m.Void(from.x, from.y)
-            ? m.InGrid(c.x, c.y) && m.Void(c.x, c.y) && !busy.Contains(c)
+        bool SameBase(Vector2Int c, Vector2Int from) => from == c || (Court(from.x, from.y)
+            ? Court(c.x, c.y) && !busy.Contains(c)
             : Building(c.x, c.y) && region[c.x, c.y] == region[from.x, from.y]);
+        // Escalier vers le bord du toit de la cellule 'top', depuis la cellule voisine 'from' (dans la direction 'd' depuis 'top') : une
+        // cour (depuis le sol) ou un toit plus bas. Il monte droit vers le toit (perpendiculaire), ou le long de son bord (parallèle),
+        // et n'occupe que des cellules de même niveau que 'from' ; dans une cour, il ne cache aucune porte.
         bool TryStair(Vector2Int top, int d, int mode)
         {
             var from = top + new Vector2Int(DI[d], DJ[d]);
-            bool fromGround = m.Void(from.x, from.y);
+            bool fromGround = Court(from.x, from.y);
             float baseY = fromGround ? 0f : m.Ceil(from.x, from.y) + RoofSlab, h = m.Ceil(top.x, top.y) + RoofSlab;
             if (h - baseY < 0.5f) return false;
             float run = StairRun(h - baseY);
             int k = Mathf.CeilToInt((run + 0.6f) / Cell);
             Vector3 toTop = -new Vector3(DI[d], 0f, DJ[d]);
-            // mode 0 : perpendiculaire ; 1 et 2 : le long du bord, dans un sens ou dans l'autre.
             var step = mode == 0 ? new Vector2Int(DI[d], DJ[d]) : (d < 2 ? new Vector2Int(0, 1) : new Vector2Int(1, 0)) * (mode == 1 ? 1 : -1);
             var cells = new List<Vector2Int>();
             for (int t = 0; t < k; t++)
@@ -656,7 +535,6 @@ public static partial class WorldBuilder
                 if (!SameBase(c, from) || used.Contains(c) || !fromGround && busy.Contains(c)) return false;
                 if (fromGround)
                 {
-                    // Le mur qui borde l'escalier (côté toit) est plein : l'escalier ne bouche aucune porte.
                     var wallCell = mode == 0 ? (t == 0 ? top : new Vector2Int(-1, -1)) : c - new Vector2Int(DI[d], DJ[d]);
                     if (wallCell.x >= 0 && Building(wallCell.x, wallCell.y) && (!HasWall(m, wallCell.x, wallCell.y, d) || m.HasWallHole(wallCell.x, wallCell.y, d))) return false;
                 }
@@ -692,7 +570,7 @@ public static partial class WorldBuilder
                     {
                         int ni = i + DI[d], nj = j + DJ[d];
                         if (!m.InGrid(ni, nj)) continue;
-                        bool groundSide = m.Void(ni, nj) && !busy.Contains(new Vector2Int(ni, nj));
+                        bool groundSide = Court(ni, nj) && !busy.Contains(new Vector2Int(ni, nj));
                         bool roofSide = Building(ni, nj) && region[ni, nj] != region[i, j] && m.Ceil(ni, nj) < m.Ceil(i, j) - 0.01f;
                         if (!groundSide && !roofSide) continue;
                         for (int mode = 0; mode < 3; mode++) candidates.Add((new Vector2Int(i, j), d, mode));
@@ -705,7 +583,7 @@ public static partial class WorldBuilder
             foreach (var (top, d, mode) in candidates)
             {
                 var from = top + new Vector2Int(DI[d], DJ[d]);
-                int a = Find(region[top.x, top.y]), b = Find(m.Void(from.x, from.y) ? ground : region[from.x, from.y]);
+                int a = Find(region[top.x, top.y]), b = Find(Court(from.x, from.y) ? ground : region[from.x, from.y]);
                 if (a == b) continue;
                 if (TryStair(top, d, mode)) progress = true;
             }
@@ -715,7 +593,7 @@ public static partial class WorldBuilder
         {
             if (placed >= RoofStairsFromGround) break;
             var from = top + new Vector2Int(DI[d], DJ[d]);
-            if (m.Void(from.x, from.y)) TryStair(top, d, mode);
+            if (Court(from.x, from.y)) TryStair(top, d, mode);
         }
         int components = 0, reached = 0;
         for (int r = 0; r < regions; r++)
@@ -726,11 +604,11 @@ public static partial class WorldBuilder
         for (int i = 0; i < n; i++)
             for (int j = 0; j < n; j++)
             {
-                if (m.Void(i, j) || m.Reserved(i, j)) continue;
+                if (!m.InStructure(i, j) || m.Void(i, j) || m.Reserved(i, j)) continue;
                 float ceil = m.Ceil(i, j), roof = ceil + RoofSlab;
                 Vector3 c = m.Center(i, j);
                 float e = Cell * 0.5f + Wall * 0.5f;
-                kit.walls.WorldQuad(new Vector3(c.x - e, roof, c.z - e), new Vector3(c.x + e, roof, c.z - e),
+                kit.floors.WorldQuad(new Vector3(c.x - e, roof, c.z - e), new Vector3(c.x + e, roof, c.z - e),
                     new Vector3(c.x + e, roof, c.z + e), new Vector3(c.x - e, roof, c.z + e), Vector3.up, 0.5f);
                 // Tranche du toit au-dessus des murs, là où le voisin est plus bas (ou une cour).
                 for (int d = 0; d < 4; d++)
@@ -755,256 +633,16 @@ public static partial class WorldBuilder
             }
     }
 
-    // Enceinte de la zone jusqu'au plafond gris (au-dessus des salles), et le plafond lui-même.
-    static void BuildEnclosure(Maze m, Kit kit, float height, ZoneRefs previous)
-    {
-        float x0 = m.origin.x, z0 = m.origin.z, size = m.N * Cell;
-        for (int k = 0; k < m.N; k++)
-        {
-            // Ouest, est, nord : au-dessus des salles de bord (les cours ont déjà leur mur jusqu'en haut).
-            foreach (var (i, j, d) in new[] { (0, k, 1), (m.N - 1, k, 0), (k, m.N - 1, 2), (k, 0, 3) })
-            {
-                if (m.Void(i, j)) continue;
-                float from = m.Reserved(i, j) ? WallHeight : m.Ceil(i, j);
-                if (d == 3 && m.southHeights != null) from = Mathf.Max(from, m.southHeights[i]);
-                if (height - from < 0.05f) continue;
-                Vector3 c = m.Center(i, j) + new Vector3(DI[d], 0f, DJ[d]) * (Cell * 0.5f) + Vector3.up * ((from + height) * 0.5f);
-                kit.Box(c, d < 2 ? new Vector3(Wall, height - from, Cell + Wall) : new Vector3(Cell + Wall, height - from, Wall));
-            }
-        }
-        // Plafond gris (et sa collision : rien ne passe au-dessus, pas même un boulet de canon).
-        kit.grey.WorldQuad(new Vector3(x0, height, z0), new Vector3(x0, height, z0 + size), new Vector3(x0 + size, height, z0 + size), new Vector3(x0 + size, height, z0), Vector3.down, 0.1f);
-        kit.Collider(new Vector3(x0 + size * 0.5f, height + 0.5f, z0 + size * 0.5f), new Vector3(size, 1f, size));
-    }
-
-    // ---------- Rempart ----------
-
-    // V0.7.13 : le rempart intérieur ('gated' faux) n'a ni herse, ni levier, ni câble : son passage reste ouvert.
-    static void BuildRampart(Maze m, ZoneRefs refs, RampartPlan plan, Transform root, Transform colliders, int leverId, System.Random rnd, bool gated)
-    {
-        var kit = new Kit(root, colliders, "Z" + m.zone + "_Rempart" + leverId);
-        float west = OriginX, east = OriginX + ZoneSize, south = ZoneSouth(m.zone), north = south + ZoneSize;
-        // Passage (herses), choisi avec le plan (la douve s'y interrompt).
-        Rect gr = plan.rects[plan.gateSegment];
-        bool gateAlongX = plan.gateAlongX;
-        float gateAt = plan.gateAt;
-        var outline = OutlineEdges(plan.rects, west, east, south, north);
-
-        // Faces : les bords de la réunion des emprises (sans le mur d'enceinte), 1 m d'épaisseur, du sol à 10 m.
-        foreach (var (a, b, inward) in outline)
-        {
-            bool alongX = Mathf.Abs(a.y - b.y) < 0.01f;
-            float lo = alongX ? Mathf.Min(a.x, b.x) : Mathf.Min(a.y, b.y), hi = alongX ? Mathf.Max(a.x, b.x) : Mathf.Max(a.y, b.y);
-            // Ouverture des herses sur les deux faces du segment du passage.
-            var pieces = new List<Rect> { Rect.MinMaxRect(lo, 0f, hi, RampartHeight) };
-            bool gateFace = alongX == gateAlongX && (alongX ? Mathf.Abs(a.y - gr.yMin) < 0.01f || Mathf.Abs(a.y - gr.yMax) < 0.01f : Mathf.Abs(a.x - gr.xMin) < 0.01f || Mathf.Abs(a.x - gr.xMax) < 0.01f)
-                && gateAt > lo && gateAt < hi;
-            if (gateFace) pieces = Subtract(pieces, new[] { Rect.MinMaxRect(gateAt - GateWidth * 0.5f, -1f, gateAt + GateWidth * 0.5f, GateHeight) });
-            foreach (Rect p in pieces)
-            {
-                Vector3 c = alongX ? new Vector3(p.center.x, p.center.y, a.y + inward.y * 0.5f) : new Vector3(a.x + inward.x * 0.5f, p.center.y, p.center.x);
-                kit.Box(c, alongX ? new Vector3(p.width, p.height, 1f) : new Vector3(1f, p.height, p.width));
-            }
-            // V0.7.12 : arche autour du passage, sur chaque face.
-            if (gateFace)
-                DoorArch(kit.walls, alongX ? new Vector3(gateAt, 0f, a.y + inward.y * 0.5f) : new Vector3(a.x + inward.x * 0.5f, 0f, gateAt),
-                    alongX ? Quaternion.identity : Quaternion.Euler(0f, 90f, 0f), GateWidth, GateHeight, 1.3f);
-            // Meurtrières (fond noir) tous les 4 m, au rez-de-chaussée.
-            Vector3 outward = new Vector3(-inward.x, 0f, -inward.y);
-            Vector3 side = alongX ? Vector3.right : Vector3.forward;
-            for (float t = lo + 3f; t < hi - 2f; t += 4f)
-            {
-                if (gateFace && Mathf.Abs(t - gateAt) < GateWidth) continue;
-                Vector3 p = (alongX ? new Vector3(t, 2.5f, a.y) : new Vector3(a.x, 2.5f, t)) + outward * 0.02f;
-                kit.dark.WorldQuad(p - side * 0.15f - Vector3.up * 0.9f, p + side * 0.15f - Vector3.up * 0.9f, p + side * 0.15f + Vector3.up * 0.9f, p - side * 0.15f + Vector3.up * 0.9f, outward, 1f);
-            }
-        }
-
-        // Escalier intérieur, du rez-de-chaussée au chemin de ronde, le long du segment du passage.
-        float run = StairRun(RampartHeight);
-        Vector3 foot, dir;
-        if (gateAlongX)
-        {
-            float z = gr.yMin + 1f + 1.3f;
-            float xa = gateAt + GateWidth * 0.5f + 1.5f, xb = gateAt - GateWidth * 0.5f - 1.5f;
-            if (xa + run < gr.xMax - 1f) { foot = new Vector3(xa, 0f, z); dir = Vector3.right; }
-            else { foot = new Vector3(xb, 0f, z); dir = Vector3.left; }
-        }
-        else
-        {
-            float x = gr.xMin + 1f + 1.3f;
-            float za = gateAt + GateWidth * 0.5f + 1.5f, zb = gateAt - GateWidth * 0.5f - 1.5f;
-            if (za + run < gr.yMax - 1f) { foot = new Vector3(x, 0f, za); dir = Vector3.forward; }
-            else { foot = new Vector3(x, 0f, zb); dir = Vector3.back; }
-        }
-        KitStairs(kit, foot, dir, 2.4f, 0f, RampartHeight, true);
-        Vector3 head = foot + dir * run;
-        Vector3 lateral = new Vector3(Mathf.Abs(dir.z), 0f, Mathf.Abs(dir.x)) * 1.3f;
-        var holes = new List<Rect> { MinMax(foot - lateral, head + lateral) };
-
-        // Dalle du chemin de ronde (sans recouvrement entre segments), percée au-dessus de l'escalier.
-        var slabs = new List<Rect>();
-        for (int k = 0; k < plan.rects.Count; k++)
-        {
-            var own = new List<Rect> { plan.rects[k] };
-            for (int j = 0; j < k; j++) own = Subtract(own, new[] { plan.rects[j] });
-            slabs.AddRange(own);
-        }
-        foreach (Rect p in Subtract(slabs, holes)) kit.Slab(p, RampartHeight, 0.6f);
-
-        // Escaliers extérieurs, derrière le rempart (côté Neutral Room), vers le chemin de ronde : 3 à 5.
-        int wanted = 3 + rnd.Next(3), placedBack = 0;
-        var gapsByEdge = new List<(Vector3 a, Vector3 b, float from, float to)>();
-        var candidates = new List<(Vector3 a, Vector3 b, Vector2 inward)>();
-        foreach (var e in outline)
-        {
-            Vector2 mid = (e.a + e.b) * 0.5f;
-            Vector3 probe = new Vector3(mid.x - e.inward.x * 3f, 0f, mid.y - e.inward.y * 3f);
-            if (m.CellAt(probe, out int pi, out int pj) && plan.nrSide.Contains(new Vector2Int(pi, pj))) candidates.Add((new Vector3(e.a.x, 0f, e.a.y), new Vector3(e.b.x, 0f, e.b.y), e.inward));
-        }
-        float backRun = StairRun(RampartHeight);
-        for (int attempt = 0; attempt < 40 && placedBack < wanted && candidates.Count > 0; attempt++)
-        {
-            var (a, b, inward) = candidates[rnd.Next(candidates.Count)];
-            float length = Vector3.Distance(a, b);
-            if (length < backRun + 4f) continue;
-            Vector3 along = (b - a).normalized;
-            float start = Rand(rnd, 2f, length - backRun - 2f);
-            float end = start + backRun;
-            if (gapsByEdge.Exists(g => Vector3.Distance(g.a, a) < 0.1f && start < g.to + 3f && end > g.from - 3f)) continue;
-            Vector3 outward = new Vector3(-inward.x, 0f, -inward.y);
-            KitStairs(kit, a + along * start + outward * 1.35f, along, 2.4f, 0f, RampartHeight);
-            gapsByEdge.Add((a, b, end - 3f, end + 0.5f));
-            placedBack++;
-        }
-
-        // Créneaux du chemin de ronde, sur les deux bords (ouverts là où arrivent les escaliers extérieurs).
-        foreach (var (a2, b2, inward) in outline)
-        {
-            Vector3 a = new Vector3(a2.x, 0f, a2.y), b = new Vector3(b2.x, 0f, b2.y);
-            var gaps = new List<(float, float)>();
-            foreach (var g in gapsByEdge) if (Vector3.Distance(g.a, a) < 0.1f && Vector3.Distance(g.b, b) < 0.1f) gaps.Add((g.from, g.to));
-            KitMerlons(kit, a, b, RampartHeight, 0.5f, new Vector3(inward.x, 0f, inward.y), gaps);
-        }
-
-        // V0.7.13 : torches posées sur le chemin de ronde, le long du bord intérieur des créneaux, à flamme blanche.
-        foreach (var (a3, b3, inward3) in outline)
-        {
-            Vector3 ta = new Vector3(a3.x, RampartHeight, a3.y), tb = new Vector3(b3.x, RampartHeight, b3.y);
-            Vector3 inw = new Vector3(inward3.x, 0f, inward3.y);
-            float len = Vector3.Distance(ta, tb);
-            for (float t = 6f; t < len - 4f; t += RampartTorchSpacing)
-            {
-                Vector3 tp = ta + (tb - ta) / len * t + inw * 1.5f;
-                if (holes.Exists(h => h.Contains(new Vector2(tp.x, tp.z)))) continue;
-                AddTorch(root, tp, -inw, false, rnd);
-            }
-        }
-
-        if (gated)
-        {
-            // Herses (de chaque côté du passage) et levier sur le chemin de ronde (V0.7.12), du côté opposé à l'escalier intérieur,
-            // reliés par des câbles noirs.
-            var gates = new List<CastleGate>();
-            Quaternion gateRot = gateAlongX ? Quaternion.identity : Quaternion.Euler(0f, 90f, 0f);
-            foreach (float s in new[] { -1f, 1f })
-            {
-                Vector3 at = gateAlongX ? new Vector3(gateAt, 0f, gr.center.y + s * (RampartThick * 0.5f - 0.5f)) : new Vector3(gr.center.x + s * (RampartThick * 0.5f - 0.5f), 0f, gateAt);
-                gates.Add(CastleGate.Create(root, at, gateRot, GateWidth, GateHeight));
-            }
-            refs.leverGates[leverId] = gates;
-            float away = -(gateAlongX ? dir.x : dir.z) * Rand(rnd, 6f, 10f);
-            Vector3 leverPos = gateAlongX ? new Vector3(gateAt + away, RampartHeight, gr.center.y) : new Vector3(gr.center.x, RampartHeight, gateAt + away);
-            if (gateAlongX) leverPos.x = Mathf.Clamp(leverPos.x, gr.xMin + 3f, gr.xMax - 3f);
-            else leverPos.z = Mathf.Clamp(leverPos.z, gr.yMin + 3f, gr.yMax - 3f);
-            var lever = CastleLever.Create(root, leverId, leverPos, gateAlongX ? 0f : 90f);
-            refs.levers.Add(lever);
-            foreach (var g in gates)
-            {
-                // Le câble descend le long de la face intérieure, puis court sur le sol jusqu'au pied de la herse.
-                Vector3 gp = g.transform.position;
-                Vector3 wallSide = gateAlongX ? new Vector3(leverPos.x, 0f, gr.yMax - 1.05f) : new Vector3(gr.xMax - 1.05f, 0f, leverPos.z);
-                var points = new List<Vector3>
-                {
-                    leverPos + Vector3.up * 0.05f,
-                    new Vector3(wallSide.x, leverPos.y + 0.03f, wallSide.z),
-                    new Vector3(wallSide.x, 0.03f, wallSide.z),
-                    new Vector3(gateAlongX ? gp.x : wallSide.x, 0.03f, gateAlongX ? wallSide.z : gp.z),
-                    gp + Vector3.up * 0.03f,
-                };
-                lever.AddCable(KitRibbon(root, points, 0.06f));
-            }
-        }
-
-        // Tourelles décoratives (modèle Meshy de tour) aux angles du chemin de ronde, et lustres sous le chemin de ronde.
-        foreach (Rect r in plan.rects)
-        {
-            foreach (var corner in new[] { new Vector3(r.xMin + 1.5f, RampartHeight, r.yMin + 1.5f), new Vector3(r.xMax - 1.5f, RampartHeight, r.yMax - 1.5f) })
-            {
-                if (corner.x < west + 2f || corner.x > east - 2f || rnd.NextDouble() < 0.5) continue;
-                if (holes.Exists(h => h.Contains(new Vector2(corner.x, corner.z)))) continue;
-                var turret = GameArt.SpawnModel("TourChateau", root, 4.5f);
-                if (turret != null) turret.transform.position = corner;
-            }
-            Vector3 lamp = new Vector3(r.center.x, RampartHeight - 0.6f, r.center.y);
-            if (!holes.Exists(h => h.Contains(new Vector2(lamp.x, lamp.z)))) AddChandelier(root, lamp, 14f, 1.3f, rnd);
-        }
-        kit.Flush();
-    }
-
-    const float RampartTorchSpacing = 14f;
-    const float RoomTorchChance = 0.33f;
-
-    // Bords de la réunion des rectangles (sans ceux posés sur le bord de la zone) : (début, fin, direction vers l'intérieur).
-    static List<(Vector2 a, Vector2 b, Vector2 inward)> OutlineEdges(List<Rect> rects, float west, float east, float south, float north)
-    {
-        var result = new List<(Vector2, Vector2, Vector2)>();
-        foreach (Rect r in rects)
-        {
-            var edges = new[]
-            {
-                (new Vector2(r.xMin, r.yMin), new Vector2(r.xMax, r.yMin), new Vector2(0f, 1f)),
-                (new Vector2(r.xMin, r.yMax), new Vector2(r.xMax, r.yMax), new Vector2(0f, -1f)),
-                (new Vector2(r.xMin, r.yMin), new Vector2(r.xMin, r.yMax), new Vector2(1f, 0f)),
-                (new Vector2(r.xMax, r.yMin), new Vector2(r.xMax, r.yMax), new Vector2(-1f, 0f)),
-            };
-            foreach (var (a, b, inward) in edges)
-            {
-                bool alongX = inward.x == 0f;
-                if (alongX && (Mathf.Abs(a.y - south) < 0.01f || Mathf.Abs(a.y - north) < 0.01f)) continue;
-                if (!alongX && (Mathf.Abs(a.x - west) < 0.01f || Mathf.Abs(a.x - east) < 0.01f)) continue;
-                // Retire les parties de l'arête à l'intérieur d'un autre rectangle.
-                float lo = alongX ? a.x : a.y, hi = alongX ? b.x : b.y, line = alongX ? a.y : a.x;
-                var spans = new List<Vector2> { new Vector2(lo, hi) };
-                foreach (Rect o in rects)
-                {
-                    if (o == r) continue;
-                    float oLo = alongX ? o.xMin : o.yMin, oHi = alongX ? o.xMax : o.yMax, cLo = alongX ? o.yMin : o.xMin, cHi = alongX ? o.yMax : o.xMax;
-                    if (line <= cLo + 0.01f || line >= cHi - 0.01f) continue;
-                    var next = new List<Vector2>();
-                    foreach (var s in spans)
-                    {
-                        if (s.y <= oLo || s.x >= oHi) { next.Add(s); continue; }
-                        if (s.x < oLo) next.Add(new Vector2(s.x, oLo));
-                        if (s.y > oHi) next.Add(new Vector2(oHi, s.y));
-                    }
-                    spans = next;
-                }
-                foreach (var s in spans)
-                    if (s.y - s.x > 0.3f)
-                        result.Add(alongX ? (new Vector2(s.x, line), new Vector2(s.y, line), inward) : (new Vector2(line, s.x), new Vector2(line, s.y), inward));
-            }
-        }
-        return result;
-    }
-
     // ---------- Tours et Donjon ----------
 
     // Tour ronde (Tour ou Donjon) : mur percé d'une porte (sous une arche) et de meurtrières, créneaux, escalier en colimaçon de 3 m
-    // de large jusqu'au sommet (V0.7.12), étages intermédiaires une fois sur deux. Retourne le centre du sommet.
-    static Vector3 BuildTower(Kit kit, RoundPlan plan, System.Random rnd, Transform root)
+    // de large jusqu'au dernier étage, étages intermédiaires une fois sur deux. V0.7.14 : le toit est fermé (on ne peut ni y monter ni
+    // sortir de la Tour par le haut) ; le dernier étage est 4 m dessous. Retourne le centre du dernier étage et sa hauteur sous toit.
+    const float TowerTopRoom = 4f;
+
+    static (Vector3 topFloor, float headroom) BuildTower(Kit kit, RoundPlan plan, System.Random rnd, Transform root)
     {
-        float R = plan.radius, H = plan.height;
+        float R = plan.radius, H = plan.height, top = H - TowerTopRoom;
         Vector3 c = plan.center;
         const int sides = 24;
         float doorAngle = Rand(rnd, 0f, 360f);
@@ -1013,24 +651,26 @@ public static partial class WorldBuilder
         for (int k = 0; k < slitCount; k++) slits.Add((rnd.Next(sides), Rand(rnd, 4f, H - 3f)));
         KitRoundWall(kit, c, R, 0f, H, sides, new List<float> { doorAngle }, 2.6f, 3.2f, slits);
         RoundDoorArch(kit, c, R, doorAngle, 2.6f, 3.2f);
-        // Escalier contre le mur, de la porte jusqu'au sommet.
+        // Escalier contre le mur, de la porte jusqu'au dernier étage.
         float rOut = R - 1.05f, rIn = rOut - TowerStairWidth;
-        float end = KitSpiral(kit, c, rIn, rOut, 0f, H, doorAngle + 25f);
+        float end = KitSpiral(kit, c, rIn, rOut, 0f, top, doorAngle + 25f);
         // Étages (à 10 et 20 m pour une Tour, 15 et 30 m pour le Donjon), une fois sur deux, au centre (l'escalier passe autour).
-        float step = H / 3f, lowestCeiling = H - 0.5f;
+        float step = H / 3f, lowestCeiling = top;
         foreach (float level in new[] { step, step * 2f })
-            if (rnd.NextDouble() < 0.5)
+            if (level < top - 2.5f && rnd.NextDouble() < 0.5)
             {
                 KitDisc(kit, c, rIn - 0.05f, level, 0.35f, sides);
                 lowestCeiling = Mathf.Min(lowestCeiling, level - 0.35f);
             }
-        // Sommet : dalle pleine, ouverte au-dessus de l'arrivée de l'escalier, créneaux tout autour.
+        // Dernier étage : dalle pleine, ouverte au-dessus de l'arrivée de l'escalier ; puis le toit fermé et les créneaux autour.
         float arrivalSpan = 2.2f / SpiralRise * (SpiralTread / ((rIn + rOut) * 0.5f)) * Mathf.Rad2Deg;
-        KitDisc(kit, c, R - 1f, H, 0.5f, sides, end - arrivalSpan, end + 2f, 0f);
-        KitRoundMerlons(kit, c, R, H, sides);
-        // Lustre accroché sous le premier plafond (aucun décor ne flotte).
+        KitDisc(kit, c, R - 1f, top, 0.5f, sides, end - arrivalSpan, end + 2f, 0f);
+        KitDisc(kit, c, R - 0.5f, H + 0.5f, 0.5f, sides);
+        KitRoundMerlons(kit, c, R, H + 0.5f, sides);
+        // Lustres : sous le premier plafond, et sous le toit (aucun décor ne flotte).
         AddChandelier(root, c + Vector3.up * lowestCeiling, 16f, 1.4f, rnd);
-        return c + Vector3.up * H;
+        if (lowestCeiling < top - 0.1f) AddChandelier(root, c + Vector3.up * H, 10f, 1.1f, rnd);
+        return (c + Vector3.up * top, H - top);
     }
 
     const float TowerStairWidth = 3f;
@@ -1040,55 +680,6 @@ public static partial class WorldBuilder
     {
         Quaternion rot = Quaternion.Euler(0f, angle, 0f);
         DoorArch(kit.walls, center + rot * Vector3.forward * (radius - 0.5f), rot, width, height, 1.3f);
-    }
-
-    // Maison-Fou : bâtiment en forme de fou (pièce d'échecs) de 15 m, 8 m de diamètre ; on y entre par deux portes (une salle au sol,
-    // sous un plafond à 8 m, éclairée par un lustre) ; au-dessus, le corps effilé, le col et la mitre.
-    static void BuildMaisonFou(Kit kit, RoundPlan plan, System.Random rnd)
-    {
-        Vector3 c = plan.center;
-        float R = plan.radius;
-        const int sides = 16;
-        float door = Rand(rnd, 0f, 360f);
-        KitRoundWall(kit, c, R, 0f, 8f, sides, new List<float> { door, door + 180f }, 2.4f, 3f, null, 0.8f);
-        RoundDoorArch(kit, c, R + 0.1f, door, 2.4f, 3f);
-        RoundDoorArch(kit, c, R + 0.1f, door + 180f, 2.4f, 3f);
-        KitDisc(kit, c, R - 0.4f, 8.2f, 0.4f, sides);
-        // V0.7.12 : un lustre suspendu au plafond de la salle.
-        AddChandelier(kit.root, c + Vector3.up * 7.8f, 10f, 1.1f, rnd);
-        // V0.7.13 (Note 16) : toit de Kremlin noir et blanc (modèle Meshy "ToitKremlin"), posé sur la dalle du plafond, aussi large
-        // que le mur, avec sa collision (son maillage). Sans le modèle : l'ancien corps effilé de fou.
-        var roof = GameArt.SpawnModel("ToitKremlin", kit.root, 1f);
-        if (roof != null)
-        {
-            Bounds rb = GameArt.LocalBounds(roof.transform);
-            float width = Mathf.Max(rb.size.x, rb.size.z);
-            float scale = (R * 2f + 0.1f) / width;
-            // Hauteur limitée à celle du bâtiment (15 m) : le dôme est un peu tassé s'il le faut.
-            float squash = Mathf.Min(1f, (MaisonHeight - 8f) / (rb.size.y * scale));
-            roof.transform.localScale = new Vector3(scale, scale * squash, scale);
-            roof.transform.position = c + Vector3.up * 8f;   // sur le haut du mur (la dalle reste cachée dessous)
-            foreach (var mf in roof.GetComponentsInChildren<MeshFilter>())
-            {
-                if (mf.sharedMesh == null || !mf.sharedMesh.isReadable) continue;
-                mf.gameObject.AddComponent<MeshCollider>().sharedMesh = mf.sharedMesh;
-            }
-            return;
-        }
-        float y = 8.2f;
-        foreach (var (radius, height) in new[] { (R * 0.85f, 1.6f), (R * 0.7f, 1.4f), (R * 0.95f, 0.4f), (R * 0.75f, 1.2f), (R * 0.6f, 1.2f), (R * 0.42f, 1f), (R * 0.22f, 0.8f) })
-        {
-            for (int k = 0; k < sides; k++)
-            {
-                float a = (k + 0.5f) * 360f / sides;
-                float chord = 2f * radius * Mathf.Sin(Mathf.PI / sides) + 0.06f;
-                Vector3 p = c + Quaternion.Euler(0f, a, 0f) * Vector3.forward * (radius - 0.3f) + Vector3.up * (y + height * 0.5f);
-                kit.Turned(p, new Vector3(chord, height, 0.6f), a, false);
-            }
-            y += height;
-        }
-        var top = GameArt.Prim(PrimitiveType.Sphere, kit.root, c + Vector3.up * (y + 0.4f), Vector3.one * 0.9f, GameArt.CheckerWall);
-        foreach (var col in top.GetComponentsInChildren<Collider>()) Object.Destroy(col);
     }
 
     // ---------- Mobilier des salles (modèles Meshy) ----------
@@ -1138,6 +729,7 @@ public static partial class WorldBuilder
         }
     }
 
+    // V0.7.14 (Note 01) : plus de torches dans le Château.
     static void FurnishCastle(Maze m, Transform root, Dictionary<Room, int> natures, System.Random rnd)
     {
         var props = new GameObject("Mobilier_Z" + m.zone).transform;
@@ -1145,6 +737,7 @@ public static partial class WorldBuilder
         foreach (var kv in natures)
         {
             Room room = kv.Key;
+            if (room.cells.Count == 0) continue;
             string[] set = Furniture[kv.Value];
             var placed = new List<Vector3>();
             int count = 2 + room.cells.Count;
@@ -1169,20 +762,6 @@ public static partial class WorldBuilder
                     col.center = b.center;
                     col.size = b.size;
                 }
-            }
-            // V0.7.13 : une torche contre un mur, à flamme blanche, dans une salle sur trois seulement (les lustres éclairent déjà).
-            int torches = rnd.NextDouble() < RoomTorchChance ? 1 : 0;
-            for (int attempt = 0; attempt < 12 && torches > 0; attempt++)
-            {
-                var cell = room.cells[rnd.Next(room.cells.Count)];
-                int d = rnd.Next(4);
-                if (m.keepClear.Contains(cell) || !HasWall(m, cell.x, cell.y, d) || m.HasWallHole(cell.x, cell.y, d)) continue;
-                Vector3 n = new Vector3(DI[d], 0f, DJ[d]), side = new Vector3(DJ[d], 0f, DI[d]);
-                Vector3 p = m.Center(cell.x, cell.y) + n * (Cell * 0.5f - Wall * 0.5f) + side * Rand(rnd, -1.2f, 1.2f) + Vector3.up * 2.4f;
-                if (placed.Exists(q => Flat(q - p) < 1.4f)) continue;
-                placed.Add(p);
-                AddTorch(props, p, -n, true, rnd);
-                torches--;
             }
         }
     }
@@ -1268,17 +847,18 @@ public static partial class WorldBuilder
         foreach (var c in quad.GetComponentsInChildren<Collider>()) Object.Destroy(c);
     }
 
-    // Emplacements de monticules dans les cours (au sol, hors des douves et des escaliers).
-    static void CourtyardSpots(Maze m, ZoneRefs refs, System.Random rnd)
+    // Emplacements de monticules dans les cours intérieures (au sol).
+    static void CourtyardSpots(Maze m, ZoneRefs refs, HashSet<Vector2Int> courts, System.Random rnd)
     {
-        for (int i = 0; i < m.N; i++)
-            for (int j = 0; j < m.N; j++)
-            {
-                if (!m.Void(i, j) || rnd.NextDouble() > 0.35) continue;
-                Vector3 p = m.Center(i, j) + new Vector3(Rand(rnd, -1.5f, 1.5f), 0f, Rand(rnd, -1.5f, 1.5f));
-                if (!Physics.Raycast(p + Vector3.up * 2.5f, Vector3.down, out RaycastHit hit, 8f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) continue;
-                if (hit.normal.y < 0.95f || !hit.transform.IsChildOf(refs.structure)) continue;
-                refs.itemSpots.Add(hit.point);
-            }
+        var sorted = new List<Vector2Int>(courts);
+        sorted.Sort((a, b) => a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y));
+        foreach (var c in sorted)
+        {
+            if (rnd.NextDouble() > 0.35) continue;
+            Vector3 p = m.Center(c.x, c.y) + new Vector3(Rand(rnd, -1.5f, 1.5f), 0f, Rand(rnd, -1.5f, 1.5f));
+            if (!Physics.Raycast(p + Vector3.up * 2.5f, Vector3.down, out RaycastHit hit, 8f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) continue;
+            if (hit.normal.y < 0.95f || !hit.transform.IsChildOf(refs.structure)) continue;
+            refs.itemSpots.Add(hit.point);
+        }
     }
 }

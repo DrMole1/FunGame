@@ -135,18 +135,39 @@ public partial class GameSession
 
     // ---------- Ravin des Blockhaus (V0.7.12, Note 20) ----------
 
-    // Tomber dans le ravin (sous le dernier étage, à -20 m) tue le joueur.
+    // Tomber dans le ravin (sous le dernier étage, à -10 m depuis la V0.7.14) tue le joueur. V0.7.14 (Note 04) : le corps continue
+    // de tomber jusqu'au fond du ravin (le personnage mort est figé : on le fait descendre à la main).
+    float ravineFallSpeed = -1f;
+
     void UpdateRavineFall()
     {
+        if (ravineFallSpeed >= 0f)
+        {
+            if (!status.Dead || !net.InGame) { ravineFallSpeed = -1f; return; }
+            Vector3 at = player.transform.position;
+            ravineFallSpeed = Mathf.Min(ravineFallSpeed + Physics.gravity.magnitude / (GameRules.JumpTimeScale * GameRules.JumpTimeScale) * Time.deltaTime, RavineMaxFallSpeed);
+            float step = ravineFallSpeed * Time.deltaTime;
+            if (Physics.Raycast(at + Vector3.up * 0.1f, Vector3.down, out RaycastHit hit, step + 1.05f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            {
+                player.transform.position = new Vector3(at.x, hit.point.y + 0.95f, at.z);
+                ravineFallSpeed = -1f;
+                return;
+            }
+            player.transform.position = at + Vector3.down * step;
+            return;
+        }
         if (status.Dead || !net.InGame || Teleporting || phase == Phase.GameOver) return;
         Vector3 p = player.transform.position;
         if (p.y > -WorldBuilder.BlockhausDepth - RavineKillDrop) return;
         int zone = WorldBuilder.ZoneAt(p);
-        if (zone < 1 || zone > zones.Count || zones[zone - 1].terrain != TerrainKind.Blockhaus) return;
+        if (zone < 1 || zone > zones.Count || zones[zone - 1].ravineAt == null || !zones[zone - 1].ravineAt(p)) return;
+        var body = player.GetComponent<Rigidbody>();
+        float speed = body != null ? Mathf.Max(0f, -body.velocity.y) : 10f;
         KillLocal("le Ravin");
+        ravineFallSpeed = speed;
     }
 
-    const float RavineKillDrop = 3f;
+    const float RavineKillDrop = 3f, RavineMaxFallSpeed = 40f;
 
     // ---------- Mégaphone ----------
 

@@ -25,12 +25,28 @@ public class OrbitCamera : MonoBehaviour
     static float lobbyHomeYaw;
     static bool lobbySnap, lobbyReturn;
     const float LobbySpinSpeed = 6f, LobbyReturnSpeed = 360f;
+    // Cadrage du lobby : inclinaison (celle du lancement du jeu) et distance de la caméra.
+    const float LobbyPitch = 20f, LobbyDistance = 5f;
 
     public static void SetLobbyHome(float yaw)
     {
         lobbyHomeYaw = yaw;
         lobbySnap = true;
         lobbyReturn = false;
+        // Plus rien de la partie ne pilote la caméra (mort, Canon, toboggan, niche, Cloche, secousses, battements du cœur).
+        DeathView = -1f;
+        DeathSpot = null;
+        CannonEye = null;
+        SlideLook = null;
+        KennelEye = null;
+        FlightLook = null;
+        FixedView = null;
+        ForcedLook = null;
+        MetronomeTilt = 0f;
+        Dread = 0f;
+        Dying = false;
+        shake = 0f;
+        zoomPunch = bellStrike = -1f;
     }
 
     public static void ReturnToLobbyHome() => lobbyReturn = true;
@@ -260,13 +276,12 @@ public class OrbitCamera : MonoBehaviour
         transform.SetPositionAndRotation(Vector3.Lerp(transform.position, pos, w), Quaternion.Slerp(transform.rotation, rot, w));
     }
 
-    // Zoom du lobby (survol des flèches du skin) : champ de vision réduit à 65 %, atteint en 1,2 s, quitté en 0,3 s.
+    // Zoom du lobby (survol des flèches du skin) : champ de vision réduit à 65 %, atteint en 1,2 s, quitté en 0,9 s
+    // (V0.7.14 : dézoom ralenti, 0,3 s avant).
     float lobbyZoom;
-    const float LobbyZoomFov = 0.65f, LobbyZoomIn = 1.2f, LobbyZoomOut = 0.3f;
-    // V0.7.12 (Note 07) : en zoomant, la caméra descend et se redresse (on voit la bouche des skins, moins par le dessus).
-    const float LobbyZoomPitchDrop = 15f, LobbyZoomLift = 0.12f;
-    // V0.7.13 (Note 02) : hauteur des pieds à l'écran une fois zoomé (part de la hauteur de l'écran, depuis le bas).
-    const float LobbyFeetViewport = 0.06f;
+    const float LobbyZoomFov = 0.65f, LobbyZoomIn = 1.2f, LobbyZoomOut = 0.9f;
+    // V0.7.14 (Note 02) : position horizontale de la tête à l'écran une fois zoomé (part de la largeur, depuis la gauche).
+    const float LobbyZoomHeadX = 0.7f;
 
     // Zoom dans le Canon et secousses (tir, impact).
     void UpdateLens()
@@ -325,6 +340,11 @@ public class OrbitCamera : MonoBehaviour
             if (lobbySnap)
             {
                 yaw = lobbyHomeYaw;
+                // V0.7.14 : retour au lobby (mort, partie quittée) : même cadrage qu'au lancement du jeu. L'inclinaison et la
+                // distance choisies à la souris et à la molette pendant la partie (ou la première personne, un tunnel) restaient.
+                pitch = LobbyPitch;
+                currentDistance = LobbyDistance;
+                tunnelBlend = crouchBlend = lobbyZoom = 0f;
                 lobbySnap = lobbyReturn = false;
             }
             else if (lobbyReturn)
@@ -430,13 +450,7 @@ public class OrbitCamera : MonoBehaviour
         // Vers un tunnel (ou en en sortant) : le point visé descend vers les yeux et la distance fond vers zéro.
         float tunnelK = Mathf.SmoothStep(0f, 1f, tunnelBlend);
         Vector3 focus = target.position + Vector3.up * Mathf.Lerp(height, eyeHeight, tunnelK);
-        if (!ControlsEnabled && lobbyZoom > 0f)
-        {
-            float zk = Mathf.SmoothStep(0f, 1f, lobbyZoom);
-            rot = Quaternion.Euler(pitch - LobbyZoomPitchDrop * zk, yaw, 0f);
-            focus += Vector3.up * (LobbyZoomLift * zk);
-        }
-        float wanted = Mathf.Lerp(ControlsEnabled ? distance : 5f, 0.05f, tunnelK);
+        float wanted = Mathf.Lerp(ControlsEnabled ? distance : LobbyDistance, 0.05f, tunnelK);
         // Tout près des yeux, le corps masquerait la vue.
         if (tunnelK > 0.7f) HideTarget(target);
 
@@ -451,21 +465,31 @@ public class OrbitCamera : MonoBehaviour
         // Jamais sous les pieds du personnage (le pivot est au centre de la capsule).
         pos.y = Mathf.Max(pos.y, target.position.y - MaxDropBelowCenter);
         Quaternion camRotation = Quaternion.LookRotation(focus - pos);
-        // V0.7.13 (Note 02) : zoom du lobby : la caméra s'incline vers le bas jusqu'à ce que les pieds du personnage soient juste
-        // au-dessus du bas de l'écran (environ 2 cm).
+        // V0.7.14 (Note 02) : zoom du lobby : la caméra descend à la hauteur de la tête du skin et la regarde de face, à
+        // l'horizontale : la tête est au centre de l'écran.
         if (!ControlsEnabled && lobbyZoom > 0f)
         {
-            var view = GetComponent<Camera>();
-            var body = target.GetComponent<Collider>();
-            float feetY = body != null ? body.bounds.min.y : target.position.y - 0.9f;
-            Vector3 flat = target.position - pos;
+            var avatar = target.GetComponentInChildren<CharacterAvatar>();
+            Vector3? headCenter = avatar != null ? avatar.HeadCenter : null;
+            Vector3 head = headCenter ?? target.position + Vector3.up * eyeHeight;
+            Vector3 flat = head - pos;
             flat.y = 0f;
-            if (view != null && flat.sqrMagnitude > 0.0001f)
+            if (flat.sqrMagnitude > 0.0001f)
             {
-                float feetElevation = Mathf.Atan2(feetY - pos.y, flat.magnitude) * Mathf.Rad2Deg;
-                float below = Mathf.Atan((LobbyFeetViewport - 0.5f) * 2f * Mathf.Tan(view.fieldOfView * 0.5f * Mathf.Deg2Rad)) * Mathf.Rad2Deg;
-                Quaternion framed = Quaternion.Euler(-(feetElevation - below), Quaternion.LookRotation(flat).eulerAngles.y, 0f);
-                camRotation = Quaternion.Slerp(camRotation, framed, Mathf.SmoothStep(0f, 1f, lobbyZoom));
+                float zk = Mathf.SmoothStep(0f, 1f, lobbyZoom);
+                Vector3 zoomedPos = new Vector3(pos.x, head.y, pos.z);
+                pos = Vector3.Lerp(pos, zoomedPos, zk);
+                // La tête à LobbyZoomHeadX de la largeur de l'écran (un peu à droite) : la caméra pivote d'autant vers la gauche.
+                var view = GetComponent<Camera>();
+                float side = 0f;
+                if (view != null)
+                {
+                    float halfH = Mathf.Tan(view.fieldOfView * 0.5f * Mathf.Deg2Rad) * view.aspect;
+                    side = Mathf.Atan((LobbyZoomHeadX - 0.5f) * 2f * halfH) * Mathf.Rad2Deg;
+                }
+                Quaternion zoomedRot = Quaternion.Euler(0f, -side, 0f) * Quaternion.LookRotation(head - zoomedPos);
+                // Au dézoom, Slerp vers la rotation habituelle : la caméra retrouve sa trajectoire.
+                camRotation = Quaternion.Slerp(camRotation, zoomedRot, zk);
             }
         }
         // V0.7.4 (Note 02) : à la troisième personne aussi, un très léger balancement au rythme des pas (le même qu'à la première

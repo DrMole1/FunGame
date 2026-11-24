@@ -81,14 +81,20 @@ public static partial class WorldBuilder
         public ZoneDoor door;        // porte de la Neutral Room, vers le Hub suivant
         public int doorNumber;       // 1 : porte entre la Zone 1 et le Hub II
         public readonly List<Glyph> neutralGlyphs = new List<Glyph>();
-        public TerrainKind terrain;  // V0.7.11 (chapitre 11) : environnement de la zone
-        // V0.7.11 (11.3) : leviers des remparts du Château et leurs herses ; (11.4) portes à clé des Blockhaus.
+        // V0.7.14 (chapitre 11) : structure posée dans la zone (Echiquier : aucune) ; 'ravineAt' : vrai au-dessus du ravin d'un
+        // Blockhaus (y tomber tue) ; 'structureEntry' : devant une entrée de la structure ("/tp chateau", "/tp blockhaus").
+        public TerrainKind structureKind;
+        public System.Func<Vector3, bool> ravineAt;
+        public Vector3? structureEntry;
+        public bool secretCorpsePlaced;   // 17.3 : déjà posé (dans un appartement fermé du Blockhaus)
+        // V0.7.11 (11.3) : leviers des remparts du Château et leurs herses (plus de levier depuis la V0.7.14 : herses ouvertes) ;
+        // (11.4) portes à clé des Blockhaus.
         public readonly List<CastleLever> levers = new List<CastleLever>();
         public readonly Dictionary<int, List<CastleGate>> leverGates = new Dictionary<int, List<CastleGate>>();
         public readonly List<ApartmentDoor> lockedDoors = new List<ApartmentDoor>();
         // V0.7.12 (11.4) : contenu obligatoire des appartements fermés : Super Monticules et monticules simples, à chaque manche.
         public readonly List<Vector3> forcedSupers = new List<Vector3>(), forcedMounds = new List<Vector3>();
-        // Côté (0 ou 1) d'un point, de part et d'autre du rempart extérieur ou du ravin : une entité Cauchemar de chaque côté.
+        // Côté (0 ou 1) d'un point (une entité Cauchemar de chaque côté) ; V0.7.14 : plus utilisé (règle retirée du GDD).
         public System.Func<Vector3, int> sideOf;
         // V0.7.13 : vrai si le point est dehors (cours du Château, ravin du Blockhaus) : la luminosité ambiante y est relevée.
         public System.Func<Vector3, bool> outdoors;
@@ -623,12 +629,25 @@ public static partial class WorldBuilder
         public bool Void(int i, int j) => voidCell != null && InGrid(i, j) && voidCell[i, j];
         // Chance qu'un couloir ait un renfoncement en biseau (Échiquier : 15 % ; Château et Blockhaus : 30 %, V0.7.11).
         public float bevelChance = GameRules.BevelChance;
+        // V0.7.14 (chapitre 11) : cellules de la structure (Château ou Blockhaus) posée dans la zone d'Échiquier, et leurs réglages
+        // propres (les autres cellules gardent ceux de l'Échiquier) : hauteur des couloirs, biseaux, murs en briques noires et
+        // blanches (Château), plafonds gris (béton), pas de collision de plafond (étages du Blockhaus, sauf le dernier).
+        public bool[,] structure;
+        public TerrainKind structureKind;
+        public float structureCorridorCeil = WallHeight;
+        public float structureBevelChance = 0.3f;
+        public float structureCeilingSlab = -1f;   // Château : 0,3 m (le dessus des toits, où l'on marche)
+        public float CeilingSlab(int i, int j) => structureCeilingSlab > 0f && InStructure(i, j) ? structureCeilingSlab : ceilingSlab;
+        public bool brickWalls, greyCeilings, structureNoCeilingColliders;
+        public bool InStructure(int i, int j) => structure != null && InGrid(i, j) && structure[i, j];
+        public TerrainKind TerrainAt(int i, int j) => InStructure(i, j) ? structureKind : TerrainKind.Echiquier;
+        public float CorridorCeil(int i, int j) => InStructure(i, j) ? structureCorridorCeil : corridorCeil;
+        public bool NoCeilingCollider(int i, int j) => noCeilingColliders || structureNoCeilingColliders && InStructure(i, j);
         // Blockhaus : les murs vers les cellules vides montent jusqu'en haut de l'étage ('voidCeil'), et certaines cellules vides
         // (au-dessus d'un appartement de double hauteur) n'ont aucun mur.
         public bool voidWallFull;
         public bool[,] silentVoid;
         public bool Silent(int i, int j) => silentVoid != null && InGrid(i, j) && silentVoid[i, j];
-        public TerrainKind terrain;
         public readonly int[,] room;                 // -1 = couloir
         public readonly List<Room> rooms = new List<Room>();
         // Hauteur du mur nord de chaque colonne (la zone suivante complète au-dessus si son plafond est plus haut).
@@ -646,6 +665,13 @@ public static partial class WorldBuilder
             northWall = new bool[n, n];
             room = new int[n, n];
             fixedCell = new bool[n, n];
+            // V0.7.14 : murs pleins et aucune salle tant que le labyrinthe n'est pas tiré (la structure est tirée avant l'Échiquier).
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                {
+                    eastWall[i, j] = northWall[i, j] = true;
+                    room[i, j] = -1;
+                }
         }
 
         public bool InGrid(int i, int j) => i >= 0 && j >= 0 && i < N && j < N;
@@ -682,7 +708,7 @@ public static partial class WorldBuilder
         {
             if (!InGrid(i, j)) return WallHeight;
             if (Void(i, j)) return voidCeil;
-            return Reserved(i, j) ? WallHeight : RoomAt(i, j)?.ceil ?? corridorCeil;
+            return Reserved(i, j) ? WallHeight : RoomAt(i, j)?.ceil ?? CorridorCeil(i, j);
         }
     }
 
@@ -730,26 +756,37 @@ public static partial class WorldBuilder
     static Vector3[] archVerticesCache;
     static int[] archTrianglesCache;
 
-    // V0.7.12 : arche (même modèle) autour d'une porte de 'holeWidth' x 'holeHeight' : son ouverture épouse celle de la porte, ses
-    // piliers et son sommet débordent du mur de chaque côté ('depth' un peu plus épais que lui). Visuelle seulement (le mur collisionne).
-    static void DoorArch(MeshBuilder mb, Vector3 floorCenter, Quaternion rot, float holeWidth, float holeHeight, float depth)
+    // Modèle de l'arche (Meshy) sans sa barre basse : V0.7.13 (Note 19) autour des portes ; V0.7.14 (Note 03) aussi pour les arches
+    // entre salles et couloirs, qui gardaient une légère marche au sol. Tout triangle de l'ouverture proche du sol est retiré.
+    static bool ArchMesh(out Vector3[] vertices, out int[] triangles)
     {
         if (archVerticesCache == null)
         {
             Mesh arch = Resources.Load<Mesh>("Art/Decor/Arche");
-            if (arch == null) return;
+            if (arch == null) { vertices = null; triangles = null; return false; }
             archVerticesCache = arch.vertices;
-            // V0.7.13 (Note 19) : sans la barre basse du modèle, qui faisait une marche sous l'arche.
             var kept = new List<int>();
             int[] all = arch.triangles;
+            float half = ArchHoleWidth * 0.5f;
             for (int t = 0; t < all.Length; t += 3)
             {
                 Vector3 a = archVerticesCache[all[t]], b = archVerticesCache[all[t + 1]], c = archVerticesCache[all[t + 2]];
-                bool sill = Mathf.Max(a.y, Mathf.Max(b.y, c.y)) < ArchSillTop && Mathf.Abs((a.x + b.x + c.x) / 3f) < ArchHoleWidth * 0.5f;
-                if (!sill) { kept.Add(all[t]); kept.Add(all[t + 1]); kept.Add(all[t + 2]); }
+                bool low = Mathf.Max(a.y, Mathf.Max(b.y, c.y)) < ArchSillTop;
+                bool inOpening = Mathf.Abs((a.x + b.x + c.x) / 3f) < half || Mathf.Min(Mathf.Abs(a.x), Mathf.Min(Mathf.Abs(b.x), Mathf.Abs(c.x))) < half - 0.01f;
+                if (!(low && inOpening)) { kept.Add(all[t]); kept.Add(all[t + 1]); kept.Add(all[t + 2]); }
             }
             archTrianglesCache = kept.ToArray();
         }
+        vertices = archVerticesCache;
+        triangles = archTrianglesCache;
+        return true;
+    }
+
+    // V0.7.12 : arche (même modèle) autour d'une porte de 'holeWidth' x 'holeHeight' : son ouverture épouse celle de la porte, ses
+    // piliers et son sommet débordent du mur de chaque côté ('depth' un peu plus épais que lui). Visuelle seulement (le mur collisionne).
+    static void DoorArch(MeshBuilder mb, Vector3 floorCenter, Quaternion rot, float holeWidth, float holeHeight, float depth)
+    {
+        if (!ArchMesh(out _, out _)) return;
         mb.WorldMesh(archVerticesCache, archTrianglesCache,
             Matrix4x4.TRS(floorCenter, rot, new Vector3(holeWidth / ArchHoleWidth, holeHeight / ArchHoleTop, depth)), 0.5f);
     }
@@ -823,12 +860,15 @@ public static partial class WorldBuilder
 
     static T Pick<T>(System.Random rnd, params T[] values) => values[rnd.Next(values.Length)];
 
-    static void Generate(Maze m, System.Random rnd, ZoneStyle style)
+    // V0.7.14 : 'area' (si donnée) limite le tirage à une partie de la grille (la structure, ou l'Échiquier autour d'elle) : le reste
+    // de la grille (murs, salles) n'est pas touché, et chaque salle tient tout entière dans 'area'.
+    static void Generate(Maze m, System.Random rnd, ZoneStyle style, System.Func<int, int, bool> area = null)
     {
         int n = m.N;
         for (int i = 0; i < n; i++)
             for (int j = 0; j < n; j++)
             {
+                if (area != null && !area(i, j)) continue;
                 m.eastWall[i, j] = m.northWall[i, j] = true;
                 m.room[i, j] = -1;
             }
@@ -836,7 +876,7 @@ public static partial class WorldBuilder
         // Labyrinthe parfait (exploration en profondeur) à partir de l'entrée de la zone ; la Neutral Room
         // n'en fait pas partie (elles s'y ouvrent ensuite). V0.7.11 : les cellules vides (Château, Blockhaus) non plus ; chaque
         // région de cellules qu'elles séparent a son propre labyrinthe (relié aux autres par les cours, les remparts...).
-        bool Usable(int i, int j) => m.InGrid(i, j) && !m.Reserved(i, j) && !m.Fixed(i, j) && !m.Void(i, j);
+        bool Usable(int i, int j) => m.InGrid(i, j) && !m.Reserved(i, j) && !m.Fixed(i, j) && !m.Void(i, j) && (area == null || area(i, j));
         var visited = new bool[n, n];
         var stack = new Stack<Vector2Int>();
         var dirs = new List<int>(4);
@@ -861,7 +901,7 @@ public static partial class WorldBuilder
             }
         }
         if (Usable(m.start.x, m.start.y)) Carve(m.start);
-        if (m.voidCell != null)
+        if (m.voidCell != null || area != null)
             for (int i = 0; i < n; i++)
                 for (int j = 0; j < n; j++)
                     if (Usable(i, j) && !visited[i, j]) Carve(new Vector2Int(i, j));
@@ -914,7 +954,7 @@ public static partial class WorldBuilder
                     bool inside = i >= i0 && i < i0 + w && j >= j0 && j < j0 + h;
                     // Une cellule d'écart avec le Hub et les portes ; avec les autres salles aussi, sauf si elles peuvent se toucher.
                     if (m.InGrid(i, j) && (m.Reserved(i, j) || m.Fixed(i, j) || m.Void(i, j) && inside || cell == m.start || m.keepClear.Contains(cell)
-                        || (m.room[i, j] >= 0 && (inside || !coverage)))) ok = false;
+                        || inside && area != null && !area(i, j) || (m.room[i, j] >= 0 && (inside || !coverage)))) ok = false;
                 }
             if (!ok) continue;
 
@@ -1241,6 +1281,7 @@ public static partial class WorldBuilder
     {
         public MeshBuilder floor = new MeshBuilder(), ceiling = new MeshBuilder();
         public MeshBuilder checker = new MeshBuilder();
+        public MeshBuilder grey = new MeshBuilder();   // V0.7.14 : plafonds gris (béton) des structures
     }
 
     // Génère et construit la zone 'zone' (1, 2, 3...). 'previous' : la zone précédente, déjà construite (sauf pour la
@@ -1262,25 +1303,24 @@ public static partial class WorldBuilder
     // Tout le tirage est fait d'après la graine, dans un ordre fixe : le découpage en étapes ne change rien au résultat.
     static IEnumerator BuildZoneSteps(ZoneBuild build, Transform parent, int seed, int zone, ZoneRefs previous)
     {
-        // V0.7.11 (chapitre 11) : la Zone 1 est un Échiquier ; ensuite, Château ou Blockhaus selon le tirage.
-        TerrainKind terrain = Terrains.KindOf(seed, zone);
-        if (terrain != TerrainKind.Echiquier)
-        {
-            var custom = terrain == TerrainKind.Chateau ? BuildChateauSteps(build, parent, seed, zone, previous) : BuildBlockhausSteps(build, parent, seed, zone, previous);
-            while (custom.MoveNext()) yield return null;
-            yield break;
-        }
+        // V0.7.14 (chapitre 11) : chaque zone est un Échiquier ; certaines contiennent une structure (Château ou Blockhaus), tirée
+        // d'abord, sur les parcelles de son gabarit ; l'Échiquier occupe le reste de la zone.
+        TerrainKind kind = Terrains.StructureOf(seed, zone);
         var rnd = new System.Random(seed * 31 + zone * 7919);
         Maze m = CreateMaze(seed, zone);
         if (previous != null) m.southHeights = previous.maze.northHeights;
-        Generate(m, rnd, StyleFor(zone));
+        ChateauPlan castle = kind == TerrainKind.Chateau ? PlanChateau(m, seed, zone) : null;
+        BlockhausPlan block = kind == TerrainKind.Blockhaus ? PlanBlockhaus(m, seed, zone) : null;
+        Generate(m, rnd, StyleFor(zone), kind == TerrainKind.Echiquier ? null : (System.Func<int, int, bool>)((i, j) => !m.InStructure(i, j)));
         yield return null;
         StampFixedRooms(m);
+        if (castle != null) FinishChateauPlan(m, castle);
+        if (block != null) FinishBlockhausPlan(m, block);
         ChooseStatueRoom(m, new System.Random(seed * 83 + zone * 457));
         ChooseLinks(m, new System.Random(seed * 89 + zone * 281));
         yield return null;
 
-        var refs = new ZoneRefs { index = zone, maze = m, root = new GameObject("Zone " + zone), terrain = TerrainKind.Echiquier };
+        var refs = new ZoneRefs { index = zone, maze = m, root = new GameObject("Zone " + zone), structureKind = kind };
         build.Refs = refs;
         Transform root = refs.root.transform;
         root.SetParent(parent, false);
@@ -1302,6 +1342,23 @@ public static partial class WorldBuilder
         BuildWindows(m, root, new System.Random(seed * 47 + zone * 691));
         yield return null;
 
+        // V0.7.14 : la structure (après l'Échiquier, dont elle complète les murs).
+        float structureTop = 0f, structureBottom = 0f;
+        if (castle != null)
+        {
+            var steps = BuildChateauSteps(m, castle, refs, root, colliders.transform, zone);
+            while (steps.MoveNext()) yield return null;
+            structureTop = TowerHeight * 1.5f + 2f;
+            structureBottom = -MoatDepth - 1f;
+        }
+        if (block != null)
+        {
+            var steps = BuildBlockhausSteps(m, block, refs, root, colliders.transform, seed, zone);
+            while (steps.MoveNext()) yield return null;
+            structureTop = BlockhausTop + 2f;
+            structureBottom = -RavineReach;
+        }
+
         // Les collisions doivent être à jour pour poser le décor sur les sols (dalles, escaliers, fosses, plateformes).
         Physics.SyncTransforms();
         floorEyes = new List<Vector3>();
@@ -1309,17 +1366,31 @@ public static partial class WorldBuilder
         var decor = Decorate(m, root, colliders.transform, rnd, refs.itemSpots);
         while (decor.MoveNext()) yield return null;
         statueLog = null;
+        if (castle != null)
+        {
+            FurnishCastle(m, root, castle.natures, castle.rnd);
+            CourtyardSpots(m, refs, castle.courts, castle.rnd);
+        }
         MarkIntangibleSpheres(root);
         yield return null;
         var supers = FindSuperMoundSpots(m, refs, new System.Random(seed * 67 + zone * 389));
         while (supers.MoveNext()) yield return null;
+        refs.lowestFloor = Mathf.Min(-14f, structureBottom);
         refs.nav = new MazeNav();
-        refs.nav.AddZone(m.origin, m.N, Cell, (i, j) => !m.Reserved(i, j), (i, j) => m.Ceil(i, j));
+        refs.nav.AddZone(m.origin, m.N, Cell, (i, j) => !m.Reserved(i, j), (i, j) => m.InStructure(i, j) ? Mathf.Max(structureTop, m.Ceil(i, j)) : m.Ceil(i, j), refs.lowestFloor);
         refs.nav.Prepare(colliders.transform, refs.door != null ? refs.door.Blocker : null);
         AddReflectionProbes(m, root);
         // 17.3 (V0.7.11) : le cadavre de Tête de Cloche et la Carte Magnétique 1, à l'endroit le plus haut de la Zone 3 atteignable
-        // par un joueur (escalier ou sauts : plateformes, planchers surélevés, sommets des salles chaotiques).
-        if (zone == GameRules.SecretCorpseZone) PlaceSecretCorpse(m, root);
+        // par un joueur (escalier ou sauts : plateformes, planchers surélevés, sommets des salles chaotiques, Tours du Château) ; dans
+        // un appartement fermé si la zone a un Blockhaus.
+        if (zone == GameRules.SecretCorpseZone && !refs.secretCorpsePlaced) PlaceSecretCorpse(m, root);
+        // V0.7.14 : au nord, l'enceinte du Château monte jusqu'à son plafond ; le ravin du Blockhaus jusqu'au sien.
+        for (int i = 0; i < m.N; i++)
+        {
+            if (!m.InStructure(i, m.N - 1)) continue;
+            if (castle != null) m.northHeights[i] = Mathf.Max(m.northHeights[i], ChateauHeight);
+            if (block != null) m.northHeights[i] = Mathf.Max(m.northHeights[i], block.ravine.Contains(new Vector2Int(i, m.N - 1)) ? RavineReach : BlockhausTop);
+        }
     }
 
     static IEnumerator BuildGeometry(Maze m, Transform root, GameObject colliders, System.Random archRnd)
@@ -1335,7 +1406,19 @@ public static partial class WorldBuilder
         // calculées précisément, sans rupture de lumière d'un morceau à l'autre.
         int wallChunks = (n + WallChunkSize - 1) / WallChunkSize;
         var wallData = new MeshBuilder[wallChunks, wallChunks];
-        MeshBuilder WallsOf(int i, int j) => wallData[Mathf.Clamp(i, 0, n - 1) / WallChunkSize, Mathf.Clamp(j, 0, n - 1) / WallChunkSize] ??= new MeshBuilder();
+        // V0.7.14 (11.3) : murs en briques noires et blanches dans le Château.
+        var brickData = new MeshBuilder[wallChunks, wallChunks];
+        MeshBuilder WallsOf(int i, int j)
+        {
+            int ci = Mathf.Clamp(i, 0, n - 1), cj = Mathf.Clamp(j, 0, n - 1);
+            var data = m.brickWalls && m.InStructure(ci, cj) ? brickData : wallData;
+            return data[ci / WallChunkSize, cj / WallChunkSize] ??= new MeshBuilder();
+        }
+        // Mur entre deux cellules : celui de la cellule pleine (une cellule vide n'a pas de murs à elle).
+        MeshBuilder EdgeWalls(int ai, int aj, int bi, int bj) =>
+            m.InGrid(ai, aj) && !(m.Void(ai, aj) && m.InGrid(bi, bj) && !m.Void(bi, bj)) ? WallsOf(ai, aj) : WallsOf(bi, bj);
+        // V0.7.14 : à côté d'une cellule vide, le mur monte jusqu'en haut de l'étage seulement du côté de la structure (Blockhaus).
+        float VoidWallHeight(int oi, int oj) => m.voidWallFull && (m.structure == null || m.InStructure(oi, oj)) ? m.voidCeil : m.Ceil(oi, oj);
 
         void AddCollider(Vector3 center, Vector3 size)
         {
@@ -1358,7 +1441,7 @@ public static partial class WorldBuilder
                 if (!m.NoPlainFloor(i, j))
                     ch.floor.WorldQuad(c + new Vector3(-e, 0, -e), c + new Vector3(e, 0, -e), c + new Vector3(e, 0, e), c + new Vector3(-e, 0, e), Vector3.up, 0.5f);
                 Vector3 top = c + Vector3.up * (m.Ceil(i, j) - CeilingDrop);
-                ch.ceiling.WorldQuad(top + new Vector3(-e, 0, -e), top + new Vector3(e, 0, -e), top + new Vector3(e, 0, e), top + new Vector3(-e, 0, e), Vector3.down, 0.25f);
+                (m.greyCeilings && m.InStructure(i, j) ? ch.grey : ch.ceiling).WorldQuad(top + new Vector3(-e, 0, -e), top + new Vector3(e, 0, -e), top + new Vector3(e, 0, e), top + new Vector3(-e, 0, e), Vector3.down, 0.25f);
             }
         // Sol : une collision par suite de cellules sans fosse sur chaque rangée.
         for (int j = 0; j < n; j++)
@@ -1392,12 +1475,13 @@ public static partial class WorldBuilder
         for (int j = 0; j < n && !m.noCeilingColliders; j++)
             for (int i = 0; i < n;)
             {
-                if (m.Reserved(i, j) || m.Void(i, j)) { i++; continue; }
-                float ceil = m.Ceil(i, j);
+                if (m.Reserved(i, j) || m.Void(i, j) || m.NoCeilingCollider(i, j)) { i++; continue; }
+                float ceil = m.Ceil(i, j), slab = m.CeilingSlab(i, j);
                 int start = i;
-                while (i < n && !m.Reserved(i, j) && !m.Void(i, j) && Mathf.Approximately(m.Ceil(i, j), ceil)) i++;
+                while (i < n && !m.Reserved(i, j) && !m.Void(i, j) && !m.NoCeilingCollider(i, j) && Mathf.Approximately(m.Ceil(i, j), ceil)
+                    && Mathf.Approximately(m.CeilingSlab(i, j), slab)) i++;
                 float a = x0 + start * Cell, b = x0 + i * Cell;
-                AddCollider(new Vector3((a + b) * 0.5f, ceil + m.ceilingSlab * 0.5f, m.Center(0, j).z), new Vector3(b - a, m.ceilingSlab, Cell));
+                AddCollider(new Vector3((a + b) * 0.5f, ceil + slab * 0.5f, m.Center(0, j).z), new Vector3(b - a, slab, Cell));
             }
 
         // Ouverture dans un mur (porte) : deux piliers et un linteau.
@@ -1485,6 +1569,8 @@ public static partial class WorldBuilder
                 // Arête verticale (le long de Z) à droite de la cellule (i, j) ; les bords est et ouest sont des murs pleins.
                 bool leftIn = i >= 0, rightIn = i + 1 < n;
                 bool boundary = !leftIn || !rightIn;
+                // V0.7.14 : rien au bord de la zone pour une cellule vide sans murs (étages du Blockhaus, hors de la structure).
+                if (boundary && m.Silent(leftIn ? i : i + 1, j)) continue;
                 bool wall;
                 if (boundary) wall = true;
                 else if (m.Reserved(i, j) && m.Reserved(i + 1, j)) wall = false;
@@ -1492,13 +1578,13 @@ public static partial class WorldBuilder
                 float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i + 1, j));
                 float x = x0 + (i + 1) * Cell;
                 float z = z0 + j * Cell + Cell * 0.5f;
-                MeshBuilder mb = WallsOf(leftIn ? i : i + 1, j);
+                MeshBuilder mb = boundary ? WallsOf(leftIn ? i : i + 1, j) : EdgeWalls(i, j, i + 1, j);
                 const float tex = 0.5f;
                 // V0.7.11 : à côté d'une cellule vide, un mur à la hauteur de l'autre côté, percé d'une porte si l'arête est ouverte.
                 if (!boundary && (m.Void(i, j) || m.Void(i + 1, j)))
                 {
                     if (m.Void(i, j) && m.Void(i + 1, j) || m.Silent(i, j) || m.Silent(i + 1, j)) continue;
-                    h = m.voidWallFull ? m.voidCeil : m.Void(i, j) ? m.Ceil(i + 1, j) : m.Ceil(i, j);
+                    h = m.Void(i, j) ? VoidWallHeight(i + 1, j) : VoidWallHeight(i, j);
                     wall = true;
                     if (!m.eastWall[i, j] && !m.wallHoles.ContainsKey((i, j, false)))
                     {
@@ -1557,10 +1643,11 @@ public static partial class WorldBuilder
                 if (j == -1) yield return null;
                 // Arête horizontale (le long de X) au-dessus de la cellule (i, j).
                 bool lowIn = j >= 0, highIn = j + 1 < n;
+                if ((!lowIn || !highIn) && m.Silent(i, lowIn ? j : j + 1)) continue;
                 float h = Mathf.Max(m.Ceil(i, j), m.Ceil(i, j + 1));
                 float x = x0 + i * Cell + Cell * 0.5f;
                 float z = z0 + (j + 1) * Cell;
-                MeshBuilder mb = WallsOf(i, lowIn ? j : j + 1);
+                MeshBuilder mb = !lowIn || !highIn ? WallsOf(i, lowIn ? j : j + 1) : EdgeWalls(i, j, i, j + 1);
                 const float tex = 0.5f;
                 if (!lowIn && m.southHeights != null)
                 {
@@ -1583,7 +1670,7 @@ public static partial class WorldBuilder
                 if (lowIn && highIn && (m.Void(i, j) || m.Void(i, j + 1)))
                 {
                     if (m.Void(i, j) && m.Void(i, j + 1) || m.Silent(i, j) || m.Silent(i, j + 1)) continue;
-                    h = m.voidWallFull ? m.voidCeil : m.Void(i, j) ? m.Ceil(i, j + 1) : m.Ceil(i, j);
+                    h = m.Void(i, j) ? VoidWallHeight(i, j + 1) : VoidWallHeight(i, j);
                     wall = true;
                     if (!m.northWall[i, j] && !m.wallHoles.ContainsKey((i, j, true)))
                     {
@@ -1655,7 +1742,7 @@ public static partial class WorldBuilder
             if (p.y == 0 && m.southHeights != null) continue;
             // V0.7.11 : une cellule vide ne compte pour la hauteur du poteau qu'au bord de la zone (le mur d'enceinte y monte jusqu'en haut).
             bool edge = p.x == 0 || p.y == 0 || p.x == n || p.y == n;
-            float PostCeil(int a, int b) => m.Void(a, b) && !edge ? 0f : m.Ceil(a, b);
+            float PostCeil(int a, int b) => m.Silent(a, b) || m.Void(a, b) && !edge ? 0f : m.Ceil(a, b);
             float h = Mathf.Max(Mathf.Max(PostCeil(p.x - 1, p.y - 1), PostCeil(p.x, p.y - 1)), Mathf.Max(PostCeil(p.x - 1, p.y), PostCeil(p.x, p.y)));
             if (h <= 0.01f) continue;
             var c = new Vector3(x0 + p.x * Cell, h * 0.5f, z0 + p.y * Cell);
@@ -1714,18 +1801,16 @@ public static partial class WorldBuilder
 
         // Arches (GDD 10.3, V0.6.6) : une ouverture sur quatre entre une salle et un couloir. Le modèle prend place dans le bloc de
         // murs (même damier, aucun objet de plus à dessiner) ; ses piliers sont dans le bâti, les entités passent par l'ouverture.
-        Mesh arch = Resources.Load<Mesh>("Art/Decor/Arche");
-        if (arch != null)
+        // V0.7.14 (Note 03) : le modèle sans sa barre basse (plus de relief au sol sous l'arche).
+        if (ArchMesh(out Vector3[] archVertices, out int[] archTriangles))
         {
-            Vector3[] archVertices = arch.vertices;
-            int[] archTriangles = arch.triangles;
             void TryArch(int i, int j, bool north)
             {
                 int ni = north ? i : i + 1, nj = north ? j + 1 : j;
                 if (!m.InGrid(i, j) || !m.InGrid(ni, nj) || m.Reserved(i, j) || m.Reserved(ni, nj) || m.Fixed(i, j) || m.Fixed(ni, nj)) return;
                 if (north ? m.northWall[i, j] : m.eastWall[i, j]) return;
                 Room a = m.RoomAt(i, j), b = m.RoomAt(ni, nj);
-                if (m.archChance >= 0f)
+                if (m.archChance >= 0f && m.InStructure(i, j) && m.InStructure(ni, nj))
                 {
                     // V0.7.12 (Château) : toute ouverture entre deux espaces différents (salle, autre salle, couloir).
                     if (m.Void(i, j) || m.Void(ni, nj) || a == b || m.HasWallHole(i, j, north ? 2 : 0) || m.doorEdges.Contains((i, j, north))) return;
@@ -1768,6 +1853,7 @@ public static partial class WorldBuilder
                 string name = "Z" + m.zone + "_Bloc_" + x + "_" + y;
                 if (!ch.floor.IsEmpty) GameArt.MeshObject(name + "_Sol", root, ch.floor.Build(name), GameArt.CheckerFloor);
                 if (!ch.ceiling.IsEmpty) GameArt.MeshObject(name + "_Plafond", root, ch.ceiling.Build(name), GameArt.DarkConcrete);
+                if (!ch.grey.IsEmpty) GameArt.MeshObject(name + "_PlafondGris", root, ch.grey.Build(name), GreyCeiling);
                 if (!ch.checker.IsEmpty) GameArt.MeshObject(name + "_Damier", root, ch.checker.Build(name), GameArt.CheckerWall);
             }
         for (int x = 0; x < wallChunks; x++)
@@ -1777,6 +1863,14 @@ public static partial class WorldBuilder
                     if (y % 4 == 0) yield return null;
                     string name = "Z" + m.zone + "_Murs_" + x + "_" + y;
                     GameArt.MeshObject(name, root, wallData[x, y].Build(name), GameArt.CheckerWall);
+                }
+        for (int x = 0; x < wallChunks; x++)
+            for (int y = 0; y < wallChunks; y++)
+                if (brickData[x, y] != null && !brickData[x, y].IsEmpty)
+                {
+                    if (y % 4 == 0) yield return null;
+                    string name = "Z" + m.zone + "_Briques_" + x + "_" + y;
+                    GameArt.MeshObject(name, root, brickData[x, y].Build(name), GameArt.BrickWall);
                 }
     }
 
@@ -2375,7 +2469,8 @@ public static partial class WorldBuilder
             for (int j = 0; j < m.N; j++)
             {
                 if (j == 0) yield return null;
-                if (m.Reserved(i, j) || m.Void(i, j)) continue;
+                // V0.7.14 : le Blockhaus a son propre décor (DecorateStorey).
+                if (m.Reserved(i, j) || m.Void(i, j) || m.TerrainAt(i, j) == TerrainKind.Blockhaus) continue;
                 Vector3 c = m.Center(i, j);
                 Room room = m.RoomAt(i, j);
                 float floor = m.Floor(i, j), ceil = m.Ceil(i, j);
@@ -2412,7 +2507,7 @@ public static partial class WorldBuilder
                 }
 
                 // Éclairage : salles, et quelques néons dans les couloirs.
-                if (room == null && rnd.NextDouble() < 0.18) { if (m.terrain == TerrainKind.Chateau) AddChandelier(props, c + lampShift + Vector3.up * ceil, 6.5f, 1.1f, rnd); else AddLamp(props, c + lampShift + Vector3.up * ceil, 6.5f, 1.1f, rnd); }
+                if (room == null && rnd.NextDouble() < 0.18) { if (m.TerrainAt(i, j) == TerrainKind.Chateau) AddChandelier(props, c + lampShift + Vector3.up * ceil, 6.5f, 1.1f, rnd); else AddLamp(props, c + lampShift + Vector3.up * ceil, 6.5f, 1.1f, rnd); }
 
                 // Yeux dans les murs, le sol et le plafond.
                 if (rnd.NextDouble() < 0.28)
@@ -2459,13 +2554,16 @@ public static partial class WorldBuilder
 
         foreach (Room room in m.rooms)
         {
+            if (room.cells.Count == 0) continue;
+            TerrainKind roomTerrain = m.TerrainAt(room.cells[0].x, room.cells[0].y);
+            if (roomTerrain == TerrainKind.Blockhaus) continue;
             yield return null;
             Vector3 center = Vector3.zero;
             foreach (var c in room.cells) center += m.Center(c.x, c.y);
             center /= room.cells.Count;
             float height = Mathf.Min(16f, room.ceil - room.floor + room.pitDepth);
             // V0.7.11 (11.3) : au Château, des lustres à la place des néons.
-            if (m.terrain == TerrainKind.Chateau) AddChandelier(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
+            if (roomTerrain == TerrainKind.Chateau) AddChandelier(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
             else AddLamp(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
             // Neutral Room : vide (rien ne doit gêner le passage ni masquer les glyphes).
             if (room.plain) continue;
@@ -4156,7 +4254,7 @@ public static partial class WorldBuilder
 
         bool Straight(int i, int j, bool alongZ)
         {
-            if (!m.InGrid(i, j) || m.RoomAt(i, j) != null || m.Reserved(i, j) || m.Fixed(i, j) || m.NoPlainFloor(i, j) || !Mathf.Approximately(m.Ceil(i, j), m.corridorCeil)) return false;
+            if (!m.InGrid(i, j) || m.RoomAt(i, j) != null || m.Reserved(i, j) || m.Fixed(i, j) || m.NoPlainFloor(i, j) || !Mathf.Approximately(m.Ceil(i, j), m.CorridorCeil(i, j))) return false;
             int side = alongZ ? 0 : 2;
             return HasWall(m, i, j, side) && HasWall(m, i, j, side + 1) && !m.HasWallHole(i, j, side) && !m.HasWallHole(i, j, side + 1);
         }
@@ -4172,12 +4270,12 @@ public static partial class WorldBuilder
                     if (!Straight(Cell2(t).x, Cell2(t).y, alongZ)) { t++; continue; }
                     int first = t;
                     bool allowed = true;
-                    while (t < m.N && Straight(Cell2(t).x, Cell2(t).y, alongZ))
+                    while (t < m.N && Straight(Cell2(t).x, Cell2(t).y, alongZ) && m.InStructure(Cell2(t).x, Cell2(t).y) == m.InStructure(Cell2(first).x, Cell2(first).y))
                     {
                         if (barred.Contains(Cell2(t))) allowed = false;
                         t++;
                     }
-                    if (!allowed || rnd.NextDouble() >= m.bevelChance) continue;
+                    if (!allowed || rnd.NextDouble() >= (m.InStructure(Cell2(first).x, Cell2(first).y) ? m.structureBevelChance : m.bevelChance)) continue;
                     if (parent == null)
                     {
                         parent = new GameObject("Biseaux").transform;
@@ -4195,7 +4293,7 @@ public static partial class WorldBuilder
     static void AddBevelRun(Maze m, Transform parent, MeshBuilder[,] builders, System.Func<int, Vector2Int> cellAt, int first, int end, bool alongZ, System.Random rnd)
     {
         const float texScale = 0.5f, overlap = 0.03f;
-        float height = m.corridorCeil, width = Cell - Wall, halfWidth = width * 0.5f;
+        float height = m.CorridorCeil(cellAt(first).x, cellAt(first).y), width = Cell - Wall, halfWidth = width * 0.5f;
         int kind = rnd.Next(3);
         bool both = kind == 2;
         Vector3 c0 = m.Center(cellAt(first).x, cellAt(first).y);

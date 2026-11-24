@@ -2553,6 +2553,22 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             TeleportNear(hubBeacon.transform.position);
             return Loc.F("Téléporté dans le Hub {0}.", GameRules.Roman(hubNumber));
         }
+        // V0.7.14 (chapitre 4) : "/tp chateau" et "/tp blockhaus" : dans la zone la plus proche qui contient cette structure, devant
+        // une de ses entrées (un passage du rempart, un pont du ravin), sinon à l'entrée de la zone.
+        if (lower == "chateau" || lower == "château" || lower == "blockhaus")
+        {
+            TerrainKind kind = lower == "blockhaus" ? TerrainKind.Blockhaus : TerrainKind.Chateau;
+            int from = Mathf.Max(sealedZones + 1, WorldBuilder.ZoneAt(here));
+            int best = 0;
+            for (int d = 0; d <= MaxTeleportZone && best == 0; d++)
+                foreach (int z in new[] { from + d, from - d })
+                    if (z > sealedZones && z >= 1 && z <= MaxTeleportZone && Terrains.StructureOf(seed, z) == kind) { best = z; break; }
+            if (best == 0 || !PrepareZone(best)) return null;
+            var zr = zones[best - 1];
+            Vector3 spot = zr.structureEntry ?? zr.entrance;
+            player.Teleport(new Vector3(spot.x, GroundBelow(spot) + 0.95f, spot.z), 0f);
+            return Loc.F("Téléporté dans la Zone {0} ({1}).", best.ToString(), Terrains.Name(kind));
+        }
         if (int.TryParse(lower, out int zoneNumber))
         {
             if (!PrepareZone(zoneNumber)) return null;

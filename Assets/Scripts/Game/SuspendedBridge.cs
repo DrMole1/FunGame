@@ -4,10 +4,15 @@ using UnityEngine;
 // Pont suspendu (GDD 10.3, V0.6.6) entre deux plateformes d'une très haute salle : parcelles, bâtons et cordes (modèles Meshy) au
 // damier noir et blanc. Les parcelles ploient sous les pas et, dès qu'un joueur est dessus, tout le tablier se balance de gauche à
 // droite en entraînant bâtons, cordes et personnages (V0.6.9 ; calcul local, sans réseau). Trois joueurs ou plus dessus : il casse
-// (décidé par l'hôte) ; parcelles et cordes tombent et disparaissent 2 secondes après l'impact. Hors du bâti : les entités
-// ne le connaissent pas.
+// (décidé par l'hôte) ; parcelles et cordes tombent et disparaissent 2 secondes après l'impact. V0.7.14 (Note 08) : les entités
+// peuvent le traverser (son tablier compte dans leur navigation, retiré quand il casse) ; (Note 07) les objets posés dessus suivent
+// le tablier, comme les joueurs.
 public class SuspendedBridge : MonoBehaviour
 {
+    // Tabliers (collisions fixes) de tous les ponts : la navigation des entités les prend pour un sol.
+    static readonly HashSet<Collider> decks = new HashSet<Collider>();
+    public static bool IsDeck(Collider c) => c != null && decks.Contains(c);
+
     const float Width = 1.6f, PlankSpacing = 0.58f, PostSpacing = 3f, PostInset = 0.74f, RopeHeight = 1.15f, ColliderSegment = 1.5f;
     // Balancement : amplitude au milieu du pont (m), inclinaison des parcelles et des bâtons (degrés), vitesse, temps de mise en route.
     const float SwayAmplitude = 0.14f, SwayRoll = 4f, SwayLean = 5f, SwaySpeed = 2.6f, SwayFade = 0.8f;
@@ -121,7 +126,9 @@ public class SuspendedBridge : MonoBehaviour
             var solid = new GameObject("Plateforme");
             solid.transform.SetParent(transform, false);
             solid.transform.SetPositionAndRotation((p0 + p1) * 0.5f + Vector3.down * 0.06f, Quaternion.LookRotation(along));
-            solid.AddComponent<BoxCollider>().size = new Vector3(Width, 0.12f, along.magnitude + 0.1f);
+            var deck = solid.AddComponent<BoxCollider>();
+            deck.size = new Vector3(Width, 0.12f, along.magnitude + 0.1f);
+            decks.Add(deck);
             solids.Add(solid);
         }
     }
@@ -149,6 +156,15 @@ public class SuspendedBridge : MonoBehaviour
         return h > -0.2f && h < 2.6f;
     }
 
+    // Point de navigation (au sol) sur le tablier.
+    public bool Covers(Vector3 ground) => Over(ground + Vector3.up * 0.9f, out _);
+
+    void OnDestroy()
+    {
+        foreach (var solid in solids)
+            if (solid != null) decks.Remove(solid.GetComponent<BoxCollider>());
+    }
+
     // Hôte : nombre de joueurs en vie sur le pont.
     public int PlayersOn()
     {
@@ -163,7 +179,13 @@ public class SuspendedBridge : MonoBehaviour
         if (!value || Broken) return;
         Broken = true;
         BeaconNetwork.SightChanged();
-        foreach (var solid in solids) if (solid != null) solid.SetActive(false);
+        foreach (var solid in solids)
+            if (solid != null)
+            {
+                decks.Remove(solid.GetComponent<BoxCollider>());
+                solid.SetActive(false);
+            }
+        riders.Clear();
         if (animate) GameAudio.Play3D("cannon_impact", (start + end) * 0.5f, 1f, 60f, 0.05f, 0.7f);
         foreach (var piece in falling)
         {
@@ -228,6 +250,58 @@ public class SuspendedBridge : MonoBehaviour
             post.Top = post.transform.position + lean * Vector3.up * RopeHeight;
         }
         foreach (var (rope, a, b) in ropes) PlaceRope(rope, a.Top, b.Top);
+        MoveRiders(wave);
+    }
+
+    // ---------- Objets posés sur le pont (V0.7.14, Note 07) ----------
+
+    // Objet posé (à terre, Balise ou appareil posé, Métronome) : sa place au repos, l'avancement sur le pont, le dernier décalage.
+    class Rider { public Vector3 rest, applied; public float t; }
+    readonly Dictionary<Transform, Rider> riders = new Dictionary<Transform, Rider>();
+    readonly Collider[] found = new Collider[32];
+    float riderScan;
+
+    void MoveRiders(float wave)
+    {
+        riderScan -= Time.deltaTime;
+        if (riderScan <= 0f)
+        {
+            riderScan = 0.4f;
+            Vector3 center = (start + end) * 0.5f + Vector3.up * 1f;
+            int count = Physics.OverlapBoxNonAlloc(center, new Vector3(Width * 0.5f + 0.2f, 1.6f, flatLength * 0.5f), found, Quaternion.LookRotation(flatDir),
+                Physics.AllLayers, QueryTriggerInteraction.Collide);
+            for (int k = 0; k < count; k++)
+            {
+                Transform t = null;
+                var item = found[k].GetComponentInParent<Interactable>();
+                if (item != null) t = item.transform;
+                else
+                {
+                    var metronome = found[k].GetComponentInParent<MetronomeDevice>();
+                    if (metronome != null) t = metronome.transform;
+                }
+                if (t == null || riders.ContainsKey(t) || !Over(t.position + Vector3.up * 0.9f, out float at)) continue;
+                riders[t] = new Rider { rest = t.position, t = at };
+            }
+        }
+        List<Transform> gone = null;
+        foreach (var kv in riders)
+        {
+            Transform t = kv.Key;
+            Rider r = kv.Value;
+            if (t == null) { (gone ??= new List<Transform>()).Add(t); continue; }
+            // Déplacé par le jeu entre-temps (ramassé, reposé) : nouvelle place au repos.
+            if ((t.position - (r.rest + r.applied)).sqrMagnitude > 0.0004f)
+            {
+                r.rest = t.position;
+                if (!Over(r.rest + Vector3.up * 0.9f, out r.t)) { (gone ??= new List<Transform>()).Add(t); r.applied = Vector3.zero; continue; }
+            }
+            int k = Mathf.Clamp(Mathf.FloorToInt(r.t * planks.Length), 0, planks.Length - 1);
+            float bow = Mathf.Sin(r.t * Mathf.PI);
+            r.applied = Vector3.down * offset[k] + side * (SwayAmplitude * bow * wave);
+            t.position = r.rest + r.applied;
+        }
+        if (gone != null) foreach (var t in gone) riders.Remove(t);
     }
 }
 

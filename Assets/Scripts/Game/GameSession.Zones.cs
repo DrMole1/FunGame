@@ -224,7 +224,13 @@ public partial class GameSession
         foreach (var z in zones)
         {
             foreach (var g in z.neutralGlyphs) g.SetState(brokenCases.Contains(g.Id), activatedGlyphs.Contains(g.Id), animate);
-            foreach (var b in z.bridges) b.SetBroken(brokenBridges.Contains(b.Id), animate);
+            foreach (var b in z.bridges)
+            {
+                bool wasBroken = b.Broken;
+                b.SetBroken(brokenBridges.Contains(b.Id), animate);
+                // V0.7.14 (Note 08) : les entités passent sur les ponts ; plus sur un pont cassé.
+                if (b.Broken && !wasBroken && z.nav != null) z.nav.Cut(b.Covers);
+            }
             UpdateCastleDoors(z, animate);
             if (z.door != null)
             {

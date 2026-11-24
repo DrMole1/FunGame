@@ -497,7 +497,14 @@ public partial class CharacterAvatar : MonoBehaviour
     void LateUpdate()
     {
         UpdatePoses();
+        // V0.7.14 : les gestes d'abord, puis les accessoires (Lunettes, Sac à Os, Mégaphone), placés sur les os déjà penchés :
+        // ils suivent l'aboiement, le ramassage, la pose d'un objet, l'idle et le reste.
+        ApplyGesture();
         UpdateExtras();
+    }
+
+    void ApplyGesture()
+    {
         float t = Time.time - gestureStart, duration = GestureDuration(gesture);
         if (t < 0f || t > duration || dead || hidden || head == null || !model.activeInHierarchy) return;
         // Angles positifs : vers l'avant (buste, tête) ; négatifs sur le bras : il se lève devant soi.

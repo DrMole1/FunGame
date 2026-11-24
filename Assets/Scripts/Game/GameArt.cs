@@ -117,6 +117,8 @@ public static class GameArt
     public static Material CheckerFloor => Lit("CheckerFloor", Color.white, Checker(256, 2, new Color(0.92f, 0.92f, 0.9f), new Color(0.05f, 0.05f, 0.05f)), 0.88f);
     public static Material CheckerWall => Lit("CheckerWall", new Color(0.85f, 0.85f, 0.85f), Checker(256, 2, Color.white, new Color(0.08f, 0.08f, 0.08f)), 0.8f);
     public static Material Concrete => Lit("Concrete", new Color(0.62f, 0.62f, 0.6f), Noise("concrete", 128, 0.75f, 0.2f, 11), 0.05f);
+    // V0.7.14 (11.3) : murs du Château en briques noires et blanches (briques de 0,5 x 0,25 m à joints décalés, joint gris).
+    public static Material BrickWall => Lit("BriquesNoirBlanc", new Color(0.85f, 0.85f, 0.85f), Bricks(256), 0.35f);
     // Murs des couloirs : shader d'insectes grouillants (Resources/Materials/InfestedWall, créé par GameSetup).
     public static Material InfestedWall
     {
@@ -331,6 +333,37 @@ public static class GameArt
         for (int y = 0; y < size; y++)
             for (int x = 0; x < size; x++)
                 px[y * size + x] = ((x / cell + y / cell) & 1) == 0 ? a : b;
+        t.SetPixels(px);
+        t.Apply(true, true);
+        return textures[key] = t;
+    }
+
+    // Briques noires et blanches en alternance (une texture = 2 mètres avec le mapping monde à 0,5) : 8 rangées de 4 briques, joints
+    // décalés d'une demi-brique une rangée sur deux, joints gris, un léger grain.
+    public static Texture2D Bricks(int size)
+    {
+        string key = "briques" + size;
+        if (textures.TryGetValue(key, out var t) && t != null) return t;
+        t = new Texture2D(size, size, TextureFormat.RGB24, true) { wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Bilinear, anisoLevel = 4 };
+        const int rows = 8, perRow = 4;
+        int rowHeight = size / rows, brickWidth = size / perRow, joint = Mathf.Max(2, size / 96);
+        var rnd = new System.Random(23);
+        var px = new Color[size * size];
+        Color white = new Color(0.93f, 0.93f, 0.91f), black = new Color(0.07f, 0.07f, 0.07f), mortar = new Color(0.42f, 0.42f, 0.41f);
+        for (int y = 0; y < size; y++)
+        {
+            int row = y / rowHeight;
+            int shift = (row & 1) * brickWidth / 2;
+            for (int x = 0; x < size; x++)
+            {
+                int sx = (x + shift) % size;
+                int brick = sx / brickWidth;
+                bool inJoint = y % rowHeight < joint || sx % brickWidth < joint;
+                Color c = inJoint ? mortar : ((brick + row) & 1) == 0 ? white : black;
+                float grain = (float)(rnd.NextDouble() - 0.5) * 0.05f;
+                px[y * size + x] = new Color(c.r + grain, c.g + grain, c.b + grain);
+            }
+        }
         t.SetPixels(px);
         t.Apply(true, true);
         return textures[key] = t;
