@@ -501,6 +501,7 @@ public class NetworkGame : MonoBehaviour
         localPlayer.SetFrozen(false);
         PlayerController.InputLocked = false;
         OrbitCamera.ControlsEnabled = true;
+        OrbitCamera.StartJoinZoom();
 
         session.OnLocalEnter();
         ui.ShowHud(roomCode, isHost);

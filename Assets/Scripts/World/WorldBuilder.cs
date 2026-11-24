@@ -1349,7 +1349,7 @@ public static partial class WorldBuilder
             var steps = BuildChateauSteps(m, castle, refs, root, colliders.transform, zone);
             while (steps.MoveNext()) yield return null;
             structureTop = TowerHeight * 1.5f + 2f;
-            structureBottom = -MoatDepth - 1f;
+            structureBottom = -RavineReach;
         }
         if (block != null)
         {
@@ -1369,7 +1369,7 @@ public static partial class WorldBuilder
         if (castle != null)
         {
             FurnishCastle(m, root, castle.natures, castle.rnd);
-            CourtyardSpots(m, refs, castle.courts, castle.rnd);
+            CourtyardSpots(m, refs, castle.halls, castle.rnd);
         }
         MarkIntangibleSpheres(root);
         yield return null;
@@ -1745,6 +1745,18 @@ public static partial class WorldBuilder
             float PostCeil(int a, int b) => m.Silent(a, b) || m.Void(a, b) && !edge ? 0f : m.Ceil(a, b);
             float h = Mathf.Max(Mathf.Max(PostCeil(p.x - 1, p.y - 1), PostCeil(p.x, p.y - 1)), Mathf.Max(PostCeil(p.x - 1, p.y), PostCeil(p.x, p.y)));
             if (h <= 0.01f) continue;
+            // V0.7.15 : là où les murs voisins d'une cellule vide montent jusqu'à 'voidCeil' (halls du Château), le poteau aussi.
+            if (m.voidWallFull)
+            {
+                bool nearVoid = false, nearSolid = false;
+                for (int a = p.x - 1; a <= p.x; a++)
+                    for (int b = p.y - 1; b <= p.y; b++)
+                    {
+                        if (m.Void(a, b) && !m.Silent(a, b)) nearVoid = true;
+                        else if (m.InGrid(a, b) && !m.Void(a, b) && m.InStructure(a, b)) nearSolid = true;
+                    }
+                if (nearVoid && nearSolid) h = Mathf.Max(h, m.voidCeil);
+            }
             var c = new Vector3(x0 + p.x * Cell, h * 0.5f, z0 + p.y * Cell);
             WallsOf(p.x, p.y).Box(c, new Vector3(Wall, h, Wall), 0.5f, 0b0011_0011);
         }
@@ -4513,7 +4525,8 @@ public static partial class WorldBuilder
 
     static readonly List<(Vector3 wall, Vector3 along, Vector3 normal, float y)> litWindows = new List<(Vector3, Vector3, Vector3, float)>();
 
-    static void AddWindow(MeshBuilder stone, MeshBuilder glass, Vector3 wall, Vector3 along, Vector3 normal, float y)
+    // 'width', 'height' : V0.7.15 (Note 02), le même modèle à la taille des fenêtres des façades du Blockhaus.
+    static void AddWindow(MeshBuilder stone, MeshBuilder glass, Vector3 wall, Vector3 along, Vector3 normal, float y, float width = WindowWidth, float height = WindowHeight)
     {
         const float texScale = 0.25f;
         Vector3 At(float u, float v, float depth) => wall + along * u + Vector3.up * (y + v) + normal * depth;
@@ -4528,14 +4541,14 @@ public static partial class WorldBuilder
             stone.WorldQuad(At(u1, v0, 0f), At(u1, v1, 0f), At(u1, v1, depth), At(u1, v0, depth), along, texScale);
         }
 
-        float half = WindowWidth * 0.5f, inner = half - WindowInset, top = WindowHeight - WindowInset, sill = WindowHeight * WindowSillRatio;
-        Slab(-half, half, 0f, WindowHeight, WindowPlate);
+        float half = width * 0.5f, inner = half - WindowInset, top = height - WindowInset, sill = height * WindowSillRatio;
+        Slab(-half, half, 0f, height, WindowPlate);
         Slab(-inner, inner, WindowInset, WindowInset + WindowBar, WindowFrame);
         Slab(-inner, inner, top - WindowBar, top, WindowFrame);
         Slab(-inner, -inner + WindowBar, WindowInset, top, WindowFrame);
         Slab(inner - WindowBar, inner, WindowInset, top, WindowFrame);
         Slab(-inner, inner, sill, sill + WindowBar, WindowFrame);
-        float mullion = WindowWidth * WindowMullion, bar = WindowBar * 0.5f, glassLow = sill + WindowBar, glassHigh = top - WindowBar, glassSide = inner - WindowBar;
+        float mullion = width * WindowMullion, bar = WindowBar * 0.5f, glassLow = sill + WindowBar, glassHigh = top - WindowBar, glassSide = inner - WindowBar;
         foreach (float s in new[] { -1f, 1f }) Slab(s * mullion - bar, s * mullion + bar, glassLow, glassHigh, WindowFrame);
 
         const float glassDepth = WindowPlate + 0.01f;

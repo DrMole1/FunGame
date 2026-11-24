@@ -134,6 +134,10 @@ public static class GameSetup
         ("heart_thump", "Assets/Sounds/Battement_Coeur.wav"),
         // Musique du chapiteau, en boucle.
         ("hub_music", "Assets/Sounds/Musique_Hub.wav"),
+        // V0.7.15 (14) : musiques d'ambiance des environnements, en boucle.
+        ("music_echiquier", "Assets/Sounds/Ambiance_Echiquier.wav"),
+        ("music_chateau", "Assets/Sounds/Ambiance_Chateau.wav"),
+        ("music_blockhaus", "Assets/Sounds/Ambiance_Blockhaus.wav"),
         // GDD 12 (V0.6.1) : sons des glyphes (V0.7.9 : en boucle pendant l'ordre de tout glyphe actionné).
         ("glyph_sit", "Assets/Sounds/Glyphe01.wav"),
         ("glyph_kennel", "Assets/Sounds/Glyphe02.wav"),

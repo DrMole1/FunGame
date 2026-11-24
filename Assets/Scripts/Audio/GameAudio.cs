@@ -18,6 +18,14 @@ public class GameAudio : MonoBehaviour
     readonly HashSet<AudioSource> entitySources = new HashSet<AudioSource>();
     int next;
     AudioSource hubMusic, mazeDrone, peaceMusic;
+    // V0.7.15 (14) : musique d'ambiance de chaque environnement (Échiquier, Château, Blockhaus), dans l'ordre de TerrainKind. Elles
+    // démarrent doucement et tournent en boucle ; en changeant d'environnement (ou en rentrant au Hub), l'une s'efface pendant que
+    // l'autre monte. Ambiance_Echiquier remplace le bourdon synthétisé du labyrinthe (Note 08 : 'maze_drone', gardé de côté, ne
+    // joue plus).
+    AudioSource[] environmentMusic;
+    public static TerrainKind Environment = TerrainKind.Echiquier;
+    const float EnvironmentMusicVolume = 0.35f;
+    const bool UseMazeDrone = false;
     // V0.7.11 (7.15) : Lunettes PEACE dans l'inventaire : hors du Hub, plus de musique angoissante, mais une musique douce et
     // joyeuse, avec de petits bruits d'oiseaux (y compris pendant le Couvre Feu).
     public static bool PeaceMode;
@@ -89,6 +97,7 @@ public class GameAudio : MonoBehaviour
         hubMusic = AmbientLoop("hub_music");
         mazeDrone = AmbientLoop("maze_drone");
         peaceMusic = AmbientLoop("peace_music");
+        environmentMusic = new[] { AmbientLoop("music_echiquier"), AmbientLoop("music_chateau"), AmbientLoop("music_blockhaus") };
     }
 
     AudioSource AmbientLoop(string clip)
@@ -591,9 +600,19 @@ public class GameAudio : MonoBehaviour
         // Musique_Hub (enregistrée, en boucle) : gardée discrète, même avec la musique réglée à 50 %.
         hubMusic.volume = Mathf.Lerp(hubMusic.volume, hubSide ? HubMusicVolume * on * tv * music * (1f - tunnel) : 0f, k);
         mazeReturn = CurfewLevel > 0f ? 0f : Mathf.MoveTowards(mazeReturn, 1f, Time.unscaledDeltaTime / GameRules.CurfewMusicReturn);
-        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, hubSide ? 0f : 0.55f * on * tv * mazeReturn * music, k);
+        mazeDrone.volume = Mathf.Lerp(mazeDrone.volume, hubSide || !UseMazeDrone ? 0f : 0.55f * on * tv * mazeReturn * music, k);
         if (CurfewLevel > 0f) mazeDrone.volume = 0f;
         if (PeaceMode) mazeDrone.volume = 0f;
+        // Musiques des environnements : fondu lent (environ 2 s) d'une musique à l'autre ; coupées par le Couvre Feu (retour
+        // progressif ensuite) et remplacées par la musique douce des Lunettes PEACE.
+        float km = 1f - Mathf.Exp(-0.8f * Time.unscaledDeltaTime);
+        for (int e = 0; e < environmentMusic.Length; e++)
+        {
+            var src = environmentMusic[e];
+            bool active = !hubSide && !PeaceMode && (int)Environment == e;
+            src.volume = Mathf.Lerp(src.volume, active ? EnvironmentMusicVolume * on * tv * mazeReturn * music : 0f, km);
+            if (CurfewLevel > 0f || Loading) src.volume = 0f;
+        }
         peaceMusic.volume = Mathf.Lerp(peaceMusic.volume, PeaceMode && !hubSide ? 0.45f * on * tv * music : 0f, k);
         if (Loading) hubMusic.volume = mazeDrone.volume = peaceMusic.volume = 0f;
         // Dans le Hub, les sons des entités se taisent (y compris ceux déjà commencés).

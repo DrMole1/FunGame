@@ -154,6 +154,7 @@ public class SuperBall : MonoBehaviour
         Settle(dt);
         BumpBalls();
         HitPlayer();
+        BumpPlayers();
         velocity *= Mathf.Exp(-Friction * dt);
         if (velocity.sqrMagnitude < StopSpeed * StopSpeed) velocity = Vector3.zero;
     }
@@ -277,6 +278,39 @@ public class SuperBall : MonoBehaviour
             float overlap = min - d.magnitude;
             transform.position -= n * overlap * 0.5f;
             other.transform.position += n * overlap * 0.5f;
+        }
+    }
+
+    // V0.7.15 (Note 06) : elle ne traverse plus les joueurs : elle rebondit sur leur corps (sur celui du joueur qui vient de la
+    // pousser seulement s'il revient vers elle). Le rebond sur le joueur local fait foi : il est envoyé aux autres, qui l'ont
+    // simulé de leur côté avec la position reçue du joueur.
+    void BumpPlayers()
+    {
+        if (velocity == Vector3.zero) return;
+        var session = GameSession.Instance;
+        Vector3 center = transform.position + Vector3.up * radius;
+        foreach (var p in PlayerPresence.All)
+        {
+            if (p == null || !p.Alive || !p.isActiveAndEnabled) continue;
+            Vector3 d = p.Position - center;
+            if (d.y > radius + 0.2f || d.y < -ReachHeight) continue;
+            d.y = 0f;
+            float min = radius + PlayerRadius;
+            if (d.sqrMagnitude >= min * min || d.sqrMagnitude < 0.0001f) continue;
+            Vector3 n = d.normalized;
+            float approach = Vector3.Dot(velocity, n);
+            if (approach <= 0f) continue;
+            // Rebond sur le joueur (le choc qui le repousse est traité par HitPlayer, chez lui).
+            velocity = Vector3.Reflect(velocity, -n) * Bounce;
+            transform.position -= n * (min - d.magnitude);
+            if (p.IsLocal && session != null && Time.time - lastSend >= SendInterval * 0.5f)
+            {
+                lastKicker = p.PlayerId;
+                lastKickAt = Time.time;
+                lastSend = Time.time;
+                session.SendSuperBallKick(this);
+            }
+            return;
         }
     }
 

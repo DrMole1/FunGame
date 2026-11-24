@@ -5,7 +5,7 @@ using UnityEngine;
 // de la zone) ; le levier du rempart les ouvre pour de bon : elles remontent lentement dans le mur.
 public class CastleGate : MonoBehaviour
 {
-    const float OpenDuration = 3.5f;
+    const float OpenDuration = 3.5f, OpenGap = 0.3f;
     Transform grid;
     BoxCollider blocker;
     float height, openAmount;
@@ -65,7 +65,8 @@ public class CastleGate : MonoBehaviour
     void Apply(float amount)
     {
         openAmount = amount;
-        grid.localPosition = Vector3.up * Mathf.SmoothStep(0f, 1f, amount) * (height - 0.3f);
+        // V0.7.15 (Note 04) : ouverte, la herse reste 1 m plus bas qu'avant (on la voit en haut du passage, on passe dessous).
+        grid.localPosition = Vector3.up * Mathf.SmoothStep(0f, 1f, amount) * (height - OpenGap - 1f);
     }
 }
 

@@ -27,6 +27,25 @@ public class OrbitCamera : MonoBehaviour
     const float LobbySpinSpeed = 6f, LobbyReturnSpeed = 360f;
     // Cadrage du lobby : inclinaison (celle du lancement du jeu) et distance de la caméra.
     const float LobbyPitch = 20f, LobbyDistance = 5f;
+    // V0.7.14 : en rejoignant une partie, la caméra est à 7 m tant que le personnage est assis ; dès qu'il commence à se lever,
+    // elle se rapproche en 2 s jusqu'à la distance par défaut (3,5 m). Un coup de molette pendant ce temps l'arrête (la distance
+    // repart de là où elle en était).
+    const float JoinDistance = 7f, DefaultDistance = 3.5f, JoinZoomTime = 2f;
+    static float joinZoomStart = -1f, joinApproachAt = float.MaxValue;
+    static bool joinZoomPending;
+
+    // Appelé quand le joueur entre dans la partie : la caméra attend à 7 m.
+    public static void StartJoinZoom()
+    {
+        joinZoomPending = true;
+        joinApproachAt = float.MaxValue;
+    }
+
+    // Appelé quand le personnage commence à se lever (à l'instant 'at').
+    public static void BeginJoinApproach(float at) => joinApproachAt = at;
+
+    float JoinZoomDistance() => joinApproachAt == float.MaxValue ? JoinDistance
+        : Mathf.Lerp(JoinDistance, distance, Mathf.SmoothStep(0f, 1f, (Time.time - joinApproachAt) / JoinZoomTime));
 
     public static void SetLobbyHome(float yaw)
     {
@@ -220,7 +239,13 @@ public class OrbitCamera : MonoBehaviour
         if (Cursor.lockState == CursorLockMode.Locked)
         {
             float wheel = Input.mouseScrollDelta.y;
-            if (wheel > 0.01f && !firstPerson && distance <= GameRules.CameraMinDistance + 0.001f)
+            if (joinZoomStart >= 0f && Mathf.Abs(wheel) > 0.01f)
+            {
+                // Molette pendant le rapprochement : il s'arrête, la molette part de la distance du moment.
+                distance = Mathf.Clamp(JoinZoomDistance() - wheel * 0.5f, GameRules.CameraMinDistance, GameRules.CameraMaxDistance);
+                joinZoomStart = -1f;
+            }
+            else if (wheel > 0.01f && !firstPerson && distance <= GameRules.CameraMinDistance + 0.001f)
                 firstPerson = true;
             else if (wheel < -0.01f && firstPerson)
             {
@@ -262,6 +287,14 @@ public class OrbitCamera : MonoBehaviour
 
     void LateUpdate()
     {
+        if (joinZoomPending && ControlsEnabled)
+        {
+            joinZoomPending = false;
+            joinZoomStart = Time.time;
+            distance = DefaultDistance;
+            firstPerson = false;
+            currentDistance = JoinDistance;
+        }
         UpdateView();
         UpdateLens();
         if (!JumpscareActive) return;
@@ -450,7 +483,13 @@ public class OrbitCamera : MonoBehaviour
         // Vers un tunnel (ou en en sortant) : le point visé descend vers les yeux et la distance fond vers zéro.
         float tunnelK = Mathf.SmoothStep(0f, 1f, tunnelBlend);
         Vector3 focus = target.position + Vector3.up * Mathf.Lerp(height, eyeHeight, tunnelK);
-        float wanted = Mathf.Lerp(ControlsEnabled ? distance : LobbyDistance, 0.05f, tunnelK);
+        float playDistance = distance;
+        if (joinZoomStart >= 0f)
+        {
+            if (!ControlsEnabled || joinApproachAt != float.MaxValue && Time.time - joinApproachAt >= JoinZoomTime) joinZoomStart = -1f;
+            else playDistance = JoinZoomDistance();
+        }
+        float wanted = Mathf.Lerp(ControlsEnabled ? playDistance : LobbyDistance, 0.05f, tunnelK);
         // Tout près des yeux, le corps masquerait la vue.
         if (tunnelK > 0.7f) HideTarget(target);
 

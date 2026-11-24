@@ -152,13 +152,17 @@ public static partial class WorldBuilder
         int steps = Mathf.Max(1, Mathf.CeilToInt((y1 - y0) / SpiralRise));
         float rise = (y1 - y0) / steps;
         float angle = start;
-        float width = rOut - rIn, tread = SpiralTread * 1.25f;
+        // V0.7.15 (Note 03) : chaque marche fait 'rOut - rIn' (3 m) du centre vers le mur, et assez de profondeur pour couvrir l'écart
+        // avec la suivante jusqu'au bord extérieur (avant, la boîte était tournée d'un quart de tour : 3 m le long de la rampe et
+        // 0,4 m du centre vers le mur, d'où un escalier très étroit).
+        float width = rOut - rIn, tread = SpiralTread * (rOut / rMid) * 1.25f;
         for (int k = 1; k <= steps; k++)
         {
             angle = start + k * stepAngle;
             float top = y0 + k * rise;
             Vector3 dir = Quaternion.Euler(0f, angle, 0f) * Vector3.forward;
-            kit.Turned(center + dir * rMid + Vector3.up * (top - 0.15f), new Vector3(tread, 0.3f, width), angle + 90f);
+            // Boîte tournée de 'angle' : son x (la profondeur de la marche) suit la tangente, son z (la largeur) le rayon.
+            kit.Turned(center + dir * rMid + Vector3.up * (top - 0.15f), new Vector3(tread, 0.3f, width), angle);
         }
         return angle;
     }
@@ -301,14 +305,15 @@ public static partial class WorldBuilder
     // ---------- Néons muraux (V0.7.12 : remparts du Château, fenêtres des Blockhaus) ----------
 
     // Néon accroché à un mur, face à 'outward' ; il s'éteint pendant le Couvre Feu et clignote près d'un Roi, comme les autres.
-    static void AddWallNeon(Transform parent, Vector3 pos, Vector3 outward, float range, float intensity, System.Random rnd)
+    // 'scale' : facteur sur les trois dimensions du tube.
+    static void AddWallNeon(Transform parent, Vector3 pos, Vector3 outward, float range, float intensity, System.Random rnd, float scale = 1f)
     {
         intensity *= LampDim;
         range *= LampReach;
         var go = new GameObject("NeonMural");
         go.transform.SetParent(parent, false);
         go.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(outward));
-        var bulb = GameArt.Prim(PrimitiveType.Cube, go.transform, Vector3.zero, new Vector3(1.1f, 0.07f, 0.07f), GameArt.Unlit("Neon", new Color(0.7f, 0.7f, 0.66f)));
+        var bulb = GameArt.Prim(PrimitiveType.Cube, go.transform, Vector3.zero, new Vector3(1.1f, 0.07f, 0.07f) * scale, GameArt.Unlit("Neon", new Color(0.7f, 0.7f, 0.66f)));
         foreach (var c in bulb.GetComponentsInChildren<Collider>()) Object.Destroy(c);
         var l = AddLight(go.transform, Vector3.forward * 0.45f, new Color(0.85f, 0.87f, 0.9f), intensity, range);
         go.AddComponent<FlickerLight>().Init(l, bulb.GetComponent<Renderer>(), rnd.NextDouble() < 0.2);

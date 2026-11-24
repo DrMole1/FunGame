@@ -98,6 +98,8 @@ public partial class GameSession
     }
 
     // V0.7.13 (Note 10) : un joueur qui quitte la partie (ou en est expulsé) ne porte plus de Collier et ne tient plus personne.
+    // V0.7.15 (Note 07) : si le maître se déconnecte, la chaîne se rompt et le soumis est libre ; si le soumis se déconnecte, la
+    // chaîne se rompt aussi et le maître, qui garde le Collier dans son inventaire, peut le passer à un autre joueur.
     void ForgetCollarsOf(string id)
     {
         foreach (var kv in new List<KeyValuePair<string, string>>(collars))

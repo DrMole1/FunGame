@@ -45,7 +45,7 @@ public static class IconRenderer
     {
         Render("Megaphone", ItemType.Megaphone, new Vector3(10f, -120f, 0f), 0f);
         Render("Metronome", ItemType.Metronome, new Vector3(10f, -160f, 0f), 0f);
-        Render("SuperBalle", ItemType.SuperBalle, new Vector3(15f, -150f, 0f), 0f);
+        Render("SuperBalle", ItemType.SuperBalle, new Vector3(15f, -150f, 0f), 0f, round: true);
         Render("Collier", ItemType.Collier, new Vector3(40f, -150f, 0f), 0f);
         Render("Lunettes", ItemType.Lunettes, new Vector3(10f, 180f, 0f), 0f);
         Render("SacOs", ItemType.SacOs, new Vector3(10f, 180f, 0f), 0f);
@@ -67,7 +67,17 @@ public static class IconRenderer
         ConfigureSprite(IconDir + "/" + ItemType.Balise + ".png");
     }
 
-    static void Render(string model, ItemType type, Vector3 viewAngles, float skipBottom, string material = null, Color tint = default)
+    // V0.7.14 : icône de la Super Balle, bien ronde (comme en jeu).
+    [MenuItem("FunGame/Générer l'icône de la Super Balle")]
+    public static void RenderSuperBall()
+    {
+        Render("SuperBalle", ItemType.SuperBalle, new Vector3(15f, -150f, 0f), 0f, round: true);
+        AssetDatabase.Refresh();
+        ConfigureSprite(IconDir + "/" + ItemType.SuperBalle + ".png");
+    }
+
+    // 'round' : le modèle est ramené à la même dimension dans les trois directions (Super Balle sphérique, V0.7.13 Note 05).
+    static void Render(string model, ItemType type, Vector3 viewAngles, float skipBottom, string material = null, Color tint = default, bool round = false)
     {
         var prefab = Resources.Load<GameObject>("Art/" + model);
         if (prefab == null)
@@ -78,9 +88,20 @@ public static class IconRenderer
         // Scène isolée, loin du reste.
         var root = new GameObject("IconStudio");
         root.transform.position = new Vector3(0f, -500f, 0f);
-        var go = Object.Instantiate(prefab, root.transform);
+        var pivot = new GameObject("Pivot").transform;
+        pivot.SetParent(root.transform, false);
+        var go = Object.Instantiate(prefab, pivot);
         go.transform.localPosition = Vector3.zero;
         go.transform.localRotation = prefab.transform.localRotation; // rotation d'import conservée (FBX Meshy remaillés)
+        if (round)
+        {
+            Bounds raw = new Bounds(go.transform.position, Vector3.zero);
+            bool first = true;
+            foreach (var r in go.GetComponentsInChildren<Renderer>()) { if (first) { raw = r.bounds; first = false; } else raw.Encapsulate(r.bounds); }
+            float s = Mathf.Max(raw.size.x, Mathf.Max(raw.size.y, raw.size.z));
+            if (raw.size.x > 1e-4f && raw.size.y > 1e-4f && raw.size.z > 1e-4f)
+                pivot.localScale = new Vector3(s / raw.size.x, s / raw.size.y, s / raw.size.z);
+        }
         // Variante d'un modèle : même maillage, autre matériau.
         var swap = material != null ? Resources.Load<Material>("Art/" + material) : null;
         if (swap != null)

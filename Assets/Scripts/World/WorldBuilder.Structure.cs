@@ -226,8 +226,9 @@ public static partial class WorldBuilder
                 {
                     int ni = i + DI[d], nj = j + DJ[d];
                     if (m.InStructure(ni, nj)) continue;
-                    // Au bord de la zone, une cellule vide a déjà son mur jusqu'en haut (BuildGeometry).
-                    if (!m.InGrid(ni, nj) && m.Void(i, j)) continue;
+                    // Au bord de la zone, une cellule vide a déjà son mur jusqu'en haut (BuildGeometry), si ses cellules vides montent
+                    // jusqu'au plafond de la structure (sinon, on complète au-dessus : Château, V0.7.15).
+                    if (!m.InGrid(ni, nj) && m.Void(i, j) && m.voidCeil >= height - 0.01f) continue;
                     float from = m.InGrid(ni, nj) ? m.Ceil(ni, nj) : m.Ceil(i, j);
                     if (!m.InGrid(ni, nj) && d == 3 && m.southHeights != null) from = Mathf.Max(from, m.southHeights[i]);
                     if (height - from < 0.05f) continue;

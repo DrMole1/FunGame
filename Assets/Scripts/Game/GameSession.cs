@@ -320,6 +320,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             sitPending = false;
             sitUntil = Time.time + CharacterAvatar.SitHold + CharacterAvatar.StandUpDuration;
             avatar.PlaySitUp();
+            // V0.7.14 : la caméra (à 7 m) se rapproche dès que le personnage commence à se lever.
+            OrbitCamera.BeginJoinApproach(Time.time + CharacterAvatar.SitHold);
         }
         int slot = status.Selected;
         ItemType selected = slot >= 0 ? status[slot] : ItemType.None;
@@ -798,6 +800,15 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     }
     static readonly Color PeaceAmbient = new Color(0.32f, 0.2f, 0.26f);
 
+    // V0.7.15 (14) : environnement (Échiquier, Château ou Blockhaus) où se trouve le point, pour la musique d'ambiance.
+    TerrainKind EnvironmentAt(Vector3 p)
+    {
+        int zone = WorldBuilder.ZoneAt(p);
+        if (zone < 1 || zone > zones.Count || zones[zone - 1] == null || zones[zone - 1].maze == null) return TerrainKind.Echiquier;
+        var m = zones[zone - 1].maze;
+        return m.CellAt(p, out int i, out int j) ? m.TerrainAt(i, j) : TerrainKind.Echiquier;
+    }
+
     void UpdateAtmosphere()
     {
         Camera cam = Camera.main;
@@ -830,6 +841,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         FlickerLight.CurfewWarning = net.InGame && phase == Phase.Running && timeLeft > GameRules.CurfewStart && timeLeft <= GameRules.CurfewStart + GameRules.CurfewWarning;
         WorldStreamer.SetPower(Mathf.MoveTowards(FlickerLight.Power, curfew ? 0f : 1f, Time.deltaTime / (curfew ? GameRules.CurfewPowerOff : GameRules.CurfewPowerOn)));
         GameAudio.CurfewLevel = curfew ? 1f : 0f;
+        if (player != null) GameAudio.Environment = EnvironmentAt(player.transform.position);
     }
 
     // Sons liés à l'état de la partie, détectés chez tous les clients (hôte compris) par changement d'état :

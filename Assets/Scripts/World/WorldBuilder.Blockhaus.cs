@@ -14,9 +14,10 @@ using UnityEngine;
 // - au moins 2 escaliers en colimaçon (3 m de large) par structure ; 20 % des appartements font 10 m de plus en hauteur ou en
 //   profondeur ; plus de bifurcations dans les couloirs ; 30 % des couloirs ont un renfoncement en biseau ;
 // - délimité par un ravin de 15 m de large (de -80 à +80 m) qui le sépare de l'Échiquier ; 3 ponts (ceux de l'Échiquier) par ravin,
-//   espacés d'au moins 30 m, d'une fenêtre à la fenêtre d'en face. Des fenêtres s'ouvrent sur lui à chaque étage (néon au-dessus) ;
-//   ces fenêtres et le mur qui les porte se voient même de loin et sans éclairage. Plus haut et plus bas, des fenêtres factices (le
-//   modèle et l'espacement de celles de l'Échiquier, Note 05). Y tomber tue (GameSession).
+//   espacés d'au moins 30 m, d'une fenêtre à la fenêtre d'en face. V0.7.15 (Note 02) : la façade est une grille régulière, une
+//   ouverture par cellule à chaque étage (néon au-dessus), et plus haut comme plus bas, jusqu'en haut de la façade et jusqu'au fond
+//   du ravin, des fenêtres factices (le modèle de l'Échiquier) de la même taille, au même pas ; la façade se voit même de loin et
+//   sans éclairage. Y tomber tue (GameSession). Plinthes autour des bouts de murs et des tableaux des portes (Note 01).
 public static partial class WorldBuilder
 {
     // V0.7.14 : 10 m de profondeur (le plus bas étage), 20 m de hauteur ; ravin de 15 m (3 cellules).
@@ -31,6 +32,8 @@ public static partial class WorldBuilder
     const float PlinthHeight = 0.3f, PlinthRelief = 0.12f, FrameWidth = 0.16f, FrameRelief = 0.12f, WindowLow = 1f, WindowHigh = 3.8f;
     // Bande de fenêtres factices au-dessus et au-dessous des étages (au-delà, le noir du ravin).
     const float FakeWindowBand = 20f;
+    // V0.7.14 : néons des façades sur le ravin, 80 % de volume en plus (chaque dimension x 1,8^(1/3)).
+    static readonly float RavineNeonScale = Mathf.Pow(1.8f, 1f / 3f);
     const float EchiquierWindowChance = 0.3f;
 
     // Appartement fermé sous cadenas : son étage, la pièce, l'arête de sa porte.
@@ -161,9 +164,10 @@ public static partial class WorldBuilder
                     if (!Inside(ni, nj) || m.Void(ni, nj) || m.Fixed(ni, nj) || HasWall(m, i, j, d)) continue;
                     if ((m.RoomAt(i, j) == null) != (m.RoomAt(ni, nj) == null)) m.doorEdges.Add((i, j, d == 2));
                 }
+                // V0.7.15 (Note 02) : une fenêtre sur le ravin dans chaque cellule de la façade, à chaque étage.
                 for (int d = 0; d < 4; d++)
                 {
-                    if (!plan.ravine.Contains(new Vector2Int(i + DI[d], j + DJ[d])) || rnd.NextDouble() > 0.6) continue;
+                    if (!plan.ravine.Contains(new Vector2Int(i + DI[d], j + DJ[d]))) continue;
                     m.wallHoles[EdgeKey(i, j, d)] = (WindowLow, WindowHigh);
                 }
             }
@@ -217,7 +221,12 @@ public static partial class WorldBuilder
             Vector3 bb = m.Center(b.x, b.y) - dir * (Cell * 0.5f + Wall * 0.5f) + lift;
             plan.bridges.Add((a, bb));
         }
-        var rnd = new System.Random(plan.rnd.Next());
+        EchiquierRavineWindows(m, plan.ravine, new System.Random(plan.rnd.Next()));
+    }
+
+    // Quelques fenêtres de l'Échiquier sur un ravin (celui du Blockhaus, la douve du Château).
+    static void EchiquierRavineWindows(Maze m, HashSet<Vector2Int> ravine, System.Random rnd)
+    {
         for (int i = 0; i < m.N; i++)
             for (int j = 0; j < m.N; j++)
             {
@@ -226,7 +235,7 @@ public static partial class WorldBuilder
                 {
                     var nb = new Vector2Int(i + DI[d], j + DJ[d]);
                     var key = EdgeKey(i, j, d);
-                    if (!plan.ravine.Contains(nb) || m.wallHoles.ContainsKey(key) || !HasWall(m, i, j, d) || rnd.NextDouble() >= EchiquierWindowChance) continue;
+                    if (!ravine.Contains(nb) || m.wallHoles.ContainsKey(key) || !HasWall(m, i, j, d) || rnd.NextDouble() >= EchiquierWindowChance) continue;
                     if (m.Ceil(i, j) < WindowHigh + 0.3f) continue;
                     m.wallHoles[key] = (WindowLow, WindowHigh);
                 }
@@ -440,7 +449,7 @@ public static partial class WorldBuilder
     {
         var cells = plan.ravine;
         var visible = new MeshBuilder();
-        var fake = new List<(Vector3 wall, Vector3 along, Vector3 normal, float y)>();
+        var fake = new List<(Vector3 wall, Vector3 along, Vector3 normal, float y, bool facade)>();
         var sorted = cells.OrderBy(c => c.x).ThenBy(c => c.y).ToList();
         foreach (var c in sorted)
         {
@@ -465,14 +474,28 @@ public static partial class WorldBuilder
                     if (y1 - y0 < 0.05f) continue;
                     Vector3 wc = edge + Vector3.up * ((y0 + y1) * 0.5f);
                     kit.Box(wc, d < 2 ? new Vector3(Wall, y1 - y0, Cell + Wall) : new Vector3(Cell + Wall, y1 - y0, Wall));
-                    if (boundary) continue;
-                    // V0.7.14 (Note 05) : fenêtres factices de l'Échiquier (même modèle, même espacement), près des étages.
+                    if (boundary || !echiquier) continue;
+                    // V0.7.14 (Note 05) : en face, sur le mur de l'Échiquier, ses fenêtres factices (même modèle, même espacement).
                     float from = y0 < 0f ? Mathf.Max(y0, low - FakeWindowBand) : y0 + 0.3f;
                     float to = y0 < 0f ? low - 0.3f : Mathf.Min(y1, high + FakeWindowBand);
                     Vector3 wall = center + dir * (Cell * 0.5f - Wall * 0.5f);
-                    for (float wy = from; wy + WindowHeight <= to; wy += WindowPitch) fake.Add((wall, side, -dir, wy));
+                    for (float wy = from; wy + WindowHeight <= to; wy += WindowPitch) fake.Add((wall, side, -dir, wy, false));
                 }
                 if (boundary) continue;
+                // V0.7.15 (Note 02) : façade du Blockhaus en grille régulière : à chaque étage une ouverture (où le joueur passe), et
+                // au-dessus comme au-dessous, jusqu'en haut de la façade et jusqu'au fond du ravin, une fenêtre factice de la même taille,
+                // au même pas (une par cellule, une tous les 10 m). Là où un étage n'a pas d'ouverture (appartement fermé, double
+                // hauteur), une fenêtre factice la remplace.
+                if (!echiquier)
+                {
+                    Vector3 wall = center + dir * (Cell * 0.5f - Wall * 0.5f);
+                    for (float level = -RavineReach; level + WindowHigh <= RavineReach + 0.01f; level += StoreyHeight)
+                    {
+                        int s = System.Array.FindIndex(StoreyLevels, v => Mathf.Abs(v - level) < 0.01f);
+                        if (s >= 0 && plan.storeys[s].wallHoles.ContainsKey(EdgeKey(c.x, c.y, d))) continue;
+                        fake.Add((wall, side, -dir, level + WindowLow, true));
+                    }
+                }
                 // Façade praticable, visible de loin et sans éclairage (damier lumineux), percée de ses fenêtres.
                 var holes = new List<Rect>();
                 if (echiquier)
@@ -501,7 +524,9 @@ public static partial class WorldBuilder
             for (int k = k0; k < Mathf.Min(fake.Count, k0 + perMesh); k++)
             {
                 var w = fake[k];
-                AddWindow(stone, rnd.NextDouble() < GameRules.LitWindowChance ? lit : dark, w.wall, w.along, w.normal, w.y);
+                MeshBuilder glass = rnd.NextDouble() < GameRules.LitWindowChance ? lit : dark;
+                if (w.facade) AddWindow(stone, glass, w.wall, w.along, w.normal, w.y, AerialHoleWidth, WindowHigh - WindowLow);
+                else AddWindow(stone, glass, w.wall, w.along, w.normal, w.y);
             }
             string name = "Z" + m.zone + "_FenetresRavin" + k0 / perMesh;
             GameArt.MeshObject(name + "_Pierre", root, stone.Build(name), GameArt.WindowStone);
@@ -642,6 +667,17 @@ public static partial class WorldBuilder
                     float part = (Cell - opening) * 0.5f;
                     foreach (float sgn in new[] { -1f, 1f }) Plinth(finish, face + side * (sgn * (opening * 0.5f + part * 0.5f)), dir, part, y);
                 }
+                // V0.7.15 (Note 01) : la plinthe fait le tour des tableaux des portes et des ouvertures jusqu'au sol (le pied des
+                // arches compris), jusqu'au milieu du mur, sauf sous la porte d'un appartement fermé.
+                if ((doorway || fullHole) && !lockedHere.Exists(l => l.edge.Equals(key)))
+                {
+                    float opening = fullHole ? AerialHoleWidth : DoorWidth, across = Wall * 0.5f + PlinthRelief;
+                    foreach (float sgn in new[] { -1f, 1f })
+                    {
+                        Vector3 cap = c + dir * (Cell * 0.5f - across * 0.5f) + side * (sgn * (opening * 0.5f - PlinthRelief * 0.5f)) + Vector3.up * (PlinthHeight * 0.5f);
+                        finish.grey.Box(cap, Mathf.Abs(dir.x) > 0.5f ? new Vector3(across, PlinthHeight, PlinthRelief) : new Vector3(PlinthRelief, PlinthHeight, across), 1f);
+                    }
+                }
                 // V0.7.14 : encadrements gris des portes et des fenêtres (des deux côtés du mur s'il donne sur le ravin).
                 if (doorway && !m.archEdges.Contains(key)) Frame(finish, face, dir, side, DoorWidth, 0f, DoorHeight, y);
                 if (hasHole)
@@ -652,7 +688,7 @@ public static partial class WorldBuilder
                 }
                 // Néon au-dessus des vraies fenêtres, côté ravin.
                 if (hasHole && plan.ravine.Contains(new Vector2Int(ni, nj)))
-                    AddWallNeon(props, c + dir * (Cell * 0.5f + Wall * 0.5f + 0.06f) + Vector3.up * (WindowHigh + 0.45f), dir, 8f, 1f, rnd);
+                    AddWallNeon(props, c + dir * (Cell * 0.5f + Wall * 0.5f + 0.06f) + Vector3.up * (WindowHigh + 0.45f), dir, 8f, 1f, rnd, RavineNeonScale);
             }
             if (room != null || clear) continue;
             // Boîtes aux lettres (couloirs uniquement), en colonnes contre un mur plein (à toutes les hauteurs).
@@ -724,6 +760,7 @@ public static partial class WorldBuilder
             }
         }
         ControlDecor.EndPipes();
+        PlinthCorners(m, plan, y, finish);
         foreach (Room room in m.rooms)
         {
             if (room.cells.Count == 0 || !plan.building.Contains(room.cells[0]) || m.Fixed(room.cells[0].x, room.cells[0].y)) continue;
@@ -845,9 +882,20 @@ public static partial class WorldBuilder
         return result;
     }
 
-    // Collision d'une baignoire : un fond et quatre bords (on peut entrer dedans).
+    // Collision d'une baignoire. V0.7.14 : la forme exacte du modèle (collision de maillage, non convexe) : on ne traverse plus ses
+    // parois ni son rebord, mais on peut entrer dedans. Sans maillage lisible : un fond et quatre bords.
     static void BathCollider(GameObject bath)
     {
+        bool meshed = false;
+        foreach (var mf in bath.GetComponentsInChildren<MeshFilter>())
+        {
+            if (mf.sharedMesh == null || !mf.sharedMesh.isReadable) continue;
+            var mc = mf.gameObject.AddComponent<MeshCollider>();
+            mc.sharedMesh = mf.sharedMesh;
+            mc.convex = false;
+            meshed = true;
+        }
+        if (meshed) return;
         Bounds b = GameArt.LocalBounds(bath.transform);
         const float t = 0.12f;
         void Part(Vector3 center, Vector3 size)
@@ -879,6 +927,37 @@ public static partial class WorldBuilder
         col.center = wb.center;
         col.size = wb.size;
         return true;
+    }
+
+    // V0.7.15 (Note 01) : aux coins des murs (bouts de mur, angles saillants, jonctions), la plinthe fait le tour du poteau, du côté
+    // de chaque cellule praticable qui le touche (pas côté ravin ni cage d'escalier). Un peu en retrait des plinthes des murs, pour ne
+    // pas scintiller avec elles là où elles se recouvrent.
+    static void PlinthCorners(Maze m, BlockhausPlan plan, float y, Kit finish)
+    {
+        bool Walkable(int i, int j) => m.InGrid(i, j) && plan.building.Contains(new Vector2Int(i, j)) && !m.Void(i, j) && !m.Fixed(i, j);
+        // Arête (de la cellule (i, j) vers +X si 'east', sinon vers +Z) avec un mur au niveau du sol (plein, ou de part et d'autre
+        // d'une porte).
+        bool FloorWall(int i, int j, bool east)
+        {
+            int ni = east ? i + 1 : i, nj = east ? j : j + 1;
+            bool aIn = m.InGrid(i, j), bIn = m.InGrid(ni, nj);
+            if (!aIn && !bIn) return false;
+            if (!aIn || !bIn) return !m.Silent(aIn ? i : ni, aIn ? j : nj);
+            bool av = m.Void(i, j), bv = m.Void(ni, nj);
+            if (av && bv || m.Silent(i, j) || m.Silent(ni, nj)) return false;
+            return (east ? m.eastWall[i, j] : m.northWall[i, j]) || m.doorEdges.Contains((i, j, !east)) || av != bv;
+        }
+        float e = Wall * 0.5f + PlinthRelief - 0.004f;
+        for (int a = 0; a <= m.N; a++)
+            for (int b = 0; b <= m.N; b++)
+            {
+                if (!FloorWall(a - 1, b, true) && !FloorWall(a - 1, b - 1, true) && !FloorWall(a, b - 1, false) && !FloorWall(a - 1, b - 1, false)) continue;
+                Vector3 corner = m.origin + new Vector3(a * Cell, y + PlinthHeight * 0.5f, b * Cell);
+                for (int sx = 0; sx < 2; sx++)
+                    for (int sz = 0; sz < 2; sz++)
+                        if (Walkable(a - 1 + sx, b - 1 + sz))
+                            finish.grey.Box(corner + new Vector3((sx - 0.5f) * e, 0f, (sz - 0.5f) * e), new Vector3(e, PlinthHeight, e), 1f);
+            }
     }
 
     // Plinthe grise (béton) de 0,3 m, en relief de 0,12 m, au pied d'un mur ('face' : milieu de la face du mur, 'dir' : vers le mur),

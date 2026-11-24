@@ -91,6 +91,12 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: bf985b3895aa2ea41a7dd9dad3974595, type: 3}
   - key: hub_music
     clip: {fileID: 8300000, guid: 91e33a21e30176444b1f3b305c696ea2, type: 3}
+  - key: music_echiquier
+    clip: {fileID: 8300000, guid: 4f4eb058ade68c24490a33913391bb97, type: 3}
+  - key: music_chateau
+    clip: {fileID: 8300000, guid: d7e51f0d2c02db94d82a62703efba21b, type: 3}
+  - key: music_blockhaus
+    clip: {fileID: 8300000, guid: 8ca946ce15440a84d9582a27c2369259, type: 3}
   - key: glyph_sit
     clip: {fileID: 8300000, guid: ca8b5255e837dd2478f890a510a1ca9a, type: 3}
   - key: glyph_kennel
