@@ -24,6 +24,9 @@ using UnityEngine;
 // V0.7.17 : 4 à 6 salles par Château suivent les schémas du GDD (cachot, salle d'armes, salle de banquet, chapelle ; orientés au
 //   hasard) ; nouveaux objets Meshy (tonneaux, gros tonneaux, caisses, cible humaine, enclume, puits, seau) ; torches au mur des
 //   cachots ; rez-de-chaussée des Tours meublé (enclume, puits une fois sur deux, tonneaux, caisses, seau).
+// V0.7.18 : 11 schémas de salles (Notes temporaires 02) : les 4 premiers revus, 4 salles en longueur (15 x 30 m) et 3 salles en L ;
+//   chaque salle sur schéma est unique dans le Château et prend la forme de son schéma. Plus d'épées ni de masses d'armes dans les
+//   salles d'armes (Note 01).
 public static partial class WorldBuilder
 {
     public const float ChateauHeight = 60f;
@@ -46,7 +49,7 @@ public static partial class WorldBuilder
         public readonly HashSet<Vector2Int> halls = new HashSet<Vector2Int>();      // halls couverts (cellules vides)
         public readonly List<RoundPlan> rounds = new List<RoundPlan>();
         public readonly Dictionary<Room, int> natures = new Dictionary<Room, int>();
-        public List<(Room room, int template)> templated = new List<(Room, int)>();   // V0.7.17 : salles sur schéma
+        public readonly List<(Room room, int layout, int turns)> templated = new List<(Room, int, int)>();   // V0.7.17 : salles sur schéma (V0.7.18 : disposition, posée tournée de 'turns')
         public readonly List<(Vector3 a, Vector3 b)> bridges = new List<(Vector3, Vector3)>();
     }
 
@@ -165,16 +168,36 @@ public static partial class WorldBuilder
             maxRooms = 400, minRoomSize = 1, maxRoomSize = 4, roomCoverage = 0.85f, pitChance = 0f, minPitDepth = 1.5f, maxPitDepth = 0f,
             maxLayerDepth = 0f, bridgeChance = 0f, maxHeight = 12f, floors = new[] { 0f }, ceilings = new[] { 8f, 9f, 10f, 11f, 12f },
             chaoticCeilings = new[] { 8f, 10f, 12f }, pitCeilings = new[] { 8f }, fixedRooms = true,
-            // V0.7.17 : 4 à 6 salles de 20 x 20 m (4 x 4 cellules) posées d'abord, pour les schémas du GDD.
-            bigRooms = MinTemplateRooms + rnd.Next(MaxTemplateRooms - MinTemplateRooms + 1), bigRoomSize = TemplateRoomCells,
         };
+        // V0.7.18 : 4 à 6 salles uniques, chacune sur un schéma différent parmi les 11 du GDD (tirés dans un ordre au hasard ; un
+        // schéma qui ne trouve pas sa place cède la sienne au suivant), posées d'abord, à leur forme, tournées au hasard.
+        var order = new List<int>();
+        for (int k = 0; k < RoomTemplates.Length; k++) order.Add(k);
+        for (int k = order.Count - 1; k > 0; k--)
+        {
+            int s = rnd.Next(k + 1);
+            (order[k], order[s]) = (order[s], order[k]);
+        }
+        // Chaque schéma à sa taille normale d'abord, puis, s'il en manque, resserré (V0.7.18 : la place est comptée dans le Château).
+        style.bigCount = MinTemplateRooms + rnd.Next(MaxTemplateRooms - MinTemplateRooms + 1);
+        // Les schémas tirés pour ce Château, les plus grands posés d'abord (ils se casent moins bien) ; les autres ensuite, au cas où.
+        int Area(int t) { int c = 0; foreach (bool b in TemplateMask(t)) if (b) c++; return c; }
+        var drawn = order.GetRange(0, style.bigCount);
+        drawn.Sort((x, y) => Area(y).CompareTo(Area(x)));
+        order.RemoveRange(0, style.bigCount);
+        order.InsertRange(0, drawn);
+        var layouts = new List<int>(order);
+        foreach (int t in order) layouts.Add(t + RoomTemplates.Length);
+        style.bigShapes = layouts.ConvertAll(TemplateMask);
+        style.bigGroups = layouts.ConvertAll(l => l % RoomTemplates.Length).ToArray();
         Generate(m, rnd, style, (i, j) => m.InStructure(i, j));
         foreach (Room room in m.rooms)
             if (!room.plain) { room.plain = true; plan.natures[room] = rnd.Next(RoomNatures); }
-        plan.templated = PickTemplateRooms(plan.natures, style.bigRooms, rnd);
+        foreach (var (room, shape, turns) in style.bigPlaced)
+            if (room.cells.Count > 0) plan.templated.Add((room, layouts[shape], turns));
         foreach (var t in plan.templated)
         {
-            plan.natures[t.room] = TemplateNature[t.template];
+            plan.natures[t.room] = TemplateNature[t.layout % RoomTemplates.Length];
             LimitDoors(m, t.room, TemplateRoomDoors, rnd);
         }
         return plan;
@@ -625,7 +648,7 @@ public static partial class WorldBuilder
     static readonly string[][] Furniture =
     {
         new[] { "Grille", "Menottes", "Latrines", "Caisse" },                                            // cachot
-        new[] { "Epee", "Masse", "Cible", "Mannequin", "CibleHumaine" },                                  // salle d'armes
+        new[] { "Cible", "Mannequin", "CibleHumaine" },                                                   // salle d'armes (V0.7.18 : sans épées ni masses)
         new[] { "Table", "Chaise", "Chaise", "Chaise", "Cadre", "Tonneau", "Caisse", "TonneauGros" },     // salle de banquet
         new[] { "Banc", "Banc", "Croix", "Autel" },                                                       // chapelle
     };
@@ -635,7 +658,7 @@ public static partial class WorldBuilder
     {
         switch (model)
         {
-            case "Grille": case "Latrines": case "Epee": case "Masse": case "TonneauGros": return Spot.Wall;
+            case "Grille": case "Latrines": case "TonneauGros": return Spot.Wall;
             case "Menottes": case "Autel": case "Tonneau": return Spot.Near;
             case "Cadre": return Spot.Hung;
             default: return Spot.Floor;
@@ -650,8 +673,6 @@ public static partial class WorldBuilder
             case "Grille": return 2.8f;
             case "Menottes": return 0.8f;
             case "Latrines": return 1.4f;
-            case "Epee": return 1.1f;
-            case "Masse": return 0.9f;
             case "Cible": return 1.6f;
             case "Mannequin": return 1.8f;
             case "CibleHumaine": return 1.8f;
@@ -679,30 +700,28 @@ public static partial class WorldBuilder
         var natures = plan.natures;
         var props = new GameObject("Mobilier_Z" + m.zone).transform;
         props.SetParent(root, false);
-        // V0.7.17 : 4 à 6 salles suivent un des schémas du GDD, chacune différente (un schéma déjà pris l'est dans une autre
-        // orientation) ; parmi les orientations permises, celle qui laisse le plus d'objets en place (portes dégagées).
+        // V0.7.17 : 4 à 6 salles suivent chacune un schéma du GDD. V0.7.18 : chaque schéma une seule fois, la salle ayant déjà sa
+        // forme ; parmi les orientations qui gardent cette forme (quatre pour un schéma carré, deux en longueur, une en L), celle qui
+        // laisse le plus d'objets en place (portes dégagées).
         var templatedRooms = new HashSet<Room>();
-        var usedTurns = new List<int>[RoomTemplates.Length];
-        foreach (var (room, template) in plan.templated)
+        foreach (var (room, layout, turns) in plan.templated)
         {
             templatedRooms.Add(room);
-            if (usedTurns[template] == null) usedTurns[template] = new List<int>();
+            bool[,] shape = TemplateMask(layout), placedShape = TurnMask(shape, turns);
             var allowed = new List<int>();
-            for (int k = 0; k < 4; k++) if (!usedTurns[template].Contains(k)) allowed.Add(k);
-            if (allowed.Count == 0) allowed.AddRange(new[] { 0, 1, 2, 3 });
+            for (int k = 0; k < 4; k++) if (SameMask(TurnMask(shape, k), placedShape)) allowed.Add(k);
             for (int k = allowed.Count - 1; k > 0; k--)
             {
                 int sw = rnd.Next(k + 1);
                 (allowed[k], allowed[sw]) = (allowed[sw], allowed[k]);
             }
-            int best = allowed[0], bestSkips = int.MaxValue;
-            foreach (int turns in allowed)
+            int best = turns, bestSkips = int.MaxValue;
+            foreach (int k in allowed)
             {
-                int skips = FurnishFromTemplate(m, room, template, turns, props, rnd, true);
-                if (skips < bestSkips) { best = turns; bestSkips = skips; }
+                int skips = FurnishFromTemplate(m, room, layout, k, props, rnd, true);
+                if (skips < bestSkips) { best = k; bestSkips = skips; }
             }
-            usedTurns[template].Add(best);
-            FurnishFromTemplate(m, room, template, best, props, rnd, false);
+            FurnishFromTemplate(m, room, layout, best, props, rnd, false);
         }
         foreach (var kv in natures)
         {
@@ -779,11 +798,12 @@ public static partial class WorldBuilder
         AddPropCollider(go);
     }
 
-    // ---------- Salles sur schéma (V0.7.17) ----------
+    // ---------- Salles sur schéma (V0.7.17, V0.7.18) ----------
 
-    // Schémas du GDD (11.3), 10 x 10 cases, la ligne 0 au "nord" du schéma. Symboles : 1 Tableau, 2 Épée ou masse d'armes,
-    // 3 Tonneau, 4 Caisse, A Autel, B Banc d'église, C Chaise, CH Cible Humaine, Ci Cible d'archerie, Cr Croix, En Enclume,
-    // G Grille, L Latrine, Ma Mannequin, Me Menotte, P Puit, S Seau, Ta Table, To Torche, TG Gros tonneau ; "." : case vide.
+    // Schémas du GDD (11.3), la ligne 0 au "nord" du schéma. Symboles : 1 Tableau, 3 Tonneau, 4 Caisse, A Autel, B Banc d'église,
+    // C Chaise, CH Cible Humaine, Ci Cible d'archerie, Cr Croix, En Enclume, G Grille, L Latrine, Ma Mannequin, Me Menotte, P Puit,
+    // S Seau, Ta Table, To Torche, TG Gros tonneau ; "." : case vide ; "x" : hors de la salle (salles en L).
+    // V0.7.18 : 11 schémas (les 4 premiers revus ; plus d'épées ni de masses d'armes).
     static readonly string[][] RoomTemplates =
     {
         new[]   // Template 1 : cachot (une cellule fermée par une rangée de grilles, ouverte d'un côté)
@@ -796,12 +816,12 @@ public static partial class WorldBuilder
             ". . . . . . . . . .",
             ". . . . . . . . . .",
             ". . . . Ta . . . . .",
-            ". . . . C . . . . .",
+            "To . . . C . . . . To",
             ". . To . . . . To . .",
         },
         new[]   // Template 2 : salle d'armes
         {
-            ". . 2 2 2 . . . . .",
+            ". . 4 4 4 3 . . . .",
             ". . . . . . . . . .",
             ". . . . . . . . . .",
             "Ma . . Ma . . Ma . . Ma",
@@ -814,23 +834,23 @@ public static partial class WorldBuilder
         },
         new[]   // Template 3 : salle de banquet (deux longues tables)
         {
-            ". . TG . . . . . . .",
+            ". . TG 3 . . . . . .",
             ". . . . . . . . . .",
             ". C Ta C . . . . . 1",
             ". C Ta C . . . . . .",
-            ". C Ta C . . . . . .",
-            ". . . . . . C Ta C .",
+            ". C Ta C . . C Ta C .",
+            ". C Ta C . . C Ta C .",
             "1 . . . . . C Ta C .",
             ". . . . . . C Ta C 1",
             ". . . . . . . . . .",
-            ". . 1 . . . . TG . .",
+            ". . 1 . . . 3 TG 3 .",
         },
         new[]   // Template 4 : chapelle (l'autel au nord, les bancs tournés vers lui)
         {
-            ". . . . . . . . . .",
+            ". 4 Cr . . . . . . .",
             ". . . . A Cr . . . .",
-            ". . . . . . . . . .",
-            ". . . . . . . . . .",
+            "Cr . . . . . . . . Cr",
+            ". . B B . . B B . .",
             "Cr . . . . . . . . Cr",
             ". . B B . . B B . Cr",
             "Cr . . . . . . . . .",
@@ -838,41 +858,203 @@ public static partial class WorldBuilder
             ". . . . . . . . . Cr",
             ". . . . . . . . . .",
         },
+        new[]   // Template 5 : cachot en longueur (deux rangées de grilles)
+        {
+            ". . . . . 4 3",
+            "Me . . . . . To",
+            ". . . . . . .",
+            "G G G G G . .",
+            ". . 3 . . . .",
+            "L . . . . . Me",
+            "L . . . . . Me",
+            "To . . 3 3 . .",
+            ". . G G G G G",
+            ". . . . 4 . .",
+            "L . . . . . Me",
+            "L . . . . . Me",
+            "To . . . . . .",
+            "3 4 . . . . .",
+        },
+        new[]   // Template 6 : salle d'armes en longueur
+        {
+            ". Ci . Ci . Ci .",
+            ". . . . . . .",
+            "Ma . . . . . Ma",
+            ". . . . . . .",
+            ". . . . . . .",
+            "Ma . . . . . Ma",
+            ". . . . . . .",
+            ". . . . . . .",
+            "Ma . . . . . Ma",
+            ". . . . . . .",
+            ". . . . . . .",
+            "Ma . . . . . Ma",
+            ". . . . . . .",
+            "3 . . 4 3 4 3",
+        },
+        new[]   // Template 7 : salle de banquet en longueur (une longue table double)
+        {
+            ". . TG . . TG 3 .",
+            ". . . . . . . .",
+            ". . . . . . . 1",
+            ". . C Ta Ta C . .",
+            "1 . C Ta Ta C . .",
+            ". . C Ta Ta C . .",
+            ". . C Ta Ta C . .",
+            ". . C Ta Ta C . 1",
+            ". . C Ta Ta C . .",
+            ". . C Ta Ta C . .",
+            ". . C Ta Ta C . .",
+            "1 . . . . . . 1",
+            ". . . . . . . .",
+            ". . 3 TG TG . . .",
+        },
+        new[]   // Template 8 : chapelle en longueur (deux autels au nord)
+        {
+            "Cr Cr . . . . . Cr",
+            ". . . A A . . .",
+            "Cr . . . . . . .",
+            ". . . . . . . Cr",
+            ". . B B B B . .",
+            ". . . . . . . Cr",
+            "Cr . B B B B . Cr",
+            ". . . . . . . .",
+            "Cr . B B B B . Cr",
+            "Cr . . . . . . .",
+            ". . B B B B . .",
+            "Cr . . . . . . Cr",
+            ". . . . . . . Cr",
+            "Cr 4 . . . 4 . Cr",
+        },
+        new[]   // Template 9 : cachot en L
+        {
+            "L L . . . To L L . . . . G 3 .",
+            ". . . . . . . . . . . . G . .",
+            ". . . . . . . . . . . . G 3 .",
+            "G G G G G G G G G G . . G . .",
+            ". 4 3 . 4 . . . . . . . . . .",
+            ". . . . . . . . 4 . 4 3 . 4 To",
+            "G G G G . . . x x x x x x x x",
+            "L . . G . . 4 x x x x x x x x",
+            "L . . G . . . x x x x x x x x",
+            "To . . . . . 4 x x x x x x x x",
+            ". . . . . . 3 x x x x x x x x",
+            "G G G G . . 4 x x x x x x x x",
+            "3 3 . . . . To x x x x x x x x",
+            ". . . . . . . x x x x x x x x",
+        },
+        new[]   // Template 10 : salle de banquet en L (un puits)
+        {
+            "4 . 4 3 TG . . . 1 . . . . 1",
+            ". . . . . . . C C C C C C .",
+            "3 . . . . . . Ta Ta Ta Ta Ta Ta .",
+            "4 . . P . . . Ta Ta Ta Ta Ta Ta .",
+            ". . . . . . . C C C C C C .",
+            ". . . . . . . . . . 1 . . .",
+            "1 . . . . . . x x x x x x x",
+            ". C Ta Ta C . . x x x x x x x",
+            ". C Ta Ta C . . x x x x x x x",
+            ". C Ta Ta C . 1 x x x x x x x",
+            "1 C Ta Ta C . . x x x x x x x",
+            ". . . . . . . x x x x x x x",
+        },
+        new[]   // Template 11 : chapelle en L (les bancs autour de l'autel)
+        {
+            ". . Cr . . Cr Cr . . . . Cr",
+            "Cr B B B . . . . . Cr . .",
+            ". B . . . . . . . . . .",
+            ". B . A . . . . Cr . . .",
+            "Cr . . . . B . . . . . Cr",
+            "Cr . . . B B . Cr . . Cr .",
+            ". Cr . . . . . x x x x x",
+            ". . . . . . Cr x x x x x",
+            "Cr . . . . . . x x x x x",
+            "Cr . . . Cr . Cr x x x x x",
+        },
     };
-    static readonly int[] TemplateNature = { 0, 1, 2, 3 };   // cachot, salle d'armes, salle de banquet, chapelle
-    const int TemplateSize = 10, MinTemplateRooms = 4, MaxTemplateRooms = 6, MinTemplateCells = 3, TemplateRoomCells = 4, TemplateRoomDoors = 2;
-
-    // Les plus grandes salles (au moins 3 x 3 cellules, les 4 x 4 posées exprès d'abord), au hasard entre égales ; 'count' d'entre
-    // elles prennent un schéma : les 4 schémas dans un ordre tiré au hasard, puis de nouveau un schéma déjà pris (tourné autrement).
-    static List<(Room room, int template)> PickTemplateRooms(Dictionary<Room, int> natures, int count, System.Random rnd)
+    // Découpage de chaque schéma en cellules de 5 m, par tronçons (cases, cellules) : en colonnes, puis en lignes. Une case fait
+    // environ 2 m (de 1,9 à 2,5 m) ; les retours des salles en L tombent sur une limite de cellule. Une "disposition" est l'indice
+    // dans ces tableaux : le schéma (disposition % 11) à sa taille normale, puis (à partir de 11) resserré.
+    static readonly int[][] TemplateCols =
     {
-        var result = new List<(Room, int)>();
-        var candidates = new List<Room>();
-        foreach (var room in natures.Keys)
-            if (room.rect.width >= MinTemplateCells && room.rect.height >= MinTemplateCells && room.cells.Count == room.rect.width * room.rect.height)
-                candidates.Add(room);
-        for (int k = candidates.Count - 1; k > 0; k--)
+        new[] { 10, 4 }, new[] { 10, 4 }, new[] { 10, 4 }, new[] { 10, 4 },
+        new[] { 7, 3 }, new[] { 7, 3 }, new[] { 8, 3 }, new[] { 8, 3 },
+        new[] { 7, 3, 8, 3 }, new[] { 7, 3, 7, 3 }, new[] { 7, 3, 5, 2 },
+        // Versions resserrées (cases de 1,25 à 2,5 m), quand la place manque :
+        new[] { 10, 3 }, new[] { 10, 3 }, new[] { 10, 3 }, new[] { 10, 3 },
+        new[] { 7, 2 }, new[] { 7, 2 }, new[] { 8, 3 }, new[] { 8, 3 },
+        new[] { 7, 2, 8, 3 }, new[] { 7, 3, 7, 2 }, new[] { 7, 2, 5, 2 },
+    };
+    static readonly int[][] TemplateRows =
+    {
+        new[] { 10, 4 }, new[] { 10, 4 }, new[] { 10, 4 }, new[] { 10, 4 },
+        new[] { 14, 6 }, new[] { 14, 6 }, new[] { 14, 6 }, new[] { 14, 6 },
+        new[] { 6, 3, 8, 3 }, new[] { 6, 3, 6, 3 }, new[] { 6, 3, 4, 2 },
+        new[] { 10, 3 }, new[] { 10, 3 }, new[] { 10, 3 }, new[] { 10, 3 },
+        new[] { 14, 5 }, new[] { 14, 5 }, new[] { 14, 5 }, new[] { 14, 5 },
+        new[] { 6, 2, 8, 3 }, new[] { 6, 2, 6, 3 }, new[] { 6, 2, 4, 2 },
+    };
+    // Nature de chaque schéma : 0 cachot, 1 salle d'armes, 2 salle de banquet, 3 chapelle.
+    static readonly int[] TemplateNature = { 0, 1, 2, 3, 0, 1, 2, 3, 0, 2, 3 };
+    const int MinTemplateRooms = 4, MaxTemplateRooms = 6, TemplateRoomDoors = 2;
+
+    static int SegSquares(int[] seg) { int s = 0; for (int k = 0; k < seg.Length; k += 2) s += seg[k]; return s; }
+    static int SegCells(int[] seg) { int s = 0; for (int k = 1; k < seg.Length; k += 2) s += seg[k]; return s; }
+
+    // Position (en cellules) d'une coordonnée du schéma (en cases) le long d'un axe découpé en tronçons.
+    static float SegPos(int[] seg, float s)
+    {
+        float cells = 0f;
+        for (int k = 0; k < seg.Length; k += 2)
         {
-            int s = rnd.Next(k + 1);
-            (candidates[k], candidates[s]) = (candidates[s], candidates[k]);
+            if (s <= seg[k] || k + 2 >= seg.Length) return cells + s * seg[k + 1] / seg[k];
+            s -= seg[k];
+            cells += seg[k + 1];
         }
-        // Tri stable : les plus grandes d'abord.
-        var order = new List<int>();
-        for (int k = 0; k < candidates.Count; k++) order.Add(k);
-        order.Sort((a, b) =>
+        return cells;
+    }
+
+    // Taille (en m) de la case 'square' le long d'un axe découpé en tronçons.
+    static float SegSize(int[] seg, int square)
+    {
+        for (int k = 0; k < seg.Length; k += 2)
         {
-            int c = (candidates[b].rect.width * candidates[b].rect.height).CompareTo(candidates[a].rect.width * candidates[a].rect.height);
-            return c != 0 ? c : a.CompareTo(b);
-        });
-        count = Mathf.Min(count, candidates.Count);
-        var templates = new List<int> { 0, 1, 2, 3 };
-        for (int k = templates.Count - 1; k > 0; k--)
-        {
-            int s = rnd.Next(k + 1);
-            (templates[k], templates[s]) = (templates[s], templates[k]);
+            if (square < seg[k] || k + 2 >= seg.Length) return Cell * seg[k + 1] / seg[k];
+            square -= seg[k];
         }
-        for (int k = 0; k < count; k++) result.Add((candidates[order[k]], templates[k % templates.Count]));
-        return result;
+        return Cell;
+    }
+
+    // Cases d'un schéma : [colonne, ligne] (null : case vide) ; 'inside' : la case appartient à la salle.
+    static string[,] ParseTemplate(int layout, out bool[,] inside)
+    {
+        int w = SegSquares(TemplateCols[layout]), h = SegSquares(TemplateRows[layout]);
+        var grid = new string[w, h];
+        inside = new bool[w, h];
+        string[] rows = RoomTemplates[layout % RoomTemplates.Length];
+        for (int r = 0; r < h; r++)
+        {
+            string[] tokens = rows[r].Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
+            for (int c = 0; c < w; c++)
+            {
+                string t = c < tokens.Length ? tokens[c] : ".";
+                inside[c, r] = t != "x";
+                grid[c, r] = t != "." && t != "x" ? t : null;
+            }
+        }
+        return grid;
+    }
+
+    // Forme d'une disposition en cellules ([colonne, ligne], la ligne 0 au nord).
+    static bool[,] TemplateMask(int layout)
+    {
+        int[] cols = TemplateCols[layout], rows = TemplateRows[layout];
+        var mask = new bool[SegCells(cols), SegCells(rows)];
+        ParseTemplate(layout, out bool[,] inside);
+        for (int c = 0; c < inside.GetLength(0); c++)
+            for (int r = 0; r < inside.GetLength(1); r++)
+                if (inside[c, r]) mask[(int)SegPos(cols, c + 0.5f), (int)SegPos(rows, r + 0.5f)] = true;
+        return mask;
     }
 
     // Salle sur schéma : ses ouvertures vers les cellules voisines (hors de la salle) sont refermées, sauf 'keep' d'entre elles ;
@@ -931,39 +1113,52 @@ public static partial class WorldBuilder
         return parts;
     }
 
-    // Une salle meublée selon un schéma, tourné de 'turns' quarts de tour ; les cases s'étirent sur toute la salle (2 m pour une salle
-    // de 20 m). Les objets du bord du schéma sont plaqués contre le mur ; ceux qui tomberaient devant une porte ne sont pas posés.
-    // Retourne le nombre d'objets du schéma qui n'ont pas pu être posés ; 'dryRun' : compte seulement, sans rien poser.
-    static int FurnishFromTemplate(Maze m, Room room, int template, int turns, Transform props, System.Random rnd, bool dryRun)
+    // Une salle meublée selon un schéma, tourné de 'turns' quarts de tour ; chaque case fait environ 2 m (tronçons du schéma). Les
+    // objets du bord de la salle (bords du L compris) sont plaqués contre le mur ; ceux qui tomberaient devant une porte ne sont pas
+    // posés. Retourne le nombre d'objets du schéma qui n'ont pas pu être posés ; 'dryRun' : compte seulement, sans rien poser.
+    static int FurnishFromTemplate(Maze m, Room room, int layout, int turns, Transform props, System.Random rnd, bool dryRun)
     {
         int skipped = 0;
-        string[] rows = RoomTemplates[template];
-        var grid = new string[TemplateSize, TemplateSize];   // [colonne, ligne]
-        for (int r = 0; r < TemplateSize; r++)
+        int[] cols = TemplateCols[layout], rows = TemplateRows[layout];
+        int W = SegSquares(cols), H = SegSquares(rows), CW = SegCells(cols), CH = SegCells(rows);
+        string[,] grid = ParseTemplate(layout, out bool[,] inside);
+        bool In(int c, int r) => c >= 0 && r >= 0 && c < W && r < H && inside[c, r];
+        string At(int c, int r) => In(c, r) ? grid[c, r] : null;
+        int Run(int c, int r, int dc, int dr, string sym)
         {
-            string[] tokens = rows[r].Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
-            for (int c = 0; c < TemplateSize; c++) grid[c, r] = c < tokens.Length && tokens[c] != "." ? tokens[c] : null;
+            int k = 0;
+            while (In(c + dc * (k + 1), r + dr * (k + 1)) && (sym == null || At(c + dc * (k + 1), r + dr * (k + 1)) == sym)) k++;
+            return k;
         }
-        string At(int c, int r) => c >= 0 && r >= 0 && c < TemplateSize && r < TemplateSize ? grid[c, r] : null;
 
-        Vector3 lo = m.Center(room.rect.xMin, room.rect.yMin), hi = m.Center(room.rect.xMax - 1, room.rect.yMax - 1);
-        float x0 = lo.x - Cell * 0.5f + Wall * 0.5f, x1 = hi.x + Cell * 0.5f - Wall * 0.5f;
-        float z0 = lo.z - Cell * 0.5f + Wall * 0.5f, z1 = hi.z + Cell * 0.5f - Wall * 0.5f;
-        float sx = (x1 - x0) / TemplateSize, sz = (z1 - z0) / TemplateSize;
+        float left = m.Center(room.rect.xMin, room.rect.yMin).x - Cell * 0.5f;
+        float top = m.Center(room.rect.xMin, room.rect.yMax - 1).z + Cell * 0.5f;
         float floorY = room.floor;
 
-        // Case et direction du schéma -> salle (un quart de tour : (c, r) -> (9 - r, c) ; la ligne 0 est au nord, +Z).
-        Vector2Int Turn(int c, int r) { for (int k = 0; k < turns; k++) { int t = c; c = TemplateSize - 1 - r; r = t; } return new Vector2Int(c, r); }
+        // Point du schéma (en cellules, v vers le sud) -> salle, tourné de 'turns' quarts de tour : (u, v) -> (H - v, u) ; la ligne 0
+        // est au nord (+Z).
+        Vector3 ToWorld(float u, float v)
+        {
+            float w = CW, h = CH;
+            for (int k = 0; k < turns; k++) { float t = u; u = h - v; v = t; float s = w; w = h; h = s; }
+            return new Vector3(left + u * Cell, floorY, top - v * Cell);
+        }
         Vector3 TurnDir(int dc, int dr) { for (int k = 0; k < turns; k++) { int t = dc; dc = -dr; dr = t; } return new Vector3(dc, 0f, -dr); }
-        Vector3 SquareCenter(int c, int r) { var q = Turn(c, r); return new Vector3(x0 + (q.x + 0.5f) * sx, floorY, z1 - (q.y + 0.5f) * sz); }
 
-        for (int r = 0; r < TemplateSize; r++)
-            for (int c = 0; c < TemplateSize; c++)
+        // Autels du schéma (les bancs se tournent vers le plus proche).
+        var altars = new List<Vector2Int>();
+        for (int r = 0; r < H; r++)
+            for (int c = 0; c < W; c++)
+                if (At(c, r) == "A") altars.Add(new Vector2Int(c, r));
+
+        for (int r = 0; r < H; r++)
+            for (int c = 0; c < W; c++)
             {
-                string sym = grid[c, r];
+                string sym = At(c, r);
                 if (sym == null) continue;
-                // Bord le plus proche (dans le schéma) : l'objet lui tourne le dos ; sur la case du bord, il est plaqué contre ce mur.
-                int dTop = r, dBottom = TemplateSize - 1 - r, dLeft = c, dRight = TemplateSize - 1 - c;
+                // Bord le plus proche (dans la forme du schéma) : l'objet lui tourne le dos ; sur une case du bord, il est plaqué
+                // contre ce mur.
+                int dTop = Run(c, r, 0, -1, null), dBottom = Run(c, r, 0, 1, null), dLeft = Run(c, r, -1, 0, null), dRight = Run(c, r, 1, 0, null);
                 int edge = Mathf.Min(Mathf.Min(dTop, dBottom), Mathf.Min(dLeft, dRight));
                 int fc, fr;
                 if (edge == dTop) { fc = 0; fr = 1; }
@@ -971,15 +1166,18 @@ public static partial class WorldBuilder
                 else if (edge == dLeft) { fc = 1; fr = 0; }
                 else { fc = -1; fr = 0; }
                 bool against = edge == 0;
-                Vector3 pos = SquareCenter(c, r);
+                Vector3 pos = ToWorld(SegPos(cols, c + 0.5f), SegPos(rows, r + 0.5f));
+                float su = SegSize(cols, c), sv = SegSize(rows, r);
+                float sx = (turns & 1) == 0 ? su : sv, sz = (turns & 1) == 0 ? sv : su;
                 Vector3 facing = TurnDir(fc, fr);
-                // Mur derrière l'objet (à l'opposé de son regard) : coordonnée de sa face intérieure.
+                // Mur derrière l'objet (à l'opposé de son regard) : coordonnée de sa face intérieure, dans la cellule de la case.
                 Vector3 back = -facing;
                 bool backX = Mathf.Abs(back.x) > 0.5f;
-                float wallCoord = backX ? (back.x > 0f ? x1 : x0) : (back.z > 0f ? z1 : z0);
+                var cell = new Vector2Int(Mathf.FloorToInt((pos.x - m.origin.x) / Cell), Mathf.FloorToInt((pos.z - m.origin.z) / Cell));
+                Vector3 cc = m.Center(cell.x, cell.y);
+                float wallCoord = backX ? cc.x + Mathf.Sign(back.x) * (Cell * 0.5f - Wall * 0.5f) : cc.z + Mathf.Sign(back.z) * (Cell * 0.5f - Wall * 0.5f);
 
                 // Pas devant une ouverture de la salle (porte, arche) ; contre un mur plein seulement.
-                var cell = new Vector2Int(Mathf.FloorToInt((pos.x - m.origin.x) / Cell), Mathf.FloorToInt((pos.z - m.origin.z) / Cell));
                 if (m.RoomAt(cell.x, cell.y) != room || m.keepClear.Contains(cell) || NearOpening(m, room, cell, pos)) { skipped++; continue; }
                 if (against)
                 {
@@ -1029,13 +1227,25 @@ public static partial class WorldBuilder
                     }
                     else if (sym == "Ta")
                     {
-                        // Tables bout à bout le long de leur rangée.
-                        bool vertical = At(c, r - 1) == "Ta" || At(c, r + 1) == "Ta";
+                        // Tables bout à bout le long de leur plus longue rangée.
+                        bool vertical = Run(c, r, 0, -1, "Ta") + Run(c, r, 0, 1, "Ta") > Run(c, r, -1, 0, "Ta") + Run(c, r, 1, 0, "Ta");
                         Vector3 longAxis = vertical ? TurnDir(0, 1) : TurnDir(1, 0);
                         Bounds tb = GameArt.LocalBounds(go.transform);
                         facing = tb.size.z >= tb.size.x ? longAxis : new Vector3(longAxis.z, 0f, -longAxis.x);
                     }
-                    else if (sym == "B") facing = TurnDir(0, -1);   // bancs tournés vers l'autel (nord du schéma)
+                    else if (sym == "B")
+                    {
+                        // Bancs tournés vers l'autel le plus proche (au nord du schéma s'il n'y en a pas).
+                        facing = TurnDir(0, -1);
+                        int bestD = int.MaxValue;
+                        foreach (var a in altars)
+                        {
+                            int dc = a.x - c, dr = a.y - r, dist = dc * dc + dr * dr;
+                            if (dist >= bestD) continue;
+                            bestD = dist;
+                            facing = Mathf.Abs(dr) >= Mathf.Abs(dc) ? TurnDir(0, dr > 0 ? 1 : -1) : TurnDir(dc > 0 ? 1 : -1, 0);
+                        }
+                    }
                 }
                 go.transform.SetPositionAndRotation(pos + (model == "Cadre" ? Vector3.up * 1.8f : Vector3.zero), Quaternion.LookRotation(facing));
                 if (against)
@@ -1059,7 +1269,6 @@ public static partial class WorldBuilder
         switch (sym)
         {
             case "1": return "Cadre";
-            case "2": return rnd.NextDouble() < 0.5 ? "Epee" : "Masse";
             case "3": return "Tonneau";
             case "4": return ModelVariant("Caisse", rnd);
             case "A": return "Autel";
@@ -1076,7 +1285,7 @@ public static partial class WorldBuilder
             case "P": return "Puit";
             case "S": return "Seau";
             case "Ta": return "Table";
-            case "TG": return "TonneauGros";
+            case "TG": case "Tg": return "TonneauGros";
             default: return null;
         }
     }

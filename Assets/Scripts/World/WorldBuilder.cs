@@ -736,7 +736,37 @@ public static partial class WorldBuilder
         public float[] chaoticCeilings; // salles chaotiques (plateformes)
         public float[] pitCeilings;     // hauteur au-dessus du pourtour des salles à profondeurs
         public bool fixedRooms;         // V0.7.11 : salles de plain-pied seulement (Château, Blockhaus), plafonds pris dans 'ceilings'
-        public int bigRooms, bigRoomSize; // V0.7.17 : grandes salles posées avant les autres (côté en cellules ; une de moins sur un ou deux côtés si la place manque) (Château : salles sur schéma)
+        // V0.7.18 : salles de forme imposée posées avant les autres (Château : salles sur schéma). 'bigShapes' : formes candidates
+        // dans l'ordre d'essai ([colonne, ligne] en cellules, la ligne 0 au nord) ; 'bigCount' d'entre elles sont posées, chacune
+        // tournée au hasard (une forme qui ne trouve pas sa place est sautée) ; 'bigPlaced' : (salle, indice de la forme, quarts de tour).
+        public List<bool[,]> bigShapes;
+        public int[] bigGroups;   // groupe de chaque forme (une seule forme par groupe : un schéma à sa taille normale ou resserré)
+        public int bigCount;
+        public readonly List<(Room room, int shape, int turns)> bigPlaced = new List<(Room, int, int)>();
+    }
+
+    // V0.7.18 : forme (en cellules, [colonne, ligne], la ligne 0 au nord) tournée de 'turns' quarts de tour : (c, r) -> (H - 1 - r, c).
+    internal static bool[,] TurnMask(bool[,] mask, int turns)
+    {
+        for (int k = 0; k < (turns & 3); k++)
+        {
+            int w = mask.GetLength(0), h = mask.GetLength(1);
+            var t = new bool[h, w];
+            for (int c = 0; c < w; c++)
+                for (int r = 0; r < h; r++)
+                    t[h - 1 - r, c] = mask[c, r];
+            mask = t;
+        }
+        return mask;
+    }
+
+    internal static bool SameMask(bool[,] a, bool[,] b)
+    {
+        if (a.GetLength(0) != b.GetLength(0) || a.GetLength(1) != b.GetLength(1)) return false;
+        for (int c = 0; c < a.GetLength(0); c++)
+            for (int r = 0; r < a.GetLength(1); r++)
+                if (a[c, r] != b[c, r]) return false;
+        return true;
     }
 
     // V0.6 : chaque salle a sa propre profondeur et sa propre hauteur, tirées au hasard ; la profondeur maximale vaut
@@ -932,52 +962,102 @@ public static partial class WorldBuilder
                 if (Usable(i, j)) free++;
         int target = coverage ? Mathf.RoundToInt(free * style.roomCoverage) : int.MaxValue, covered = 0;
         int attempts = coverage ? 12000 : 700;
-        int bigPlaced = 0, bigTries = 0;
+        int bigNext = 0;
+        // Place d'une salle de w x h cellules en (i0, j0) ; 'mask' : forme imposée (null : rectangle), la ligne 0 au nord.
+        bool Fits(int i0, int j0, int w, int h, bool[,] mask)
+        {
+            for (int i = i0 - 1; i <= i0 + w; i++)
+                for (int j = j0 - 1; j <= j0 + h; j++)
+                {
+                    var cell = new Vector2Int(i, j);
+                    bool inside = i >= i0 && i < i0 + w && j >= j0 && j < j0 + h && (mask == null || mask[i - i0, h - 1 - (j - j0)]);
+                    // Une cellule d'écart avec le Hub et les portes ; avec les autres salles aussi, sauf si elles peuvent se toucher.
+                    if (m.InGrid(i, j) && (m.Reserved(i, j) || m.Fixed(i, j) || m.Void(i, j) && inside || cell == m.start || m.keepClear.Contains(cell)
+                        || inside && area != null && !area(i, j) || (m.room[i, j] >= 0 && (inside || !coverage)))) return false;
+                }
+            return true;
+        }
         for (int attempt = 0; attempt < attempts && m.rooms.Count < style.maxRooms && covered < target; attempt++)
         {
-            int w, h;
-            // V0.7.17 : d'abord les grandes salles demandées (essais comptés à part).
-            bool big = bigPlaced < style.bigRooms && bigTries < 1500;
+            int w, h, i0, j0;
+            // V0.7.18 : d'abord les salles de forme imposée, à une place tirée parmi toutes celles où elles tiennent (dans l'une de
+            // leurs quatre orientations) ; une forme qui ne tient nulle part est sautée.
+            bool big = style.bigShapes != null && bigNext < style.bigShapes.Count && style.bigPlaced.Count < style.bigCount;
+            bool[,] mask = null;
+            int turns = 0;
+            if (big && style.bigGroups != null && style.bigPlaced.Exists(b => style.bigGroups[b.shape] == style.bigGroups[bigNext]))
+            {
+                attempt--;
+                bigNext++;
+                continue;
+            }
             if (big)
             {
-                bigTries++;
                 attempt--;
-                // Taille demandée d'abord, puis une cellule de moins sur un côté, puis sur les deux (la place manque vite).
-                int stage = bigTries / 500;
-                w = style.bigRoomSize - (stage >= 1 ? 1 : 0);
-                h = style.bigRoomSize - (stage >= 2 ? 1 : 0);
-            }
-            else if (coverage)
-            {
-                // Tailles variées ; une fois la place devenue rare, de petites salles bouchent les trous.
-                int min = attempt < attempts / 2 ? style.minRoomSize : 1;
-                w = rnd.Next(min, style.maxRoomSize + 1);
-                h = rnd.Next(min, style.maxRoomSize + 1);
-                if (w * h < 2) continue;
-            }
-            else if (style.maxRoomSize <= 4)
-            {
-                if (rnd.NextDouble() < 0.15) { w = 4; h = 3; }
-                else { w = rnd.NextDouble() < 0.4 ? 3 : 2; h = 2; }
+                // Parmi les places possibles, celles où la salle s'appuie le plus sur ce qui l'entoure (bord de la zone, vide, autre
+                // salle) : les salles se serrent et laissent la place aux suivantes.
+                var places = new List<(int i, int j, int turns)>();
+                int bestContact = -1;
+                for (int k = 0; k < 4; k++)
+                {
+                    var turned = TurnMask(style.bigShapes[bigNext], k);
+                    int tw = turned.GetLength(0), th = turned.GetLength(1);
+                    for (int i = 0; i + tw <= n; i++)
+                        for (int j = 0; j + th <= n; j++)
+                        {
+                            if (!Fits(i, j, tw, th, turned)) continue;
+                            int contact = 0;
+                            for (int a = 0; a < tw; a++)
+                                for (int b = 0; b < th; b++)
+                                {
+                                    if (!turned[a, th - 1 - b]) continue;
+                                    for (int d = 0; d < 4; d++)
+                                    {
+                                        int ni = i + a + DI[d], nj = j + b + DJ[d], na = a + DI[d], nb = b + DJ[d];
+                                        if (na >= 0 && na < tw && nb >= 0 && nb < th && turned[na, th - 1 - nb]) continue;
+                                        if (!m.InGrid(ni, nj) || area != null && !area(ni, nj) || m.Void(ni, nj) || m.room[ni, nj] >= 0) contact++;
+                                    }
+                                }
+                            if (contact > bestContact) { bestContact = contact; places.Clear(); }
+                            if (contact == bestContact) places.Add((i, j, k));
+                        }
+                }
+                if (places.Count == 0) { bigNext++; continue; }
+                var pick = places[rnd.Next(places.Count)];
+                turns = pick.turns;
+                mask = TurnMask(style.bigShapes[bigNext], turns);
+                w = mask.GetLength(0);
+                h = mask.GetLength(1);
+                i0 = pick.i;
+                j0 = pick.j;
             }
             else
             {
-                w = rnd.Next(style.minRoomSize, style.maxRoomSize + 1);
-                h = rnd.Next(style.minRoomSize, Mathf.Min(w + 1, style.maxRoomSize) + 1);
-            }
-            if (rnd.NextDouble() < 0.5) { int t = w; w = h; h = t; }
-            int i0 = rnd.Next(0, n - w + 1), j0 = rnd.Next(0, n - h + 1);
-            bool ok = true;
-            for (int i = i0 - 1; i <= i0 + w && ok; i++)
-                for (int j = j0 - 1; j <= j0 + h && ok; j++)
+                if (coverage)
                 {
-                    var cell = new Vector2Int(i, j);
-                    bool inside = i >= i0 && i < i0 + w && j >= j0 && j < j0 + h;
-                    // Une cellule d'écart avec le Hub et les portes ; avec les autres salles aussi, sauf si elles peuvent se toucher.
-                    if (m.InGrid(i, j) && (m.Reserved(i, j) || m.Fixed(i, j) || m.Void(i, j) && inside || cell == m.start || m.keepClear.Contains(cell)
-                        || inside && area != null && !area(i, j) || (m.room[i, j] >= 0 && (inside || !coverage)))) ok = false;
+                    // Tailles variées ; une fois la place devenue rare, de petites salles bouchent les trous.
+                    int min = attempt < attempts / 2 ? style.minRoomSize : 1;
+                    w = rnd.Next(min, style.maxRoomSize + 1);
+                    h = rnd.Next(min, style.maxRoomSize + 1);
+                    if (w * h < 2) continue;
                 }
-            if (!ok) continue;
+                else if (style.maxRoomSize <= 4)
+                {
+                    if (rnd.NextDouble() < 0.15) { w = 4; h = 3; }
+                    else { w = rnd.NextDouble() < 0.4 ? 3 : 2; h = 2; }
+                }
+                else
+                {
+                    w = rnd.Next(style.minRoomSize, style.maxRoomSize + 1);
+                    h = rnd.Next(style.minRoomSize, Mathf.Min(w + 1, style.maxRoomSize) + 1);
+                }
+                if (rnd.NextDouble() < 0.5) { int t = w; w = h; h = t; }
+                i0 = rnd.Next(0, n - w + 1);
+                j0 = rnd.Next(0, n - h + 1);
+                if (!Fits(i0, j0, w, h, null)) continue;
+            }
+            // Cellule de la salle (forme imposée : la ligne 0 du masque est au nord).
+            bool InShape(int i, int j) => i >= i0 && i < i0 + w && j >= j0 && j < j0 + h && (mask == null || mask[i - i0, h - 1 - (j - j0)]);
 
             var room = new Room { rect = new RectInt(i0, j0, w, h) };
             // Salle à profondeurs : pourtour au niveau du Hub, fosses de formes variées et escaliers pour y descendre.
@@ -1011,15 +1091,16 @@ public static partial class WorldBuilder
             }
             int index = m.rooms.Count;
             m.rooms.Add(room);
-            if (big) bigPlaced++;
-            covered += w * h;
+            if (big) { style.bigPlaced.Add((room, bigNext, turns)); bigNext++; }
             for (int i = i0; i < i0 + w; i++)
                 for (int j = j0; j < j0 + h; j++)
                 {
+                    if (!InShape(i, j)) continue;
+                    covered++;
                     m.room[i, j] = index;
                     room.cells.Add(new Vector2Int(i, j));
-                    if (i < i0 + w - 1) m.eastWall[i, j] = false;
-                    if (j < j0 + h - 1) m.northWall[i, j] = false;
+                    if (InShape(i + 1, j)) m.eastWall[i, j] = false;
+                    if (InShape(i, j + 1)) m.northWall[i, j] = false;
                 }
         }
     }
@@ -2604,8 +2685,31 @@ public static partial class WorldBuilder
             foreach (var c in room.cells) center += m.Center(c.x, c.y);
             center /= room.cells.Count;
             float height = Mathf.Min(16f, room.ceil - room.floor + room.pitDepth);
-            // V0.7.11 (11.3) : au Château, des lustres à la place des néons.
-            if (roomTerrain == TerrainKind.Chateau) AddChandelier(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
+            // V0.7.18 : salle en L : le centre pris dans la cellule de la salle la plus proche.
+            if (room.cells.Count != room.rect.width * room.rect.height)
+            {
+                Vector3 best = center;
+                float bestD = float.MaxValue;
+                foreach (var c in room.cells)
+                {
+                    Vector3 p = m.Center(c.x, c.y);
+                    float d = Flat(p - center);
+                    if (d < bestD) { bestD = d; best = p; }
+                }
+                center = best;
+            }
+            // V0.7.11 (11.3) : au Château, des lustres à la place des néons. V0.7.18 : dans les grandes salles (salles sur schéma,
+            // jusqu'à 30 m), un lustre toutes les trois cellules.
+            if (roomTerrain == TerrainKind.Chateau)
+            {
+                var lamps = new List<Vector3>();
+                if (room.cells.Count > 16)
+                    foreach (var c in room.cells)
+                        if ((c.x - room.rect.xMin) % 3 == 1 && (c.y - room.rect.yMin) % 3 == 1) lamps.Add(m.Center(c.x, c.y));
+                if (lamps.Count < 2) { lamps.Clear(); lamps.Add(center); }
+                foreach (var p in lamps)
+                    AddChandelier(props, new Vector3(p.x, room.ceil, p.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
+            }
             else AddLamp(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
             // Neutral Room : vide (rien ne doit gêner le passage ni masquer les glyphes).
             if (room.plain) continue;
