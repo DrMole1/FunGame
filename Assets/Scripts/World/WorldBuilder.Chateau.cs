@@ -20,7 +20,10 @@ using UnityEngine;
 //   et 20 m une fois sur deux) et 1 Donjon (une Tour 50 % plus haute et plus large), au centre de la zone de préférence ; entre eux,
 //   des salles de 8 à 12 m de haut (côtés de 5 à 20 m) et des corridors (15 % pour 85 % de salles ; 30 % des corridors ont un
 //   renfoncement en biseau) : cachots, salles d'armes, salles de banquet, chapelles. Chaque entrée a son arche ; éclairage par des
-//   lustres ; aucun objet décoratif ne flotte ; pas de torches.
+//   lustres ; aucun objet décoratif ne flotte.
+// V0.7.17 : 4 à 6 salles par Château suivent les schémas du GDD (cachot, salle d'armes, salle de banquet, chapelle ; orientés au
+//   hasard) ; nouveaux objets Meshy (tonneaux, gros tonneaux, caisses, cible humaine, enclume, puits, seau) ; torches au mur des
+//   cachots ; rez-de-chaussée des Tours meublé (enclume, puits une fois sur deux, tonneaux, caisses, seau).
 public static partial class WorldBuilder
 {
     public const float ChateauHeight = 60f;
@@ -33,7 +36,7 @@ public static partial class WorldBuilder
     const float SlitWidth = 0.5f, SlitHeight = 2.8f, SlitLow = 2.7f, SlitHigh = 7.9f;
 
     // Tour ronde posée dans la structure : centre, rayon, hauteur.
-    internal class RoundPlan { public Vector3 center; public float radius, height; public int kind; }   // kind : 0 Tour, 1 Donjon
+    internal class RoundPlan { public Vector3 center; public float radius, height; public int kind; public float doorAngle, stairInner; }   // kind : 0 Tour, 1 Donjon
 
     internal class ChateauPlan
     {
@@ -43,6 +46,7 @@ public static partial class WorldBuilder
         public readonly HashSet<Vector2Int> halls = new HashSet<Vector2Int>();      // halls couverts (cellules vides)
         public readonly List<RoundPlan> rounds = new List<RoundPlan>();
         public readonly Dictionary<Room, int> natures = new Dictionary<Room, int>();
+        public List<(Room room, int template)> templated = new List<(Room, int)>();   // V0.7.17 : salles sur schéma
         public readonly List<(Vector3 a, Vector3 b)> bridges = new List<(Vector3, Vector3)>();
     }
 
@@ -161,10 +165,18 @@ public static partial class WorldBuilder
             maxRooms = 400, minRoomSize = 1, maxRoomSize = 4, roomCoverage = 0.85f, pitChance = 0f, minPitDepth = 1.5f, maxPitDepth = 0f,
             maxLayerDepth = 0f, bridgeChance = 0f, maxHeight = 12f, floors = new[] { 0f }, ceilings = new[] { 8f, 9f, 10f, 11f, 12f },
             chaoticCeilings = new[] { 8f, 10f, 12f }, pitCeilings = new[] { 8f }, fixedRooms = true,
+            // V0.7.17 : 4 à 6 salles de 20 x 20 m (4 x 4 cellules) posées d'abord, pour les schémas du GDD.
+            bigRooms = MinTemplateRooms + rnd.Next(MaxTemplateRooms - MinTemplateRooms + 1), bigRoomSize = TemplateRoomCells,
         };
         Generate(m, rnd, style, (i, j) => m.InStructure(i, j));
         foreach (Room room in m.rooms)
             if (!room.plain) { room.plain = true; plan.natures[room] = rnd.Next(RoomNatures); }
+        plan.templated = PickTemplateRooms(plan.natures, style.bigRooms, rnd);
+        foreach (var t in plan.templated)
+        {
+            plan.natures[t.room] = TemplateNature[t.template];
+            LimitDoors(m, t.room, TemplateRoomDoors, rnd);
+        }
         return plan;
     }
 
@@ -567,6 +579,8 @@ public static partial class WorldBuilder
         // Escalier contre le mur, de la porte jusqu'au dernier étage.
         float rOut = R - 1.05f, rIn = rOut - TowerStairWidth;
         float end = KitSpiral(kit, c, rIn, rOut, 0f, top, doorAngle + 25f);
+        plan.doorAngle = doorAngle;
+        plan.stairInner = rIn;
         // Étages (à 10 et 20 m pour une Tour, 15 et 30 m pour le Donjon), une fois sur deux, au centre (l'escalier passe autour).
         float step = H / 3f, lowestCeiling = top;
         foreach (float level in new[] { step, step * 2f })
@@ -602,23 +616,27 @@ public static partial class WorldBuilder
 
     // V0.7.12 : cachots, salles d'armes, salles de banquet (avec les tableaux des anciens halls), chapelles. Où se pose chaque objet :
     // Wall : contre un mur (au sol) ; Near : au sol, près d'un mur ; Hung : accroché à un mur ; Floor : au sol, dans la salle.
+    // V0.7.17 : nouveaux objets (Meshy) : tonneaux (banquet et Tours, au sol près d'un mur), caisses (banquet, cachot, Tours ; trois
+    // modèles), cible humaine (salle d'armes), gros tonneaux couchés (banquet, contre les murs), enclume (une par rez-de-chaussée de
+    // Tour), puits (au centre d'une Tour sur deux) et seaux (toutes les salles, au sol, près d'un autre objet) ; les torches reviennent,
+    // au mur des cachots seulement.
     enum Spot { Wall, Near, Hung, Floor }
 
     static readonly string[][] Furniture =
     {
-        new[] { "Grille", "Menottes", "Latrines" },                  // cachot
-        new[] { "Epee", "Masse", "Cible", "Mannequin" },              // salle d'armes
-        new[] { "Table", "Chaise", "Chaise", "Chaise", "Cadre" },     // salle de banquet
-        new[] { "Banc", "Banc", "Croix", "Autel" },                   // chapelle
+        new[] { "Grille", "Menottes", "Latrines", "Caisse" },                                            // cachot
+        new[] { "Epee", "Masse", "Cible", "Mannequin", "CibleHumaine" },                                  // salle d'armes
+        new[] { "Table", "Chaise", "Chaise", "Chaise", "Cadre", "Tonneau", "Caisse", "TonneauGros" },     // salle de banquet
+        new[] { "Banc", "Banc", "Croix", "Autel" },                                                       // chapelle
     };
-    const int RoomNatures = 4;
+    const int RoomNatures = 4, Dungeon = 0;
 
     static Spot SpotOf(string model)
     {
         switch (model)
         {
-            case "Grille": case "Latrines": case "Epee": case "Masse": return Spot.Wall;
-            case "Menottes": case "Autel": return Spot.Near;
+            case "Grille": case "Latrines": case "Epee": case "Masse": case "TonneauGros": return Spot.Wall;
+            case "Menottes": case "Autel": case "Tonneau": return Spot.Near;
             case "Cadre": return Spot.Hung;
             default: return Spot.Floor;
         }
@@ -626,6 +644,7 @@ public static partial class WorldBuilder
 
     static float ModelHeight(string model)
     {
+        if (model.StartsWith("Caisse")) return 1f;
         switch (model)
         {
             case "Grille": return 2.8f;
@@ -635,31 +654,67 @@ public static partial class WorldBuilder
             case "Masse": return 0.9f;
             case "Cible": return 1.6f;
             case "Mannequin": return 1.8f;
+            case "CibleHumaine": return 1.8f;
             case "Table": return 3.2f;
             case "Chaise": return 1.2f;
             case "Cadre": return 1.4f;
             case "Banc": return 2.6f;
             case "Croix": return 2.6f;
             case "Autel": return 2f;
+            case "Tonneau": return 1.1f;
+            case "TonneauGros": return 1.7f;
+            case "Enclume": return 0.9f;
+            case "Puit": return 2.8f;
+            case "Seau": return 0.45f;
             default: return 1f;
         }
     }
 
-    // V0.7.14 (Note 01) : plus de torches dans le Château.
-    static void FurnishCastle(Maze m, Transform root, Dictionary<Room, int> natures, System.Random rnd)
+    // Caisses : un des trois modèles.
+    static string ModelVariant(string model, System.Random rnd) => model == "Caisse" ? "Caisse" + (1 + rnd.Next(3)) : model;
+
+    static void FurnishCastle(Maze m, Transform root, ChateauPlan plan)
     {
+        var rnd = plan.rnd;
+        var natures = plan.natures;
         var props = new GameObject("Mobilier_Z" + m.zone).transform;
         props.SetParent(root, false);
+        // V0.7.17 : 4 à 6 salles suivent un des schémas du GDD, chacune différente (un schéma déjà pris l'est dans une autre
+        // orientation) ; parmi les orientations permises, celle qui laisse le plus d'objets en place (portes dégagées).
+        var templatedRooms = new HashSet<Room>();
+        var usedTurns = new List<int>[RoomTemplates.Length];
+        foreach (var (room, template) in plan.templated)
+        {
+            templatedRooms.Add(room);
+            if (usedTurns[template] == null) usedTurns[template] = new List<int>();
+            var allowed = new List<int>();
+            for (int k = 0; k < 4; k++) if (!usedTurns[template].Contains(k)) allowed.Add(k);
+            if (allowed.Count == 0) allowed.AddRange(new[] { 0, 1, 2, 3 });
+            for (int k = allowed.Count - 1; k > 0; k--)
+            {
+                int sw = rnd.Next(k + 1);
+                (allowed[k], allowed[sw]) = (allowed[sw], allowed[k]);
+            }
+            int best = allowed[0], bestSkips = int.MaxValue;
+            foreach (int turns in allowed)
+            {
+                int skips = FurnishFromTemplate(m, room, template, turns, props, rnd, true);
+                if (skips < bestSkips) { best = turns; bestSkips = skips; }
+            }
+            usedTurns[template].Add(best);
+            FurnishFromTemplate(m, room, template, best, props, rnd, false);
+        }
         foreach (var kv in natures)
         {
             Room room = kv.Key;
-            if (room.cells.Count == 0) continue;
+            if (room.cells.Count == 0 || templatedRooms.Contains(room)) continue;
             string[] set = Furniture[kv.Value];
             var placed = new List<Vector3>();
+            var floorProps = new List<GameObject>();
             int count = 2 + room.cells.Count;
             for (int k = 0; k < count; k++)
             {
-                string model = set[rnd.Next(set.Length)];
+                string model = ModelVariant(set[rnd.Next(set.Length)], rnd);
                 Spot spot = SpotOf(model);
                 var cell = room.cells[rnd.Next(room.cells.Count)];
                 if (m.keepClear.Contains(cell) || m.archCells.Contains(cell)) continue;
@@ -671,15 +726,440 @@ public static partial class WorldBuilder
                 if (!ok) { Object.Destroy(go); continue; }
                 // Portrait d'un chien (skin) dans les tableaux.
                 if (model == "Cadre") AddPortrait(go.transform, rnd);
-                if (spot != Spot.Hung)
+                if (spot != Spot.Hung) { AddPropCollider(go); floorProps.Add(go); }
+            }
+            // Un seau au sol, près d'un autre objet.
+            if (floorProps.Count > 0) AddBucketNear(m, room, floorProps[rnd.Next(floorProps.Count)], props, rnd);
+            // Cachots : une ou deux torches au mur, à flamme blanche.
+            if (kv.Value == Dungeon) AddRoomTorches(m, room, props, placed, 1 + rnd.Next(2), rnd);
+        }
+        foreach (var round in plan.rounds) FurnishTower(round, props, rnd);
+    }
+
+    static void AddPropCollider(GameObject go)
+    {
+        Bounds b = GameArt.LocalBounds(go.transform);
+        var col = go.AddComponent<BoxCollider>();
+        col.center = b.center;
+        col.size = b.size;
+    }
+
+    // Torches au mur d'une salle (cellule sans décor réservé, mur plein), à 2,4 m du sol.
+    static void AddRoomTorches(Maze m, Room room, Transform props, List<Vector3> placed, int torches, System.Random rnd)
+    {
+        for (int attempt = 0; attempt < 16 && torches > 0; attempt++)
+        {
+            var cell = room.cells[rnd.Next(room.cells.Count)];
+            int d = rnd.Next(4);
+            if (m.keepClear.Contains(cell) || !HasWall(m, cell.x, cell.y, d) || m.HasWallHole(cell.x, cell.y, d)) continue;
+            Vector3 n = new Vector3(DI[d], 0f, DJ[d]), side = new Vector3(DJ[d], 0f, DI[d]);
+            Vector3 p = m.Center(cell.x, cell.y) + n * (Cell * 0.5f - Wall * 0.5f) + side * Rand(rnd, -1.2f, 1.2f) + Vector3.up * (room.floor + 2.4f);
+            if (placed.Exists(q => Flat(q - p) < 1.4f)) continue;
+            placed.Add(p);
+            AddTorch(props, p, -n, true, rnd);
+            torches--;
+        }
+    }
+
+    // Seau posé au sol à côté d'un objet (dans la même cellule de la salle, sans entrer dans les murs).
+    static void AddBucketNear(Maze m, Room room, GameObject near, Transform props, System.Random rnd)
+    {
+        Bounds nb = WorldBounds(near.transform);
+        var go = GameArt.SpawnModelFloor("Seau", props, ModelHeight("Seau"));
+        if (go == null) return;
+        Vector3 dir = Quaternion.Euler(0f, Rand(rnd, 0f, 360f), 0f) * Vector3.forward;
+        float reach = Mathf.Abs(dir.x) * nb.extents.x + Mathf.Abs(dir.z) * nb.extents.z + 0.35f;
+        go.transform.SetPositionAndRotation(new Vector3(nb.center.x, nb.min.y, nb.center.z) + dir * reach, Quaternion.Euler(0f, Rand(rnd, 0f, 360f), 0f));
+        if (room != null)
+        {
+            Vector3 p = go.transform.position;
+            var cell = new Vector2Int(Mathf.FloorToInt((p.x - m.origin.x) / Cell), Mathf.FloorToInt((p.z - m.origin.z) / Cell));
+            if (m.RoomAt(cell.x, cell.y) != room || !FitInCell(m, room, go, cell)) { Object.Destroy(go); return; }
+        }
+        AddPropCollider(go);
+    }
+
+    // ---------- Salles sur schéma (V0.7.17) ----------
+
+    // Schémas du GDD (11.3), 10 x 10 cases, la ligne 0 au "nord" du schéma. Symboles : 1 Tableau, 2 Épée ou masse d'armes,
+    // 3 Tonneau, 4 Caisse, A Autel, B Banc d'église, C Chaise, CH Cible Humaine, Ci Cible d'archerie, Cr Croix, En Enclume,
+    // G Grille, L Latrine, Ma Mannequin, Me Menotte, P Puit, S Seau, Ta Table, To Torche, TG Gros tonneau ; "." : case vide.
+    static readonly string[][] RoomTemplates =
+    {
+        new[]   // Template 1 : cachot (une cellule fermée par une rangée de grilles, ouverte d'un côté)
+        {
+            "L . Me . . . G . . .",
+            "Me . . . . . G . . To",
+            ". . . . . . . . . .",
+            "G G G G G G G . . .",
+            ". . . . . . . . . .",
+            ". . . . . . . . . .",
+            ". . . . . . . . . .",
+            ". . . . Ta . . . . .",
+            ". . . . C . . . . .",
+            ". . To . . . . To . .",
+        },
+        new[]   // Template 2 : salle d'armes
+        {
+            ". . 2 2 2 . . . . .",
+            ". . . . . . . . . .",
+            ". . . . . . . . . .",
+            "Ma . . Ma . . Ma . . Ma",
+            ". . . . . . . . . .",
+            ". . . . . . . . . .",
+            "Ma . . Ma . . Ma . . Ma",
+            ". . . . . . . . . .",
+            ". . . . . . . . . 3",
+            ". . Ci . Ci . Ci . 3 3",
+        },
+        new[]   // Template 3 : salle de banquet (deux longues tables)
+        {
+            ". . TG . . . . . . .",
+            ". . . . . . . . . .",
+            ". C Ta C . . . . . 1",
+            ". C Ta C . . . . . .",
+            ". C Ta C . . . . . .",
+            ". . . . . . C Ta C .",
+            "1 . . . . . C Ta C .",
+            ". . . . . . C Ta C 1",
+            ". . . . . . . . . .",
+            ". . 1 . . . . TG . .",
+        },
+        new[]   // Template 4 : chapelle (l'autel au nord, les bancs tournés vers lui)
+        {
+            ". . . . . . . . . .",
+            ". . . . A Cr . . . .",
+            ". . . . . . . . . .",
+            ". . . . . . . . . .",
+            "Cr . . . . . . . . Cr",
+            ". . B B . . B B . Cr",
+            "Cr . . . . . . . . .",
+            "Cr . B B . . B B . .",
+            ". . . . . . . . . Cr",
+            ". . . . . . . . . .",
+        },
+    };
+    static readonly int[] TemplateNature = { 0, 1, 2, 3 };   // cachot, salle d'armes, salle de banquet, chapelle
+    const int TemplateSize = 10, MinTemplateRooms = 4, MaxTemplateRooms = 6, MinTemplateCells = 3, TemplateRoomCells = 4, TemplateRoomDoors = 2;
+
+    // Les plus grandes salles (au moins 3 x 3 cellules, les 4 x 4 posées exprès d'abord), au hasard entre égales ; 'count' d'entre
+    // elles prennent un schéma : les 4 schémas dans un ordre tiré au hasard, puis de nouveau un schéma déjà pris (tourné autrement).
+    static List<(Room room, int template)> PickTemplateRooms(Dictionary<Room, int> natures, int count, System.Random rnd)
+    {
+        var result = new List<(Room, int)>();
+        var candidates = new List<Room>();
+        foreach (var room in natures.Keys)
+            if (room.rect.width >= MinTemplateCells && room.rect.height >= MinTemplateCells && room.cells.Count == room.rect.width * room.rect.height)
+                candidates.Add(room);
+        for (int k = candidates.Count - 1; k > 0; k--)
+        {
+            int s = rnd.Next(k + 1);
+            (candidates[k], candidates[s]) = (candidates[s], candidates[k]);
+        }
+        // Tri stable : les plus grandes d'abord.
+        var order = new List<int>();
+        for (int k = 0; k < candidates.Count; k++) order.Add(k);
+        order.Sort((a, b) =>
+        {
+            int c = (candidates[b].rect.width * candidates[b].rect.height).CompareTo(candidates[a].rect.width * candidates[a].rect.height);
+            return c != 0 ? c : a.CompareTo(b);
+        });
+        count = Mathf.Min(count, candidates.Count);
+        var templates = new List<int> { 0, 1, 2, 3 };
+        for (int k = templates.Count - 1; k > 0; k--)
+        {
+            int s = rnd.Next(k + 1);
+            (templates[k], templates[s]) = (templates[s], templates[k]);
+        }
+        for (int k = 0; k < count; k++) result.Add((candidates[order[k]], templates[k % templates.Count]));
+        return result;
+    }
+
+    // Salle sur schéma : ses ouvertures vers les cellules voisines (hors de la salle) sont refermées, sauf 'keep' d'entre elles ;
+    // une ouverture reste aussi si la refermer couperait une partie de la structure du reste.
+    static void LimitDoors(Maze m, Room room, int keep, System.Random rnd)
+    {
+        var openings = new List<(int i, int j, int d)>();
+        foreach (var c in room.cells)
+            for (int d = 0; d < 4; d++)
+            {
+                int ni = c.x + DI[d], nj = c.y + DJ[d];
+                if (!m.InGrid(ni, nj) || m.RoomAt(ni, nj) == room || HasWall(m, c.x, c.y, d)) continue;
+                openings.Add((c.x, c.y, d));
+            }
+        for (int k = openings.Count - 1; k > 0; k--)
+        {
+            int s = rnd.Next(k + 1);
+            (openings[k], openings[s]) = (openings[s], openings[k]);
+        }
+        int open = openings.Count, parts = StructureParts(m);
+        foreach (var (i, j, d) in openings)
+        {
+            if (open <= keep) break;
+            SetWall(m, i, j, d, true);
+            if (StructureParts(m) > parts) SetWall(m, i, j, d, false);
+            else open--;
+        }
+    }
+
+    // Nombre de parties de la structure (cellules ni vides ni réservées) reliées sans traverser de mur.
+    static int StructureParts(Maze m)
+    {
+        int n = m.N, parts = 0;
+        var seen = new bool[n, n];
+        var queue = new Queue<Vector2Int>();
+        bool Inside(int i, int j) => m.InGrid(i, j) && m.InStructure(i, j) && !m.Void(i, j) && !m.Reserved(i, j) && !m.Fixed(i, j);
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
+            {
+                if (seen[i, j] || !Inside(i, j)) continue;
+                parts++;
+                seen[i, j] = true;
+                queue.Enqueue(new Vector2Int(i, j));
+                while (queue.Count > 0)
                 {
-                    Bounds b = GameArt.LocalBounds(go.transform);
-                    var col = go.AddComponent<BoxCollider>();
-                    col.center = b.center;
-                    col.size = b.size;
+                    var q = queue.Dequeue();
+                    for (int d = 0; d < 4; d++)
+                    {
+                        int ni = q.x + DI[d], nj = q.y + DJ[d];
+                        if (!Inside(ni, nj) || seen[ni, nj] || HasWall(m, q.x, q.y, d)) continue;
+                        seen[ni, nj] = true;
+                        queue.Enqueue(new Vector2Int(ni, nj));
+                    }
+                }
+            }
+        return parts;
+    }
+
+    // Une salle meublée selon un schéma, tourné de 'turns' quarts de tour ; les cases s'étirent sur toute la salle (2 m pour une salle
+    // de 20 m). Les objets du bord du schéma sont plaqués contre le mur ; ceux qui tomberaient devant une porte ne sont pas posés.
+    // Retourne le nombre d'objets du schéma qui n'ont pas pu être posés ; 'dryRun' : compte seulement, sans rien poser.
+    static int FurnishFromTemplate(Maze m, Room room, int template, int turns, Transform props, System.Random rnd, bool dryRun)
+    {
+        int skipped = 0;
+        string[] rows = RoomTemplates[template];
+        var grid = new string[TemplateSize, TemplateSize];   // [colonne, ligne]
+        for (int r = 0; r < TemplateSize; r++)
+        {
+            string[] tokens = rows[r].Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
+            for (int c = 0; c < TemplateSize; c++) grid[c, r] = c < tokens.Length && tokens[c] != "." ? tokens[c] : null;
+        }
+        string At(int c, int r) => c >= 0 && r >= 0 && c < TemplateSize && r < TemplateSize ? grid[c, r] : null;
+
+        Vector3 lo = m.Center(room.rect.xMin, room.rect.yMin), hi = m.Center(room.rect.xMax - 1, room.rect.yMax - 1);
+        float x0 = lo.x - Cell * 0.5f + Wall * 0.5f, x1 = hi.x + Cell * 0.5f - Wall * 0.5f;
+        float z0 = lo.z - Cell * 0.5f + Wall * 0.5f, z1 = hi.z + Cell * 0.5f - Wall * 0.5f;
+        float sx = (x1 - x0) / TemplateSize, sz = (z1 - z0) / TemplateSize;
+        float floorY = room.floor;
+
+        // Case et direction du schéma -> salle (un quart de tour : (c, r) -> (9 - r, c) ; la ligne 0 est au nord, +Z).
+        Vector2Int Turn(int c, int r) { for (int k = 0; k < turns; k++) { int t = c; c = TemplateSize - 1 - r; r = t; } return new Vector2Int(c, r); }
+        Vector3 TurnDir(int dc, int dr) { for (int k = 0; k < turns; k++) { int t = dc; dc = -dr; dr = t; } return new Vector3(dc, 0f, -dr); }
+        Vector3 SquareCenter(int c, int r) { var q = Turn(c, r); return new Vector3(x0 + (q.x + 0.5f) * sx, floorY, z1 - (q.y + 0.5f) * sz); }
+
+        for (int r = 0; r < TemplateSize; r++)
+            for (int c = 0; c < TemplateSize; c++)
+            {
+                string sym = grid[c, r];
+                if (sym == null) continue;
+                // Bord le plus proche (dans le schéma) : l'objet lui tourne le dos ; sur la case du bord, il est plaqué contre ce mur.
+                int dTop = r, dBottom = TemplateSize - 1 - r, dLeft = c, dRight = TemplateSize - 1 - c;
+                int edge = Mathf.Min(Mathf.Min(dTop, dBottom), Mathf.Min(dLeft, dRight));
+                int fc, fr;
+                if (edge == dTop) { fc = 0; fr = 1; }
+                else if (edge == dBottom) { fc = 0; fr = -1; }
+                else if (edge == dLeft) { fc = 1; fr = 0; }
+                else { fc = -1; fr = 0; }
+                bool against = edge == 0;
+                Vector3 pos = SquareCenter(c, r);
+                Vector3 facing = TurnDir(fc, fr);
+                // Mur derrière l'objet (à l'opposé de son regard) : coordonnée de sa face intérieure.
+                Vector3 back = -facing;
+                bool backX = Mathf.Abs(back.x) > 0.5f;
+                float wallCoord = backX ? (back.x > 0f ? x1 : x0) : (back.z > 0f ? z1 : z0);
+
+                // Pas devant une ouverture de la salle (porte, arche) ; contre un mur plein seulement.
+                var cell = new Vector2Int(Mathf.FloorToInt((pos.x - m.origin.x) / Cell), Mathf.FloorToInt((pos.z - m.origin.z) / Cell));
+                if (m.RoomAt(cell.x, cell.y) != room || m.keepClear.Contains(cell) || NearOpening(m, room, cell, pos)) { skipped++; continue; }
+                if (against)
+                {
+                    int d = backX ? (back.x > 0f ? 0 : 1) : (back.z > 0f ? 2 : 3);
+                    if (!HasWall(m, cell.x, cell.y, d) || m.HasWallHole(cell.x, cell.y, d)) { skipped++; continue; }
+                }
+                if (dryRun) continue;
+
+                if (sym == "To")
+                {
+                    Vector3 wp = backX ? new Vector3(wallCoord, pos.y, pos.z) : new Vector3(pos.x, pos.y, wallCoord);
+                    AddTorch(props, wp + Vector3.up * 2.4f, facing, true, rnd);
+                    continue;
+                }
+                string model = TemplateModel(sym, rnd);
+                if (model == null) continue;
+                float size = ModelHeight(model);
+                if (model == "Table" || model == "Banc") size = Mathf.Min(size, Mathf.Min(sx, sz));
+                GameObject go;
+                if (model == "Grille")
+                {
+                    // Rangée de grilles : chaque grille couvre sa case le long de la rangée (elles se touchent).
+                    bool row = At(c - 1, r) == "G" || At(c + 1, r) == "G";
+                    bool col = At(c, r - 1) == "G" || At(c, r + 1) == "G";
+                    if (row || col)
+                    {
+                        facing = row ? TurnDir(0, 1) : TurnDir(1, 0);
+                        against = false;
+                    }
+                    go = GameArt.SpawnModel("Grille", props, size);
+                    if (go == null) continue;
+                    Vector3 run = new Vector3(Mathf.Abs(facing.z), 0f, Mathf.Abs(facing.x));
+                    float span = run.x > 0.5f ? sx : sz;
+                    Bounds gb = GameArt.LocalBounds(go.transform);
+                    if (gb.size.x >= gb.size.z) go.transform.localScale = new Vector3(span / Mathf.Max(0.01f, gb.size.x), 1f, 1f);
+                    else { go.transform.localScale = new Vector3(1f, 1f, span / Mathf.Max(0.01f, gb.size.z)); facing = run; }
+                }
+                else
+                {
+                    go = GameArt.SpawnModelFloor(model, props, size);
+                    if (go == null) continue;
+                    if (sym == "C")
+                    {
+                        // Chaise tournée vers la table voisine.
+                        for (int d = 0; d < 4; d++)
+                            if (At(c + DI[d], r - DJ[d]) == "Ta") { facing = TurnDir(DI[d], -DJ[d]); break; }
+                    }
+                    else if (sym == "Ta")
+                    {
+                        // Tables bout à bout le long de leur rangée.
+                        bool vertical = At(c, r - 1) == "Ta" || At(c, r + 1) == "Ta";
+                        Vector3 longAxis = vertical ? TurnDir(0, 1) : TurnDir(1, 0);
+                        Bounds tb = GameArt.LocalBounds(go.transform);
+                        facing = tb.size.z >= tb.size.x ? longAxis : new Vector3(longAxis.z, 0f, -longAxis.x);
+                    }
+                    else if (sym == "B") facing = TurnDir(0, -1);   // bancs tournés vers l'autel (nord du schéma)
+                }
+                go.transform.SetPositionAndRotation(pos + (model == "Cadre" ? Vector3.up * 1.8f : Vector3.zero), Quaternion.LookRotation(facing));
+                if (against)
+                {
+                    // Le dos de l'objet contre le mur (un peu d'écart pour les objets "près d'un mur").
+                    float gap = model == "Menottes" || model == "Autel" || model == "Tonneau" ? 0.25f : 0.03f;
+                    Bounds wb = WorldBounds(go.transform);
+                    float reach = Vector3.Dot(wb.center, back) + Mathf.Abs(back.x) * wb.extents.x + Mathf.Abs(back.z) * wb.extents.z;
+                    float target = backX ? wallCoord * back.x : wallCoord * back.z;
+                    go.transform.position += back * (target - gap - reach);
+                }
+                if (model == "Cadre") AddPortrait(go.transform, rnd);
+                else AddPropCollider(go);
+            }
+        return skipped;
+    }
+
+    // Modèle d'un symbole de schéma (null : symbole sans modèle).
+    static string TemplateModel(string sym, System.Random rnd)
+    {
+        switch (sym)
+        {
+            case "1": return "Cadre";
+            case "2": return rnd.NextDouble() < 0.5 ? "Epee" : "Masse";
+            case "3": return "Tonneau";
+            case "4": return ModelVariant("Caisse", rnd);
+            case "A": return "Autel";
+            case "B": return "Banc";
+            case "C": return "Chaise";
+            case "CH": return "CibleHumaine";
+            case "Ci": return "Cible";
+            case "Cr": return "Croix";
+            case "En": return "Enclume";
+            case "G": return "Grille";
+            case "L": return "Latrines";
+            case "Ma": return "Mannequin";
+            case "Me": return "Menottes";
+            case "P": return "Puit";
+            case "S": return "Seau";
+            case "Ta": return "Table";
+            case "TG": return "TonneauGros";
+            default: return null;
+        }
+    }
+
+    // Le point est à moins de 2,2 m d'une ouverture de la salle (côté de sa cellule sans mur, ou mur percé, donnant hors de la salle).
+    static bool NearOpening(Maze m, Room room, Vector2Int cell, Vector3 pos)
+    {
+        Vector3 c = m.Center(cell.x, cell.y);
+        for (int d = 0; d < 4; d++)
+        {
+            int ni = cell.x + DI[d], nj = cell.y + DJ[d];
+            if (m.InGrid(ni, nj) && m.RoomAt(ni, nj) == room) continue;
+            if (HasWall(m, cell.x, cell.y, d) && !m.HasWallHole(cell.x, cell.y, d)) continue;
+            float toSide = Cell * 0.5f - (DI[d] != 0 ? (pos.x - c.x) * DI[d] : (pos.z - c.z) * DJ[d]);
+            if (toSide < 2.2f) return true;
+        }
+        return false;
+    }
+
+    // ---------- Rez-de-chaussée des Tours (V0.7.17) ----------
+
+    // Une enclume, un puits au centre une fois sur deux, quelques tonneaux et caisses au bord de la pièce (contre l'escalier) et un
+    // seau ; rien devant la porte ni au pied de l'escalier.
+    static void FurnishTower(RoundPlan tower, Transform props, System.Random rnd)
+    {
+        Vector3 c = tower.center;
+        float inner = tower.stairInner - 0.2f;
+        if (inner < 2.5f) return;
+        var placed = new List<(Vector3 p, float r)>();
+        bool Free(Vector3 p, float r)
+        {
+            Vector3 v = p - c;
+            float angle = Mathf.Atan2(v.x, v.z) * Mathf.Rad2Deg;
+            float a = Mathf.DeltaAngle(tower.doorAngle, angle);
+            if (a > -40f && a < 70f) return false;
+            return !placed.Exists(q => Flat(q.p - p) < q.r + r + 0.3f);
+        }
+        GameObject Put(string model, Vector3 p, float yaw)
+        {
+            var go = GameArt.SpawnModelFloor(model, props, ModelHeight(model));
+            if (go == null) return null;
+            go.transform.SetPositionAndRotation(p, Quaternion.Euler(0f, yaw, 0f));
+            Bounds b = WorldBounds(go.transform);
+            placed.Add((new Vector3(b.center.x, c.y, b.center.z), Mathf.Max(b.extents.x, b.extents.z)));
+            AddPropCollider(go);
+            return go;
+        }
+        if (rnd.NextDouble() < 0.5)
+        {
+            var well = Put("Puit", c, Rand(rnd, 0f, 360f));
+            if (well != null)
+            {
+                // Le puits ne déborde pas sur le passage au pied de l'escalier.
+                Bounds b = WorldBounds(well.transform);
+                float r = Mathf.Max(b.extents.x, b.extents.z), max = inner * 0.45f;
+                if (r > max)
+                {
+                    well.transform.localScale *= max / r;
+                    placed[placed.Count - 1] = (placed[placed.Count - 1].p, max);
                 }
             }
         }
+        var objects = new List<string> { "Enclume" };
+        int barrels = 1 + rnd.Next(3), crates = 1 + rnd.Next(2);
+        for (int k = 0; k < barrels; k++) objects.Add("Tonneau");
+        for (int k = 0; k < crates; k++) objects.Add(ModelVariant("Caisse", rnd));
+        GameObject last = null;
+        foreach (string model in objects)
+        {
+            float size = ModelHeight(model) * 0.6f;
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                float a = Rand(rnd, 0f, 360f);
+                // L'enclume dans la pièce, le reste au bord.
+                float rad = model == "Enclume" ? Rand(rnd, 2f, Mathf.Max(2.1f, inner - 1.4f)) : inner - size;
+                Vector3 p = c + Quaternion.Euler(0f, a, 0f) * Vector3.forward * rad;
+                if (!Free(p, size)) continue;
+                var go = Put(model, p, model == "Enclume" ? Rand(rnd, 0f, 360f) : a + 180f);
+                if (go != null) last = go;
+                break;
+            }
+        }
+        if (last != null) AddBucketNear(null, null, last, props, rnd);
     }
 
     // V0.7.13 (Note 24) : l'objet posé au sol reste dans sa cellule, sans entrer dans les murs (ni boucher une porte) : il est
@@ -774,6 +1254,7 @@ public static partial class WorldBuilder
             Vector3 p = m.Center(c.x, c.y) + new Vector3(Rand(rnd, -1.5f, 1.5f), 0f, Rand(rnd, -1.5f, 1.5f));
             if (!Physics.Raycast(p + Vector3.up * 2.5f, Vector3.down, out RaycastHit hit, 8f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) continue;
             if (hit.normal.y < 0.95f || !hit.transform.IsChildOf(refs.structure)) continue;
+            if (hit.point.y > m.origin.y + 0.3f) continue;   // V0.7.17 : pas sur le mobilier (puits, tonneaux...)
             refs.itemSpots.Add(hit.point);
         }
     }

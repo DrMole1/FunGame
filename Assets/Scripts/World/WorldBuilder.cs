@@ -736,6 +736,7 @@ public static partial class WorldBuilder
         public float[] chaoticCeilings; // salles chaotiques (plateformes)
         public float[] pitCeilings;     // hauteur au-dessus du pourtour des salles à profondeurs
         public bool fixedRooms;         // V0.7.11 : salles de plain-pied seulement (Château, Blockhaus), plafonds pris dans 'ceilings'
+        public int bigRooms, bigRoomSize; // V0.7.17 : grandes salles posées avant les autres (côté en cellules ; une de moins sur un ou deux côtés si la place manque) (Château : salles sur schéma)
     }
 
     // V0.6 : chaque salle a sa propre profondeur et sa propre hauteur, tirées au hasard ; la profondeur maximale vaut
@@ -931,10 +932,22 @@ public static partial class WorldBuilder
                 if (Usable(i, j)) free++;
         int target = coverage ? Mathf.RoundToInt(free * style.roomCoverage) : int.MaxValue, covered = 0;
         int attempts = coverage ? 12000 : 700;
+        int bigPlaced = 0, bigTries = 0;
         for (int attempt = 0; attempt < attempts && m.rooms.Count < style.maxRooms && covered < target; attempt++)
         {
             int w, h;
-            if (coverage)
+            // V0.7.17 : d'abord les grandes salles demandées (essais comptés à part).
+            bool big = bigPlaced < style.bigRooms && bigTries < 1500;
+            if (big)
+            {
+                bigTries++;
+                attempt--;
+                // Taille demandée d'abord, puis une cellule de moins sur un côté, puis sur les deux (la place manque vite).
+                int stage = bigTries / 500;
+                w = style.bigRoomSize - (stage >= 1 ? 1 : 0);
+                h = style.bigRoomSize - (stage >= 2 ? 1 : 0);
+            }
+            else if (coverage)
             {
                 // Tailles variées ; une fois la place devenue rare, de petites salles bouchent les trous.
                 int min = attempt < attempts / 2 ? style.minRoomSize : 1;
@@ -998,6 +1011,7 @@ public static partial class WorldBuilder
             }
             int index = m.rooms.Count;
             m.rooms.Add(room);
+            if (big) bigPlaced++;
             covered += w * h;
             for (int i = i0; i < i0 + w; i++)
                 for (int j = j0; j < j0 + h; j++)
@@ -1376,7 +1390,7 @@ public static partial class WorldBuilder
         statueLog = null;
         if (castle != null)
         {
-            FurnishCastle(m, root, castle.natures, castle.rnd);
+            FurnishCastle(m, root, castle);
             CourtyardSpots(m, refs, castle.halls, castle.rnd);
         }
         MarkIntangibleSpheres(root);

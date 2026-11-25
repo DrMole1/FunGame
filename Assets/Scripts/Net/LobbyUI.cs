@@ -10,7 +10,6 @@ public class LobbyUI : MonoBehaviour
     // Hauteur du fond du menu (le panneau fait 700 pour un écran de référence de 720).
     const float LobbyBackdropHeight = 900f;
     static readonly Color HostRed = new Color(0.93f, 0.27f, 0.33f);
-    static readonly Color QuitRed = new Color(0.55f, 0.1f, 0.14f);
     static readonly Color JoinBlue = new Color(0.12f, 0.2f, 0.45f);
     static readonly Color FieldGrey = new Color(0.27f, 0.27f, 0.29f);
     static readonly Color NeutralGrey = new Color(0.33f, 0.33f, 0.35f);
@@ -308,7 +307,7 @@ public class LobbyUI : MonoBehaviour
     {
         lobbyPanel = UiKit.Panel(root, "Lobby", new Vector2(460, 780));
         // À gauche : le personnage choisi reste visible au centre de l'écran.
-        // Calé en bas : sous "Quitter", le même écart (8) qu'entre "Quitter" et le champ du code.
+        // Calé en bas : sous l'espace de l'ancien bouton "Quitter", le même écart (8) qu'entre lui et le champ du code.
         // Toute la hauteur de l'écran : les lignes s'étirent pour la remplir, le titre reste visible en haut.
         var lobbyRect = UiKit.Place(lobbyPanel, Vector2.zero, new Vector2(40, 0));
         lobbyRect.anchorMax = new Vector2(0f, 1f);
@@ -375,13 +374,9 @@ public class LobbyUI : MonoBehaviour
         joinGo.GetComponent<LayoutElement>().preferredWidth = 150;
         UiKit.Paint(joinGo, JoinBlue, 7);
         joinButton = joinGo.GetComponent<Button>();
-        // Sous le champ du code. V0.7.6 (14.1) : dans le build Windows, il ferme le jeu (sans effet dans le navigateur).
-        UiKit.Paint(UiKit.Button(p, "Quitter", QuitRed, 48, () =>
-        {
-#if UNITY_STANDALONE && !UNITY_EDITOR
-            Application.Quit();
-#endif
-        }), QuitRed, 9);
+        // Sous le champ du code. V0.7.17 (16.1) : plus de bouton "Quitter" ; un espace de même hauteur à sa place (les autres boutons
+        // gardent leur position et leur taille).
+        UiKit.Spacer(p, 48);
         layout.padding = new RectOffset(36, 36, 30, 8);
     }
 

@@ -5,7 +5,7 @@ using UnityEngine;
 // découpée en 4 x 4 parcelles ; la Neutral Room est au nord, l'entrée au sud).
 //   - Zone 1 : aucune structure ;
 //   - Zone 2 : toujours une structure (Château 50 %, Blockhaus 50 %) ;
-//   - à partir de la Zone 3 : 60 % de chance d'avoir une structure (Château 50 %, Blockhaus 50 %).
+//   - à partir de la Zone 3 : 70 % de chance (V0.7.17) d'avoir une structure (Château 50 %, Blockhaus 50 %).
 // Le tirage ne dépend que de la graine et du numéro de la zone : tous les joueurs ont le même.
 public enum TerrainKind : byte { Echiquier = 0, Chateau = 1, Blockhaus = 2 }
 

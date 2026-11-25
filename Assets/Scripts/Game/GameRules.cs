@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.16";
+    public const string Version = "V0.7.17";
 
     // V0.7.11 (9.1) : les Hubs sont numérotés en chiffres romains (Hub I, Hub II...).
     public static string Roman(int n)
@@ -310,9 +310,9 @@ public static class GameRules
     public const float BridgeFallCleanup = 2f;
     public const float ArchChance = 0.25f;
     // Chapitre 11 (V0.7.14) : structures (Château ou Blockhaus) posées dans les zones d'Échiquier : toujours une en Zone 2, puis
-    // 60 % de chance par zone à partir de la Zone 3 ; Château une fois sur deux. 3 entrées par rempart, 3 ponts par ravin, espacés
+    // 70 % de chance (V0.7.17 ; avant : 60 %) par zone à partir de la Zone 3 ; Château une fois sur deux. 3 entrées par rempart, 3 ponts par ravin, espacés
     // d'au moins 30 m.
-    public const float StructureChance = 0.6f, ChateauChance = 0.5f;
+    public const float StructureChance = 0.7f, ChateauChance = 0.5f;
     public const int StructureCrossings = 3;
     public const float CrossingSpacing = 30f;
     // Chapitre 10.3 (V0.6.8) : renfoncements en biseau des couloirs, rambardes des très hautes salles, fenêtres brutalistes, statue.
