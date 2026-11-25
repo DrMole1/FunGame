@@ -24,6 +24,8 @@ public class GameAudio : MonoBehaviour
     // joue plus).
     AudioSource[] environmentMusic;
     public static TerrainKind Environment = TerrainKind.Echiquier;
+    // V0.7.16 (Note 01) : au-dessus d'un ravin (Blockhaus, douve du Château), la musique d'ambiance s'efface.
+    public static bool InRavine;
     const float EnvironmentMusicVolume = 0.35f;
     const bool UseMazeDrone = false;
     // V0.7.11 (7.15) : Lunettes PEACE dans l'inventaire : hors du Hub, plus de musique angoissante, mais une musique douce et
@@ -609,7 +611,7 @@ public class GameAudio : MonoBehaviour
         for (int e = 0; e < environmentMusic.Length; e++)
         {
             var src = environmentMusic[e];
-            bool active = !hubSide && !PeaceMode && (int)Environment == e;
+            bool active = !hubSide && !PeaceMode && !InRavine && (int)Environment == e;
             src.volume = Mathf.Lerp(src.volume, active ? EnvironmentMusicVolume * on * tv * mazeReturn * music : 0f, km);
             if (CurfewLevel > 0f || Loading) src.volume = 0f;
         }

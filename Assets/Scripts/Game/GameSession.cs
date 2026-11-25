@@ -842,6 +842,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         WorldStreamer.SetPower(Mathf.MoveTowards(FlickerLight.Power, curfew ? 0f : 1f, Time.deltaTime / (curfew ? GameRules.CurfewPowerOff : GameRules.CurfewPowerOn)));
         GameAudio.CurfewLevel = curfew ? 1f : 0f;
         if (player != null) GameAudio.Environment = EnvironmentAt(player.transform.position);
+        // V0.7.16 (Note 01) : plus de musique dans un ravin (Blockhaus et douve du Château).
+        GameAudio.InRavine = player != null && IsOutdoors(player.transform.position);
     }
 
     // Sons liés à l'état de la partie, détectés chez tous les clients (hôte compris) par changement d'état :

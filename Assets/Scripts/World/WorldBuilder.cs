@@ -639,6 +639,14 @@ public static partial class WorldBuilder
         public float structureCeilingSlab = -1f;   // Château : 0,3 m (le dessus des toits, où l'on marche)
         public float CeilingSlab(int i, int j) => structureCeilingSlab > 0f && InStructure(i, j) ? structureCeilingSlab : ceilingSlab;
         public bool brickWalls, greyCeilings, structureNoCeilingColliders;
+        // V0.7.16 : cellules de la douve du Château : elles font partie de la structure, mais les murs qui la bordent côté Échiquier
+        // (et au bord de la zone) restent en damier, sans briques.
+        public bool[,] moatCell;
+        public bool Moat(int i, int j) => moatCell != null && InGrid(i, j) && moatCell[i, j];
+        bool BrickCell(int i, int j) => brickWalls && InStructure(i, j) && !Moat(i, j);
+        // Poteau à l'angle (i, j) de la grille : en briques s'il touche une cellule du Château (hors douve).
+        public bool BrickPost(int i, int j) => BrickCell(i - 1, j - 1) || BrickCell(i, j - 1) || BrickCell(i - 1, j) || BrickCell(i, j);
+        public bool BrickWallOf(int i, int j) => BrickCell(i, j);
         public bool InStructure(int i, int j) => structure != null && InGrid(i, j) && structure[i, j];
         public TerrainKind TerrainAt(int i, int j) => InStructure(i, j) ? structureKind : TerrainKind.Echiquier;
         public float CorridorCeil(int i, int j) => InStructure(i, j) ? structureCorridorCeil : corridorCeil;
@@ -1411,7 +1419,15 @@ public static partial class WorldBuilder
         MeshBuilder WallsOf(int i, int j)
         {
             int ci = Mathf.Clamp(i, 0, n - 1), cj = Mathf.Clamp(j, 0, n - 1);
-            var data = m.brickWalls && m.InStructure(ci, cj) ? brickData : wallData;
+            var data = m.BrickWallOf(ci, cj) ? brickData : wallData;
+            return data[ci / WallChunkSize, cj / WallChunkSize] ??= new MeshBuilder();
+        }
+        // V0.7.16 : poteau d'angle en briques seulement s'il touche le Château (avant : d'après la seule cellule au nord-est de l'angle,
+        // d'où des poteaux en briques dans les murs en damier de l'Échiquier le long de la douve).
+        MeshBuilder PostWalls(int px, int py)
+        {
+            int ci = Mathf.Clamp(px, 0, n - 1), cj = Mathf.Clamp(py, 0, n - 1);
+            var data = m.BrickPost(px, py) ? brickData : wallData;
             return data[ci / WallChunkSize, cj / WallChunkSize] ??= new MeshBuilder();
         }
         // Mur entre deux cellules : celui de la cellule pleine (une cellule vide n'a pas de murs à elle).
@@ -1758,7 +1774,7 @@ public static partial class WorldBuilder
                 if (nearVoid && nearSolid) h = Mathf.Max(h, m.voidCeil);
             }
             var c = new Vector3(x0 + p.x * Cell, h * 0.5f, z0 + p.y * Cell);
-            WallsOf(p.x, p.y).Box(c, new Vector3(Wall, h, Wall), 0.5f, 0b0011_0011);
+            PostWalls(p.x, p.y).Box(c, new Vector3(Wall, h, Wall), 0.5f, 0b0011_0011);
         }
         foreach (var end in lintelEnds)
         {
@@ -1767,7 +1783,7 @@ public static partial class WorldBuilder
             float low = end.Value;
             float h = Mathf.Max(Mathf.Max(m.Ceil(p.x - 1, p.y - 1), m.Ceil(p.x, p.y - 1)), Mathf.Max(m.Ceil(p.x - 1, p.y), m.Ceil(p.x, p.y)));
             Vector3 c = new Vector3(x0 + p.x * Cell, 0f, z0 + p.y * Cell);
-            MeshBuilder mb = WallsOf(p.x, p.y);
+            MeshBuilder mb = PostWalls(p.x, p.y);
             mb.Box(c + Vector3.up * ((low + h) * 0.5f), new Vector3(Wall, h - low, Wall), 0.5f, 0b0011_0011);
             // Dessous : seulement sous les quarts qu'aucun plafond bas ne recouvre déjà (voir LintelUnderside).
             for (int sx = 0; sx < 2; sx++)

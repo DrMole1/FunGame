@@ -18,6 +18,8 @@ using UnityEngine;
 //   ouverture par cellule à chaque étage (néon au-dessus), et plus haut comme plus bas, jusqu'en haut de la façade et jusqu'au fond
 //   du ravin, des fenêtres factices (le modèle de l'Échiquier) de la même taille, au même pas ; la façade se voit même de loin et
 //   sans éclairage. Y tomber tue (GameSession). Plinthes autour des bouts de murs et des tableaux des portes (Note 01).
+//   V0.7.16 (Note 01) : la façade du Blockhaus (sa face sur le ravin) est grise (béton), ses autres murs gardent le damier ; la paroi
+//   d'en face, côté Échiquier, n'a plus de fenêtre (ni factice, ni percée dans son mur) : seuls les départs des ponts l'ouvrent.
 public static partial class WorldBuilder
 {
     // V0.7.14 : 10 m de profondeur (le plus bas étage), 20 m de hauteur ; ravin de 15 m (3 cellules).
@@ -30,11 +32,8 @@ public static partial class WorldBuilder
     const float BlockArchChance = 0.4f, LockedRoomChance = 0.05f, ExtraCorridorLink = 0.35f;
     // V0.7.14 : plinthes de 0,3 m en relief de 0,12 m, grises (béton) ; encadrements des portes et fenêtres de 0,12 m de relief.
     const float PlinthHeight = 0.3f, PlinthRelief = 0.12f, FrameWidth = 0.16f, FrameRelief = 0.12f, WindowLow = 1f, WindowHigh = 3.8f;
-    // Bande de fenêtres factices au-dessus et au-dessous des étages (au-delà, le noir du ravin).
-    const float FakeWindowBand = 20f;
     // V0.7.14 : néons des façades sur le ravin, 80 % de volume en plus (chaque dimension x 1,8^(1/3)).
     static readonly float RavineNeonScale = Mathf.Pow(1.8f, 1f / 3f);
-    const float EchiquierWindowChance = 0.3f;
 
     // Appartement fermé sous cadenas : son étage, la pièce, l'arête de sa porte.
     internal class LockedRoom { public int storey; public Room room; public (int, int, bool) edge; }
@@ -221,25 +220,7 @@ public static partial class WorldBuilder
             Vector3 bb = m.Center(b.x, b.y) - dir * (Cell * 0.5f + Wall * 0.5f) + lift;
             plan.bridges.Add((a, bb));
         }
-        EchiquierRavineWindows(m, plan.ravine, new System.Random(plan.rnd.Next()));
-    }
-
-    // Quelques fenêtres de l'Échiquier sur un ravin (celui du Blockhaus, la douve du Château).
-    static void EchiquierRavineWindows(Maze m, HashSet<Vector2Int> ravine, System.Random rnd)
-    {
-        for (int i = 0; i < m.N; i++)
-            for (int j = 0; j < m.N; j++)
-            {
-                if (!EchiquierCell(m, new Vector2Int(i, j)) || m.Floor(i, j) != 0f || m.NoPlainFloor(i, j)) continue;
-                for (int d = 0; d < 4; d++)
-                {
-                    var nb = new Vector2Int(i + DI[d], j + DJ[d]);
-                    var key = EdgeKey(i, j, d);
-                    if (!ravine.Contains(nb) || m.wallHoles.ContainsKey(key) || !HasWall(m, i, j, d) || rnd.NextDouble() >= EchiquierWindowChance) continue;
-                    if (m.Ceil(i, j) < WindowHigh + 0.3f) continue;
-                    m.wallHoles[key] = (WindowLow, WindowHigh);
-                }
-            }
+        // V0.7.16 (Note 01) : plus de fenêtre de l'Échiquier sur un ravin (Blockhaus, douve du Château).
     }
 
     // Après la géométrie de l'Échiquier (l'étage du Hub) : les deux autres étages, le ravin, les cages d'escalier, les portes, le décor.
@@ -443,13 +424,13 @@ public static partial class WorldBuilder
         return count;
     }
 
-    // Fond du ravin (-80 m), plafond (+80 m) ; ses parois au-dessus et au-dessous de ce que l'Échiquier et les étages construisent, avec
-    // les fenêtres factices de l'Échiquier ; la façade visible des étages (et du mur de l'Échiquier d'en face).
+    // Fond du ravin (-80 m), plafond (+80 m) ; ses parois au-dessus et au-dessous de ce que l'Échiquier et les étages construisent ; la
+    // façade visible des étages (béton, V0.7.16) et du mur de l'Échiquier d'en face (damier, sans fenêtre).
     static void BuildRavine(Maze m, BlockhausPlan plan, Kit kit, System.Random rnd, Transform root)
     {
         var cells = plan.ravine;
-        var visible = new MeshBuilder();
-        var fake = new List<(Vector3 wall, Vector3 along, Vector3 normal, float y, bool facade)>();
+        MeshBuilder visible = new MeshBuilder(), concrete = new MeshBuilder();
+        var fake = new List<(Vector3 wall, Vector3 along, Vector3 normal, float y)>();
         var sorted = cells.OrderBy(c => c.x).ThenBy(c => c.y).ToList();
         foreach (var c in sorted)
         {
@@ -469,17 +450,14 @@ public static partial class WorldBuilder
                 // Ce que l'Échiquier (son mur, de 0 à son plafond) ou les étages (de -10 à +20 m) construisent déjà.
                 float low = echiquier ? 0f : -BlockhausDepth, high = echiquier ? m.Ceil(nb.x, nb.y) : BlockhausTop;
                 if (boundary && d == 3 && m.southHeights != null) high = Mathf.Max(high, m.southHeights[c.x]);
-                foreach (var (y0, y1) in new[] { (-RavineReach, low), (high, RavineReach) })
+                // V0.7.16 (Note 04) : la paroi du dessous dépasse de 1 cm le sol qu'elle borde (étage du Blockhaus, Échiquier) : leurs
+                // faces ne sont plus dans le même plan (scintillement au seuil des ouvertures et des ponts).
+                foreach (var (y0, y1) in new[] { (-RavineReach, low + SeamLift), (high, RavineReach) })
                 {
                     if (y1 - y0 < 0.05f) continue;
                     Vector3 wc = edge + Vector3.up * ((y0 + y1) * 0.5f);
-                    kit.Box(wc, d < 2 ? new Vector3(Wall, y1 - y0, Cell + Wall) : new Vector3(Cell + Wall, y1 - y0, Wall));
-                    if (boundary || !echiquier) continue;
-                    // V0.7.14 (Note 05) : en face, sur le mur de l'Échiquier, ses fenêtres factices (même modèle, même espacement).
-                    float from = y0 < 0f ? Mathf.Max(y0, low - FakeWindowBand) : y0 + 0.3f;
-                    float to = y0 < 0f ? low - 0.3f : Mathf.Min(y1, high + FakeWindowBand);
-                    Vector3 wall = center + dir * (Cell * 0.5f - Wall * 0.5f);
-                    for (float wy = from; wy + WindowHeight <= to; wy += WindowPitch) fake.Add((wall, side, -dir, wy, false));
+                    // V0.7.16 (Note 01) : façade du Blockhaus en béton gris ; côté Échiquier, le damier, sans fenêtre factice.
+                    kit.Box(wc, d < 2 ? new Vector3(Wall, y1 - y0, Cell + Wall) : new Vector3(Cell + Wall, y1 - y0, Wall), true, boundary || echiquier ? null : kit.grey);
                 }
                 if (boundary) continue;
                 // V0.7.15 (Note 02) : façade du Blockhaus en grille régulière : à chaque étage une ouverture (où le joueur passe), et
@@ -493,10 +471,11 @@ public static partial class WorldBuilder
                     {
                         int s = System.Array.FindIndex(StoreyLevels, v => Mathf.Abs(v - level) < 0.01f);
                         if (s >= 0 && plan.storeys[s].wallHoles.ContainsKey(EdgeKey(c.x, c.y, d))) continue;
-                        fake.Add((wall, side, -dir, level + WindowLow, true));
+                        fake.Add((wall, side, -dir, level + WindowLow));
                     }
                 }
-                // Façade praticable, visible de loin et sans éclairage (damier lumineux), percée de ses fenêtres.
+                // Façade praticable, visible de loin et sans éclairage (damier lumineux côté Échiquier, béton lumineux côté Blockhaus),
+                // percée de ses fenêtres (côté Échiquier : les départs des ponts seulement).
                 var holes = new List<Rect>();
                 if (echiquier)
                 {
@@ -509,13 +488,16 @@ public static partial class WorldBuilder
                         float y = StoreyLevels[s];
                         if (sm.wallHoles.TryGetValue(EdgeKey(c.x, c.y, d), out var hole)) holes.Add(Rect.MinMaxRect(-AerialHoleWidth * 0.5f, y + hole.low, AerialHoleWidth * 0.5f, y + hole.high));
                     }
+                // V0.7.16 : sur toute la hauteur du ravin (du fond à son plafond), pas seulement là où sont les étages ou l'Échiquier :
+                // toute la façade du Blockhaus est grise, et le mur de l'Échiquier est éclairé de manière uniforme.
                 Vector3 face = edge - dir * (Wall * 0.5f + 0.015f);
-                foreach (Rect p in Subtract(new List<Rect> { Rect.MinMaxRect(-Cell * 0.5f - Wall * 0.5f, low, Cell * 0.5f + Wall * 0.5f, high) }, holes))
-                    visible.WorldQuad(face + side * p.xMin + Vector3.up * p.yMin, face + side * p.xMax + Vector3.up * p.yMin,
+                foreach (Rect p in Subtract(new List<Rect> { Rect.MinMaxRect(-Cell * 0.5f - Wall * 0.5f, -RavineReach, Cell * 0.5f + Wall * 0.5f, RavineReach) }, holes))
+                    (echiquier ? visible : concrete).WorldQuad(face + side * p.xMin + Vector3.up * p.yMin, face + side * p.xMax + Vector3.up * p.yMin,
                         face + side * p.xMax + Vector3.up * p.yMax, face + side * p.xMin + Vector3.up * p.yMax, -dir, 0.5f);
             }
         }
         if (!visible.IsEmpty) GameArt.MeshObject("Z" + m.zone + "_FacadesRavin", root, visible.Build("FacadesRavin"), VisibleChecker);
+        if (!concrete.IsEmpty) GameArt.MeshObject("Z" + m.zone + "_FacadesBlockhaus", root, concrete.Build("FacadesBlockhaus"), VisibleConcrete);
         // Fenêtres factices, en plusieurs maillages (pierre, vitres noires, vitres allumées).
         const int perMesh = 300;
         for (int k0 = 0; k0 < fake.Count; k0 += perMesh)
@@ -525,8 +507,7 @@ public static partial class WorldBuilder
             {
                 var w = fake[k];
                 MeshBuilder glass = rnd.NextDouble() < GameRules.LitWindowChance ? lit : dark;
-                if (w.facade) AddWindow(stone, glass, w.wall, w.along, w.normal, w.y, AerialHoleWidth, WindowHigh - WindowLow);
-                else AddWindow(stone, glass, w.wall, w.along, w.normal, w.y);
+                AddWindow(stone, glass, w.wall, w.along, w.normal, w.y, AerialHoleWidth, WindowHigh - WindowLow);
             }
             string name = "Z" + m.zone + "_FenetresRavin" + k0 / perMesh;
             GameArt.MeshObject(name + "_Pierre", root, stone.Build(name), GameArt.WindowStone);
@@ -550,6 +531,25 @@ public static partial class WorldBuilder
             mat.SetColor("_EmissionColor", new Color(0.5f, 0.5f, 0.5f));
             mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
             return visibleChecker = mat;
+        }
+    }
+
+    // V0.7.16 (Note 01) : béton lumineux de la façade du Blockhaus sur le ravin (gris comme ses plafonds, visible de loin, même sans
+    // éclairage).
+    static Material visibleConcrete;
+    static Material VisibleConcrete
+    {
+        get
+        {
+            if (visibleConcrete != null) return visibleConcrete;
+            Material grey = GreyCeiling;
+            var mat = new Material(GameArt.Emissive("BetonLumineux", Color.white, Color.white)) { name = "BetonLumineux" };
+            mat.mainTexture = grey.mainTexture;
+            mat.color = grey.color;
+            mat.SetTexture("_EmissionMap", grey.mainTexture);
+            mat.SetColor("_EmissionColor", new Color(0.3f, 0.3f, 0.3f));
+            mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+            return visibleConcrete = mat;
         }
     }
 

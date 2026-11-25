@@ -165,6 +165,12 @@ public class PlayerController : MonoBehaviour
             Jumped?.Invoke();
         }
         airborneLock -= Time.deltaTime;
+        // V0.7.16 (Note 02) : en montant ou en descendant un escalier (colimaçons du Blockhaus et des Tours du Château), le corps quitte
+        // le sol d'une marche à l'autre : tant qu'il n'a ni sauté ni été projeté et qu'un sol est tout proche dessous, il garde
+        // l'animation de déplacement (marche) au lieu de celle du saut.
+        if (airborneLock > 0f) leftGroundOnPurpose = true;
+        else if (grounded) leftGroundOnPurpose = false;
+        bool animGround = airborneLock <= 0f && (grounded || !leftGroundOnPurpose && !rb.isKinematic && GroundJustBelow());
 
         // Note 14 du chapitre 3.2 (V0.6.14) : accroupi sans bouger pendant 0,8 s, le personnage s'assoit par terre. Il se
         // relève dès qu'il se déplace, saute, danse ou que la touche "s'accroupir" est relâchée. Il peut aboyer assis.
@@ -175,7 +181,18 @@ public class PlayerController : MonoBehaviour
         if (avatar != null) avatar.SetSeated(SeatedOnFloor);
 
         if (avatar != null && (Status == null || !Status.Dead))
-            avatar.SetState(ComputeAnimState(grounded && airborneLock <= 0f));
+            avatar.SetState(ComputeAnimState(animGround));
+    }
+
+    bool leftGroundOnPurpose;
+    const float StairGroundTolerance = 0.6f;
+
+    // Un sol (pas un mur) à moins de StairGroundTolerance sous les pieds.
+    bool GroundJustBelow()
+    {
+        float r = col.radius * 0.85f;
+        return Physics.SphereCast(transform.position, r, Vector3.down, out RaycastHit info, HalfHeight - r + StairGroundTolerance,
+            Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) && info.normal.y > 0.5f;
     }
 
     float crouchStill;

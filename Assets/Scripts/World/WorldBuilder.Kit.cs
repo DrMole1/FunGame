@@ -145,6 +145,9 @@ public static partial class WorldBuilder
     // 0 = +Z, sens horaire vu du dessus). Retourne l'angle d'arrivée. Chaque marche a sa collision (les entités l'empruntent).
     const float SpiralRise = 0.2f, SpiralTread = 0.34f;
 
+    // V0.7.16 (Note 04) : décalage qui sépare deux faces qui seraient dans le même plan (scintillement des textures).
+    const float SeamLift = 0.01f;
+
     static float KitSpiral(Kit kit, Vector3 center, float rIn, float rOut, float y0, float y1, float start)
     {
         float rMid = (rIn + rOut) * 0.5f;

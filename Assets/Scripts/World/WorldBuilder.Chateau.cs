@@ -6,7 +6,8 @@ using UnityEngine;
 // V0.7.15 :
 // - la douve est un ravin de 80 m de profondeur (comme celui du Blockhaus : y tomber tue), large de 10 m entre l'Échiquier et le
 //   rempart ; des ponts suspendus (ceux du Blockhaus) la franchissent, de l'Échiquier aux entrées du rempart (3 par rempart,
-//   espacées d'au moins 30 m). Côté Échiquier, sa paroi garde le damier (fenêtres factices, quelques fenêtres de l'Échiquier) ;
+//   espacées d'au moins 30 m). Côté Échiquier, sa paroi garde le damier, sans aucune fenêtre
+//   (V0.7.16, Note 01) ;
 // - remparts de 13 m (une cellule d'épaisseur, descendant jusqu'au fond du ravin), sur lesquels on ne peut ni monter ni sauter,
 //   visibles malgré la distance et l'éclairage (briques lumineuses), surmontés de créneaux, percés côté ravin de deux rangées de
 //   meurtrières en quinconce (une par cellule et par rangée) ; à chaque entrée, un passage de 4 x 5 m, la herse ouverte (1 m plus
@@ -53,6 +54,7 @@ public static partial class WorldBuilder
         var site = plan.site = MarkStructure(m, TerrainKind.Chateau, Terrains.TemplateOf(seed, zone));
         int n = m.N;
         m.voidCell = new bool[n, n];
+        m.moatCell = new bool[n, n];
         // Les murs voisins d'une cellule vide (halls, rempart) montent jusqu'au plafond des halls.
         m.voidCeil = HallHeight;
         m.voidWallFull = true;
@@ -71,7 +73,7 @@ public static partial class WorldBuilder
             {
                 if (!m.InStructure(i, j) || m.Fixed(i, j) || NearRoom(i, j)) continue;
                 var c = new Vector2Int(i, j);
-                if (site.dist[i, j] <= MoatCells) plan.moat.Add(c);
+                if (site.dist[i, j] <= MoatCells) { plan.moat.Add(c); m.moatCell[i, j] = true; }
                 else if (site.dist[i, j] == MoatCells + 1) plan.rampart.Add(c);
                 else continue;
                 m.voidCell[i, j] = true;
@@ -189,7 +191,7 @@ public static partial class WorldBuilder
             foreach (int d in new[] { 0, 2 })
                 if (plan.halls.Contains(c + new Vector2Int(DI[d], DJ[d]))) SetWall(m, c.x, c.y, d, false);
         OpenCourtyards(m, plan.halls, plan.rnd);
-        EchiquierRavineWindows(m, plan.moat, new System.Random(plan.rnd.Next()));
+        // V0.7.16 (Note 01) : plus de fenêtre de l'Échiquier sur la douve.
     }
 
     // Les halls s'ouvrent sur les salles et corridors voisins : tout ce qui se touche finit relié (chaque hall et chaque ensemble de
@@ -358,18 +360,19 @@ public static partial class WorldBuilder
         foreach (Rect r in MaskRects(mask, m.origin.x, m.origin.z, unit))
         {
             kit.grey.WorldQuad(new Vector3(r.xMin, HallHeight, r.yMin), new Vector3(r.xMin, HallHeight, r.yMax), new Vector3(r.xMax, HallHeight, r.yMax), new Vector3(r.xMax, HallHeight, r.yMin), Vector3.down, 0.1f);
-            kit.floors.WorldQuad(new Vector3(r.xMin, HallHeight + slab, r.yMin), new Vector3(r.xMax, HallHeight + slab, r.yMin), new Vector3(r.xMax, HallHeight + slab, r.yMax), new Vector3(r.xMin, HallHeight + slab, r.yMax), Vector3.up, 0.5f);
+            // V0.7.16 (Note 04) : dessus de la dalle 1 cm au-dessus du haut des murs (plus de scintillement).
+            float topY = HallHeight + slab + SeamLift;
+            kit.floors.WorldQuad(new Vector3(r.xMin, topY, r.yMin), new Vector3(r.xMax, topY, r.yMin), new Vector3(r.xMax, topY, r.yMax), new Vector3(r.xMin, topY, r.yMax), Vector3.up, 0.5f);
             kit.Collider(new Vector3(r.center.x, HallHeight + slab * 0.5f, r.center.y), new Vector3(r.width, slab, r.height));
         }
     }
 
     // Douve en ravin (V0.7.15, Note 04) : fond à -80 m ; ses parois sous l'Échiquier (et au-dessus de ce qu'il construit, jusqu'au
-    // plafond du Château : StructureShell) gardent le damier, avec les fenêtres factices de l'Échiquier près du sol ; le mur de
-    // l'Échiquier qui la borde se voit de loin et sans éclairage, percé de ses fenêtres et des départs des ponts.
+    // plafond du Château : StructureShell) gardent le damier ; le mur de l'Échiquier qui la borde se voit de loin et sans éclairage,
+    // percé des départs des ponts. V0.7.16 (Note 01) : plus aucune fenêtre (ni factice, ni percée) côté Échiquier.
     static void BuildMoat(Maze m, ChateauPlan plan, Kit kit, Kit castle, System.Random rnd, Transform root)
     {
         var visible = new MeshBuilder();
-        var fake = new List<(Vector3 wall, Vector3 along, Vector3 normal, float y)>();
         var sorted = new List<Vector2Int>(plan.moat);
         sorted.Sort((a, b) => a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y));
         foreach (var c in sorted)
@@ -388,44 +391,30 @@ public static partial class WorldBuilder
                 Vector3 Size(float h) => d < 2 ? new Vector3(Wall, h, Cell + Wall) : new Vector3(Cell + Wall, h, Wall);
                 // Sous le sol (de -80 à 0 m) ; au-dessus, l'Échiquier et l'enceinte. Contre la Neutral Room (dans la structure), la paroi
                 // monte aussi de son plafond à celui du Château.
-                kit.Box(edge + Vector3.up * (-RavineReach * 0.5f), Size(RavineReach));
+                // V0.7.16 (Note 04) : 1 cm au-dessus du sol de l'Échiquier (plus de scintillement au départ des ponts).
+                kit.Box(edge + Vector3.up * ((-RavineReach + SeamLift) * 0.5f), Size(RavineReach + SeamLift));
                 if (!boundary && !echiquier)
                 {
                     float top = m.Ceil(nb.x, nb.y);
+                    // V0.7.16 (Note 04) : 1 cm au-dessus du plafond gris qu'elle borde (plus de scintillement).
+                    top += SeamLift;
                     if (ChateauHeight - top > 0.05f) castle.Box(edge + Vector3.up * ((top + ChateauHeight) * 0.5f), Size(ChateauHeight - top));
                     continue;
                 }
                 if (boundary) continue;
-                // Fenêtres factices de l'Échiquier (même modèle, même espacement), sous le sol et au-dessus de son plafond.
                 float ceil = m.Ceil(nb.x, nb.y);
-                Vector3 wall = center + dir * (Cell * 0.5f - Wall * 0.5f);
-                for (float wy = -FakeWindowBand; wy + WindowHeight <= -0.3f; wy += WindowPitch) fake.Add((wall, side, -dir, wy));
-                for (float wy = ceil + 0.3f; wy + WindowHeight <= Mathf.Min(ChateauHeight, ceil + FakeWindowBand); wy += WindowPitch) fake.Add((wall, side, -dir, wy));
                 // Mur de l'Échiquier visible de loin (damier lumineux), percé de ses ouvertures.
                 var holes = new List<Rect>();
                 if (m.wallHoles.TryGetValue(EdgeKey(c.x, c.y, d), out var hole)) holes.Add(Rect.MinMaxRect(-AerialHoleWidth * 0.5f, hole.low, AerialHoleWidth * 0.5f, hole.high));
                 Vector3 face = edge - dir * (Wall * 0.5f + 0.015f);
-                foreach (Rect p in Subtract(new List<Rect> { Rect.MinMaxRect(-Cell * 0.5f - Wall * 0.5f, 0f, Cell * 0.5f + Wall * 0.5f, ceil) }, holes))
+                // V0.7.16 : du fond de la douve au plafond du Château (éclairage uniforme de la paroi, plus de parcelles sombres).
+                foreach (Rect p in Subtract(new List<Rect> { Rect.MinMaxRect(-Cell * 0.5f - Wall * 0.5f, -RavineReach, Cell * 0.5f + Wall * 0.5f, Mathf.Max(ceil, ChateauHeight)) }, holes))
                     visible.WorldQuad(face + side * p.xMin + Vector3.up * p.yMin, face + side * p.xMax + Vector3.up * p.yMin,
                         face + side * p.xMax + Vector3.up * p.yMax, face + side * p.xMin + Vector3.up * p.yMax, -dir, 0.5f);
             }
         }
         // Au bord de la zone, la paroi descend jusqu'au fond (au-dessus : le mur du bord, puis l'enceinte).
         if (!visible.IsEmpty) GameArt.MeshObject("Z" + m.zone + "_FacadesDouve", root, visible.Build("FacadesDouve"), VisibleChecker);
-        const int perMesh = 300;
-        for (int k0 = 0; k0 < fake.Count; k0 += perMesh)
-        {
-            MeshBuilder stone = new MeshBuilder(), dark = new MeshBuilder(), lit = new MeshBuilder();
-            for (int k = k0; k < Mathf.Min(fake.Count, k0 + perMesh); k++)
-            {
-                var w = fake[k];
-                AddWindow(stone, rnd.NextDouble() < GameRules.LitWindowChance ? lit : dark, w.wall, w.along, w.normal, w.y);
-            }
-            string name = "Z" + m.zone + "_FenetresDouve" + k0 / perMesh;
-            GameArt.MeshObject(name + "_Pierre", root, stone.Build(name), GameArt.WindowStone);
-            if (!dark.IsEmpty) GameArt.MeshObject(name + "_Vitres", root, dark.Build(name), GameArt.WindowDark);
-            if (!lit.IsEmpty) GameArt.MeshObject(name + "_Allumees", root, lit.Build(name), GameArt.WindowLit);
-        }
     }
 
     // Remparts : une cellule d'épaisseur, de -80 m (le fond de la douve) à 13 m ; créneaux sur leurs deux bords ; côté douve, deux
@@ -587,7 +576,10 @@ public static partial class WorldBuilder
                 lowestCeiling = Mathf.Min(lowestCeiling, level - 0.35f);
             }
         // Dernier étage : dalle pleine, ouverte au-dessus de l'arrivée de l'escalier ; puis le toit fermé et les créneaux autour.
-        float arrivalSpan = 2.2f / SpiralRise * (SpiralTread / ((rIn + rOut) * 0.5f)) * Mathf.Rad2Deg;
+        // V0.7.16 (Note 03) : ouverture agrandie : elle couvre les 3,5 derniers mètres de montée (avant : 2,2 m, la tête d'un personnage
+        // de 1,8 m butait sous la dalle de 0,5 m), plus un pan de marge (les pans de la dalle sont gardés ou retirés en entier).
+        float arrivalSpan = TowerArrivalHeadroom / SpiralRise * (SpiralTread / ((rIn + rOut) * 0.5f)) * Mathf.Rad2Deg + 360f / sides;
+        arrivalSpan = Mathf.Min(arrivalSpan, 200f);
         KitDisc(kit, c, R - 1f, top, 0.5f, sides, end - arrivalSpan, end + 2f, 0f);
         KitDisc(kit, c, R - 0.5f, H + 0.5f, 0.5f, sides);
         KitRoundMerlons(kit, c, R, H + 0.5f, sides);
@@ -597,7 +589,7 @@ public static partial class WorldBuilder
         return (c + Vector3.up * top, H - top);
     }
 
-    const float TowerStairWidth = 3f;
+    const float TowerStairWidth = 3f, TowerArrivalHeadroom = 3.5f;
 
     // Arche autour d'une porte percée dans un mur rond (épaisseur 1 m), face à l'angle 'angle'.
     static void RoundDoorArch(Kit kit, Vector3 center, float radius, float angle, float width, float height)
