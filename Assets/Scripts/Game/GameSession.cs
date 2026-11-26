@@ -542,6 +542,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             int id = zone.index * MoundIdsPerZone + CollarIdOffset + k;
             if (picked.Contains(id) || items.ContainsKey(id)) continue;
             var collar = ItemPickup.Create(itemsRoot, id, ItemType.Collier, zone.collarSpots[k]);
+            // V0.7.20 (Note 02) : inscrit parmi les objets à terre, sans quoi l'hôte refusait de le donner (objet O16 ramassable).
+            items[id] = collar;
             // Il ne flotte pas : il entoure le cou.
             foreach (var bob in collar.GetComponentsInChildren<Bobbing>()) Destroy(bob);
         }

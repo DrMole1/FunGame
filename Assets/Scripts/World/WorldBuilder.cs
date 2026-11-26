@@ -1481,6 +1481,8 @@ public static partial class WorldBuilder
             CourtyardSpots(m, refs, castle.halls, castle.rnd);
         }
         MarkIntangibleSpheres(root);
+        // V0.7.20 : éclairage lissé : les grandes pièces de la structure redécoupées en blocs de 10 m (WorldBuilder.Lighting).
+        if (castle != null || block != null) SplitLargeMeshes(root);
         yield return null;
         // V0.7.19 (Note 12) : aucun monticule dans un ravin ni sur un pont, même en partie.
         refs.itemSpots.RemoveAll(p => OverRavineOrBridge(refs, p, MoundWidth * 0.5f + 0.3f));

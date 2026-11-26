@@ -531,8 +531,10 @@ public static partial class WorldBuilder
                 AddWindow(stone, glass, w.wall, w.along, w.normal, w.y, AerialHoleWidth, WindowHigh - WindowLow);
             }
             string name = "Z" + m.zone + "_FenetresRavin" + k0 / perMesh;
-            GameArt.MeshObject(name + "_Pierre", root, stone.Build(name), GameArt.WindowStone);
-            if (!dark.IsEmpty) GameArt.MeshObject(name + "_Vitres", root, dark.Build(name), GameArt.WindowDark);
+            // V0.7.20 (Note 10) : encadrements gris lumineux (comme la façade, un peu plus clairs) et vitres gris très sombre : les
+            // fenêtres factices se voient même de loin (le gris non éclairé paraissait noir).
+            GameArt.MeshObject(name + "_Pierre", root, stone.Build(name), VisibleWindowStone);
+            if (!dark.IsEmpty) GameArt.MeshObject(name + "_Vitres", root, dark.Build(name), GameArt.Unlit("FenetreRavinSombre", new Color(0.07f, 0.07f, 0.075f)));
             if (!lit.IsEmpty) GameArt.MeshObject(name + "_Allumees", root, lit.Build(name), GameArt.WindowLit);
         }
     }
@@ -557,6 +559,23 @@ public static partial class WorldBuilder
 
     // V0.7.16 (Note 01) : béton lumineux de la façade du Blockhaus sur le ravin (gris comme ses plafonds, visible de loin, même sans
     // éclairage).
+    static Material visibleWindowStone;
+    static Material VisibleWindowStone
+    {
+        get
+        {
+            if (visibleWindowStone != null) return visibleWindowStone;
+            Material stone = GameArt.WindowStone;
+            var mat = new Material(GameArt.Emissive("FenetrePierreLumineuse", Color.white, Color.white)) { name = "FenetrePierreLumineuse" };
+            mat.mainTexture = stone.mainTexture;
+            mat.color = new Color(0.75f, 0.75f, 0.74f);
+            mat.SetTexture("_EmissionMap", stone.mainTexture);
+            mat.SetColor("_EmissionColor", new Color(0.55f, 0.55f, 0.54f));
+            mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+            return visibleWindowStone = mat;
+        }
+    }
+
     static Material visibleConcrete;
     static Material VisibleConcrete
     {
@@ -591,6 +610,12 @@ public static partial class WorldBuilder
         for (int s = 0; s < storeys.Length; s++)
         {
             float y = StoreyLevels[s];
+            // V0.7.20 : au rez-de-chaussée, le sol de la cage suffit (les paliers le doublaient et scintillaient avec lui).
+            if (s == 0)
+            {
+                AddLamp(kit.root, new Vector3(center.x, y + StoreyHeight - 0.1f, center.z), 9f, 1.2f, rnd);
+                continue;
+            }
             foreach (var corner in new[] { new Vector3(-1f, 0f, -1f), new Vector3(1f, 0f, -1f), new Vector3(-1f, 0f, 1f), new Vector3(1f, 0f, 1f) })
             {
                 Vector3 c = center + corner * (half - 0.9f);
@@ -793,11 +818,12 @@ public static partial class WorldBuilder
             if (room.cells.Count == 0 || !plan.building.Contains(room.cells[0]) || m.Fixed(room.cells[0].x, room.cells[0].y)) continue;
             // 25 % des appartements ne sont pas éclairés (V0.7.14 : tous les plafonds sont gris, comme le reste de la structure).
             if (rnd.NextDouble() >= 0.25) AddLamp(props, RoomFloorCenter(m, room, y) + Vector3.up * room.ceil, 10f, 1.3f, rnd);
+            // V0.7.20 (Note 11) : moquette en damier dans toutes les pièces ; la moitié d'entre elles ont un tapis posé dessus.
+            plan.carpeted.Add(room);
+            LayCarpet(f, room);
             // L'appartement fermé garde le sol libre pour son contenu.
             if (lockedHere.Exists(l => l.room == room)) continue;
-            // V0.7.19 : 20 % des pièces ont une moquette en damier (et pas de tapis) ; la moitié des autres, un tapis.
-            if (rnd.NextDouble() < CarpetChance) { plan.carpeted.Add(room); LayCarpet(f, room); }
-            else if (rnd.NextDouble() < RugChance) LayRug(f, room, rnd);
+            if (rnd.NextDouble() < RugChance) LayRug(f, room, rnd);
             if (plan.templated.TryGetValue(room, out var t)) FurnishBlockTemplate(f, room, t.layout, t.turns, rnd);
             else FurnishApartment(f, room, rnd);
         }

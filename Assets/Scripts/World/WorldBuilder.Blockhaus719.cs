@@ -9,14 +9,17 @@ using UnityEngine;
 //   pièce, lumière étouffée par l'abat-jour), machine à coudre (sur une table 25 %, une commode 15 %, un vieux mobilier 10 %), vieux
 //   canapé (1 au plus par pièce) ;
 // - dans une pièce ou un couloir de moins de 7 m de côté, tout objet touche un mur ;
-// - 20 % des pièces ont une moquette en damier (texture laineuse, Note 13), sans tapis ;
-// - 7 fuites d'eau au plafond par structure (à 20 m au moins l'une de l'autre ; ni sur une moquette, ni au-dessus d'un tapis ; pas de
-//   monticule sur leur flaque) ;
 // - les pommeaux de douche des baignoires s'ouvrent et se ferment d'un clic (bulles de savon : BlockhausProps).
+// V0.7.20 (Note 11) : moquette en damier dans toutes les pièces, les tapis posés dessus ; plus de fuites d'eau ni de flaques ; plinthes
+// au pied des pans de mur des schémas ; commodes et tables deux fois plus volumineuses ; machine à coudre posée sur le plateau du vieux
+// mobilier (sous sa crête) ; Tapis2 retexturé (motif noir et blanc d'un tapis de référence du GDD), Tapis1 et Tapis3 ramenés au
+// format des tapis de référence (2 x 3) au lieu d'être carrés.
 public static partial class WorldBuilder
 {
-    const float BlockNarrowSide = 7f, CarpetChance = 0.2f, RugChance = 0.5f, LeakSpacing = 20f;
-    const int MinBlockTemplates = 3, MaxBlockTemplates = 5, BlockTemplateDoors = 2, LeaksPerBlockhaus = 7, BenchesPerBlockhaus = 4, TvsPerBlockhaus = 2;
+    const float BlockNarrowSide = 7f, RugChance = 0.5f;
+    const int MinBlockTemplates = 3, MaxBlockTemplates = 5, BlockTemplateDoors = 2, BenchesPerBlockhaus = 4, TvsPerBlockhaus = 2;
+    // Dessus du vieux mobilier (Armoire) : son plateau est à 88,6 % de sa hauteur (une crête dépasse au fond).
+    const float WardrobeTopFraction = 0.886f;
     const float SewingOnTable = 0.25f, SewingOnCommode = 0.15f, SewingOnWardrobe = 0.1f;
 
     // Schémas du GDD (11.4), la ligne 0 au "nord". Symboles : Co Commode, VC Vieux canapé, L Luminaire, C Chaise, Ta Table, VU Vieil
@@ -189,10 +192,10 @@ public static partial class WorldBuilder
     {
         switch (model)
         {
-            case "Commode": return 1.4f;
+            case "Commode": return 1.4f * VolumeX2;          // V0.7.20 (Note 11) : volume doublé
             case "Canape": return 1.6f;
             case "Luminaire": return 1.7f;
-            case "TableBlockhaus": return 1.05f;
+            case "TableBlockhaus": return 1.05f * VolumeX2;  // V0.7.20 (Note 11) : volume doublé
             case "ChaiseBlockhaus": return 1f;
             case "MachineCoudre": return 0.5f;
             case "BancBlockhaus": return 1.7f;
@@ -248,7 +251,9 @@ public static partial class WorldBuilder
         var go = SpawnBlockProp(f, model);
         if (go == null) return false;
         Bounds b = WorldBounds(under.transform);
-        go.transform.SetPositionAndRotation(new Vector3(b.center.x, b.max.y, b.center.z), under.transform.rotation * Quaternion.Euler(0f, Rand(rnd, -20f, 20f), 0f));
+        // V0.7.20 (Note 11) : sur le plateau du vieux mobilier, pas sur sa crête (la machine flottait).
+        float topY = under.name.Contains("Armoire") ? b.min.y + b.size.y * WardrobeTopFraction : b.max.y;
+        go.transform.SetPositionAndRotation(new Vector3(b.center.x, topY, b.center.z), under.transform.rotation * Quaternion.Euler(0f, Rand(rnd, -20f, 20f), 0f));
         AddPropCollider(go);
         return true;
     }
@@ -306,27 +311,51 @@ public static partial class WorldBuilder
             Vector3 c = f.m.Center(cell.x, cell.y);
             float e0 = HasWall(f.m, cell.x, cell.y, 1) ? Cell * 0.5f - Wall * 0.5f : Cell * 0.5f, e1 = HasWall(f.m, cell.x, cell.y, 0) ? Cell * 0.5f - Wall * 0.5f : Cell * 0.5f;
             float e3 = HasWall(f.m, cell.x, cell.y, 3) ? Cell * 0.5f - Wall * 0.5f : Cell * 0.5f, e2 = HasWall(f.m, cell.x, cell.y, 2) ? Cell * 0.5f - Wall * 0.5f : Cell * 0.5f;
-            float y = f.y + 0.012f;
+            // V0.7.20 : 2 cm au-dessus du sol (à 1,2 cm, elle scintillait avec les bandes de sol relevées de 1 cm).
+            float y = f.y + 0.02f;
             f.carpet.WorldQuad(new Vector3(c.x - e0, y, c.z - e3), new Vector3(c.x + e1, y, c.z - e3), new Vector3(c.x + e1, y, c.z + e2), new Vector3(c.x - e0, y, c.z + e2), Vector3.up, 0.25f);
         }
     }
 
-    // Tapis (un des 4 modèles) couché au sol, au milieu de la pièce ; d'autres objets peuvent être posés dessus.
+    // Tapis (un des 4 modèles) couché au sol, au milieu de la pièce ; d'autres objets peuvent être posés dessus. V0.7.20 : posé sur la
+    // moquette.
     static void LayRug(StoreyFurnish f, Room room, System.Random rnd)
     {
-        var go = GameArt.SpawnModelFloor("Tapis" + (1 + rnd.Next(4)), f.props, Rand(rnd, 2.4f, 3.2f));
+        int kind = 1 + rnd.Next(4);
+        var go = GameArt.SpawnModelFloor("Tapis" + kind, f.props, Rand(rnd, 2.4f, 3.2f));
         if (go == null) return;
         LayFlat(go);
         RugFaceUp(go);
+        if (kind == 2) RetextureRug2(go);
+        // Tapis carrés : ramenés au format 2 x 3 des tapis de référence (ils paraissaient élargis).
+        if (kind == 1 || kind == 3) go.transform.localScale = new Vector3(2f / 3f, 1f, 1f);
         Vector3 c = RoomFloorCenter(f.m, room, f.y);
         for (int attempt = 0; attempt < 4; attempt++)
         {
-            go.transform.SetPositionAndRotation(c + Vector3.up * 0.015f, Quaternion.Euler(0f, rnd.Next(4) * 90f, 0f));
+            go.transform.SetPositionAndRotation(c + Vector3.up * 0.03f, Quaternion.Euler(0f, rnd.Next(4) * 90f, 0f));
             Physics.SyncTransforms();
             if (FitInRoom(f.m, room, go)) { f.plan.rugs.Add(WorldBounds(go.transform)); return; }
             go.transform.localScale *= 0.8f;
         }
         Object.Destroy(go);
+    }
+
+    // V0.7.20 (Note 11) : Tapis2 (texture Meshy presque toute blanche) : même maillage, coordonnées de texture projetées du dessus
+    // (Resources/Art/Decor/Tapis2Plat), motif noir et blanc laineux (Resources/Art/Decor/Tapis2Motif).
+    static Material rug2Material;
+
+    static void RetextureRug2(GameObject holder)
+    {
+        Mesh flat = Resources.Load<Mesh>("Art/Decor/Tapis2Plat");
+        var motif = Resources.Load<Texture2D>("Art/Decor/Tapis2Motif");
+        if (flat == null || motif == null) return;
+        if (rug2Material == null) rug2Material = GameArt.Lit("Tapis2Motif", Color.white, motif, 0f);
+        foreach (var mf in holder.GetComponentsInChildren<MeshFilter>())
+        {
+            mf.sharedMesh = flat;
+            var r = mf.GetComponent<Renderer>();
+            if (r != null) r.sharedMaterial = rug2Material;
+        }
     }
 
     // Certains tapis Meshy ont leur face dessinée vers le bas : on les retourne (moyenne des normales vers le haut).
@@ -463,6 +492,7 @@ public static partial class WorldBuilder
         Vector3 TurnDir(int dc, int dr) { for (int k = 0; k < turns; k++) { int t = dc; dc = -dr; dr = t; } return new Vector3(dc, 0f, -dr); }
 
         // Pans de mur d'abord (les objets se plaquent contre eux).
+        var wallRects = new List<Rect>();
         for (int r = 0; r < H; r++)
             for (int c = 0; c < W; c++)
             {
@@ -471,8 +501,28 @@ public static partial class WorldBuilder
                 Vector3 lo = Vector3.Min(a, b), hi = Vector3.Max(a, b);
                 var size = new Vector3(hi.x - lo.x, room.ceil, hi.z - lo.z);
                 var center = new Vector3((lo.x + hi.x) * 0.5f, f.y + room.ceil * 0.5f, (lo.z + hi.z) * 0.5f);
-                f.finish.Box(center, size);
+                // V0.7.20 : sans ses faces du dessus et du dessous (cachées, mais au niveau des sols : elles scintillaient avec eux).
+                f.finish.walls.Box(center, size, 0.5f, 63 & ~((1 << 2) | (1 << 3)));
+                f.finish.Collider(center, size);
                 f.taken.Add(new Bounds(center, size));
+                wallRects.Add(Rect.MinMaxRect(lo.x, lo.z, hi.x, hi.z));
+            }
+        // V0.7.20 (Note 11) : plinthes au pied des pans de mur, sur chaque face qui donne sur la pièce (pas contre un autre pan ni
+        // contre le mur de la pièce) ; leurs bouts se rejoignent aux angles.
+        foreach (Rect wr in wallRects)
+            for (int d = 0; d < 4; d++)
+            {
+                Vector3 n = new Vector3(DI[d], 0f, DJ[d]);
+                bool alongZ = DI[d] != 0;
+                float len = alongZ ? wr.height : wr.width;
+                Vector3 mid = new Vector3(wr.center.x + DI[d] * wr.width * 0.5f, f.y, wr.center.y + DJ[d] * wr.height * 0.5f);
+                Vector3 probe = mid + n * 0.3f;
+                if (wallRects.Exists(o => o != wr && o.Contains(new Vector2(probe.x, probe.z)))) continue;
+                var pc = new Vector2Int(Mathf.FloorToInt((probe.x - m.origin.x) / Cell), Mathf.FloorToInt((probe.z - m.origin.z) / Cell));
+                if (!m.InGrid(pc.x, pc.y) || m.RoomAt(pc.x, pc.y) != room) continue;
+                Vector3 at = mid + n * (PlinthRelief * 0.5f) + Vector3.up * (PlinthHeight * 0.5f);
+                float full = len + PlinthRelief * 2f;
+                f.finish.grey.Box(at, alongZ ? new Vector3(PlinthRelief, PlinthHeight, full) : new Vector3(full, PlinthHeight, PlinthRelief), 1f);
             }
 
         for (int r = 0; r < H; r++)
@@ -584,7 +634,7 @@ public static partial class WorldBuilder
         }
     }
 
-    // ---------- Après tous les étages : fuites d'eau, Télévisions ----------
+    // ---------- Après tous les étages : Télévisions ----------
 
     static void FinishBlockhausDecor(BlockhausPlan plan, ZoneRefs refs, Transform props, System.Random rnd)
     {
@@ -598,39 +648,7 @@ public static partial class WorldBuilder
             refs.tvSpots.Add((new Vector3(b.center.x, b.max.y + 0.005f, b.center.z), co.transform.eulerAngles.y));
         }
 
-        // Fuites d'eau au plafond.
-        var candidates = new List<(Vector3 ceiling, Vector3 floor)>();
-        for (int s = 0; s < plan.storeys.Length; s++)
-        {
-            Maze m = plan.storeys[s];
-            float y = StoreyLevels[s];
-            foreach (var cell in plan.building)
-            {
-                if (m.Void(cell.x, cell.y) || m.Fixed(cell.x, cell.y)) continue;
-                Room room = m.RoomAt(cell.x, cell.y);
-                if (room != null && (plan.carpeted.Contains(room) || plan.locked.Exists(l => l.storey == s && l.room == room))) continue;
-                Vector3 c = m.Center(cell.x, cell.y) + new Vector3(Rand(rnd, -1.5f, 1.5f), y, Rand(rnd, -1.5f, 1.5f));
-                float ceil = m.Ceil(cell.x, cell.y);
-                candidates.Add((c + Vector3.up * ceil, c));
-            }
-        }
-        Shuffle(candidates, rnd);
-        var leaks = new List<Vector3>();
-        Physics.SyncTransforms();
-        foreach (var (ceiling, floor) in candidates)
-        {
-            if (leaks.Count >= LeaksPerBlockhaus) break;
-            if (leaks.Exists(q => Vector3.Distance(q, floor) < LeakSpacing)) continue;
-            // La goutte tombe sur le sol lui-même (ni meuble, ni tapis en dessous).
-            if (!Physics.Raycast(ceiling + Vector3.down * 0.2f, Vector3.down, out RaycastHit hit, ceiling.y - floor.y + 0.5f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) continue;
-            if (Mathf.Abs(hit.point.y - floor.y) > 0.05f) continue;
-            Vector3 spot = new Vector3(floor.x, floor.y, floor.z);
-            if (plan.rugs.Exists(r => spot.x > r.min.x - 0.4f && spot.x < r.max.x + 0.4f && spot.z > r.min.z - 0.4f && spot.z < r.max.z + 0.4f && Mathf.Abs(r.center.y - spot.y) < 1f)) continue;
-            leaks.Add(spot);
-            WaterLeak.Create(props, ceiling, spot, Rand(rnd, 0f, 2f));
-        }
-        // Ni monticule ni Super Monticule sur une flaque.
-        refs.itemSpots.RemoveAll(p => leaks.Exists(q => Mathf.Abs(q.y - p.y) < 1f && Flat(q - p) < MoundWidth * 0.5f + 0.6f));
+        // V0.7.20 (Note 11) : plus de fuites d'eau ni de flaques.
     }
 
     // ---------- Moquette (Note 13) : damier noir et blanc, texture laineuse ----------

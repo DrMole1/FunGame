@@ -571,7 +571,8 @@ public static partial class WorldBuilder
                     if (!m.InGrid(ni, nj) || m.Void(ni, nj) || m.Reserved(ni, nj) || m.Ceil(ni, nj) >= ceil - 0.01f) continue;
                     Vector3 dir = new Vector3(DI[d], 0f, DJ[d]);
                     Vector3 fc = c + dir * (Cell * 0.5f) + Vector3.up * (ceil + RoofSlab * 0.5f);
-                    kit.walls.Box(fc, d < 2 ? new Vector3(Wall, RoofSlab, Cell + Wall) : new Vector3(Cell + Wall, RoofSlab, Wall), 0.5f);
+                    // V0.7.20 : sans sa face du dessus, que couvre déjà le sol du toit (elles scintillaient l'une contre l'autre).
+                    kit.walls.Box(fc, d < 2 ? new Vector3(Wall, RoofSlab, Cell + Wall) : new Vector3(Cell + Wall, RoofSlab, Wall), 0.5f, 63 & ~(1 << 2));
                 }
                 Room room = m.RoomAt(i, j);
                 if (room == null) continue;
@@ -653,7 +654,7 @@ public static partial class WorldBuilder
 
     static readonly string[][] Furniture =
     {
-        new[] { "Grille", "Menottes", "Latrines", "Caisse" },                                            // cachot
+        new[] { "Grille", "Latrines", "Caisse" },                                                        // cachot (V0.7.20 : sans menottes)
         new[] { "Cible", "Mannequin", "CibleHumaine" },                                                   // salle d'armes (V0.7.18 : sans épées ni masses)
         new[] { "Table", "Chaise", "Chaise", "Chaise", "Cadre", "Tonneau", "Caisse", "TonneauGros" },     // salle de banquet
         new[] { "Banc", "Banc", "CroixOrthodoxe", "Autel", "PierreTombale" },                             // chapelle (V0.7.19 : pierres tombales)
@@ -670,6 +671,9 @@ public static partial class WorldBuilder
             default: return Spot.Floor;
         }
     }
+
+    // Facteur de taille qui double le volume (racine cubique de 2).
+    const float VolumeX2 = 1.26f;
 
     static float ModelHeight(string model)
     {
@@ -693,7 +697,7 @@ public static partial class WorldBuilder
             case "Tonneau": return 1.1f;
             case "TonneauGros": return 1.7f;
             case "Enclume": return 0.9f;
-            case "Puit": return 2.8f;
+            case "Puit": return 2.8f * VolumeX2;     // V0.7.20 (Note 08) : volume doublé
             case "Seau": return 0.45f;
             default: return 1f;
         }
@@ -758,6 +762,7 @@ public static partial class WorldBuilder
                 if (!ok) { Object.Destroy(go); continue; }
                 // Portrait d'un chien (skin) dans les tableaux.
                 if (model == "Cadre") AddPortrait(go.transform, rnd);
+                if (model == "Grille") SinkGrille(go);
                 if (spot != Spot.Hung) { AddPropCollider(go); floorProps.Add(go); }
             }
             // Un seau au sol, près d'un autre objet (V0.7.19 : contre un mur dans une salle étroite).
@@ -775,6 +780,12 @@ public static partial class WorldBuilder
         foreach (var round in plan.rounds) FurnishTower(round, props, rnd);
         DressCastle(m, root, plan, refs, props);
     }
+
+    // V0.7.20 : la grille des cachots entre dans le sol jusqu'à sa barre du bas : ses piques inférieurs (13,7 % de la hauteur du
+    // modèle, sous cette barre) ne se voient plus.
+    const float GrilleSpikes = 0.137f;
+
+    static void SinkGrille(GameObject go) => go.transform.position += Vector3.down * (GameArt.LocalBounds(go.transform).size.y * GrilleSpikes);
 
     static void AddPropCollider(GameObject go)
     {
@@ -1293,6 +1304,7 @@ public static partial class WorldBuilder
                     float target = backX ? wallCoord * back.x : wallCoord * back.z;
                     go.transform.position += back * (target - gap - reach);
                 }
+                if (model == "Grille") SinkGrille(go);
                 if (model == "Cadre") AddPortrait(go.transform, rnd);
                 else AddPropCollider(go);
             }
@@ -1318,7 +1330,7 @@ public static partial class WorldBuilder
             case "G": return "Grille";
             case "L": return "Latrines";
             case "Ma": return "Mannequin";
-            case "Me": return "Menottes";
+            case "Me": return null;                  // V0.7.20 (Note 09) : plus de menottes, même sur un schéma
             case "P": return "Puit";
             case "S": return "Seau";
             case "Ta": return "Table";

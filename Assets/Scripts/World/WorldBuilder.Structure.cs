@@ -233,7 +233,10 @@ public static partial class WorldBuilder
                     if (!m.InGrid(ni, nj) && d == 3 && m.southHeights != null) from = Mathf.Max(from, m.southHeights[i]);
                     if (height - from < 0.05f) continue;
                     Vector3 c = m.Center(i, j) + new Vector3(DI[d], 0f, DJ[d]) * (Cell * 0.5f) + Vector3.up * ((from + height) * 0.5f);
-                    kit.Box(c, d < 2 ? new Vector3(Wall, height - from, Cell + Wall) : new Vector3(Cell + Wall, height - from, Wall));
+                    // V0.7.20 : 2 cm plus mince que les murs qu'elle prolonge : là où elle les double, ses faces passent 1 cm derrière les leurs
+                    // (elles se superposaient : briques et damier scintillaient en haut des murs et sur la tranche des toits).
+                    const float thin = Wall - 0.02f;
+                    kit.Box(c, d < 2 ? new Vector3(thin, height - from, Cell + Wall) : new Vector3(Cell + Wall, height - from, thin));
                 }
             }
     }

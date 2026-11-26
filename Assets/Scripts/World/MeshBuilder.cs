@@ -72,6 +72,65 @@ public class MeshBuilder
         }
     }
 
+    // V0.7.20 : comme WorldMesh, mais avec les normales (lissées) du modèle : une surface courbe (voûte, corniche) est éclairée en
+    // dégradé au lieu de facette par facette. La texture reste projetée selon la face (continue d'une pièce à l'autre).
+    public void WorldMeshSmooth(Vector3[] vertices, int[] triangles, Vector3[] vertexNormals, Matrix4x4 matrix, float texScale)
+    {
+        if (vertexNormals == null || vertexNormals.Length != vertices.Length)
+        {
+            WorldMesh(vertices, triangles, matrix, texScale);
+            return;
+        }
+        Matrix4x4 normalMatrix = matrix.inverse.transpose;
+        for (int k = 0; k + 2 < triangles.Length; k += 3)
+        {
+            int ia = triangles[k], ib = triangles[k + 1], ic = triangles[k + 2];
+            Vector3 a = matrix.MultiplyPoint3x4(vertices[ia]), b = matrix.MultiplyPoint3x4(vertices[ib]), c = matrix.MultiplyPoint3x4(vertices[ic]);
+            Vector3 n = Vector3.Cross(b - a, c - a);
+            if (n.sqrMagnitude < 1e-10f) continue;
+            n.Normalize();
+            Vector3 na = Smooth(normalMatrix, vertexNormals[ia], n), nb = Smooth(normalMatrix, vertexNormals[ib], n), nc = Smooth(normalMatrix, vertexNormals[ic], n);
+            int i0 = Vert(a, na, Project(a, n) * texScale), i1 = Vert(b, nb, Project(b, n) * texScale), i2 = Vert(c, nc, Project(c, n) * texScale);
+            tris.Add(i0); tris.Add(i1); tris.Add(i2);
+        }
+    }
+
+    // V0.7.20 : pan d'un mur rond (centre 'axis') : ses grandes faces (intérieure et extérieure) prennent en chaque sommet la normale
+    // du cylindre (horizontale, depuis l'axe) : la lumière glisse d'un pan à l'autre au lieu de changer d'un coup à chaque jonction.
+    public void WorldMeshRadial(Vector3[] vertices, int[] triangles, Matrix4x4 matrix, float texScale, Vector3 axis)
+    {
+        for (int k = 0; k + 2 < triangles.Length; k += 3)
+        {
+            Vector3 a = matrix.MultiplyPoint3x4(vertices[triangles[k]]), b = matrix.MultiplyPoint3x4(vertices[triangles[k + 1]]), c = matrix.MultiplyPoint3x4(vertices[triangles[k + 2]]);
+            Vector3 n = Vector3.Cross(b - a, c - a);
+            if (n.sqrMagnitude < 1e-10f) continue;
+            n.Normalize();
+            Vector3 g = (a + b + c) / 3f - axis;
+            g.y = 0f;
+            bool curved = Mathf.Abs(n.y) < 0.5f && g.sqrMagnitude > 1e-6f && Mathf.Abs(Vector3.Dot(n, g.normalized)) > 0.9f;
+            Vector3 Radial(Vector3 p)
+            {
+                if (!curved) return n;
+                Vector3 r = p - axis;
+                r.y = 0f;
+                if (r.sqrMagnitude < 1e-8f) return n;
+                r.Normalize();
+                return Vector3.Dot(r, n) < 0f ? -r : r;
+            }
+            int i0 = Vert(a, Radial(a), Project(a, n) * texScale), i1 = Vert(b, Radial(b), Project(b, n) * texScale), i2 = Vert(c, Radial(c), Project(c, n) * texScale);
+            tris.Add(i0); tris.Add(i1); tris.Add(i2);
+        }
+    }
+
+    // Normale du sommet dans le monde ; retournée si elle s'oppose à la face (modèle mal orienté).
+    static Vector3 Smooth(Matrix4x4 normalMatrix, Vector3 local, Vector3 face)
+    {
+        Vector3 w = normalMatrix.MultiplyVector(local);
+        if (w.sqrMagnitude < 1e-10f) return face;
+        w.Normalize();
+        return Vector3.Dot(w, face) < 0f ? -w : w;
+    }
+
     // Boîte alignée sur les axes. 'faces' : masque des faces à générer (bit 0..5 : +X -X +Y -Y +Z -Z).
     public void Box(Vector3 center, Vector3 size, float texScale, int faces = 63)
     {

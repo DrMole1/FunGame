@@ -48,6 +48,19 @@ public static partial class WorldBuilder
             go.AddComponent<BoxCollider>().size = size;
         }
 
+        // V0.7.20 : pan d'un mur rond (Tours, Donjon) : comme Turned, éclairé comme une surface courbe autour de 'axis'.
+        public void TurnedRound(Vector3 center, Vector3 size, float yaw, Vector3 axis, bool collide = true, MeshBuilder mb = null)
+        {
+            if (size.x <= 0.001f || size.y <= 0.001f || size.z <= 0.001f) return;
+            var rot = Quaternion.Euler(0f, yaw, 0f);
+            (mb ?? walls).WorldMeshRadial(UnitCube.vertices, UnitCube.triangles, Matrix4x4.TRS(center, rot, size), 0.5f, axis);
+            if (!collide) return;
+            var go = new GameObject("Bloc");
+            go.transform.SetParent(colliders, false);
+            go.transform.SetPositionAndRotation(center, rot);
+            go.AddComponent<BoxCollider>().size = size;
+        }
+
         // Sol horizontal (dessus seulement) et sa collision (dalle de 'thick' sous la surface).
         public void Floor(Rect r, float y, float thick = 0.5f, MeshBuilder mb = null, bool collide = true)
         {
@@ -201,7 +214,7 @@ public static partial class WorldBuilder
             foreach (Rect p in pieces)
             {
                 Vector3 c = center + outward * (radius - thick * 0.5f) + along * p.center.x + Vector3.up * p.center.y;
-                kit.Turned(c, new Vector3(p.width, p.height, thick), a);
+                kit.TurnedRound(c, new Vector3(p.width, p.height, thick), a, center);
             }
             // Fond noir des meurtrières (on y voit l'obscurité du dehors).
             if (slits != null)
@@ -379,13 +392,19 @@ public static partial class WorldBuilder
         foreach (var c in go.GetComponentsInChildren<Collider>()) Object.Destroy(c);
         glow = bulb.GetComponent<Renderer>();
         var l = AddLight(go.transform, Vector3.down * 0.3f, new Color(1f, 0.78f, 0.55f), intensity, range);
-        go.AddComponent<FlickerLight>().Init(l, glow, rnd.NextDouble() < 0.3);
+        // V0.7.20 : lumière de bougies, vacillante.
+        var flicker = go.AddComponent<FlickerLight>();
+        flicker.Init(l, glow, false);
+        flicker.Candle();
     }
 
     // ---------- Torches (V0.7.13, Château) ----------
 
     // Torche noire (modèle Meshy "Torche", sinon un manche de fer) à flamme blanche lumineuse : accrochée à un mur ('onWall' :
     // 'pos' sur la face du mur, 'facing' vers la pièce) ou posée au sol ('pos' au sol). Elle s'éteint pendant le Couvre Feu.
+    // V0.7.20 (Note 03) : plus de flamme en boule lumineuse au-dessus de la torche : le bout du modèle (sa flamme sculptée,
+    // Resources/Art/Decor/TorcheBout, découpée dans le modèle Meshy) devient blanc lumineux, comme un néon, et éclaire autour.
+    // (Note 08) : volume doublé.
     static void AddTorch(Transform parent, Vector3 pos, Vector3 facing, bool onWall, System.Random rnd)
     {
         var go = new GameObject("Torche");
@@ -393,7 +412,10 @@ public static partial class WorldBuilder
         go.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(facing));
         float height = onWall ? WallTorchHeight : FloorTorchHeight;
         var model = GameArt.SpawnModel("Torche", go.transform, height);
+        Material glow = GameArt.Unlit("BoutTorcheBlanc", new Color(1f, 1f, 0.97f));
+        Renderer bulb = null;
         float top;
+        Vector3 lightAt;
         if (model != null)
         {
             Bounds b = GameArt.LocalBounds(model.transform);
@@ -401,27 +423,47 @@ public static partial class WorldBuilder
             model.transform.localPosition = onWall ? new Vector3(0f, -height * 0.5f, -b.min.z) : Vector3.zero;
             foreach (var r in model.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             top = onWall ? height * 0.5f : height;
+            var mf = model.GetComponentInChildren<MeshFilter>();
+            Mesh tipMesh = Resources.Load<Mesh>("Art/Decor/TorcheBout");
+            if (mf != null && tipMesh != null)
+            {
+                var tip = new GameObject("BoutLumineux");
+                tip.transform.SetParent(mf.transform, false);
+                tip.AddComponent<MeshFilter>().sharedMesh = tipMesh;
+                bulb = tip.AddComponent<MeshRenderer>();
+                bulb.sharedMaterial = glow;
+                bulb.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                Bounds tb = bulb.bounds;
+                lightAt = go.transform.InverseTransformPoint(tb.center) + new Vector3(0f, 0.1f, onWall ? 0.25f : 0f);
+            }
+            else lightAt = new Vector3(0f, top + 0.2f, onWall ? 0.5f : 0f);
             if (!onWall)
             {
                 var col = go.AddComponent<CapsuleCollider>();
                 col.center = Vector3.up * (height * 0.5f);
                 col.height = height;
-                col.radius = 0.12f;
+                col.radius = 0.15f;
             }
         }
         else
         {
             Material iron = GameArt.Lit("TorcheFer", new Color(0.06f, 0.06f, 0.06f), null, 0.3f);
             float y0 = onWall ? -height * 0.5f : 0f;
-            var stick = GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, y0 + height * 0.5f, onWall ? 0.18f : 0f), new Vector3(0.07f, height * 0.5f, 0.07f), iron);
+            var stick = GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, y0 + height * 0.5f, onWall ? 0.18f : 0f), new Vector3(0.09f, height * 0.5f, 0.09f), iron);
             if (onWall) foreach (var c in stick.GetComponentsInChildren<Collider>()) Object.Destroy(c);
             top = y0 + height;
+            // Le bout du bâton, blanc lumineux.
+            var end = GameArt.Prim(PrimitiveType.Cylinder, go.transform, new Vector3(0f, top - 0.08f, onWall ? 0.18f : 0f), new Vector3(0.1f, 0.08f, 0.1f), glow);
+            foreach (var c in end.GetComponentsInChildren<Collider>()) Object.Destroy(c);
+            bulb = end.GetComponent<Renderer>();
+            lightAt = new Vector3(0f, top + 0.2f, onWall ? 0.5f : 0f);
         }
-        var flame = GameArt.Prim(PrimitiveType.Sphere, go.transform, new Vector3(0f, top + 0.12f, onWall ? 0.18f : 0f), new Vector3(0.16f, 0.26f, 0.16f), GameArt.Unlit("FlammeBlanche", new Color(1f, 1f, 0.97f)));
-        foreach (var c in flame.GetComponentsInChildren<Collider>()) Object.Destroy(c);
-        var l = AddLight(go.transform, new Vector3(0f, top + 0.3f, onWall ? 0.5f : 0f), new Color(0.95f, 0.96f, 1f), TorchIntensity * LampDim, TorchRange * LampReach);
-        go.AddComponent<FlickerLight>().Init(l, flame.GetComponent<Renderer>(), rnd.NextDouble() < 0.25);
+        var l = AddLight(go.transform, lightAt, new Color(0.95f, 0.96f, 1f), TorchIntensity * LampDim, TorchRange * LampReach);
+        // V0.7.20 : vacillante, comme une flamme.
+        var flicker = go.AddComponent<FlickerLight>();
+        flicker.Init(l, bulb, false);
+        flicker.Candle();
     }
 
-    const float WallTorchHeight = 0.9f, FloorTorchHeight = 1.7f, TorchIntensity = 1.5f, TorchRange = 10f;
+    const float WallTorchHeight = 0.9f * 1.26f, FloorTorchHeight = 1.7f * 1.26f, TorchIntensity = 1.5f, TorchRange = 10f;
 }

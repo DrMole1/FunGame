@@ -236,6 +236,30 @@ public class FlickerLight : MonoBehaviour
     Renderer bulb;
     float baseIntensity, timer, level = 1f;
     bool off, flickers;
+    // V0.7.20 : lumière de bougie (Château : torches et lustres) : elle vacille sans cesse, doucement et de manière irrégulière,
+    // la source tremble de quelques centimètres et un souffle la fait parfois baisser un instant ; jamais de coupure de néon.
+    bool candle;
+    float seed;
+    Vector3 lightHome;
+
+    public void Candle()
+    {
+        candle = true;
+        flickers = false;
+        seed = Random.Range(0f, 1000f);
+        lightHome = lightSource.transform.localPosition;
+    }
+
+    // Niveau d'une flamme : une ondulation lente, un frémissement rapide, et de temps en temps un souffle (baisse brève).
+    float CandleLevel()
+    {
+        float t = Time.time;
+        float slow = Mathf.PerlinNoise(seed, t * 1.3f) - 0.5f;
+        float quick = Mathf.PerlinNoise(seed + 17.3f, t * 7.5f) - 0.5f;
+        float tremble = Mathf.PerlinNoise(seed + 41.9f, t * 19f) - 0.5f;
+        float gust = Mathf.Clamp01((0.32f - Mathf.PerlinNoise(seed + 83.1f, t * 0.6f)) * 4f);
+        return Mathf.Clamp(0.86f + slow * 0.3f + quick * 0.22f + tremble * 0.1f - gust * 0.3f, 0.45f, 1.1f);
+    }
 
     public void Init(Light l, Renderer bulbRenderer, bool flicker)
     {
@@ -328,6 +352,13 @@ public class FlickerLight : MonoBehaviour
             level = 1f;
             timer = 0f;
             if (bulb != null) bulb.enabled = true;
+        }
+        if (candle)
+        {
+            level = CandleLevel();
+            float t = Time.time * 2.2f;
+            lightSource.transform.localPosition = lightHome + new Vector3(Mathf.PerlinNoise(seed + 5f, t) - 0.5f, Mathf.PerlinNoise(seed + 9f, t) - 0.5f, Mathf.PerlinNoise(seed + 13f, t) - 0.5f) * 0.08f;
+            return;
         }
         if (!flickers) return;
         timer -= Time.deltaTime;

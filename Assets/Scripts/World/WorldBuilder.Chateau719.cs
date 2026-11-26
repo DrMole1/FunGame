@@ -7,9 +7,11 @@ using UnityEngine;
 // - deux cachots ont une cible humaine de plus, un Collier à Laisse (ramassable) autour du cou ;
 // - dans les salles : une corniche de briques noires et blanches (Meshy) sous le plafond, le long des murs, et 5 % du plafond gris
 //   couvert de carreaux de damier blancs ou noirs ; dans les couloirs : des arches de briques (Meshy) ;
+//   V0.7.20 : corniches sur tout le périmètre des salles (Note 04), voûte en berceau faite du haut des arches tout le long des
+//   couloirs (Note 05) ;
 // - tonneaux, cibles humaines, cibles d'archerie, croix, mannequins et pierres tombales : 15 % de chance d'être plus gros (+30 à +80 %
 //   de volume) ; mannequins : 15 % de chance d'avoir une tête de chien (celles du décor de l'Échiquier) ;
-// - menottes posées à plat (Note 09) ; derrière les remparts, sur les toits, des tours décoratives inaccessibles coiffées du toit de
+// - (V0.7.20, Note 09 : plus de menottes) ; derrière les remparts, sur les toits, des tours décoratives inaccessibles coiffées du toit de
 //   Kremlin des anciennes Maisons-Fou (Note 08).
 public static partial class WorldBuilder
 {
@@ -71,7 +73,7 @@ public static partial class WorldBuilder
             RoomCornices(m, room, cornices);
             CeilingTiles(m, room, tilesWhite, tilesBlack, rnd);
         }
-        CorridorArches(m, cornices, rnd);
+        CorridorArches(m, plan, cornices);
         if (!cornices.IsEmpty) GameArt.MeshObject("Z" + m.zone + "_Corniches", root, cornices.Build("Corniches"), GameArt.BrickWall);
         if (!tilesWhite.IsEmpty) GameArt.MeshObject("Z" + m.zone + "_CarreauxBlancs", root, tilesWhite.Build("CarreauxBlancs"), GameArt.Lit("CarreauBlanc", new Color(0.9f, 0.9f, 0.9f), null, 0.3f));
         if (!tilesBlack.IsEmpty) GameArt.MeshObject("Z" + m.zone + "_CarreauxNoirs", root, tilesBlack.Build("CarreauxNoirs"), GameArt.Lit("CarreauNoir", new Color(0.07f, 0.07f, 0.07f), null, 0.3f));
@@ -159,6 +161,10 @@ public static partial class WorldBuilder
         return true;
     }
 
+    // Cou du modèle CibleHumaine (Resources/Art/CibleHumaine.fbx) : la section la plus étroite entre les épaules et la tête, en
+    // fractions de la hauteur du modèle (x, z : depuis le centre de son encombrement ; y : depuis sa base).
+    static readonly Vector3 CollarNeck = new Vector3(0.010f, 0.779f, -0.0773f);
+
     // Deux cachots ont une cible humaine de plus, un Collier à Laisse au cou (ramassable : GameSession, à chaque manche).
     static void AddCollarTargets(Maze m, ChateauPlan plan, Transform props, ZoneRefs refs, System.Random rnd)
     {
@@ -187,9 +193,12 @@ public static partial class WorldBuilder
                 }
                 AddPropCollider(go);
                 Physics.SyncTransforms();
-                Bounds b = WorldBounds(go.transform);
-                // Au cou : sous la tête (un sac d'environ 0,4 m).
-                refs.collarSpots.Add(new Vector3(b.center.x, b.max.y - 0.42f, b.center.z));
+                // V0.7.20 (Note 02) : centré sur le cou du modèle (mesuré dans le repère du FBX : 15 cm en arrière du centre de la
+                // cible, au bas de la tête), l'anneau posé juste sous le menton.
+                Bounds lb = GameArt.LocalBounds(go.transform);
+                float h = lb.size.y;
+                Vector3 neck = go.transform.TransformPoint(new Vector3(lb.center.x + CollarNeck.x * h, lb.min.y + CollarNeck.y * h, lb.center.z + CollarNeck.z * h));
+                refs.collarSpots.Add(neck - Vector3.up * 0.05f);
                 done++;
                 break;
             }
@@ -197,34 +206,61 @@ public static partial class WorldBuilder
     }
 
     // Corniche (modèle Meshy normalisé : x le long du mur, y vers le haut, z en profondeur), retournée sous le plafond, le long de
-    // chaque mur plein de la salle.
+    // chaque mur de la salle. V0.7.20 (Note 04) : sur tout le périmètre : les tronçons se rejoignent d'une cellule à l'autre (plus de
+    // vide à chaque jonction de cellules), font le tour des angles saillants et passent au-dessus des ouvertures quand un linteau
+    // monte jusqu'au plafond de la salle.
     const float CorniceHeight = 0.85f, CorniceDepth = 0.55f;
 
     static void RoomCornices(Maze m, Room room, MeshBuilder mb)
     {
         Mesh mesh = Resources.Load<Mesh>("Art/Decor/Corniche");
         if (mesh == null) return;
-        Vector3[] v = mesh.vertices;
+        Vector3[] v = mesh.vertices, vn = mesh.normals;
         int[] t = mesh.triangles;
+        // Côté 'd' de la cellule bordé (mur plein, ou ouverture sous un linteau qui monte jusqu'au plafond de la salle).
+        bool Lined(Vector2Int c, int d)
+        {
+            if (!m.InGrid(c.x, c.y) || m.RoomAt(c.x, c.y) != room) return false;
+            int ni = c.x + DI[d], nj = c.y + DJ[d];
+            if (m.InGrid(ni, nj) && m.RoomAt(ni, nj) == room) return false;
+            if (HasWall(m, c.x, c.y, d)) return true;
+            return m.InGrid(ni, nj) && !m.Void(ni, nj) && m.Ceil(ni, nj) <= room.ceil - CorniceHeight;
+        }
         foreach (var cell in room.cells)
             for (int d = 0; d < 4; d++)
             {
-                int ni = cell.x + DI[d], nj = cell.y + DJ[d];
-                if (m.InGrid(ni, nj) && m.RoomAt(ni, nj) == room) continue;
-                if (!HasWall(m, cell.x, cell.y, d)) continue;
-                Vector3 n = new Vector3(DI[d], 0f, DJ[d]);
-                Vector3 face = m.Center(cell.x, cell.y) + n * (Cell * 0.5f - Wall * 0.5f);
+                if (!Lined(cell, d)) continue;
+                Vector3 n = new Vector3(DI[d], 0f, DJ[d]), side = new Vector3(DJ[d], 0f, DI[d]);
+                // Bout de chaque côté : jusqu'au bord de la cellule si le mur continue dans la cellule voisine de la salle, jusqu'au
+                // mur perpendiculaire dans un angle rentrant, au-delà du poteau dans un angle saillant (le tronçon d'en face y arrive).
+                float[] ends = new float[2];
+                for (int e = 0; e < 2; e++)
+                {
+                    float sg = e == 0 ? -1f : 1f;
+                    int sd = SideDir(side * sg);
+                    var nb = new Vector2Int(cell.x + Mathf.RoundToInt(side.x * sg), cell.y + Mathf.RoundToInt(side.z * sg));
+                    bool sameRoom = m.InGrid(nb.x, nb.y) && m.RoomAt(nb.x, nb.y) == room && !HasWall(m, cell.x, cell.y, sd);
+                    if (!sameRoom) ends[e] = Cell * 0.5f - Wall * 0.5f;
+                    else if (Lined(nb, d)) ends[e] = Cell * 0.5f;
+                    else ends[e] = Cell * 0.5f + Wall * 0.5f + CorniceDepth;
+                }
+                float len = ends[0] + ends[1], shift = (ends[1] - ends[0]) * 0.5f;
+                Vector3 face = m.Center(cell.x, cell.y) + n * (Cell * 0.5f - Wall * 0.5f) + side * shift;
                 Quaternion rot = Quaternion.LookRotation(-n) * Quaternion.Euler(0f, 0f, 180f);
                 Vector3 at = face - n * (CorniceDepth * 0.5f) + Vector3.up * room.ceil;
-                mb.WorldMesh(v, t, Matrix4x4.TRS(at, rot, new Vector3(Cell - Wall, CorniceHeight, CorniceDepth)), 0.5f);
+                mb.WorldMeshSmooth(v, t, vn, Matrix4x4.TRS(at, rot, new Vector3(len, CorniceHeight, CorniceDepth)), 0.5f);
             }
     }
+
+    // Côté (0 +X, 1 -X, 2 +Z, 3 -Z) d'une direction horizontale unitaire.
+    static int SideDir(Vector3 dir) => Mathf.Abs(dir.x) > 0.5f ? (dir.x > 0f ? 0 : 1) : (dir.z > 0f ? 2 : 3);
 
     // 5 % du plafond gris de la salle couvert de carreaux de damier (1,25 m), blancs ou noirs, juste sous lui.
     static void CeilingTiles(Maze m, Room room, MeshBuilder white, MeshBuilder black, System.Random rnd)
     {
         const int per = 4;
-        float tile = Cell / per, y = room.ceil - 0.012f;
+        // V0.7.20 : 5 cm sous la hauteur du plafond (lui-même 2 cm plus bas) : à 1 cm, ils scintillaient avec lui de loin.
+        float tile = Cell / per, y = room.ceil - 0.05f;
         foreach (var cell in room.cells)
         {
             Vector3 c = m.Center(cell.x, cell.y);
@@ -239,24 +275,42 @@ public static partial class WorldBuilder
     }
 
     // Arches de briques (Meshy, normalisée : x en largeur, y en hauteur, z en épaisseur) dans les couloirs du Château, d'un mur à
-    // l'autre, au milieu de chaque cellule de couloir droit.
-    static void CorridorArches(Maze m, MeshBuilder mb, System.Random rnd)
+    // l'autre. V0.7.20 (Note 05) : seulement le haut de l'arche (Resources/Art/Decor/ArcheCouloirHaut : la voûte au-dessus de la
+    // naissance de l'arc, sans ses pieds, découpée dans le modèle Meshy), élargi d'un mur à l'autre et répété tout du long : une voûte
+    // en berceau couvre tout le plafond des couloirs (deux voûtes croisées aux carrefours et aux angles).
+    const int VaultPiecesPerCell = 3;
+    const float VaultShare = 0.4f;
+
+    static void CorridorArches(Maze m, ChateauPlan plan, MeshBuilder mb)
     {
-        Mesh mesh = Resources.Load<Mesh>("Art/Decor/ArcheCouloir");
+        Mesh mesh = Resources.Load<Mesh>("Art/Decor/ArcheCouloirHaut");
         if (mesh == null) return;
-        Vector3[] v = mesh.vertices;
+        Vector3[] v = mesh.vertices, vn = mesh.normals;
         int[] t = mesh.triangles;
+        float piece = Cell / VaultPiecesPerCell;
         for (int i = 0; i < m.N; i++)
             for (int j = 0; j < m.N; j++)
             {
                 if (!m.InStructure(i, j) || m.Void(i, j) || m.Reserved(i, j) || m.Fixed(i, j) || m.RoomAt(i, j) != null) continue;
-                // Couloir traversant (ouvert aux deux bouts, un mur au moins sur le côté) : l'arche va d'un côté à l'autre.
-                bool eastWest = (HasWall(m, i, j, 0) || HasWall(m, i, j, 1)) && !HasWall(m, i, j, 2) && !HasWall(m, i, j, 3);
-                bool northSouth = (HasWall(m, i, j, 2) || HasWall(m, i, j, 3)) && !HasWall(m, i, j, 0) && !HasWall(m, i, j, 1);
-                if (!eastWest && !northSouth) continue;
-                Quaternion rot = eastWest ? Quaternion.identity : Quaternion.Euler(0f, 90f, 0f);
-                float ceil = m.Ceil(i, j);
-                mb.WorldMesh(v, t, Matrix4x4.TRS(m.Center(i, j), rot, new Vector3(Cell - Wall, ceil, 0.55f)), 0.5f);
+                if (plan.yards.Contains(new Vector2Int(i, j))) continue;
+                bool runsZ = !HasWall(m, i, j, 2) || !HasWall(m, i, j, 3);
+                bool runsX = !HasWall(m, i, j, 0) || !HasWall(m, i, j, 1);
+                if (!runsZ && !runsX) continue;
+                float ceil = m.Ceil(i, j), height = ceil * VaultShare;
+                Vector3 c = m.Center(i, j) + Vector3.up * (ceil - height);
+                for (int axis = 0; axis < 2; axis++)
+                {
+                    bool alongZ = axis == 0;
+                    if (alongZ ? !runsZ : !runsX) continue;
+                    // La voûte s'appuie sur les deux murs du couloir (ou, sans mur, d'un bord à l'autre de la cellule).
+                    Quaternion rot = alongZ ? Quaternion.identity : Quaternion.Euler(0f, 90f, 0f);
+                    Vector3 run = alongZ ? Vector3.forward : Vector3.right;
+                    for (int k = 0; k < VaultPiecesPerCell; k++)
+                    {
+                        Vector3 at = c + run * (-Cell * 0.5f + piece * (k + 0.5f));
+                        mb.WorldMeshSmooth(v, t, vn, Matrix4x4.TRS(at, rot, new Vector3(Cell - Wall, height, piece + 0.01f)), 0.5f);
+                    }
+                }
             }
     }
 
@@ -298,7 +352,7 @@ public static partial class WorldBuilder
             for (int k = 0; k < sides; k++)
             {
                 float a = (k + 0.5f) * 360f / sides;
-                kit.Turned(p + Quaternion.Euler(0f, a, 0f) * Vector3.forward * (radius - 0.3f) + Vector3.up * (baseY + body * 0.5f), new Vector3(chord, body, 0.6f), a, false);
+                kit.TurnedRound(p + Quaternion.Euler(0f, a, 0f) * Vector3.forward * (radius - 0.3f) + Vector3.up * (baseY + body * 0.5f), new Vector3(chord, body, 0.6f), a, p, false);
             }
             var roof = GameArt.SpawnModel("ToitKremlin", root, 1f);
             if (roof == null) continue;
