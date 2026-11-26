@@ -102,6 +102,8 @@ public class OrbitCamera : MonoBehaviour
     public static float DeathView = -1f;
     // Tué par La Tête de Cloche : le corps est traîné, la caméra reste sur l'endroit de la mort.
     public static Vector3? DeathSpot;
+    // V0.7.19 (Note 01) : mort dans un ravin : la caméra s'arrête là où elle était et regarde le personnage tomber au loin.
+    public static Vector3? FallWatchEye;
     public const float DeathViewDuration = 3.5f;
     public static float Yaw { get; private set; }
     // Dans le Canon (V0.4.6) : vue à la première personne depuis ce point, légèrement zoomée.
@@ -420,6 +422,13 @@ public class OrbitCamera : MonoBehaviour
         {
             HideTarget(null);
             FirstPerson = false;
+            if (FallWatchEye.HasValue)
+            {
+                transform.position = FallWatchEye.Value;
+                Vector3 look = target.position - FallWatchEye.Value;
+                if (look.sqrMagnitude > 0.01f) transform.rotation = Quaternion.LookRotation(look, Vector3.up);
+                return;
+            }
             float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(DeathView / DeathViewDuration));
             Vector3 corpse = (DeathSpot ?? target.position) + Vector3.down * 0.7f;
             // Spirale lente vers le haut, le regard rivé sur le corps.

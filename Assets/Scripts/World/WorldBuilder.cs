@@ -111,6 +111,12 @@ public static partial class WorldBuilder
         // V0.6.13 (chapitre 10.3) : Cloches Décoratives suspendues tout en haut des salles les plus hautes (zones 2+) :
         // position de la base de la Cloche et longueur de la chaîne jusqu'au plafond.
         public readonly List<(Vector3 pos, float chain)> bellSpots = new List<(Vector3, float)>();
+        // V0.7.19 (11.3) : Colliers à Laisse ramassables, au cou des cibles humaines de deux cachots du Château.
+        public readonly List<Vector3> collarSpots = new List<Vector3>();
+        // V0.7.19 (11.4) : deux Télévisions ramassables posées sur des commodes de chaque Blockhaus (base, orientation).
+        public readonly List<(Vector3 pos, float yaw)> tvSpots = new List<(Vector3, float)>();
+        // V0.7.19 (11.4) : pommeaux de douche interactifs des baignoires du Blockhaus.
+        public readonly List<ShowerHead> showers = new List<ShowerHead>();
         internal Maze maze;
 
         // Zone loin de la caméra : ni dessinée ni animée. Ses collisions restent, pour que les règles du jeu (lignes de vue des
@@ -1471,11 +1477,13 @@ public static partial class WorldBuilder
         statueLog = null;
         if (castle != null)
         {
-            FurnishCastle(m, root, castle);
+            FurnishCastle(m, root, castle, refs);
             CourtyardSpots(m, refs, castle.halls, castle.rnd);
         }
         MarkIntangibleSpheres(root);
         yield return null;
+        // V0.7.19 (Note 12) : aucun monticule dans un ravin ni sur un pont, même en partie.
+        refs.itemSpots.RemoveAll(p => OverRavineOrBridge(refs, p, MoundWidth * 0.5f + 0.3f));
         var supers = FindSuperMoundSpots(m, refs, new System.Random(seed * 67 + zone * 389));
         while (supers.MoveNext()) yield return null;
         refs.lowestFloor = Mathf.Min(-14f, structureBottom);
@@ -2341,11 +2349,25 @@ public static partial class WorldBuilder
                 if (refs.superSpots.Count >= MaxSuperSpots) break;
                 if (++checks % SpotChecksPerStep == 0) yield return null;
                 if (refs.superSpots.Exists(q => Flat(q - p) < SuperSpacing)) continue;
-                if (!SuperMoundFits(p)) continue;
+                if (!SuperMoundFits(p) || OverRavineOrBridge(refs, p, SuperMoundReach)) continue;
                 refs.superSpots.Add(p);
                 if (priority) refs.superPriority++;
             }
         floorEyes = null;
+    }
+
+    // V0.7.19 (Note 12) : un point de l'emprise (disque de rayon 'radius' autour de 'p') est au-dessus d'un ravin, ou le sol sous
+    // elle est le tablier d'un pont suspendu.
+    static bool OverRavineOrBridge(ZoneRefs refs, Vector3 p, float radius)
+    {
+        for (int k = 0; k <= 8; k++)
+        {
+            Vector3 q = k == 0 ? p : p + Quaternion.Euler(0f, k * 45f, 0f) * Vector3.forward * radius;
+            if (refs.ravineAt != null && refs.ravineAt(q)) return true;
+            if (Physics.Raycast(q + Vector3.up * 1.5f, Vector3.down, out RaycastHit hit, 4f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+                && (SuspendedBridge.IsDeck(hit.collider) || hit.collider.GetComponentInParent<SuspendedBridge>() != null)) return true;
+        }
+        return false;
     }
 
     static bool SuperMoundFits(Vector3 p)

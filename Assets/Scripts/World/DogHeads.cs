@@ -46,6 +46,26 @@ public static class DogHeads
         col.radius = 0.4f;
     }
 
+    // V0.7.19 (11.3) : tête droite, la base du cou en 'neck' (repère de 'parent'), le museau vers son avant (+Z) ; 'size' : sa hauteur.
+    public static void SpawnUpright(Transform parent, Vector3 neck, float size, System.Random rnd)
+    {
+        if (variants == null) Load();
+        if (variants.Count == 0) return;
+        Variant v = variants[rnd.Next(variants.Count)];
+        var go = new GameObject("TeteDeChien");
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = neck;
+        go.transform.localRotation = Quaternion.identity;
+        go.transform.localScale = Vector3.one * size;
+        var model = new GameObject("Tete");
+        model.transform.SetParent(go.transform, false);
+        model.AddComponent<MeshFilter>().sharedMesh = v.mesh;
+        var r = model.AddComponent<MeshRenderer>();
+        r.sharedMaterial = v.material;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+    }
+
     static void Load()
     {
         variants = new List<Variant>();

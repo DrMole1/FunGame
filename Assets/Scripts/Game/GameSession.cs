@@ -282,6 +282,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         beaconMessages.Clear();
         bellZones.Clear();
+        tvZones.Clear();
         ClearNightmareKills();
         beacons.Clear();
         bellObsession = -1;
@@ -534,7 +535,19 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             if (!dugMounds.Contains(id)) mounds[id] = moundPool.Count > 0 ? moundPool.Pop().Reuse(id, loot, spots[k], yaw) : Mound.Create(itemsRoot, id, loot, spots[k], yaw);
             else if (!picked.Contains(id) && loot != ItemType.Reveil) items[id] = ItemPickup.Create(itemsRoot, id, loot, spots[k]);
         }
+        // V0.7.19 (11.3) : les Colliers à Laisse au cou des cibles humaines de deux cachots du Château, ramassables (de retour à
+        // chaque manche, comme les monticules).
+        for (int k = 0; k < zone.collarSpots.Count; k++)
+        {
+            int id = zone.index * MoundIdsPerZone + CollarIdOffset + k;
+            if (picked.Contains(id) || items.ContainsKey(id)) continue;
+            var collar = ItemPickup.Create(itemsRoot, id, ItemType.Collier, zone.collarSpots[k]);
+            // Il ne flotte pas : il entoure le cou.
+            foreach (var bob in collar.GetComponentsInChildren<Bobbing>()) Destroy(bob);
+        }
     }
+
+    const int CollarIdOffset = 9900;
 
     const int MoundIdsPerZone = 10000;
 
@@ -1199,6 +1212,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         deathAt = -100f;
         deathFxAt = -1f;
         OrbitCamera.DeathView = -1f;
+        OrbitCamera.FallWatchEye = null;
         hud.ClearDeath();
         GameAudio.CancelDeathSequence();
         status.SetDead(false);
@@ -1304,6 +1318,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     void KillLocal(string cause, float fxDelay = 0f)
     {
         if (status.Dead) return;
+        OrbitCamera.FallWatchEye = null;
         status.SetDead(true);
         zeroHpAt = Time.time;
         EndTeleport(false);
@@ -2115,7 +2130,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         foreach (int id in obsessedNow) obsessedBy.Add(id);
         // Une Tête de Cloche dont le joueur s'est libéré pourra de nouveau lui donner le zoom brusque.
         if (teteStruck.Count > 0) teteStruck.RemoveWhere(id => !obsessedBy.Contains(id));
-        Vector3? bell = BellLook();
+        Vector3? bell = BellLook() ?? TvLook();
         OrbitCamera.ForcedLook = nearest != null ? nearest.transform.position + Vector3.up * (nearest is TeteDeCloche ? nearest.EyesLocal.y : nearest.ChestHeight) : bell;
         FilmGrain.Obsessed = OrbitCamera.ForcedLook.HasValue;
         // Note 13 (V0.6.13) : l'attention attirée par un double aboiement passe après les Cloches.
@@ -2197,6 +2212,38 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             }
         }
         return target;
+    }
+
+    // V0.7.19 (7.4) : Télévision chargée (une cloche balance sur son écran). Un joueur devant l'écran (du côté où il regarde) qui le
+    // voit sans obstacle en est obnubilé : la caméra le fixe, et à chaque balancement il entend la cloche (depuis l'écran) et perd
+    // de la sérénité. Calculé chez chaque joueur (l'état des Télévisions découle des Balises, déjà partagées) : rien sur le réseau.
+    readonly Dictionary<TvScreen, int> tvSwingsSeen = new Dictionary<TvScreen, int>();
+
+    Vector3? TvLook()
+    {
+        if (status.Dead || Teleporting || InKennel || !net.InGame || Time.time < bellImmuneUntil) { tvSwingsSeen.Clear(); return null; }
+        Vector3 head = player.transform.position + Vector3.up * 0.6f;
+        TvScreen watched = null;
+        float best = float.MaxValue;
+        foreach (var tv in TvScreen.All)
+        {
+            if (tv == null || !tv.Charged) { if (tv != null) tvSwingsSeen.Remove(tv); continue; }
+            Vector3 point = tv.ScreenPoint;
+            bool facing = Vector3.Dot(head - point, tv.ScreenNormal) > 0.05f && BellInSight(point);
+            if (!facing) { tvSwingsSeen.Remove(tv); continue; }
+            // Obnubilé depuis ce tintement : les suivants le frappent.
+            if (!tvSwingsSeen.TryGetValue(tv, out int seen)) seen = tv.Swings;
+            if (tv.Swings > seen)
+            {
+                GameAudio.Play3D("bell_deco", point, 1f, GameRules.BellSightRange, 0f);
+                OrbitCamera.BellStrike();
+                LoseBellSerenity();
+            }
+            tvSwingsSeen[tv] = tv.Swings;
+            float d = (point - head).sqrMagnitude;
+            if (d < best) { best = d; watched = tv; }
+        }
+        return watched != null ? watched.ScreenPoint : (Vector3?)null;
     }
 
     void LoseBellSerenity()

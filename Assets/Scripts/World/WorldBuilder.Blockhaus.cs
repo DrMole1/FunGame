@@ -20,6 +20,8 @@ using UnityEngine;
 //   sans éclairage. Y tomber tue (GameSession). Plinthes autour des bouts de murs et des tableaux des portes (Note 01).
 //   V0.7.16 (Note 01) : la façade du Blockhaus (sa face sur le ravin) est grise (béton), ses autres murs gardent le damier ; la paroi
 //   d'en face, côté Échiquier, n'a plus de fenêtre (ni factice, ni percée dans son mur) : seuls les départs des ponts l'ouvrent.
+// V0.7.19 : appartements sur schéma, nouveaux objets, moquettes, tapis, fuites d'eau, pommeaux de douche, bancs, Télévisions : voir
+//   WorldBuilder.Blockhaus719. Deux fois plus de tuyaux et de boîtes aux lettres (Note 06).
 public static partial class WorldBuilder
 {
     // V0.7.14 : 10 m de profondeur (le plus bas étage), 20 m de hauteur ; ravin de 15 m (3 cellules).
@@ -48,6 +50,12 @@ public static partial class WorldBuilder
         public Maze[] storeys;
         public readonly List<LockedRoom> locked = new List<LockedRoom>();
         public readonly List<(Vector3 a, Vector3 b)> bridges = new List<(Vector3, Vector3)>();
+        // V0.7.19 : appartements sur schéma (schéma, quarts de tour), commodes libres (Télévisions), tapis posés, pièces à moquette.
+        public readonly Dictionary<Room, (int layout, int turns)> templated = new Dictionary<Room, (int, int)>();
+        public readonly List<GameObject> commodes = new List<GameObject>();
+        public readonly List<Bounds> rugs = new List<Bounds>();
+        public readonly HashSet<Room> carpeted = new HashSet<Room>();
+        public int[] benchQuotas;
     }
 
     // Avant l'Échiquier : structure, ravin, cages d'escalier, puis les 3 étages (celui du Hub dans la grille de la zone), les
@@ -99,6 +107,8 @@ public static partial class WorldBuilder
         };
         bool Inside(int i, int j) => plan.building.Contains(new Vector2Int(i, j));
         var bridgeCells = new HashSet<Vector2Int>();
+        // V0.7.19 : 3 à 5 appartements sur schéma, répartis entre les étages.
+        var templates = PickBlockTemplates(rnd);
         for (int s = 0; s < StoreyLevels.Length; s++)
         {
             Maze m = main;
@@ -131,9 +141,11 @@ public static partial class WorldBuilder
                     if (s != HubStorey && !m.InStructure(i, j)) { m.voidCell[i, j] = true; m.silentVoid[i, j] = true; }
                     if (doubleBelow[i, j]) { m.voidCell[i, j] = true; m.silentVoid[i, j] = true; }
                 }
+            PrepareBlockTemplates(style, templates, s);
             Generate(m, rnd, style, Inside);
             foreach (Room room in m.rooms)
                 if (room.cells.Count > 0 && Inside(room.cells[0].x, room.cells[0].y)) room.plain = true;
+            TakeBlockTemplates(m, style, templates, plan, s, rnd);
             // V0.7.12 : plus de bifurcations, les couloirs voisins s'ouvrent souvent les uns sur les autres.
             foreach (var c in plan.building)
                 foreach (int d in new[] { 0, 2 })
@@ -148,6 +160,7 @@ public static partial class WorldBuilder
                 foreach (Room room in m.rooms)
                 {
                     if (room.cells.Count == 0 || !Inside(room.cells[0].x, room.cells[0].y) || m.Fixed(room.cells[0].x, room.cells[0].y) || rnd.NextDouble() >= 0.2) continue;
+                    if (plan.templated.ContainsKey(room)) continue;   // V0.7.19 : un étage de haut, comme son schéma
                     if (room.cells.Exists(c => main.neutralRoom.Contains(c) || Mathf.Abs(c.x - main.doorCol) <= 2 && c.y >= n - 5)) continue;
                     room.ceil = StoreyHeight * 2f;
                     foreach (var c in room.cells) doubleBelow[c.x, c.y] = true;
@@ -196,7 +209,7 @@ public static partial class WorldBuilder
                 foreach (var c in site.crossings) bridgeCells.Add(c.At(RavineCells + 1));
             }
             // V0.7.12 : appartements fermés sous cadenas (leur porte est leur seule entrée).
-            LockRooms(m, s, plan.wellCells, plan.locked, rnd, plan.building, s == HubStorey ? bridgeCells : null);
+            LockRooms(m, s, plan.wellCells, plan.locked, rnd, plan.building, s == HubStorey ? bridgeCells : null, plan.templated);
             // Les autres portes : 40 % d'arches (sans battant).
             foreach (var e in m.doorEdges)
                 if (!plan.locked.Exists(l => l.storey == s && l.edge.Equals(e)) && rnd.NextDouble() < BlockArchChance) m.archEdges.Add(e);
@@ -260,6 +273,9 @@ public static partial class WorldBuilder
         var props = new GameObject("Decor_Blockhaus_Z" + zone).transform;
         props.SetParent(root, false);
         int doorIds = 0;
+        // V0.7.19 : 4 bancs par structure, répartis entre les étages (le dernier reprend ceux qui n'ont pas trouvé de place).
+        plan.benchQuotas = new int[storeys.Length];
+        for (int k = 0; k < BenchesPerBlockhaus; k++) plan.benchQuotas[rnd.Next(storeys.Length)]++;
         for (int s = 0; s < storeys.Length; s++)
         {
             Maze m = storeys[s];
@@ -273,10 +289,13 @@ public static partial class WorldBuilder
                 refs.lockedDoors.Add(door);
             }
             var finish = new Kit(props, colliders, "Z" + zone + "_Finitions" + s);
-            DecorateStorey(m, plan, y, props, finish, refs, rnd, s == HubStorey, plan.locked.FindAll(l => l.storey == s));
+            var carpet = DecorateStorey(m, plan, y, props, finish, refs, rnd, s == HubStorey, plan.locked.FindAll(l => l.storey == s), s);
             finish.Flush();
+            if (!carpet.IsEmpty) GameArt.MeshObject("Z" + zone + "_Moquettes" + s, props, carpet.Build("Moquettes" + s), CarpetMaterial);
             yield return null;
         }
+        // V0.7.19 : Télévisions sur les commodes, fuites d'eau.
+        FinishBlockhausDecor(plan, refs, props, rnd);
 
         foreach (var (a, b) in plan.bridges) refs.bridges.Add(SuspendedBridge.Create(props, zone * 100 + 60 + refs.bridges.Count, a, b));
         // Dehors (luminosité ambiante relevée) : dans le ravin ; y tomber tue.
@@ -356,9 +375,11 @@ public static partial class WorldBuilder
     // Environ 5 % des appartements (hors Neutral Room, appartements de double hauteur, voisins des cages d'escalier et des ponts)
     // n'ont plus qu'une porte, sous cadenas : toutes leurs autres ouvertures (portes, passages vers les appartements voisins, fenêtres)
     // sont murées. Un appartement par lequel il faut passer pour atteindre d'autres pièces n'est jamais fermé.
-    static void LockRooms(Maze m, int storey, HashSet<Vector2Int> wellCells, List<LockedRoom> locked, System.Random rnd, HashSet<Vector2Int> building, HashSet<Vector2Int> keep)
+    static void LockRooms(Maze m, int storey, HashSet<Vector2Int> wellCells, List<LockedRoom> locked, System.Random rnd, HashSet<Vector2Int> building, HashSet<Vector2Int> keep,
+        Dictionary<Room, (int, int)> templated = null)
     {
-        var rooms = m.rooms.FindAll(r => r.cells.Count > 0 && building.Contains(r.cells[0]));
+        // V0.7.19 : jamais un appartement sur schéma (il garde son mobilier).
+        var rooms = m.rooms.FindAll(r => r.cells.Count > 0 && building.Contains(r.cells[0]) && (templated == null || !templated.ContainsKey(r)));
         Shuffle(rooms, rnd);
         foreach (Room room in rooms)
         {
@@ -589,7 +610,8 @@ public static partial class WorldBuilder
 
     const float StairwellPillar = 1.2f;
 
-    static readonly string[] BlockhausFurniture = { "Lavabo", "Douche", "Armoire", "Urinoir", "Baignoire" };
+    // V0.7.19 : commode, luminaire, vieux canapé, table (et ses chaises) en plus.
+    static readonly string[] BlockhausFurniture = { "Lavabo", "Douche", "Armoire", "Urinoir", "Baignoire", "Commode", "Luminaire", "Canape", "TableBlockhaus" };
 
     // V0.7.13 (Note 23) : baignoires 50 % plus grandes (on peut y entrer) ; V0.7.14 (Note 06) : encore 30 % plus grandes.
     static float BlockhausModelHeight(string model) =>
@@ -614,14 +636,17 @@ public static partial class WorldBuilder
         return roll < 0.05 ? 4 : roll < 0.15 ? 3 : roll < 0.35 ? 2 : 1;
     }
 
-    const float PipeChance = 0.2f, MailboxChance = 0.1f, PanelChance = 0.035f;
+    // V0.7.19 (Note 06) : deux fois plus de tuyaux et de boîtes aux lettres.
+    const float PipeChance = 0.4f, MailboxChance = 0.2f, PanelChance = 0.035f;
 
     // Étage d'un Blockhaus : néons des couloirs, appartements éclairés trois fois sur quatre, plinthes et encadrements gris, néons
     // au-dessus des fenêtres du ravin, mobilier soviétique contre les murs (modèles Meshy) ; dans les couloirs, boîtes aux lettres,
     // tuyaux et tableaux électriques (ceux de la Control Room) ; quelques yeux, emplacements des monticules.
-    static void DecorateStorey(Maze m, BlockhausPlan plan, float y, Transform props, Kit finish, ZoneRefs refs, System.Random rnd, bool hubStorey, List<LockedRoom> lockedHere)
+    static MeshBuilder DecorateStorey(Maze m, BlockhausPlan plan, float y, Transform props, Kit finish, ZoneRefs refs, System.Random rnd, bool hubStorey, List<LockedRoom> lockedHere, int storey)
     {
         var placed = new List<Vector3>();
+        int firstSpot = refs.itemSpots.Count;
+        var corridorCells = new List<Vector2Int>();
         // Faces de mur déjà garnies (boîte aux lettres, tuyau, tableau) : une seule chose par face.
         var usedFaces = new HashSet<(int, int, int)>();
         bool FreeFace(int i, int j, int d) => HasWall(m, i, j, d) && !m.HasWallHole(i, j, d) && !usedFaces.Contains((i, j, d));
@@ -691,6 +716,7 @@ public static partial class WorldBuilder
                     AddWallNeon(props, c + dir * (Cell * 0.5f + Wall * 0.5f + 0.06f) + Vector3.up * (WindowHigh + 0.45f), dir, 8f, 1f, rnd, RavineNeonScale);
             }
             if (room != null || clear) continue;
+            corridorCells.Add(cell);
             // Boîtes aux lettres (couloirs uniquement), en colonnes contre un mur plein (à toutes les hauteurs).
             if (rnd.NextDouble() < MailboxChance)
             {
@@ -761,6 +787,7 @@ public static partial class WorldBuilder
         }
         ControlDecor.EndPipes();
         PlinthCorners(m, plan, y, finish);
+        var f = new StoreyFurnish { m = m, plan = plan, y = y, props = props, finish = finish, refs = refs, placed = placed, storey = storey };
         foreach (Room room in m.rooms)
         {
             if (room.cells.Count == 0 || !plan.building.Contains(room.cells[0]) || m.Fixed(room.cells[0].x, room.cells[0].y)) continue;
@@ -768,56 +795,28 @@ public static partial class WorldBuilder
             if (rnd.NextDouble() >= 0.25) AddLamp(props, RoomFloorCenter(m, room, y) + Vector3.up * room.ceil, 10f, 1.3f, rnd);
             // L'appartement fermé garde le sol libre pour son contenu.
             if (lockedHere.Exists(l => l.room == room)) continue;
-            int count = 1 + rnd.Next(room.cells.Count + 1);
-            for (int k = 0; k < count; k++)
-            {
-                string model = BlockhausFurniture[rnd.Next(BlockhausFurniture.Length)];
-                var cell = room.cells[rnd.Next(room.cells.Count)];
-                int d = rnd.Next(4);
-                var go = GameArt.SpawnModelFloor(model, props, BlockhausModelHeight(model));
-                if (go == null) continue;
-                float mount = BlockhausMountHeight(model);
-                float bottom = mount > 0f ? mount - GameArt.LocalBounds(go.transform).size.y * 0.5f : 0f;
-                // Au-dessus des plinthes, ou devant elles (rien n'entre dans le mur).
-                float gap = bottom < PlinthHeight + 0.02f ? PlinthRelief + 0.04f : 0.02f;
-                if (model == "Baignoire") gap = Mathf.Max(gap, 0.25f);
-                var row = PlaceRowAgainstWall(m, go, cell, d, bottom, gap, placed, rnd, y, model == "Urinoir" ? UrinalRow(rnd) : 1, null);
-                // V0.7.14 (Note 06) : une baignoire ne rentre dans aucun mur (ni dans les cellules voisines hors de la pièce).
-                if (row != null && model == "Baignoire" && !FitInRoom(m, room, go))
-                {
-                    placed.RemoveAt(placed.Count - 1);
-                    row = null;
-                }
-                if (row == null)
-                {
-                    Object.Destroy(go);
-                    continue;
-                }
-                foreach (var obj in row)
-                {
-                    if (model == "Baignoire") BathCollider(obj);
-                    else
-                    {
-                        Bounds b = GameArt.LocalBounds(obj.transform);
-                        var col = obj.AddComponent<BoxCollider>();
-                        col.center = b.center;
-                        col.size = b.size;
-                    }
-                }
-                // V0.7.13 : une baignoire contre un mur a son pommeau de douche sur ce mur, au-dessus d'un de ses bouts.
-                if (model == "Baignoire")
-                {
-                    var shower = GameArt.SpawnModelFloor("Douche", props, BlockhausModelHeight("Douche"));
-                    if (shower == null) continue;
-                    Vector3 c = m.Center(cell.x, cell.y), side = new Vector3(DJ[d], 0f, DI[d]);
-                    Bounds wb = WorldBounds(go.transform);
-                    float end = Vector3.Dot(wb.center - c, side) + (rnd.NextDouble() < 0.5 ? -1f : 1f) * Mathf.Abs(Vector3.Dot(wb.extents, new Vector3(Mathf.Abs(side.x), 0f, Mathf.Abs(side.z)))) * 0.6f;
-                    float showerBottom = BlockhausMountHeight("Douche") + 0.3f - GameArt.LocalBounds(shower.transform).size.y * 0.5f;
-                    var put = PlaceRowAgainstWall(m, shower, cell, d, showerBottom, 0.02f, placed, rnd, y, 1, end);
-                    if (put == null) Object.Destroy(shower);
-                }
-            }
+            // V0.7.19 : 20 % des pièces ont une moquette en damier (et pas de tapis) ; la moitié des autres, un tapis.
+            if (rnd.NextDouble() < CarpetChance) { plan.carpeted.Add(room); LayCarpet(f, room); }
+            else if (rnd.NextDouble() < RugChance) LayRug(f, room, rnd);
+            if (plan.templated.TryGetValue(room, out var t)) FurnishBlockTemplate(f, room, t.layout, t.turns, rnd);
+            else FurnishApartment(f, room, rnd);
         }
+        // V0.7.19 : bancs dans les couloirs (près d'un mur), le quota de l'étage ; ce qui n'a pas trouvé de place passe à l'étage suivant.
+        int benches = plan.benchQuotas[storey];
+        int before = f.taken.Count;
+        PlaceBenches(f, corridorCells, usedFaces, benches, rnd);
+        int put = 0;
+        for (int k = before; k < f.taken.Count; k++) put++;
+        if (storey + 1 < plan.benchQuotas.Length) plan.benchQuotas[storey + 1] += benches - put;
+        // Aucun monticule dans un meuble ni dans un pan de mur des schémas.
+        Physics.SyncTransforms();
+        for (int k = refs.itemSpots.Count - 1; k >= firstSpot; k--)
+        {
+            Vector3 p = refs.itemSpots[k];
+            var probe = new Bounds(p + Vector3.up * 0.5f, new Vector3(MoundWidth + 0.4f, 1f, MoundWidth + 0.4f));
+            if (f.taken.Exists(b => b.Intersects(probe))) refs.itemSpots.RemoveAt(k);
+        }
+        return f.carpet;
     }
 
     // Tout l'objet tient dans la pièce : chaque coin de sa boîte englobante est dans une cellule de la pièce, à l'écart des murs.

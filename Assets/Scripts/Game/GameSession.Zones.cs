@@ -299,7 +299,15 @@ public partial class GameSession
             foreach (var (pos, chain) in z.bellSpots)
                 PlaceDevice((DeviceKind)((int)DeviceKind.BellZone + z.index), pos, (float)rnd.NextDouble() * 360f, "", false, chain);
         }
+        // V0.7.19 (11.4) : deux Télévisions ramassables sur des commodes de chaque Blockhaus, une fois par partie.
+        foreach (var z in zones)
+        {
+            if (z.tvSpots.Count == 0 || z.index <= sealedZones || !tvZones.Add(z.index)) continue;
+            foreach (var (pos, yaw) in z.tvSpots) PlaceDevice(DeviceKind.Television, pos, yaw, "");
+        }
     }
+
+    readonly HashSet<int> tvZones = new HashSet<int>();
 
     // ================= Fermeture des zones trop en arrière (chapitre 9.2, V0.6.5) =================
 

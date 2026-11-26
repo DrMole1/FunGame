@@ -445,6 +445,13 @@ public class Beacon : Interactable
 
     public void SetCharged(bool on)
     {
+        // V0.7.19 (7.4) : la Télévision se relie à une Balise qu'elle voit ; elle n'est jamais grisée, son écran change.
+        if (Kind == DeviceKind.Television)
+        {
+            Charged = on;
+            if (Screen != null) Screen.SetCharged(on);
+            return;
+        }
         // Le Trampoline et la Cloche Décorative ne sont pas reliés au réseau : jamais grisés.
         if (!Networked) on = false;
         Charged = on;
@@ -748,6 +755,22 @@ public class BeaconNetwork : MonoBehaviour
             parentOf[leaf] = best;
             fluxOf[leaf] = fluxOf[best];
         }
+        // V0.7.19 (7.4) : une Télévision en vision directe d'une Balise (chargée ou non, posée ou d'un Hub) s'y relie, la plus proche ;
+        // le flux part de la Télévision vers la Balise.
+        foreach (var tv in placed.Values)
+        {
+            if (tv == null || tv.Kind != DeviceKind.Television) continue;
+            Beacon best = null;
+            float bestDist = float.MaxValue;
+            foreach (var cand in CandidateBeacons())
+            {
+                float d = (cand.Top - tv.Top).sqrMagnitude;
+                if (d < bestDist && InSight(cand, tv)) { best = cand; bestDist = d; }
+            }
+            if (best == null) continue;
+            parentOf[tv] = best;
+            fluxOf[tv] = fluxOf.TryGetValue(best, out int fh) ? fh : best.IsHub ? best.HubIndex : 1;
+        }
         foreach (var h in hubs.Values) if (h != null) h.SetCharged(HubCharged);
         foreach (var b in placed.Values)
         {
@@ -755,6 +778,13 @@ public class BeaconNetwork : MonoBehaviour
             if (b.Charged != parentOf.ContainsKey(b)) b.SetCharged(parentOf.ContainsKey(b));
             b.SetFlux(fluxOf.TryGetValue(b, out int hub) ? hub : 0);
         }
+    }
+
+    // Balises (posées ou des Hubs ouverts) auxquelles une Télévision peut se relier.
+    IEnumerable<Beacon> CandidateBeacons()
+    {
+        foreach (var h in hubs.Values) if (h != null && h.gameObject.activeSelf) yield return h;
+        foreach (var b in placed.Values) if (b != null && b.Kind == DeviceKind.Beacon) yield return b;
     }
 
     // V0.7.9 (Note 01) : le flux d'un Hub ne descend jamais vers une zone inférieure. Le Hub N est entre la zone 2N - 2 et la

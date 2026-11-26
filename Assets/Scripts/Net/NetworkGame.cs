@@ -144,7 +144,8 @@ public class NetworkGame : MonoBehaviour
 
         Transform t = localPlayer.transform;
         // Tombé hors du monde (sous la fosse la plus profonde de sa zone : nZone x 4 m) : retour au Hub.
-        if (t.position.y < -(4f * Mathf.Max(1, WorldBuilder.ZoneAt(t.position)) + 20f)) session.RespawnInHub();
+        // V0.7.19 (Note 01) : un personnage mort (tombé dans un ravin) y reste : pas de retour au Hub.
+        if (!session.LocalDead && t.position.y < -(4f * Mathf.Max(1, WorldBuilder.ZoneAt(t.position)) + 20f)) session.RespawnInHub();
 
         sendTimer += Time.unscaledDeltaTime;
         if (sendTimer >= SendInterval)

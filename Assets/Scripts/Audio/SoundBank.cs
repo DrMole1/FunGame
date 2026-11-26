@@ -44,6 +44,8 @@ public static class SoundBank
         // V0.7.11 : Métronome, musique douce des Lunettes PEACE (oiseaux), onde de choc du Mégaphone, levier du Château, porte
         // poussée des Blockhaus.
         "metronome", "peace_music", "shockwave", "lever", "door_push",
+        // V0.7.19 (11.4) : goutte d'eau d'une fuite qui tombe dans sa flaque, eau qui jaillit d'un pommeau de douche (boucle).
+        "ploc", "shower",
     };
 
     // Synthèse des sons étalée sur les premières images : le jeu ne se fige pas au lancement. Un son demandé avant son tour est
@@ -103,6 +105,8 @@ public static class SoundBank
             case "revive": return Revive();
             case "duck": return Duck(rnd);
             case "pop": return Pop();
+            case "ploc": return Ploc(rnd);
+            case "shower": return Shower(rnd);
             case "skin": return Skin(rnd);
             case "roi_clink": return RoiClink(rnd);
             case "eat": return Eat(rnd);
@@ -1767,6 +1771,37 @@ public static class SoundBank
             float hum = (Sine(50f * t) * 0.5f + Saw(15734f / 128f * t) * 0.1f) * 0.25f;
             float crackle = rnd.NextDouble() < 0.0008 ? Noise(rnd) * 3f : 0f;
             longer[i] = hiss * (0.8f + 0.2f * Sine(0.7f * t)) + hum + crackle;
+        }
+        return MakeLoop(longer, 2f, 0.3f);
+    }
+
+    // V0.7.19 : "ploc" d'une goutte qui tombe dans une flaque : un petit claquement, puis une bulle dont la note monte vite.
+    static float[] Ploc(System.Random rnd)
+    {
+        var d = Buffer(0.22f);
+        float phase = 0f;
+        for (int i = 0; i < d.Length; i++)
+        {
+            float t = (float)i / Rate;
+            phase += Mathf.Lerp(700f, 2100f, Mathf.Min(1f, t / 0.035f)) / Rate;
+            float click = t < 0.004f ? Noise(rnd) * (1f - t / 0.004f) * 0.5f : 0f;
+            d[i] = Sine(phase) * AD(t, 0.002f, 0.045f) * 0.8f + click;
+        }
+        return d;
+    }
+
+    // V0.7.19 : eau qui jaillit d'un pommeau (boucle) : souffle filtré, quelques éclaboussures.
+    static float[] Shower(System.Random rnd)
+    {
+        var longer = Buffer(2.4f);
+        var bp = new BandPass();
+        var lp = new LowPass();
+        for (int i = 0; i < longer.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float hiss = bp.Process(Noise(rnd), 2600f, 1.2f) * 0.55f + lp.Process(Noise(rnd), 5000f) * 0.35f;
+            float splash = rnd.NextDouble() < 0.002 ? Noise(rnd) * 1.5f : 0f;
+            longer[i] = hiss * (0.85f + 0.15f * Sine(1.3f * t)) + splash;
         }
         return MakeLoop(longer, 2f, 0.3f);
     }

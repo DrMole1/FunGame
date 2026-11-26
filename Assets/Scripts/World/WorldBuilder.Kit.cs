@@ -165,7 +165,9 @@ public static partial class WorldBuilder
             float top = y0 + k * rise;
             Vector3 dir = Quaternion.Euler(0f, angle, 0f) * Vector3.forward;
             // Boîte tournée de 'angle' : son x (la profondeur de la marche) suit la tangente, son z (la largeur) le rayon.
-            kit.Turned(center + dir * rMid + Vector3.up * (top - 0.15f), new Vector3(tread, 0.3f, width), angle);
+            // V0.7.19 (Note 03) : 1 cm sous le niveau visé : la marche qui arrive à un palier (Blockhaus) ou au dernier étage (Tours,
+            // Donjon) n'a plus son dessus dans le même plan que lui (scintillement des textures).
+            kit.Turned(center + dir * rMid + Vector3.up * (top - 0.15f - SeamLift), new Vector3(tread, 0.3f, width), angle);
         }
         return angle;
     }
@@ -192,7 +194,7 @@ public static partial class WorldBuilder
                 }
             if (slits != null)
                 foreach (var (side, y) in slits)
-                    if (side == k) holes.Add(Rect.MinMaxRect(-0.14f, y - 0.9f, 0.14f, y + 0.9f));
+                    if (side == k) holes.Add(Rect.MinMaxRect(-RoundSlitHalf, y - 0.9f, RoundSlitHalf, y + 0.9f));
             pieces = Subtract(pieces, holes);
             Quaternion rot = Quaternion.Euler(0f, a, 0f);
             Vector3 outward = rot * Vector3.forward, along = rot * Vector3.right;
@@ -205,12 +207,15 @@ public static partial class WorldBuilder
             if (slits != null)
                 foreach (var (side, y) in slits)
                     if (side == k)
-                        kit.dark.WorldQuad(center + outward * (radius + 0.02f) + along * 0.14f + Vector3.up * (y - 0.9f),
-                            center + outward * (radius + 0.02f) - along * 0.14f + Vector3.up * (y - 0.9f),
-                            center + outward * (radius + 0.02f) - along * 0.14f + Vector3.up * (y + 0.9f),
-                            center + outward * (radius + 0.02f) + along * 0.14f + Vector3.up * (y + 0.9f), outward, 1f);
+                        kit.dark.WorldQuad(center + outward * (radius + 0.02f) + along * RoundSlitHalf + Vector3.up * (y - 0.9f),
+                            center + outward * (radius + 0.02f) - along * RoundSlitHalf + Vector3.up * (y - 0.9f),
+                            center + outward * (radius + 0.02f) - along * RoundSlitHalf + Vector3.up * (y + 0.9f),
+                            center + outward * (radius + 0.02f) + along * RoundSlitHalf + Vector3.up * (y + 0.9f), outward, 1f);
         }
     }
+
+    // V0.7.19 (Note 05) : meurtrières des Tours et du Donjon 30 % plus larges (0,28 -> 0,364 m).
+    const float RoundSlitHalf = 0.14f * 1.3f;
 
     // Disque horizontal (dalle de 'thick') de rayon 'radius' ; les pans dont l'angle est dans 'skip' (secteur [a0, a1]) sont laissés
     // ouverts (passage d'un escalier).
@@ -228,6 +233,16 @@ public static partial class WorldBuilder
             kit.floors.WorldQuad(q0 + up, p0 + up, p1 + up, q1 + up, Vector3.up, 0.5f);
             kit.walls.WorldQuad(q0 + down, q1 + down, p1 + down, p0 + down, Vector3.down, 0.5f);
             kit.walls.WorldQuad(p0 + down, p1 + down, p1 + up, p0 + up, (p0 + p1 - 2f * center).normalized, 0.5f);
+            // V0.7.19 (Note 02) : la tranche de la dalle aussi le long de l'ouverture (escalier) : elle n'a plus l'air d'une surface
+            // plane vue depuis l'escalier.
+            if (skipTo > skipFrom)
+            {
+                float step = 360f / sides;
+                if (InSector(am - step, skipFrom, skipTo))
+                    kit.walls.WorldQuad(q0 + down, q0 + up, p0 + up, p0 + down, Quaternion.Euler(0f, a0 - 90f, 0f) * Vector3.forward, 0.5f);
+                if (InSector(am + step, skipFrom, skipTo))
+                    kit.walls.WorldQuad(q1 + down, p1 + down, p1 + up, q1 + up, Quaternion.Euler(0f, a1 + 90f, 0f) * Vector3.forward, 0.5f);
+            }
             // Collision : un bloc tourné couvrant le pan, du trou central au bord.
             float len = radius - innerHole, chord = 2f * radius * Mathf.Sin(Mathf.PI / sides) + 0.05f;
             Vector3 mid = center + Quaternion.Euler(0f, am, 0f) * Vector3.forward * (innerHole + len * 0.5f) + Vector3.up * (top - thick * 0.5f);

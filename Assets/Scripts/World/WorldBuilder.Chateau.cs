@@ -27,6 +27,9 @@ using UnityEngine;
 // V0.7.18 : 11 schémas de salles (Notes temporaires 02) : les 4 premiers revus, 4 salles en longueur (15 x 30 m) et 3 salles en L ;
 //   chaque salle sur schéma est unique dans le Château et prend la forme de son schéma. Plus d'épées ni de masses d'armes dans les
 //   salles d'armes (Note 01).
+// V0.7.19 : 3 à 5 salles sur schéma par Château ; croix orthodoxe (Meshy) ; pierres tombales dans les chapelles ; cimetières, colliers,
+//   corniches, carreaux au plafond, arches des couloirs, objets plus gros, mannequins à tête de chien, tours de Kremlin : voir
+//   WorldBuilder.Chateau719.
 public static partial class WorldBuilder
 {
     public const float ChateauHeight = 60f;
@@ -36,7 +39,7 @@ public static partial class WorldBuilder
     const float TowerHeight = 30f;
     const int MaxTowers = 6;
     // Meurtrières des remparts (schéma de la Note 04) : rangée basse au milieu de chaque cellule, rangée haute entre deux cellules.
-    const float SlitWidth = 0.5f, SlitHeight = 2.8f, SlitLow = 2.7f, SlitHigh = 7.9f;
+    const float SlitWidth = 0.5f * 1.3f, SlitHeight = 2.8f, SlitLow = 2.7f, SlitHigh = 7.9f;
 
     // Tour ronde posée dans la structure : centre, rayon, hauteur.
     internal class RoundPlan { public Vector3 center; public float radius, height; public int kind; public float doorAngle, stairInner; }   // kind : 0 Tour, 1 Donjon
@@ -47,6 +50,7 @@ public static partial class WorldBuilder
         public System.Random rnd;
         public readonly HashSet<Vector2Int> moat = new HashSet<Vector2Int>(), rampart = new HashSet<Vector2Int>();
         public readonly HashSet<Vector2Int> halls = new HashSet<Vector2Int>();      // halls couverts (cellules vides)
+        public readonly HashSet<Vector2Int> yards = new HashSet<Vector2Int>();      // V0.7.19 : halls autour des Tours (cimetières)
         public readonly List<RoundPlan> rounds = new List<RoundPlan>();
         public readonly Dictionary<Room, int> natures = new Dictionary<Room, int>();
         public readonly List<(Room room, int layout, int turns)> templated = new List<(Room, int, int)>();   // V0.7.17 : salles sur schéma (V0.7.18 : disposition, posée tournée de 'turns')
@@ -126,6 +130,7 @@ public static partial class WorldBuilder
                     if (!m.InStructure(i, j)) continue;
                     m.voidCell[i, j] = true;
                     plan.halls.Add(new Vector2Int(i, j));
+                    plan.yards.Add(new Vector2Int(i, j));
                 }
         }
         // Cellules libres de la structure (pour tirer un centre).
@@ -169,7 +174,7 @@ public static partial class WorldBuilder
             maxLayerDepth = 0f, bridgeChance = 0f, maxHeight = 12f, floors = new[] { 0f }, ceilings = new[] { 8f, 9f, 10f, 11f, 12f },
             chaoticCeilings = new[] { 8f, 10f, 12f }, pitCeilings = new[] { 8f }, fixedRooms = true,
         };
-        // V0.7.18 : 4 à 6 salles uniques, chacune sur un schéma différent parmi les 11 du GDD (tirés dans un ordre au hasard ; un
+        // V0.7.18 : 4 à 6 (V0.7.19 : 3 à 5) salles uniques, chacune sur un schéma différent parmi les 11 du GDD (tirés dans un ordre au hasard ; un
         // schéma qui ne trouve pas sa place cède la sienne au suivant), posées d'abord, à leur forme, tournées au hasard.
         var order = new List<int>();
         for (int k = 0; k < RoomTemplates.Length; k++) order.Add(k);
@@ -609,15 +614,16 @@ public static partial class WorldBuilder
         foreach (float level in new[] { step, step * 2f })
             if (level < top - 2.5f && rnd.NextDouble() < 0.5)
             {
-                KitDisc(kit, c, rIn - 0.05f, level, 0.35f, sides);
-                lowestCeiling = Mathf.Min(lowestCeiling, level - 0.35f);
+                KitDisc(kit, c, rIn - 0.05f, level, TowerFloorThick, sides);
+                lowestCeiling = Mathf.Min(lowestCeiling, level - TowerFloorThick);
             }
         // Dernier étage : dalle pleine, ouverte au-dessus de l'arrivée de l'escalier ; puis le toit fermé et les créneaux autour.
         // V0.7.16 (Note 03) : ouverture agrandie : elle couvre les 3,5 derniers mètres de montée (avant : 2,2 m, la tête d'un personnage
         // de 1,8 m butait sous la dalle de 0,5 m), plus un pan de marge (les pans de la dalle sont gardés ou retirés en entier).
         float arrivalSpan = TowerArrivalHeadroom / SpiralRise * (SpiralTread / ((rIn + rOut) * 0.5f)) * Mathf.Rad2Deg + 360f / sides;
         arrivalSpan = Mathf.Min(arrivalSpan, 200f);
-        KitDisc(kit, c, R - 1f, top, 0.5f, sides, end - arrivalSpan, end + 2f, 0f);
+        // V0.7.19 (Note 02) : même épaisseur que les étages intermédiaires (0,35 m), tranche visible le long de l'ouverture.
+        KitDisc(kit, c, R - 1f, top, TowerFloorThick, sides, end - arrivalSpan, end + 2f, 0f);
         KitDisc(kit, c, R - 0.5f, H + 0.5f, 0.5f, sides);
         KitRoundMerlons(kit, c, R, H + 0.5f, sides);
         // Lustres : sous le premier plafond, et sous le toit (aucun décor ne flotte).
@@ -626,7 +632,7 @@ public static partial class WorldBuilder
         return (c + Vector3.up * top, H - top);
     }
 
-    const float TowerStairWidth = 3f, TowerArrivalHeadroom = 3.5f;
+    const float TowerStairWidth = 3f, TowerArrivalHeadroom = 3.5f, TowerFloorThick = 0.35f;
 
     // Arche autour d'une porte percée dans un mur rond (épaisseur 1 m), face à l'angle 'angle'.
     static void RoundDoorArch(Kit kit, Vector3 center, float radius, float angle, float width, float height)
@@ -650,7 +656,7 @@ public static partial class WorldBuilder
         new[] { "Grille", "Menottes", "Latrines", "Caisse" },                                            // cachot
         new[] { "Cible", "Mannequin", "CibleHumaine" },                                                   // salle d'armes (V0.7.18 : sans épées ni masses)
         new[] { "Table", "Chaise", "Chaise", "Chaise", "Cadre", "Tonneau", "Caisse", "TonneauGros" },     // salle de banquet
-        new[] { "Banc", "Banc", "Croix", "Autel" },                                                       // chapelle
+        new[] { "Banc", "Banc", "CroixOrthodoxe", "Autel", "PierreTombale" },                             // chapelle (V0.7.19 : pierres tombales)
     };
     const int RoomNatures = 4, Dungeon = 0;
 
@@ -680,7 +686,9 @@ public static partial class WorldBuilder
             case "Chaise": return 1.2f;
             case "Cadre": return 1.4f;
             case "Banc": return 2.6f;
-            case "Croix": return 2.6f;
+            case "CroixOrthodoxe": return 2.6f;
+            case "PierreTombale1": return 1.3f;     // V0.7.19 : stèle (hauteur)
+            case "PierreTombale2": return 2.4f;     // V0.7.19 : tombeau et sa croix (longueur)
             case "Autel": return 2f;
             case "Tonneau": return 1.1f;
             case "TonneauGros": return 1.7f;
@@ -692,9 +700,10 @@ public static partial class WorldBuilder
     }
 
     // Caisses : un des trois modèles.
-    static string ModelVariant(string model, System.Random rnd) => model == "Caisse" ? "Caisse" + (1 + rnd.Next(3)) : model;
+    static string ModelVariant(string model, System.Random rnd) =>
+        model == "Caisse" ? "Caisse" + (1 + rnd.Next(3)) : model == "PierreTombale" ? "PierreTombale" + (1 + rnd.Next(2)) : model;
 
-    static void FurnishCastle(Maze m, Transform root, ChateauPlan plan)
+    static void FurnishCastle(Maze m, Transform root, ChateauPlan plan, ZoneRefs refs)
     {
         var rnd = plan.rnd;
         var natures = plan.natures;
@@ -728,6 +737,7 @@ public static partial class WorldBuilder
             Room room = kv.Key;
             if (room.cells.Count == 0 || templatedRooms.Contains(room)) continue;
             string[] set = Furniture[kv.Value];
+            bool narrow = NarrowRoom(room, CastleNarrowSide);
             var placed = new List<Vector3>();
             var floorProps = new List<GameObject>();
             int count = 2 + room.cells.Count;
@@ -735,10 +745,13 @@ public static partial class WorldBuilder
             {
                 string model = ModelVariant(set[rnd.Next(set.Length)], rnd);
                 Spot spot = SpotOf(model);
+                // V0.7.19 : salle de moins de 10 m de côté : tout objet touche un mur.
+                if (narrow && spot == Spot.Floor) spot = Spot.Near;
                 var cell = room.cells[rnd.Next(room.cells.Count)];
                 if (m.keepClear.Contains(cell) || m.archCells.Contains(cell)) continue;
                 var go = GameArt.SpawnModelFloor(model, props, ModelHeight(model));
                 if (go == null) continue;
+                DressProp(go, model, rnd);
                 bool ok = spot == Spot.Floor
                     ? PlaceOnFloor(m, room, go, cell, 0f, Rand(rnd, 0f, 360f), placed, rnd) && FitInCell(m, room, go, cell)
                     : PlaceAgainstWall(m, go, cell, rnd.Next(4), spot == Spot.Hung ? Rand(rnd, 1.5f, 2.1f) : 0f, spot == Spot.Near ? 0.25f : 0.02f, placed, rnd);
@@ -747,12 +760,20 @@ public static partial class WorldBuilder
                 if (model == "Cadre") AddPortrait(go.transform, rnd);
                 if (spot != Spot.Hung) { AddPropCollider(go); floorProps.Add(go); }
             }
-            // Un seau au sol, près d'un autre objet.
-            if (floorProps.Count > 0) AddBucketNear(m, room, floorProps[rnd.Next(floorProps.Count)], props, rnd);
+            // Un seau au sol, près d'un autre objet (V0.7.19 : contre un mur dans une salle étroite).
+            if (narrow)
+            {
+                var bucket = GameArt.SpawnModelFloor("Seau", props, ModelHeight("Seau"));
+                var cell = room.cells[rnd.Next(room.cells.Count)];
+                if (bucket != null && (m.keepClear.Contains(cell) || !PlaceAgainstWall(m, bucket, cell, rnd.Next(4), 0f, 0.05f, placed, rnd))) Object.Destroy(bucket);
+                else if (bucket != null) AddPropCollider(bucket);
+            }
+            else if (floorProps.Count > 0) AddBucketNear(m, room, floorProps[rnd.Next(floorProps.Count)], props, rnd);
             // Cachots : une ou deux torches au mur, à flamme blanche.
             if (kv.Value == Dungeon) AddRoomTorches(m, room, props, placed, 1 + rnd.Next(2), rnd);
         }
         foreach (var round in plan.rounds) FurnishTower(round, props, rnd);
+        DressCastle(m, root, plan, refs, props);
     }
 
     static void AddPropCollider(GameObject go)
@@ -996,7 +1017,7 @@ public static partial class WorldBuilder
     };
     // Nature de chaque schéma : 0 cachot, 1 salle d'armes, 2 salle de banquet, 3 chapelle.
     static readonly int[] TemplateNature = { 0, 1, 2, 3, 0, 1, 2, 3, 0, 2, 3 };
-    const int MinTemplateRooms = 4, MaxTemplateRooms = 6, TemplateRoomDoors = 2;
+    const int MinTemplateRooms = 3, MaxTemplateRooms = 5, TemplateRoomDoors = 2;   // V0.7.19 : 3 à 5 (avant : 4 à 6)
 
     static int SegSquares(int[] seg) { int s = 0; for (int k = 0; k < seg.Length; k += 2) s += seg[k]; return s; }
     static int SegCells(int[] seg) { int s = 0; for (int k = 1; k < seg.Length; k += 2) s += seg[k]; return s; }
@@ -1025,13 +1046,24 @@ public static partial class WorldBuilder
         return Cell;
     }
 
-    // Cases d'un schéma : [colonne, ligne] (null : case vide) ; 'inside' : la case appartient à la salle.
-    static string[,] ParseTemplate(int layout, out bool[,] inside)
+    // V0.7.19 : jeu de schémas (ceux du Château, ceux du Blockhaus) et leur découpage en cellules.
+    internal class TemplateSet
     {
-        int w = SegSquares(TemplateCols[layout]), h = SegSquares(TemplateRows[layout]);
+        public string[][] templates;
+        public int[][] cols, rows;
+    }
+
+    static TemplateSet chateauSet;
+    static TemplateSet ChateauSet => chateauSet ??= new TemplateSet { templates = RoomTemplates, cols = TemplateCols, rows = TemplateRows };
+
+    // Cases d'un schéma : [colonne, ligne] (null : case vide) ; 'inside' : la case appartient à la salle.
+    static string[,] ParseTemplate(int layout, out bool[,] inside, TemplateSet set = null)
+    {
+        set ??= ChateauSet;
+        int w = SegSquares(set.cols[layout]), h = SegSquares(set.rows[layout]);
         var grid = new string[w, h];
         inside = new bool[w, h];
-        string[] rows = RoomTemplates[layout % RoomTemplates.Length];
+        string[] rows = set.templates[layout % set.templates.Length];
         for (int r = 0; r < h; r++)
         {
             string[] tokens = rows[r].Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
@@ -1046,11 +1078,14 @@ public static partial class WorldBuilder
     }
 
     // Forme d'une disposition en cellules ([colonne, ligne], la ligne 0 au nord).
-    static bool[,] TemplateMask(int layout)
+    static bool[,] TemplateMask(int layout) => TemplateMask(layout, null);
+
+    static bool[,] TemplateMask(int layout, TemplateSet set)
     {
-        int[] cols = TemplateCols[layout], rows = TemplateRows[layout];
+        set ??= ChateauSet;
+        int[] cols = set.cols[layout], rows = set.rows[layout];
         var mask = new bool[SegCells(cols), SegCells(rows)];
-        ParseTemplate(layout, out bool[,] inside);
+        ParseTemplate(layout, out bool[,] inside, set);
         for (int c = 0; c < inside.GetLength(0); c++)
             for (int r = 0; r < inside.GetLength(1); r++)
                 if (inside[c, r]) mask[(int)SegPos(cols, c + 0.5f), (int)SegPos(rows, r + 0.5f)] = true;
@@ -1219,6 +1254,7 @@ public static partial class WorldBuilder
                 {
                     go = GameArt.SpawnModelFloor(model, props, size);
                     if (go == null) continue;
+                    DressProp(go, model, rnd);
                     if (sym == "C")
                     {
                         // Chaise tournée vers la table voisine.
@@ -1276,7 +1312,8 @@ public static partial class WorldBuilder
             case "C": return "Chaise";
             case "CH": return "CibleHumaine";
             case "Ci": return "Cible";
-            case "Cr": return "Croix";
+            case "Cr": return "CroixOrthodoxe";
+            case "PT": return ModelVariant("PierreTombale", rnd);
             case "En": return "Enclume";
             case "G": return "Grille";
             case "L": return "Latrines";
@@ -1327,6 +1364,7 @@ public static partial class WorldBuilder
         {
             var go = GameArt.SpawnModelFloor(model, props, ModelHeight(model));
             if (go == null) return null;
+            DressProp(go, model, rnd);
             go.transform.SetPositionAndRotation(p, Quaternion.Euler(0f, yaw, 0f));
             Bounds b = WorldBounds(go.transform);
             placed.Add((new Vector3(b.center.x, c.y, b.center.z), Mathf.Max(b.extents.x, b.extents.z)));

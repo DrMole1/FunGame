@@ -1,12 +1,30 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 // Écran de la Télévision (GDD 7.6, V0.4.7) : neige de pixels gris et noirs qui clignotent et ondulent, avec un
 // grésillement spatialisé à moins de 10 m. V0.7.8 : plus de vidéo YouTube ni de liaison aux Balises (contraintes
 // légales) : la Télévision est un objet de décor.
+// V0.7.19 (7.4) : une Télévision en vision directe d'une Balise est chargée (BeaconNetwork) : plus de neige ni de grésillement,
+// l'écran montre une cloche qui balance (Assets/Sprite/Cloche_Balance, via Resources/TvArt). Chaque balancement est compté
+// (Swings) : un joueur face à l'écran (GameSession) en est obnubilé et entend la cloche.
 public class TvScreen : MonoBehaviour
 {
     const int NoiseW = 48, NoiseH = 36;
     const float NoiseRefresh = 0.05f, NoiseRange = 30f;
+    // V0.7.19 : l'animation (20 images : la cloche part d'un côté, revient, part de l'autre, revient) dure 2,4 s ; elle tinte une
+    // fois par tour, au plus loin de son premier élan (image 6).
+    const float BellFps = 20f / 2.4f;
+    const int StrikeFrame = 5;
+
+    public static readonly List<TvScreen> All = new List<TvScreen>();
+    public bool Charged { get; private set; }
+    // Nombre de tintements depuis que la Télévision est chargée.
+    public int Swings { get; private set; }
+    public Vector3 ScreenPoint => screen.position;
+    // L'écran regarde vers l'avant du poste.
+    public Vector3 ScreenNormal => transform.forward;
+    float chargedAt;
+    int lastFrame = -1;
 
     Transform screen;
     Material screenMat;
@@ -50,11 +68,53 @@ public class TvScreen : MonoBehaviour
         tv.staticLoop = GameAudio.Loop3D("tv_static", root, tv.screen.localPosition, 0.45f, GameRules.TvSoundRange);
         if (tv.staticLoop != null) tv.staticLoop.Play();
         tv.DrawNoise();
+        All.Add(tv);
         return tv;
+    }
+
+    // V0.7.19 : reliée (ou non) à une Balise.
+    public void SetCharged(bool on)
+    {
+        if (on == Charged) return;
+        Charged = on;
+        Swings = 0;
+        lastFrame = -1;
+        chargedAt = Time.time;
+        if (staticLoop != null) { if (on) staticLoop.Stop(); else staticLoop.Play(); }
+        if (on) ShowBellFrame(0);
+        else
+        {
+            screenMat.mainTexture = noise;
+            screenMat.SetTexture("_EmissionMap", noise);
+            DrawNoise();
+        }
+    }
+
+    void ShowBellFrame(int frame)
+    {
+        var art = TvArt.Get();
+        if (art == null || art.bellFrames == null || art.bellFrames.Length == 0) return;
+        Texture2D tex = art.bellFrames[frame % art.bellFrames.Length];
+        screenMat.mainTexture = tex;
+        screenMat.SetTexture("_EmissionMap", tex);
     }
 
     void Update()
     {
+        if (Charged)
+        {
+            var art = TvArt.Get();
+            int count = art != null && art.bellFrames != null && art.bellFrames.Length > 0 ? art.bellFrames.Length : 20;
+            int step = Mathf.FloorToInt((Time.time - chargedAt) * BellFps);
+            int frame = step % count;
+            if (step != lastFrame)
+            {
+                if (frame == StrikeFrame) Swings++;
+                lastFrame = step;
+                ShowBellFrame(frame);
+            }
+            return;
+        }
         // Neige : seulement quand quelqu'un peut la voir.
         Camera cam = Camera.main;
         if (cam == null || (cam.transform.position - screen.position).sqrMagnitude > NoiseRange * NoiseRange) return;
@@ -86,6 +146,7 @@ public class TvScreen : MonoBehaviour
 
     void OnDestroy()
     {
+        All.Remove(this);
         if (noise != null) Destroy(noise);
         if (screenMat != null) Destroy(screenMat);
     }

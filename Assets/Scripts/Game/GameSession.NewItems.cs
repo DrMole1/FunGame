@@ -76,11 +76,15 @@ public partial class GameSession
 
     // V0.7.11 (11.3, 11.4) : leviers des remparts actionnés, portes à clé ouvertes (Blockhaus).
     readonly HashSet<int> pulledLevers = new HashSet<int>(), unlockedDoors = new HashSet<int>();
+    // V0.7.19 (11.4) : pommeaux de douche ouverts (Blockhaus).
+    readonly HashSet<int> showersOn = new HashSet<int>();
 
     void ClearNewItems()
     {
         pulledLevers.Clear();
         unlockedDoors.Clear();
+        showersOn.Clear();
+        foreach (var sh in ShowerHead.All) if (sh != null) sh.SetOn(false);
         ClearCollars();
         hubTwoItemsPlaced = false;
         OrbitCamera.MetronomeTilt = 0f;
@@ -111,6 +115,7 @@ public partial class GameSession
         foreach (var kv in collars) net.ToPeer(to, "CC|" + kv.Key + "|" + kv.Value);
         foreach (int id in pulledLevers) net.ToPeer(to, "LO|" + id);
         foreach (int id in unlockedDoors) net.ToPeer(to, "DO|" + id);
+        foreach (int id in showersOn) net.ToPeer(to, "SH|" + id + "|1");
     }
 
     // ================= Chaque image =================
@@ -121,7 +126,42 @@ public partial class GameSession
         UpdateMetronomeTilt();
         UpdatePeace();
         UpdateCollars();
+        UpdateShowers();
         if (net.IsHost) UpdateHostNewItems();
+    }
+
+    // ---------- Pommeaux de douche (V0.7.19, 11.4) ----------
+
+    // Clic sur un pommeau : l'hôte l'ouvre ou le coupe, pour tous. (Un message par clic : négligeable sur le réseau.)
+    public void ToggleShower(ShowerHead shower)
+    {
+        if (shower == null || status.Dead) return;
+        net.ToHost("SW|" + shower.Id);
+    }
+
+    // Les pommeaux suivent l'état partagé ; chaque personnage (le sien et les autres) sous l'eau fait des bulles de savon.
+    void UpdateShowers()
+    {
+        if (ShowerHead.All.Count == 0) return;
+        foreach (var sh in ShowerHead.All)
+            if (sh != null && sh.On != showersOn.Contains(sh.Id)) sh.SetOn(showersOn.Contains(sh.Id));
+        if (showersOn.Count == 0 && !anyBubbles) return;
+        anyBubbles = false;
+        if (player != null) anyBubbles |= Soap(player.transform);
+        foreach (var rp in net.Remotes.Values) if (rp != null) anyBubbles |= Soap(rp.transform);
+    }
+
+    bool anyBubbles;
+
+    static bool Soap(Transform body)
+    {
+        Vector3 p = body.position;
+        bool wet = false;
+        foreach (var sh in ShowerHead.All) if (sh != null && sh.Wets(p)) { wet = true; break; }
+        var bubbles = body.GetComponent<SoapBubbles>();
+        if (wet) SoapBubbles.On(body).SetWet(true);
+        else if (bubbles != null) bubbles.SetWet(false);
+        return wet || bubbles != null;
     }
 
     // ---------- Métronome ----------
@@ -167,6 +207,8 @@ public partial class GameSession
         float speed = body != null ? Mathf.Max(0f, -body.velocity.y) : 10f;
         KillLocal("le Ravin");
         ravineFallSpeed = speed;
+        // V0.7.19 (Note 01) : la caméra s'arrête et regarde le personnage tomber au loin.
+        if (Camera.main != null) OrbitCamera.FallWatchEye = Camera.main.transform.position;
     }
 
     const float RavineKillDrop = 3f, RavineMaxFallSpeed = 40f;
@@ -498,6 +540,17 @@ public partial class GameSession
                 if (!busy && target != from && net.Roster.ContainsKey(target)) net.ToAll("CC|" + target + "|" + from);
                 return true;
             }
+            case "SW" when host && f.Length >= 2:
+            {
+                int id = NetworkGame.I(f[1]);
+                bool on = !showersOn.Contains(id);
+                net.ToAll("SH|" + id + "|" + (on ? "1" : "0"));
+                return true;
+            }
+            case "SH" when f.Length >= 3:
+                if (f[2] == "1") showersOn.Add(NetworkGame.I(f[1]));
+                else showersOn.Remove(NetworkGame.I(f[1]));
+                return true;
             case "LV" when host && f.Length >= 2:
                 if (pulledLevers.Add(NetworkGame.I(f[1]))) net.ToAll("LO|" + f[1]);
                 return true;
