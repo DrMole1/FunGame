@@ -113,6 +113,7 @@ public static partial class WorldBuilder
         public readonly List<(Vector3 pos, float chain)> bellSpots = new List<(Vector3, float)>();
         // V0.7.19 (11.3) : Colliers à Laisse ramassables, au cou des cibles humaines de deux cachots du Château.
         public readonly List<Vector3> collarSpots = new List<Vector3>();
+        public readonly HashSet<Vector3> boneSpots = new HashSet<Vector3>();   // V0.7.21 : monticules des cimetières (toujours un Os)
         // V0.7.19 (11.4) : deux Télévisions ramassables posées sur des commodes de chaque Blockhaus (base, orientation).
         public readonly List<(Vector3 pos, float yaw)> tvSpots = new List<(Vector3, float)>();
         // V0.7.19 (11.4) : pommeaux de douche interactifs des baignoires du Blockhaus.
@@ -322,9 +323,18 @@ public static partial class WorldBuilder
 
         // Éclairage chaud du chapiteau.
         // V0.7.7 (Note 02) : elles n'éclairent pas le sol du Tunnel Caché (derrière le mur, au Hub 1).
+        // V0.7.21 (Note 17) : toujours calculées au pixel ("importantes") : chaque pan de la toile (parcelle rouge ou crème, un objet
+        // chacun) les reçoit toutes, quel que soit le nombre de lampes alentour ; l'éclat de lumière n'est plus coupé à la limite
+        // entre deux parcelles (avant, un pan pouvait la recevoir au pixel et son voisin en approximation).
         for (int i = 0; i < 4; i++)
-            AddLight(root, Polar(45f + i * 90f, 6.5f, 4.3f), new Color(1f, 0.85f, 0.65f), 1.1f, 13f).cullingMask = ~(1 << ControlWing.TunnelFloorLayer);
-        AddLight(root, new Vector3(0f, 6f, 0f), new Color(1f, 0.9f, 0.75f), 1.2f, 12f).cullingMask = ~(1 << ControlWing.TunnelFloorLayer);
+        {
+            var hubLamp = AddLight(root, Polar(45f + i * 90f, 6.5f, 4.3f), new Color(1f, 0.85f, 0.65f), 1.1f, 13f);
+            hubLamp.cullingMask = ~(1 << ControlWing.TunnelFloorLayer);
+            hubLamp.renderMode = LightRenderMode.ForcePixel;
+        }
+        var hubTop = AddLight(root, new Vector3(0f, 6f, 0f), new Color(1f, 0.9f, 0.75f), 1.2f, 12f);
+        hubTop.cullingMask = ~(1 << ControlWing.TunnelFloorLayer);
+        hubTop.renderMode = LightRenderMode.ForcePixel;
 
         // Sonde de réflexion : la toile vernie reflète les lampes et le chapiteau.
         var probe = new GameObject("Reflets_Hub").AddComponent<ReflectionProbe>();
@@ -610,6 +620,7 @@ public static partial class WorldBuilder
         public readonly bool[,] fixedCell; // Neutral Room : hors du labyrinthe tiré au hasard
         public readonly HashSet<Vector2Int> keepClear = new HashSet<Vector2Int>(); // cellules sans décor ni piège
         public readonly HashSet<Vector2Int> archCells = new HashSet<Vector2Int>(); // couloirs au bout desquels se dresse une arche
+        public readonly HashSet<(int, int, bool)> archWalls = new HashSet<(int, int, bool)>(); // V0.7.21 : arêtes garnies d'une arche (clé d'EdgeKey)
         public readonly Dictionary<Vector2Int, Vector3> bevels = new Dictionary<Vector2Int, Vector3>(); // couloirs à biseau : décalage de la lampe
         public readonly bool[,] eastWall, northWall; // mur entre (i, j) et (i + 1, j) / entre (i, j) et (i, j + 1)
         // V0.7.11 (chapitre 11) : cellules "vides" des Châteaux et des Blockhaus (cours, remparts, Tours, ravin, cages d'escalier) :
@@ -1478,7 +1489,10 @@ public static partial class WorldBuilder
         if (castle != null)
         {
             FurnishCastle(m, root, castle, refs);
-            CourtyardSpots(m, refs, castle.halls, castle.rnd);
+            // V0.7.21 : les monticules des cimetières sont posés au pied des croix et des pierres tombales (DressCastle).
+            var halls = new HashSet<Vector2Int>(castle.halls);
+            halls.ExceptWith(castle.yards);
+            CourtyardSpots(m, refs, halls, castle.rnd);
         }
         MarkIntangibleSpheres(root);
         // V0.7.20 : éclairage lissé : les grandes pièces de la structure redécoupées en blocs de 10 m (WorldBuilder.Lighting).
@@ -1967,6 +1981,7 @@ public static partial class WorldBuilder
                 float top = height * ArchHoleTop;
                 AddCollider(center + Vector3.up * ((top + height) * 0.5f), north ? new Vector3(Cell, height - top, ArchDepth) : new Vector3(ArchDepth, height - top, Cell));
                 if (a == null || b == null) m.archCells.Add(a == null ? new Vector2Int(i, j) : new Vector2Int(ni, nj));
+                m.archWalls.Add((i, j, north));
             }
             for (int i = 0; i < n; i++)
                 for (int j = 0; j < n; j++)
@@ -2731,8 +2746,12 @@ public static partial class WorldBuilder
                     foreach (var c in room.cells)
                         if ((c.x - room.rect.xMin) % 3 == 1 && (c.y - room.rect.yMin) % 3 == 1) lamps.Add(m.Center(c.x, c.y));
                 if (lamps.Count < 2) { lamps.Clear(); lamps.Add(center); }
+                // V0.7.21 (11.3) : dans les salles de plus de 9 m de haut dont les murs font plus de 10 m de long et de large, des
+                // lustres 3 fois plus grands, qui balancent légèrement une fois sur deux (sans bruit).
+                bool grand = room.ceil - room.floor > GrandHallHeight && room.rect.width * Cell > GrandHallSide && room.rect.height * Cell > GrandHallSide;
                 foreach (var p in lamps)
-                    AddChandelier(props, new Vector3(p.x, room.ceil, p.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
+                    AddChandelier(props, new Vector3(p.x, room.ceil, p.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd,
+                        grand ? GrandChandelierScale : 1f, grand && rnd.NextDouble() < 0.5);
             }
             else AddLamp(props, new Vector3(center.x, room.ceil, center.z), 9f + (height - 4f) * 1.5f, 1.4f + (height - 4f) * 0.15f, rnd);
             // Neutral Room : vide (rien ne doit gêner le passage ni masquer les glyphes).
@@ -2799,14 +2818,22 @@ public static partial class WorldBuilder
                     break;
             }
 
-            // Pièces d'échecs, rares.
+            // Pièces d'échecs, rares. V0.7.21 (11.2) : à partir de la Zone 2, cinq fois plus, posées sur le sol réel de la salle
+            // (au fond d'une profondeur ou sur une plateforme en hauteur), 10 % plus grosses (+50 à +150 % de volume), 10 % à
+            // l'envers, collées au plafond ; jamais devant une porte ou un couloir, près d'un escalier, sur un pont, près d'un toboggan
+            // ni dans un tunnel.
             if (room.chess)
             {
                 int count = 1 + rnd.Next(3);
+                if (m.zone >= 2) count *= ChessPiecesFactor;
                 for (int k = 0; k < count; k++)
                 {
                     Vector3 p = RandomInside(room.floor);
-                    if (!NearStatue(p)) AddChessPiece(props, Pick(rnd, ChessPieces), p, rnd);
+                    if (NearStatue(p)) continue;
+                    if (m.zone < 2) { AddChessPiece(props, Pick(rnd, ChessPieces), p, rnd); continue; }
+                    float scale = rnd.NextDouble() < ChessBigChance ? Mathf.Pow(Rand(rnd, 1.5f, 2.5f), 1f / 3f) : 1f;
+                    bool hanging = rnd.NextDouble() < ChessCeilingChance;
+                    if (ChessSpot(m, room, p, scale, hanging, out Vector3 at)) AddChessPiece(props, Pick(rnd, ChessPieces), at, rnd, scale, hanging);
                 }
             }
 
@@ -3130,13 +3157,86 @@ public static partial class WorldBuilder
     }
 
     // Pièce d'échecs (modèle Meshy) de la taille d'un joueur, en noir ou blanc astiqué.
-    static void AddChessPiece(Transform parent, string model, Vector3 pos, System.Random rnd)
+    // V0.7.21 (11.2) : à partir de la Zone 2, cinq fois plus de pièces d'échecs ; 10 % plus grosses, 10 % au plafond.
+    const int ChessPiecesFactor = 5;
+    const double ChessBigChance = 0.1, ChessCeilingChance = 0.1;
+
+    // Emplacement d'une pièce d'échecs autour de 'p' (x, z) : sur le sol réel de la salle (fond d'une profondeur, dessus d'une
+    // plateforme), ou contre le plafond au-dessus ('hanging', la base de la pièce en 'at'). Refusé près d'une ouverture de la salle,
+    // d'un escalier, d'un pont, d'un toboggan ou d'un tunnel, ou si la pièce toucherait un autre décor.
+    static bool ChessSpot(Maze m, Room room, Vector3 p, float scale, bool hanging, out Vector3 at)
+    {
+        at = p;
+        float height = 1.8f * scale, radius = 0.4f * scale;
+        var cell = new Vector2Int(Mathf.FloorToInt((p.x - m.origin.x) / Cell), Mathf.FloorToInt((p.z - m.origin.z) / Cell));
+        if (m.RoomAt(cell.x, cell.y) != room || m.keepClear.Contains(cell) || NearOpening(m, room, cell, p)) return false;
+        Vector2 flat = new Vector2(p.x, p.z);
+        if (InBlocks(m, p, 1.5f) || m.airLines.Exists(r => r.Contains(flat)) || m.deckBlocks.Exists(r => r.Contains(flat))) return false;
+        foreach (var kv in m.shafts) if (ShaftRect(m, kv.Key, kv.Value).Contains(flat)) return false;
+        // Profondeurs : loin des escaliers et des passerelles (grille fine de la salle).
+        if (room.levels != null && room.stairCell != null && room.bridgeCell != null)
+        {
+            Vector3 o = DepthOrigin(m, room);
+            int fx = Mathf.FloorToInt((p.x - o.x) / Sub), fz = Mathf.FloorToInt((p.z - o.z) / Sub), reach = Mathf.CeilToInt((2f + radius) / Sub);
+            for (int dx = -reach; dx <= reach; dx++)
+                for (int dz = -reach; dz <= reach; dz++)
+                {
+                    int x = fx + dx, z = fz + dz;
+                    if (x < 0 || z < 0 || x >= room.stairCell.GetLength(0) || z >= room.stairCell.GetLength(1)) continue;
+                    if (room.stairCell[x, z] || room.bridgeCell[x, z]) return false;
+                }
+        }
+        // Sol réel sous le point (la surface la plus haute sous le plafond de la salle).
+        float top = room.ceil - 0.1f;
+        if (!Physics.Raycast(new Vector3(p.x, top, p.z), Vector3.down, out RaycastHit floorHit, top - room.floor + room.pitDepth + 40f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return false;
+        if (floorHit.normal.y < 0.95f || ChessForbidden(floorHit.collider)) return false;
+        float floorY = floorHit.point.y;
+        if (hanging)
+        {
+            if (!Physics.Raycast(new Vector3(p.x, floorY + 0.2f, p.z), Vector3.up, out RaycastHit ceilHit, 60f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return false;
+            if (ceilHit.normal.y > -0.95f || ChessForbidden(ceilHit.collider)) return false;
+            // Assez haut pour passer dessous (2,2 m sous la pièce).
+            if (ceilHit.point.y - height - floorY < 2.2f) return false;
+            at = new Vector3(p.x, ceilHit.point.y, p.z);
+            Vector3 c = at + Vector3.down * (height * 0.5f);
+            if (Physics.CheckCapsule(c + Vector3.up * (height * 0.5f - radius - 0.05f), c - Vector3.up * (height * 0.5f - radius), radius, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return false;
+        }
+        else
+        {
+            if (top - floorY < height + 0.3f) return false;
+            at = new Vector3(p.x, floorY, p.z);
+            if (Physics.CheckCapsule(at + Vector3.up * (radius + 0.05f), at + Vector3.up * (height - radius), radius, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return false;
+        }
+        // Rien de ce qu'on doit laisser libre aux alentours (escaliers, ponts, toboggans, tunnels).
+        foreach (var col in Physics.OverlapSphere(new Vector3(p.x, floorY + 1f, p.z), 2.5f + radius, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide))
+            if (ChessForbidden(col)) return false;
+        if (hanging)
+            foreach (var col in Physics.OverlapSphere(at + Vector3.down * (height * 0.5f), 2.5f + radius, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide))
+                if (ChessForbidden(col)) return false;
+        return true;
+    }
+
+    // Collision d'un escalier, d'un pont (suspendu ou de fosse), d'un toboggan ou d'un tunnel.
+    static bool ChessForbidden(Collider col)
+    {
+        for (Transform t = col.transform; t != null; t = t.parent)
+        {
+            string n = t.name;
+            if (n == "Rampe" || n.StartsWith("Toboggan") || n.StartsWith("PontSuspendu") || n.StartsWith("Passerelle") || n.StartsWith("Poutre")
+                || n.StartsWith("Tunnel") || n.StartsWith("Tube") || n.StartsWith("Escalier") || n.StartsWith("Palier")) return true;
+        }
+        return false;
+    }
+
+    // V0.7.21 (11.2) : 'scale' grossit la pièce ; 'hanging' : à l'envers, sa base collée au plafond en 'pos'.
+    static void AddChessPiece(Transform parent, string model, Vector3 pos, System.Random rnd, float scale = 1f, bool hanging = false)
     {
         var holder = GameArt.SpawnModel("Decor/" + model, parent, 1.8f);
         if (holder == null) return;
         holder.name = "Echecs_" + model;
         holder.transform.localPosition = pos;
-        holder.transform.localRotation = Quaternion.Euler(0f, Rand(rnd, 0f, 360f), 0f);
+        holder.transform.localRotation = Quaternion.Euler(hanging ? 180f : 0f, Rand(rnd, 0f, 360f), 0f);
+        holder.transform.localScale *= scale;
         bool white = rnd.NextDouble() < 0.5;
         Material mat = white ? GameArt.Lit("ChessWhite", new Color(0.9f, 0.9f, 0.88f), null, 0.85f)
                              : GameArt.Lit("ChessBlack", new Color(0.04f, 0.04f, 0.045f), null, 0.85f);
@@ -4432,6 +4532,7 @@ public static partial class WorldBuilder
         Transform parent = null;
         int chunks = (m.N + WallChunkSize - 1) / WallChunkSize;
         var builders = new MeshBuilder[chunks, chunks];
+        var brickBuilders = new MeshBuilder[chunks, chunks];
         foreach (bool alongZ in new[] { true, false })
             for (int line = 0; line < m.N; line++)
                 for (int t = 0; t < m.N;)
@@ -4451,12 +4552,18 @@ public static partial class WorldBuilder
                         parent = new GameObject("Biseaux").transform;
                         parent.SetParent(root, false);
                     }
-                    AddBevelRun(m, parent, builders, Cell2, first, t, alongZ, rnd);
+                    // V0.7.21 (Note 09) : au Château, le renfoncement en biseau est en briques noires et blanches, comme ses murs.
+                    var first2 = Cell2(first);
+                    bool brick = m.brickWalls && m.InStructure(first2.x, first2.y) && m.TerrainAt(first2.x, first2.y) == TerrainKind.Chateau;
+                    AddBevelRun(m, parent, brick ? brickBuilders : builders, Cell2, first, t, alongZ, rnd);
                 }
         if (parent == null) return;
         for (int x = 0; x < chunks; x++)
             for (int y = 0; y < chunks; y++)
+            {
                 if (builders[x, y] != null) GameArt.MeshObject("Biseau_" + x + "_" + y, parent, builders[x, y].Build("Biseau"), GameArt.CheckerWall);
+                if (brickBuilders[x, y] != null) GameArt.MeshObject("BiseauBriques_" + x + "_" + y, parent, brickBuilders[x, y].Build("BiseauBriques"), GameArt.BrickWall);
+            }
     }
 
     // Biseau(x) du couloir formé des cellules [first, end[ : à gauche, à droite, ou des deux côtés.

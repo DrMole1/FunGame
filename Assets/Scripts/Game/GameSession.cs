@@ -529,6 +529,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         {
             int id = zone.index * MoundIdsPerZone + k;
             ItemType loot = Items.RollMound(rnd, zone.index);
+            // V0.7.21 (11.3) : un monticule de cimetière (au pied d'une croix ou d'une pierre tombale) contient toujours un Os.
+            if (zone.boneSpots.Contains(spots[k])) loot = ItemType.Os;
             if (journal != ItemType.None && k == count - 1) loot = journal;
             float yaw = (float)rnd.NextDouble() * 360f;
             moundLoot[id] = (loot, spots[k]);
@@ -770,6 +772,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateCloches();
         UpdateRoi();
         UpdateCurfewDrain();
+        UpdateDarkTowerDrain();
         UpdateDespair();
         UpdateGlyphOrders();
         UpdateSealedZones();
@@ -858,7 +861,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         GameAudio.CurfewLevel = curfew ? 1f : 0f;
         if (player != null) GameAudio.Environment = EnvironmentAt(player.transform.position);
         // V0.7.16 (Note 01) : plus de musique dans un ravin (Blockhaus et douve du Château).
-        GameAudio.InRavine = player != null && IsOutdoors(player.transform.position);
+        // V0.7.21 (11.3) : ni dans le dernier étage plongé dans le noir d'une Tour ou d'un Donjon.
+        GameAudio.InRavine = player != null && (IsOutdoors(player.transform.position) || DarkTowerRoom.Contains(player.transform.position));
     }
 
     // Sons liés à l'état de la partie, détectés chez tous les clients (hôte compris) par changement d'état :
@@ -953,6 +957,23 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         int loss = Mathf.FloorToInt(curfewDrain);
         if (loss <= 0) return;
         curfewDrain -= loss;
+        status.SetSerenity(status.Serenity - loss);
+    }
+
+    // V0.7.21 (11.3) : dans le dernier étage plongé dans le noir d'une Tour ou d'un Donjon, -1 de sérénité par seconde et la caméra
+    // tremble légèrement.
+    float darkTowerDrain;
+
+    void UpdateDarkTowerDrain()
+    {
+        bool inside = player != null && !status.Dead && !Teleporting && !CannonFlying && !Sliding && DarkTowerRoom.Contains(player.transform.position);
+        if (!inside) { darkTowerDrain = 0f; return; }
+        OrbitCamera.Shake(GameRules.DarkTowerShake);
+        if (Godmode) return;
+        darkTowerDrain += GameRules.DarkTowerLossPerSecond * Time.deltaTime;
+        int loss = Mathf.FloorToInt(darkTowerDrain);
+        if (loss <= 0) return;
+        darkTowerDrain -= loss;
         status.SetSerenity(status.Serenity - loss);
     }
 

@@ -7,6 +7,8 @@ using UnityEngine;
 // par l'hôte (message SW, puis SH à tous) ; chaque joueur montre l'eau et les bulles de savon de son côté.
 // V0.7.20 (Note 11) : cliquable depuis la baignoire ou à côté (il est en hauteur : portée de 3,5 m) ; l'eau sort des trous du pommeau
 // (la face du disque du modèle Douche, tournée vers l'avant et un peu vers le bas) en fins filets blancs qui retombent en arc.
+// V0.7.21 (Note 15) : contour blanc quand on le vise, de près, sous tous les angles ; l'eau naît sur la face percée et s'arrête
+// dans la baignoire (collisions des gouttes).
 public class ShowerHead : Interactable
 {
     public static readonly List<ShowerHead> All = new List<ShowerHead>();
@@ -22,11 +24,15 @@ public class ShowerHead : Interactable
     // Face percée du pommeau dans le repère du modèle Douche ramené à 1 (sa plus grande dimension), le mur derrière (-Z) : centre,
     // direction et rayon de la zone des trous, mesurés sur le maillage.
     static readonly Vector3 RoseCenter = new Vector3(-0.008f, 0.457f, 0.396f), RoseNormal = new Vector3(-0.028f, -0.438f, 0.899f);
-    const float RoseFaceOffset = 0.064f, RoseHoles = 0.15f;
+    // V0.7.21 (Note 15) : l'eau naît sur la face percée elle-même (avant : 6,4 % de la taille du modèle devant elle, à côté du pommeau).
+    const float RoseFaceOffset = 0.008f, RoseHoles = 0.15f;
+    // V0.7.21 (Note 15) : zone de sélection élargie autour du pommeau, pour le viser sous tous les angles.
+    const float TriggerPadding = 0.35f;
     const float SprayRadius = 0.6f, JetSpeed = 1.3f;
 
     public override string Prompt => "";
-    protected override bool OutlineVisible => false;
+    // V0.7.21 (Note 15) : contour blanc quand on le vise (avant : aucun contour).
+    protected override bool OutlineVisible => true;
     public override float Range => 3.5f;
 
     public static ShowerHead Attach(GameObject head, int id, Vector3 outward, float floorY)
@@ -47,7 +53,8 @@ public class ShowerHead : Interactable
         float t = (vy + Mathf.Sqrt(vy * vy + 2f * 9.81f * drop)) / 9.81f;
         Vector3 flat = new Vector3(shower.sprayDir.x, 0f, shower.sprayDir.z) * JetSpeed;
         shower.wetCenter = shower.nozzle + flat * (t * 0.5f);
-        shower.FitTrigger(new Vector3(0.5f, 0.5f, 0.5f));
+        Bounds hb = GameArt.LocalBounds(head.transform);
+        shower.FitTrigger(Vector3.Max(new Vector3(0.5f, 0.5f, 0.5f), hb.size + Vector3.one * (TriggerPadding * 2f)));
         All.Add(shower);
         return shower;
     }
@@ -114,6 +121,17 @@ public class ShowerHead : Interactable
         g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
                   new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 0.85f), new GradientAlphaKey(0f, 1f) });
         fade.color = g;
+        // V0.7.21 (Note 15) : l'eau s'arrête sur ce qu'elle touche (le fond et les bords de la baignoire) au lieu de la traverser.
+        var collision = ps.collision;
+        collision.enabled = true;
+        collision.type = ParticleSystemCollisionType.World;
+        collision.mode = ParticleSystemCollisionMode.Collision3D;
+        collision.quality = ParticleSystemCollisionQuality.Medium;
+        collision.bounce = 0f;
+        collision.dampen = 1f;
+        collision.lifetimeLoss = 1f;
+        collision.radiusScale = 0.5f;
+        collision.collidesWith = Physics.DefaultRaycastLayers;
         var r = go.GetComponent<ParticleSystemRenderer>();
         r.renderMode = ParticleSystemRenderMode.Stretch;
         r.velocityScale = 0.09f;

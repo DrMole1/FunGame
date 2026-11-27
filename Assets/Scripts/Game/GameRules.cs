@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.20";
+    public const string Version = "V0.7.21";
 
     // V0.7.11 (9.1) : les Hubs sont numérotés en chiffres romains (Hub I, Hub II...).
     public static string Roman(int n)
@@ -123,6 +123,9 @@ public static class GameRules
     public const float CurfewStart = 3f * 60f;
     // V0.6.8 : plus de brume. Coupure de courant : dans le labyrinthe (hors des Hubs), -1 de sérénité par seconde (avant : 3).
     public const float CurfewLossPerSecond = 1f;
+    // V0.7.21 (11.3) : dernier étage d'une Tour ou d'un Donjon plongé dans le noir (5 %) : -1 de sérénité par seconde, caméra qui
+    // tremble légèrement.
+    public const float DarkTowerLossPerSecond = 1f, DarkTowerShake = 0.12f;
     // Note 02 du chapitre 3.4 (V0.4.10) : à 0 de sérénité, le personnage perd 15 PV par seconde (au lieu de mourir).
     public const int DespairDamagePerSecond = 15;
     // V0.6.8 : dans un Hub, la sérénité remonte de 10 points par seconde.

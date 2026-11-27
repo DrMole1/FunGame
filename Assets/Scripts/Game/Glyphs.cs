@@ -234,7 +234,8 @@ public class Glyph : Interactable
     static Mesh shackleMesh;
     GameObject padlock;
 
-    static GameObject BuildPadlock(Transform parent, Vector3 bar)
+    // V0.7.21 (Note 14) : aussi sur les poignées des portes fermées des Blockhaus (ApartmentDoor).
+    public static GameObject BuildPadlock(Transform parent, Vector3 bar)
     {
         Material iron = ItemPickup.KeyIron;
         var root = new GameObject("Serrure");

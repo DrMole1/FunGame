@@ -16,6 +16,7 @@ using UnityEngine;
 public static partial class WorldBuilder
 {
     const float BigPropChance = 0.15f, DogHeadChance = 0.15f;
+    const double CemeteryMoundChance = 0.4;
     const int CollarDungeons = 2;
     // Une salle (ou un couloir) dont un côté fait moins de 10 m : tout objet décoratif y touche un mur.
     const float CastleNarrowSide = 10f;
@@ -49,11 +50,18 @@ public static partial class WorldBuilder
     }
 
     // La tête du mannequin disparaît sous une tête de chien (un skin), au même endroit, tournée comme lui.
+    // V0.7.21 (Note 05) : mesuré sur le modèle Mannequin (hauteur 1,8) : la base du cou à 81,7 % de sa hauteur, au-dessus des
+    // épaules ; sa tête (boule de 0,17 m) jusqu'au sommet, un peu en avant. La tête de chien est posée par son propre cou (DogHeads).
+    const float MannequinNeck = 0.817f;
+    static readonly Vector3 MannequinHeadMin = new Vector3(-0.095f, 0f, -0.075f), MannequinHeadMax = new Vector3(0.095f, 0.335f, 0.11f);
+
     static void AddMannequinDogHead(GameObject mannequin, System.Random rnd)
     {
         Bounds b = GameArt.LocalBounds(mannequin.transform);
-        float size = Mathf.Max(0.45f, b.size.y * 0.3f);
-        DogHeads.SpawnUpright(mannequin.transform, new Vector3(b.center.x, b.max.y - size * 0.8f, b.center.z), size, rnd);
+        float k = b.size.y / 1.8f;
+        var head = new Bounds();
+        head.SetMinMax(MannequinHeadMin * k, MannequinHeadMax * k);
+        DogHeads.SpawnOnMannequin(mannequin.transform, new Vector3(b.center.x, b.min.y + MannequinNeck * b.size.y, b.center.z - 0.02f * k), head, Mathf.Max(0.45f, b.size.y * 0.3f), rnd);
     }
 
     // ---------- Après le mobilier : cimetières, colliers, corniches, plafonds, arches, tours de Kremlin ----------
@@ -61,28 +69,30 @@ public static partial class WorldBuilder
     static void DressCastle(Maze m, Transform root, ChateauPlan plan, ZoneRefs refs, Transform props)
     {
         var rnd = new System.Random(plan.rnd.Next());
-        BuildCemeteries(m, plan, props, rnd);
+        BuildCemeteries(m, plan, props, refs, rnd);
         AddCollarTargets(m, plan, props, refs, rnd);
         var cornices = new MeshBuilder();
-        var tilesWhite = new MeshBuilder();
-        var tilesBlack = new MeshBuilder();
+        var beams = new MeshBuilder();
         var rooms = new List<Room>(plan.natures.Keys);
         foreach (Room room in rooms)
         {
             if (room.cells.Count == 0) continue;
             RoomCornices(m, room, cornices);
-            CeilingTiles(m, room, tilesWhite, tilesBlack, rnd);
+            // V0.7.21 (Note 07) : plus de carreaux de damier au plafond des salles : des poutres de bois blanc.
+            CeilingBeams(m, room, beams);
         }
+        TemplateWallCornices(plan.templateWalls, cornices);
         CorridorArches(m, plan, cornices);
         if (!cornices.IsEmpty) GameArt.MeshObject("Z" + m.zone + "_Corniches", root, cornices.Build("Corniches"), GameArt.BrickWall);
-        if (!tilesWhite.IsEmpty) GameArt.MeshObject("Z" + m.zone + "_CarreauxBlancs", root, tilesWhite.Build("CarreauxBlancs"), GameArt.Lit("CarreauBlanc", new Color(0.9f, 0.9f, 0.9f), null, 0.3f));
-        if (!tilesBlack.IsEmpty) GameArt.MeshObject("Z" + m.zone + "_CarreauxNoirs", root, tilesBlack.Build("CarreauxNoirs"), GameArt.Lit("CarreauNoir", new Color(0.07f, 0.07f, 0.07f), null, 0.3f));
+        if (!beams.IsEmpty) GameArt.MeshObject("Z" + m.zone + "_Poutres", root, beams.Build("Poutres"), BeamMaterial);
         KremlinTowers(m, plan, root, rnd);
+        // Aucun monticule dans un pan de mur des salles sur schéma.
+        refs.itemSpots.RemoveAll(p => plan.templateWalls.Exists(b => { var e = b; e.Expand(new Vector3(MoundWidth + 0.2f, 1f, MoundWidth + 0.2f)); return e.Contains(p + Vector3.up * 0.3f); }));
     }
 
     // Cimetières : dans les halls autour des Tours et du Donjon, des croix et des pierres tombales, à l'écart de la porte des Tours,
     // des ouvertures des halls et les unes des autres.
-    static void BuildCemeteries(Maze m, ChateauPlan plan, Transform props, System.Random rnd)
+    static void BuildCemeteries(Maze m, ChateauPlan plan, Transform props, ZoneRefs refs, System.Random rnd)
     {
         var landings = new HashSet<Vector2Int>();
         foreach (var c in plan.site.crossings) landings.Add(c.At(MoatCells + 2));
@@ -96,7 +106,8 @@ public static partial class WorldBuilder
             int wanted = 1 + rnd.Next(2);
             for (int attempt = 0; attempt < 10 && wanted > 0; attempt++)
             {
-                Vector3 p = cc + new Vector3(Rand(rnd, -1.8f, 1.8f), 0f, Rand(rnd, -1.8f, 1.8f));
+                // V0.7.21 : sur le sol du cimetière, 1 m sous le niveau du Hub.
+                Vector3 p = new Vector3(cc.x, -CemeteryDepth, cc.z) + new Vector3(Rand(rnd, -1.8f, 1.8f), 0f, Rand(rnd, -1.8f, 1.8f));
                 if (!CemeteryFree(m, plan, cell, p, placed)) continue;
                 string model = rnd.NextDouble() < 0.45 ? "CroixOrthodoxe" : ModelVariant("PierreTombale", rnd);
                 var go = GameArt.SpawnModelFloor(model, props, ModelHeight(model));
@@ -117,6 +128,8 @@ public static partial class WorldBuilder
                 placed.Add((new Vector3(wb.center.x, p.y, wb.center.z), r));
                 AddPropCollider(go);
                 wanted--;
+                // V0.7.21 : les monticules du cimetière sont au pied des croix et des pierres tombales (et contiennent un Os).
+                if (rnd.NextDouble() < CemeteryMoundChance) CemeteryMoundAt(m, plan, cell, go, placed, refs, rnd);
             }
         }
     }
@@ -224,7 +237,11 @@ public static partial class WorldBuilder
             int ni = c.x + DI[d], nj = c.y + DJ[d];
             if (m.InGrid(ni, nj) && m.RoomAt(ni, nj) == room) return false;
             if (HasWall(m, c.x, c.y, d)) return true;
-            return m.InGrid(ni, nj) && !m.Void(ni, nj) && m.Ceil(ni, nj) <= room.ceil - CorniceHeight;
+            if (!m.InGrid(ni, nj)) return false;
+            // V0.7.21 (Note 02) : au-dessus d'une arche, ou d'une porte vers un hall ou un cimetière (le mur monte jusqu'à 12 m), la
+            // corniche continue (avant, elle s'interrompait au-dessus de chaque arche).
+            if (m.Void(ni, nj) || m.archWalls.Contains(EdgeKey(c.x, c.y, d))) return true;
+            return m.Ceil(ni, nj) <= room.ceil - CorniceHeight;
         }
         foreach (var cell in room.cells)
             for (int d = 0; d < 4; d++)
@@ -255,23 +272,78 @@ public static partial class WorldBuilder
     // Côté (0 +X, 1 -X, 2 +Z, 3 -Z) d'une direction horizontale unitaire.
     static int SideDir(Vector3 dir) => Mathf.Abs(dir.x) > 0.5f ? (dir.x > 0f ? 0 : 1) : (dir.z > 0f ? 2 : 3);
 
-    // 5 % du plafond gris de la salle couvert de carreaux de damier (1,25 m), blancs ou noirs, juste sous lui.
-    static void CeilingTiles(Maze m, Room room, MeshBuilder white, MeshBuilder black, System.Random rnd)
+    // V0.7.21 (Note 07) : poutres de bois blanc (texture Meshy) sous le plafond gris des salles (ni couloirs, ni Tours, ni Donjon) :
+    // parallèles au plus petit côté de la salle, régulièrement espacées, le plafond visible entre elles ; elles reposent sur les
+    // corniches le long des murs.
+    const float BeamWidth = 0.28f, BeamHeight = 0.32f, BeamSpacing = 1.25f;
+
+    static Material beamMaterial;
+    static Material BeamMaterial
     {
-        const int per = 4;
-        // V0.7.20 : 5 cm sous la hauteur du plafond (lui-même 2 cm plus bas) : à 1 cm, ils scintillaient avec lui de loin.
-        float tile = Cell / per, y = room.ceil - 0.05f;
+        get
+        {
+            if (beamMaterial != null) return beamMaterial;
+            beamMaterial = Resources.Load<Material>("Art/Decor/PoutreBois");
+            if (beamMaterial == null) beamMaterial = GameArt.Lit("PoutreBois", new Color(0.92f, 0.91f, 0.88f), GameArt.Noise("wood", 128, 0.85f, 0.15f, 5), 0.1f);
+            return beamMaterial;
+        }
+    }
+
+    static void CeilingBeams(Maze m, Room room, MeshBuilder mb)
+    {
+        // Les poutres franchissent le plus petit côté de la salle : elles courent le long de cet axe.
+        bool alongX = room.rect.width <= room.rect.height;
+        float y = room.ceil - BeamHeight * 0.5f - 0.02f;
+        int dLo = alongX ? 1 : 3, dHi = alongX ? 0 : 2;
+        float inset = Wall * 0.5f + CorniceDepth * 0.5f;
         foreach (var cell in room.cells)
         {
             Vector3 c = m.Center(cell.x, cell.y);
-            for (int a = 0; a < per; a++)
-                for (int b = 0; b < per; b++)
-                {
-                    if (rnd.NextDouble() >= 0.05) continue;
-                    float x0 = c.x - Cell * 0.5f + a * tile, z0 = c.z - Cell * 0.5f + b * tile;
-                    (rnd.NextDouble() < 0.5 ? white : black).WorldQuad(new Vector3(x0, y, z0), new Vector3(x0, y, z0 + tile), new Vector3(x0 + tile, y, z0 + tile), new Vector3(x0 + tile, y, z0), Vector3.down, 0.5f);
-                }
+            // Bouts de la poutre dans la cellule : au mur (moins la corniche), sinon jusqu'au bord de la cellule.
+            bool WallSide(int d)
+            {
+                int ni = cell.x + DI[d], nj = cell.y + DJ[d];
+                return !m.InGrid(ni, nj) || m.RoomAt(ni, nj) != room || HasWall(m, cell.x, cell.y, d);
+            }
+            float lo = -Cell * 0.5f + (WallSide(dLo) ? inset : 0f), hi = Cell * 0.5f - (WallSide(dHi) ? inset : 0f);
+            if (hi - lo < 0.5f) continue;
+            // Positions le long de l'autre axe : une grille commune à toute la salle (les poutres se suivent d'une cellule à l'autre).
+            float across0 = alongX ? c.z - Cell * 0.5f : c.x - Cell * 0.5f;
+            float origin = alongX ? m.origin.z : m.origin.x;
+            float first = origin + Mathf.Ceil((across0 + 0.4f - origin) / BeamSpacing) * BeamSpacing;
+            float mid = (lo + hi) * 0.5f, len = hi - lo;
+            for (float t = first; t <= across0 + Cell - 0.4f; t += BeamSpacing)
+            {
+                Vector3 center = alongX ? new Vector3(c.x + mid, y, t) : new Vector3(t, y, c.z + mid);
+                Vector3 size = alongX ? new Vector3(len, BeamHeight, BeamWidth) : new Vector3(BeamWidth, BeamHeight, len);
+                // Sans face du dessus (contre le plafond).
+                mb.Box(center, size, 0.6f, 63 & ~(1 << 2));
+            }
         }
+    }
+
+    // V0.7.21 (Note 06) : la corniche fait aussi le tour des pans de mur des salles sur schéma, sous le plafond.
+    static void TemplateWallCornices(List<Bounds> boxes, MeshBuilder mb)
+    {
+        if (boxes.Count == 0) return;
+        Mesh mesh = Resources.Load<Mesh>("Art/Decor/Corniche");
+        if (mesh == null) return;
+        Vector3[] v = mesh.vertices, vn = mesh.normals;
+        int[] t = mesh.triangles;
+        foreach (Bounds b in boxes)
+            for (int d = 0; d < 4; d++)
+            {
+                Vector3 n = new Vector3(DI[d], 0f, DJ[d]);
+                bool xFace = Mathf.Abs(n.x) > 0.5f;
+                float half = xFace ? b.extents.x : b.extents.z, len = xFace ? b.size.z : b.size.x;
+                Vector3 face = new Vector3(b.center.x, 0f, b.center.z) + n * half;
+                // Face collée à un autre pan de mur : pas de corniche.
+                Vector3 probe = face + n * 0.1f + Vector3.up * b.center.y;
+                if (boxes.Exists(o => o.Contains(probe))) continue;
+                Quaternion rot = Quaternion.LookRotation(n) * Quaternion.Euler(0f, 0f, 180f);
+                Vector3 at = face + n * (CorniceDepth * 0.5f) + Vector3.up * b.max.y;
+                mb.WorldMeshSmooth(v, t, vn, Matrix4x4.TRS(at, rot, new Vector3(len + CorniceDepth * 2f, CorniceHeight, CorniceDepth)), 0.5f);
+            }
     }
 
     // Arches de briques (Meshy, normalisée : x en largeur, y en hauteur, z en épaisseur) dans les couloirs du Château, d'un mur à
@@ -330,6 +402,8 @@ public static partial class WorldBuilder
 
     // Note 08 : tours décoratives derrière les remparts (sur les toits de la première rangée de salles et de couloirs), le corps rond en
     // briques et le toit de Kremlin des anciennes Maisons-Fou ; ni collision ni accès.
+    const int MinKremlinPerRampart = 6;
+
     static void KremlinTowers(Maze m, ChateauPlan plan, Transform root, System.Random rnd)
     {
         var spots = new List<Vector2Int>();
@@ -340,11 +414,28 @@ public static partial class WorldBuilder
         Shuffle(spots, rnd);
         var chosen = new List<Vector3>();
         var kit = new Kit(root, root, "Z" + m.zone + "_ToursKremlin");
+        // V0.7.21 (Note 10) : au moins 6 tours de Kremlin par rempart (avant : 10 pour tout le Château), espacées d'au moins 10 m.
+        var counts = new Dictionary<int, int>();
+        int Side(Vector2Int c)
+        {
+            // Rempart le plus proche (dans l'une des quatre directions).
+            int best = 0, bestD = int.MaxValue;
+            for (int d = 0; d < 4; d++)
+            {
+                int k = 1;
+                while (k < m.N && m.InGrid(c.x + DI[d] * k, c.y + DJ[d] * k) && !plan.rampart.Contains(new Vector2Int(c.x + DI[d] * k, c.y + DJ[d] * k))) k++;
+                if (k < bestD) { bestD = k; best = d; }
+            }
+            return best;
+        }
         foreach (var c in spots)
         {
-            if (chosen.Count >= 10) break;
+            int side = Side(c);
+            counts.TryGetValue(side, out int have);
+            if (have >= MinKremlinPerRampart + 2) continue;
             Vector3 p = m.Center(c.x, c.y);
-            if (chosen.Exists(q => Flat(q - p) < 22f)) continue;
+            if (chosen.Exists(q => Flat(q - p) < 10f)) continue;
+            counts[side] = have + 1;
             chosen.Add(p);
             float baseY = m.Ceil(c.x, c.y) + RoofSlab, radius = Rand(rnd, 1.8f, 2.3f), body = Rand(rnd, 10f, 14f);
             const int sides = 12;

@@ -306,7 +306,12 @@ public static partial class WorldBuilder
     // Moquette en damier sur tout le sol de la pièce (jusqu'aux murs).
     static void LayCarpet(StoreyFurnish f, Room room)
     {
-        foreach (var cell in room.cells)
+        foreach (var cell in room.cells) LayCarpetCell(f, cell);
+    }
+
+    // V0.7.21 (Note 13) : la moquette aussi dans les couloirs (cellule par cellule, jusqu'aux murs).
+    static void LayCarpetCell(StoreyFurnish f, Vector2Int cell)
+    {
         {
             Vector3 c = f.m.Center(cell.x, cell.y);
             float e0 = HasWall(f.m, cell.x, cell.y, 1) ? Cell * 0.5f - Wall * 0.5f : Cell * 0.5f, e1 = HasWall(f.m, cell.x, cell.y, 0) ? Cell * 0.5f - Wall * 0.5f : Cell * 0.5f;

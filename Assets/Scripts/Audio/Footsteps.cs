@@ -48,7 +48,8 @@ public class Footsteps : MonoBehaviour
     {
         Vector3 feet = transform.position + Vector3.down * 0.85f;
         // V0.7.12 (Note 15) : pas sur le gravier des Hubs 30 % moins forts.
-        bool hub = WorldBuilder.IsInHub(feet);
+        // V0.7.21 (11.3) : le gravier des cimetières du Château sonne comme celui des Hubs, au même volume.
+        bool hub = WorldBuilder.IsInHub(feet) || CemeteryArea.Contains(feet);
         GameAudio.Play3D(hub ? "step_dirt" : "step_tile", feet, hub ? volume * 0.7f : volume, 18f, 0.12f, pitch);
     }
 }

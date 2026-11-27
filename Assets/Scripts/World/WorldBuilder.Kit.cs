@@ -172,6 +172,9 @@ public static partial class WorldBuilder
         // avec la suivante jusqu'au bord extérieur (avant, la boîte était tournée d'un quart de tour : 3 m le long de la rampe et
         // 0,4 m du centre vers le mur, d'où un escalier très étroit).
         float width = rOut - rIn, tread = SpiralTread * (rOut / rMid) * 1.25f;
+        // V0.7.21 (Note 04) : une rampe invisible et lisse passe par le nez des marches : le personnage monte et descend sans buter
+        // d'une marche à l'autre (sa course reste fluide).
+        Vector3 prev = center + Quaternion.Euler(0f, start, 0f) * Vector3.forward * rMid + Vector3.up * y0;
         for (int k = 1; k <= steps; k++)
         {
             angle = start + k * stepAngle;
@@ -181,8 +184,24 @@ public static partial class WorldBuilder
             // V0.7.19 (Note 03) : 1 cm sous le niveau visé : la marche qui arrive à un palier (Blockhaus) ou au dernier étage (Tours,
             // Donjon) n'a plus son dessus dans le même plan que lui (scintillement des textures).
             kit.Turned(center + dir * rMid + Vector3.up * (top - 0.15f - SeamLift), new Vector3(tread, 0.3f, width), angle);
+            Vector3 next = center + dir * rMid + Vector3.up * Mathf.Min(top + rise * 0.5f, y1);
+            SpiralRampPiece(kit.colliders, prev, next, width);
+            prev = next;
         }
         return angle;
+    }
+
+    // Tronçon de rampe invisible (collision seule) de 'a' à 'b' (points de sa surface, au milieu de sa largeur).
+    static void SpiralRampPiece(Transform colliders, Vector3 a, Vector3 b, float width)
+    {
+        Vector3 d = b - a;
+        if (d.sqrMagnitude < 1e-4f) return;
+        const float thick = 0.1f;
+        Quaternion rot = Quaternion.LookRotation(d.normalized, Vector3.up);
+        var go = new GameObject("Rampe");
+        go.transform.SetParent(colliders, false);
+        go.transform.SetPositionAndRotation((a + b) * 0.5f - rot * Vector3.up * (thick * 0.5f), rot);
+        go.AddComponent<BoxCollider>().size = new Vector3(width, thick, d.magnitude + 0.06f);
     }
 
     // ---------- Tours rondes (Tours et Donjon du Château, Maisons-Fou) ----------
@@ -354,13 +373,25 @@ public static partial class WorldBuilder
 
     // Lustre de fer (modèle Meshy "Lustre", sinon un anneau de bougies) suspendu au plafond, avec sa lumière chaude ; il s'éteint
     // pendant le Couvre Feu, comme les néons.
-    static void AddChandelier(Transform parent, Vector3 ceilingPos, float range, float intensity, System.Random rnd)
+    // V0.7.21 : 'scale' agrandit le lustre (suspendu d'autant plus bas) ; 'sway' : il balance légèrement (ChandelierSwing).
+    const float GrandHallHeight = 9f, GrandHallSide = 10f, GrandChandelierScale = 3f;
+
+    static void AddChandelier(Transform parent, Vector3 ceilingPos, float range, float intensity, System.Random rnd, float scale = 1f, bool sway = false)
     {
         intensity *= LampDim;
         range *= LampReach;
         var go = new GameObject("Lustre");
         go.transform.SetParent(parent, false);
-        go.transform.localPosition = ceilingPos + Vector3.down * 1.3f;
+        go.transform.localPosition = ceilingPos + Vector3.down * (1.3f * scale);
+        if (sway)
+        {
+            // Accroché à un pivot au plafond, qui oscille.
+            var pivot = new GameObject("LustrePivot").transform;
+            pivot.SetParent(parent, false);
+            pivot.localPosition = ceilingPos;
+            go.transform.SetParent(pivot, true);
+            pivot.gameObject.AddComponent<ChandelierSwing>().Init(rnd);
+        }
         Renderer glow;
         var model = GameArt.SpawnModel("Lustre", go.transform, 1.1f);
         var flame = GameArt.Unlit("FlammeBougie", new Color(1f, 0.82f, 0.5f));
@@ -391,6 +422,7 @@ public static partial class WorldBuilder
         var bulb = GameArt.Prim(PrimitiveType.Sphere, go.transform, Vector3.zero, Vector3.one * 0.16f, flame);
         foreach (var c in go.GetComponentsInChildren<Collider>()) Object.Destroy(c);
         glow = bulb.GetComponent<Renderer>();
+        if (scale != 1f) go.transform.localScale = Vector3.one * scale;
         var l = AddLight(go.transform, Vector3.down * 0.3f, new Color(1f, 0.78f, 0.55f), intensity, range);
         // V0.7.20 : lumière de bougies, vacillante.
         var flicker = go.AddComponent<FlickerLight>();

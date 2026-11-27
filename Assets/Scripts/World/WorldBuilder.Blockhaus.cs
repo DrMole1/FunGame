@@ -37,6 +37,19 @@ public static partial class WorldBuilder
     // V0.7.14 : néons des façades sur le ravin, 80 % de volume en plus (chaque dimension x 1,8^(1/3)).
     static readonly float RavineNeonScale = Mathf.Pow(1.8f, 1f / 3f);
 
+    // V0.7.21 : cage d'escalier de 2 x 4 cellules (sa cellule de coin, le sens de sa longueur).
+    internal struct Well
+    {
+        public Vector2Int origin;
+        public bool alongZ;
+        // Cellule (a en travers, de 0 à 1 ; b en long, de 0 à 3).
+        public Vector2Int At(int a, int b) => alongZ ? origin + new Vector2Int(a, b) : origin + new Vector2Int(b, a);
+        public IEnumerable<Vector2Int> Cells() { for (int a = 0; a < WellCellsAcross; a++) for (int b = 0; b < WellCellsAlong; b++) yield return At(a, b); }
+    }
+
+    const int WellCellsAcross = 2, WellCellsAlong = 4, StairwellCount = 2;
+    const float StairwellSpacing = 80f;
+
     // Appartement fermé sous cadenas : son étage, la pièce, l'arête de sa porte.
     internal class LockedRoom { public int storey; public Room room; public (int, int, bool) edge; }
 
@@ -45,7 +58,7 @@ public static partial class WorldBuilder
         public StructureSite site;
         public System.Random rnd;
         public readonly HashSet<Vector2Int> ravine = new HashSet<Vector2Int>(), building = new HashSet<Vector2Int>();
-        public readonly List<Vector2Int> wells = new List<Vector2Int>();
+        public readonly List<Well> wells = new List<Well>();
         public readonly HashSet<Vector2Int> wellCells = new HashSet<Vector2Int>();
         public Maze[] storeys;
         public readonly List<LockedRoom> locked = new List<LockedRoom>();
@@ -75,26 +88,26 @@ public static partial class WorldBuilder
                 if (site.dist[i, j] <= RavineCells && !nearRoom) plan.ravine.Add(c);
                 else plan.building.Add(c);
             }
-        // Cages d'escalier (2 x 2 cellules) dans le bâtiment, au moins 2.
-        int wanted = Mathf.Clamp(2 + plan.building.Count / 150, 2, 5);
+        // V0.7.21 : plus d'escaliers en colimaçon : 2 cages d'escalier (2 x 4 cellules, sur les 3 étages), espacées d'au moins 80 m
+        // (moins si le bâtiment est trop petit).
         var buildingList = plan.building.OrderBy(c => c.x).ThenBy(c => c.y).ToList();
-        for (int k = 0; k < wanted; k++)
-            for (int attempt = 0; attempt < 400 && buildingList.Count > 0; attempt++)
+        Vector3 WellCenter(Well w) => (main.Center(w.At(0, 0).x, w.At(0, 0).y) + main.Center(w.At(1, 3).x, w.At(1, 3).y)) * 0.5f;
+        for (float spacing = StairwellSpacing; spacing >= 0f && plan.wells.Count < StairwellCount; spacing -= 20f)
+            for (int attempt = 0; attempt < 600 && buildingList.Count > 0 && plan.wells.Count < StairwellCount; attempt++)
             {
-                var c = buildingList[rnd.Next(buildingList.Count)];
+                var w = new Well { origin = buildingList[rnd.Next(buildingList.Count)], alongZ = rnd.NextDouble() < 0.5 };
                 bool ok = true;
-                for (int i = c.x - 1; i <= c.x + 2 && ok; i++)
-                    for (int j = c.y - 1; j <= c.y + 2 && ok; j++)
+                for (int a = -1; a <= WellCellsAcross && ok; a++)
+                    for (int b = -1; b <= WellCellsAlong && ok; b++)
                     {
-                        var q = new Vector2Int(i, j);
-                        if (!plan.building.Contains(q) || main.Fixed(i, j) || main.neutralRoom.Contains(q) || Mathf.Abs(i - main.doorCol) <= 2 && j >= n - 5
-                            || plan.wells.Exists(w => Mathf.Abs(w.x - i) <= 3 && Mathf.Abs(w.y - j) <= 3)) ok = false;
+                        var q = w.At(a, b);
+                        if (!plan.building.Contains(q) || main.Fixed(q.x, q.y) || main.neutralRoom.Contains(q) || Mathf.Abs(q.x - main.doorCol) <= 2 && q.y >= n - 5
+                            || plan.wellCells.Contains(q)) ok = false;
                     }
-                if (!ok) continue;
-                plan.wells.Add(c);
-                break;
+                if (!ok || plan.wells.Exists(o => Flat(WellCenter(o) - WellCenter(w)) < spacing)) continue;
+                plan.wells.Add(w);
+                foreach (var c in w.Cells()) plan.wellCells.Add(c);
             }
-        foreach (var w in plan.wells) for (int a = 0; a < 2; a++) for (int b = 0; b < 2; b++) plan.wellCells.Add(new Vector2Int(w.x + a, w.y + b));
 
         // ---------- Les 3 étages ----------
         plan.storeys = new Maze[StoreyLevels.Length];
@@ -183,11 +196,17 @@ public static partial class WorldBuilder
                     m.wallHoles[EdgeKey(i, j, d)] = (WindowLow, WindowHigh);
                 }
             }
-            // Cages d'escalier : une porte vers un couloir ou un appartement voisin à chaque étage.
+            // Cages d'escalier : une porte vers un couloir ou un appartement voisin à chaque étage. V0.7.21 : sur le palier de l'étage
+            // (au premier étage, au bout "nord" de la cage ; au second, au bout "sud", du même côté que le palier du rez-de-chaussée).
             foreach (var w in plan.wells)
             {
                 var sides = new List<(Vector2Int cell, int dir)>();
-                foreach (var c in new[] { w, w + Vector2Int.right, w + Vector2Int.up, w + Vector2Int.one })
+                var landing = new List<Vector2Int>();
+                for (int a = 0; a < WellCellsAcross; a++)
+                    for (int b = 0; b < WellCellsAlong; b++)
+                        // (Au rez-de-chaussée, pas contre le premier escalier, le long du mur de travers 0.)
+                        if (s == 0 && !(a == 0 && b > 0 && b < WellCellsAlong - 1) || s == 1 && b == WellCellsAlong - 1 || s == 2 && b == 0) landing.Add(w.At(a, b));
+                foreach (var c in landing)
                     for (int d = 0; d < 4; d++)
                     {
                         var nb = c + new Vector2Int(DI[d], DJ[d]);
@@ -260,7 +279,7 @@ public static partial class WorldBuilder
         // ---------- Ravin, cages d'escalier ----------
         var shell = new Kit(root, colliders, "Z" + zone + "_Blockhaus");
         BuildRavine(main, plan, shell, rnd, root);
-        foreach (var w in plan.wells) BuildStairwell(main, storeys, w, shell, rnd);
+        foreach (var w in plan.wells) BuildStairwell(main, storeys, w, shell, rnd, root);
         shell.Flush();
         yield return null;
         if (plan.site.crossings.Count > 0)
@@ -593,47 +612,124 @@ public static partial class WorldBuilder
         }
     }
 
-    // Cage d'escalier (2 x 2 cellules) : un colimaçon de 3 m de large (V0.7.14) de -10 m à +20 m autour d'un pilier, des paliers vers
-    // les portes de chaque étage. V0.7.13 : pas de rambarde ; des piliers comblent les coins de la cage.
-    static void BuildStairwell(Maze main, Maze[] storeys, Vector2Int w, Kit kit, System.Random rnd)
+    // V0.7.21 : cage d'escalier (2 x 4 cellules) étalée en hauteur sur les 3 étages (de -10 à +20 m), selon le schéma du GDD : un
+    // palier à chaque étage, au bout de la cage (celui du rez-de-chaussée du même côté que celui du second étage : au rez-de-chaussée,
+    // le sol couvre toute la cage), et deux escaliers droits de 3 m de large le long des murs, de part et d'autre d'un vide : le
+    // premier monte du rez-de-chaussée au palier du premier étage, le second de ce palier à celui du second étage. Rambardes le long
+    // des escaliers et des paliers, côté vide ; les entités empruntent les escaliers (rampes). Quelques objets au sol et sur les paliers.
+    const float StairwellFlightWidth = 3f;
+
+    static void BuildStairwell(Maze main, Maze[] storeys, Well w, Kit kit, System.Random rnd, Transform root)
     {
-        Vector3 center = (main.Center(w.x, w.y) + main.Center(w.x + 1, w.y + 1)) * 0.5f;
-        float half = Cell, bottom = StoreyLevels[0], height = BlockhausTop - bottom;
-        kit.Floor(Rect.MinMaxRect(center.x - half, center.z - half, center.x + half, center.z + half), bottom);
-        float rOut = half - Wall * 0.5f - 0.05f, rIn = rOut - TowerStairWidth;
-        kit.Box(center + Vector3.up * (bottom + height * 0.5f), new Vector3(rIn * 1.4f, height, rIn * 1.4f));
-        float start = Rand(rnd, 0f, 360f);
-        KitSpiral(kit, center, rIn, rOut, bottom, BlockhausTop, start);
-        foreach (var corner in new[] { new Vector3(-1f, 0f, -1f), new Vector3(1f, 0f, -1f), new Vector3(-1f, 0f, 1f), new Vector3(1f, 0f, 1f) })
-            kit.Box(center + corner * (half - StairwellPillar * 0.5f) + Vector3.up * (bottom + height * 0.5f), new Vector3(StairwellPillar, height, StairwellPillar));
-        // Paliers : à chaque étage, une dalle entre l'escalier et le mur de la cage (le joueur passe de l'un à l'autre).
-        for (int s = 0; s < storeys.Length; s++)
+        Vector3 c0 = main.Center(w.At(0, 0).x, w.At(0, 0).y), c1 = main.Center(w.At(1, 3).x, w.At(1, 3).y);
+        Vector3 center = (c0 + c1) * 0.5f;
+        Vector3 L = w.alongZ ? Vector3.forward : Vector3.right, A = w.alongZ ? Vector3.right : Vector3.forward;
+        // Le "sud" de la cage est au bout b = 0 : L pointe du sud vers le nord.
+        if (Vector3.Dot(c1 - c0, L) < 0f) L = -L;
+        if (Vector3.Dot(c1 - c0, A) < 0f) A = -A;
+        float halfA = Cell * WellCellsAcross * 0.5f - Wall * 0.5f, halfL = Cell * WellCellsAlong * 0.5f - Wall * 0.5f;
+        float bottom = StoreyLevels[0], mid = StoreyLevels[1], high = StoreyLevels[2];
+        Vector3 At(float across, float along, float y) => center + A * across + L * along + Vector3.up * y;
+        Vector3 Size(float across, float h, float along) => w.alongZ ? new Vector3(across, h, along) : new Vector3(along, h, across);
+        // Sol du rez-de-chaussée (toute la cage).
+        Vector3 lo = At(-halfA, -halfL, bottom), hi = At(halfA, halfL, bottom);
+        kit.Floor(Rect.MinMaxRect(Mathf.Min(lo.x, hi.x), Mathf.Min(lo.z, hi.z), Mathf.Max(lo.x, hi.x), Mathf.Max(lo.z, hi.z)), bottom);
+        // Escaliers : le premier contre le mur "ouest" (travers négatif), du sud vers le nord ; le second contre le mur "est", du nord
+        // vers le sud.
+        float run = StairRun(StoreyHeight), flight = StairwellFlightWidth;
+        float leftA = -halfA + flight * 0.5f, rightA = halfA - flight * 0.5f, voidHalf = halfA - flight;
+        KitStairs(kit, At(leftA, -run * 0.5f, 0f), L, flight, bottom, mid);
+        KitStairs(kit, At(rightA, run * 0.5f, 0f), -L, flight, mid, high);
+        // Paliers : au premier étage au nord, au second au sud (dalles de 0,3 m sur toute la largeur de la cage).
+        float landing = halfL - run * 0.5f;
+        kit.Box(At(0f, run * 0.5f + landing * 0.5f, mid - 0.15f), Size(halfA * 2f, 0.3f, landing));
+        kit.Box(At(0f, -run * 0.5f - landing * 0.5f, high - 0.15f), Size(halfA * 2f, 0.3f, landing));
+        // Rambardes, côté vide : le long des deux escaliers, et au bord des deux paliers.
+        var rails = new MeshBuilder();
+        StairRail(rails, kit.colliders, At(-voidHalf, -run * 0.5f, bottom), At(-voidHalf, run * 0.5f, mid));
+        StairRail(rails, kit.colliders, At(voidHalf, run * 0.5f, mid), At(voidHalf, -run * 0.5f, high));
+        StairRail(rails, kit.colliders, At(-voidHalf, run * 0.5f, mid), At(voidHalf, run * 0.5f, mid));
+        StairRail(rails, kit.colliders, At(-halfA, -run * 0.5f, high), At(voidHalf, -run * 0.5f, high));
+        if (!rails.IsEmpty) GameArt.MeshObject("RambardesCage", root, rails.Build("RambardesCage"), GameArt.Metal);
+        // Lampes : une au plafond de chaque étage, au-dessus du vide.
+        for (int s = 0; s < storeys.Length; s++) AddLamp(kit.root, At(0f, 0f, StoreyLevels[s] + StoreyHeight - 0.1f), 9f, 1.2f, rnd);
+        // Plafond de la cage.
+        Vector3 t0 = At(-halfA - Wall * 0.5f, -halfL - Wall * 0.5f, BlockhausTop), t1 = At(halfA + Wall * 0.5f, halfL + Wall * 0.5f, BlockhausTop);
+        Rect top = Rect.MinMaxRect(Mathf.Min(t0.x, t1.x), Mathf.Min(t0.z, t1.z), Mathf.Max(t0.x, t1.x), Mathf.Max(t0.z, t1.z));
+        kit.grey.WorldQuad(new Vector3(top.xMin, BlockhausTop, top.yMin), new Vector3(top.xMin, BlockhausTop, top.yMax),
+            new Vector3(top.xMax, BlockhausTop, top.yMax), new Vector3(top.xMax, BlockhausTop, top.yMin), Vector3.down, 0.5f);
+        kit.Collider(new Vector3(top.center.x, BlockhausTop + 0.5f, top.center.y), new Vector3(top.width, 1f, top.height));
+        // Objets décoratifs (jamais sur les escaliers) : au rez-de-chaussée, sous le vide et au pied des marches ; un sur chaque palier,
+        // dans un coin du fond.
+        var spots = new List<(Vector3 pos, Vector3 facing, string model)>
         {
-            float y = StoreyLevels[s];
-            // V0.7.20 : au rez-de-chaussée, le sol de la cage suffit (les paliers le doublaient et scintillaient avec lui).
-            if (s == 0)
+            (At(0f, Rand(rnd, -run * 0.3f, run * 0.3f), bottom), A, "Luminaire"),
+            (At(-halfA + 0.6f, -halfL + 0.6f, bottom), A, "Commode"),
+            (At(halfA - 1.2f, halfL - 1.2f, bottom), -A, "Canape"),
+            (At(rnd.NextDouble() < 0.5 ? -halfA + 0.7f : halfA - 0.7f, halfL - 0.7f, mid), -L, "Luminaire"),
+            (At(rnd.NextDouble() < 0.5 ? -halfA + 0.7f : halfA - 0.7f, -halfL + 0.7f, high), L, "Commode"),
+        };
+        Physics.SyncTransforms();
+        foreach (var (pos, facing, model) in spots)
+        {
+            var go = GameArt.SpawnModelFloor(model, kit.root, BlockhausModelHeight(model));
+            if (go == null) continue;
+            go.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(facing));
+            // Rien devant une porte ni sur une marche : on vérifie qu'il ne touche aucun bâti.
+            Bounds b = WorldBounds(go.transform);
+            b.Expand(new Vector3(-0.1f, -0.2f, -0.1f));
+            if (Physics.CheckBox(b.center + Vector3.up * 0.1f, b.extents, Quaternion.identity, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+                || DoorNear(storeys, w, pos))
             {
-                AddLamp(kit.root, new Vector3(center.x, y + StoreyHeight - 0.1f, center.z), 9f, 1.2f, rnd);
+                Object.Destroy(go);
                 continue;
             }
-            foreach (var corner in new[] { new Vector3(-1f, 0f, -1f), new Vector3(1f, 0f, -1f), new Vector3(-1f, 0f, 1f), new Vector3(1f, 0f, 1f) })
-            {
-                Vector3 c = center + corner * (half - 0.9f);
-                kit.Box(new Vector3(c.x, y - 0.15f, c.z), new Vector3(1.8f, 0.3f, 1.8f));
-            }
-            foreach (var (dx, dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
-            {
-                Vector3 c = center + new Vector3(dx, 0f, dz) * (half - 0.4f);
-                kit.Box(new Vector3(c.x, y - 0.15f, c.z), dx != 0 ? new Vector3(0.8f, 0.3f, half * 2f) : new Vector3(half * 2f, 0.3f, 0.8f));
-            }
-            AddLamp(kit.root, new Vector3(center.x, y + StoreyHeight - 0.1f, center.z), 9f, 1.2f, rnd);
+            var col = go.AddComponent<BoxCollider>();
+            Bounds lb = GameArt.LocalBounds(go.transform);
+            col.center = lb.center;
+            col.size = lb.size;
         }
-        kit.grey.WorldQuad(new Vector3(center.x - half, BlockhausTop, center.z - half), new Vector3(center.x - half, BlockhausTop, center.z + half),
-            new Vector3(center.x + half, BlockhausTop, center.z + half), new Vector3(center.x + half, BlockhausTop, center.z - half), Vector3.down, 0.5f);
-        kit.Collider(new Vector3(center.x, BlockhausTop + 0.5f, center.z), new Vector3(half * 2f, 1f, half * 2f));
     }
 
-    const float StairwellPillar = 1.2f;
+    // Une porte de la cage (à l'étage de 'pos') à moins de 2,5 m.
+    static bool DoorNear(Maze[] storeys, Well w, Vector3 pos)
+    {
+        int s = Mathf.Clamp(Mathf.FloorToInt((pos.y - StoreyLevels[0] + 0.5f) / StoreyHeight), 0, storeys.Length - 1);
+        Maze m = storeys[s];
+        foreach (var c in w.Cells())
+            for (int d = 0; d < 4; d++)
+            {
+                var nb = c + new Vector2Int(DI[d], DJ[d]);
+                if (!m.InGrid(nb.x, nb.y) || m.Void(nb.x, nb.y) || HasWall(m, c.x, c.y, d)) continue;
+                Vector3 door = m.Center(c.x, c.y) + new Vector3(DI[d], 0f, DJ[d]) * (Cell * 0.5f);
+                if (Flat(door - pos) < 2.5f) return true;
+            }
+        return false;
+    }
+
+    // Rambarde (main courante, poteaux) de 'a' à 'b' (points au sol, à plat ou en pente) ; sa collision la double sur 1,1 m.
+    static void StairRail(MeshBuilder mb, Transform colliders, Vector3 a, Vector3 b)
+    {
+        const float height = 1f, bar = 0.06f, post = 0.05f, postStep = 1.2f;
+        Vector3 d = b - a;
+        float length = d.magnitude;
+        if (length < 0.2f) return;
+        Quaternion rot = Quaternion.LookRotation(d / length, Vector3.up);
+        Vector3 up = Vector3.up * height;
+        mb.WorldMesh(UnitCube.vertices, UnitCube.triangles, Matrix4x4.TRS((a + b) * 0.5f + up, rot, new Vector3(bar, bar, length)), 1f);
+        mb.WorldMesh(UnitCube.vertices, UnitCube.triangles, Matrix4x4.TRS((a + b) * 0.5f + up * 0.5f, rot, new Vector3(bar * 0.6f, bar * 0.6f, length)), 1f);
+        int posts = Mathf.Max(1, Mathf.RoundToInt(length / postStep));
+        for (int k = 0; k <= posts; k++)
+        {
+            Vector3 p = Vector3.Lerp(a, b, k / (float)posts);
+            mb.Box(p + up * 0.5f, new Vector3(post, height, post), 1f);
+        }
+        var go = new GameObject("Rambarde");
+        go.transform.SetParent(colliders, false);
+        go.transform.SetPositionAndRotation((a + b) * 0.5f + Vector3.up * 0.55f, rot);
+        go.AddComponent<BoxCollider>().size = new Vector3(0.12f, 1.1f, length);
+    }
+
 
     // V0.7.19 : commode, luminaire, vieux canapé, table (et ses chaises) en plus.
     static readonly string[] BlockhausFurniture = { "Lavabo", "Douche", "Armoire", "Urinoir", "Baignoire", "Commode", "Luminaire", "Canape", "TableBlockhaus" };
@@ -813,6 +909,8 @@ public static partial class WorldBuilder
         ControlDecor.EndPipes();
         PlinthCorners(m, plan, y, finish);
         var f = new StoreyFurnish { m = m, plan = plan, y = y, props = props, finish = finish, refs = refs, placed = placed, storey = storey };
+        // V0.7.21 (Note 13) : moquette dans les couloirs aussi (pas sur les trémies des escaliers).
+        foreach (var cell in corridorCells) if (!m.shafts.ContainsKey(cell)) LayCarpetCell(f, cell);
         foreach (Room room in m.rooms)
         {
             if (room.cells.Count == 0 || !plan.building.Contains(room.cells[0]) || m.Fixed(room.cells[0].x, room.cells[0].y)) continue;

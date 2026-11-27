@@ -10,7 +10,12 @@ public static class DogHeads
     {
         public Mesh mesh;
         public Material material;
+        // V0.7.21 (Note 05) : centre (x, z) de la base du cou, et l'encombrement (x, z) de la tête par tranche de hauteur.
+        public Vector2 neck;
+        public Rect[] slices;
     }
+
+    const int Slices = 20;
 
     static List<Variant> variants;
     const float SizeFactor = 0.75f;
@@ -66,6 +71,70 @@ public static class DogHeads
         r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
     }
 
+    // V0.7.21 (Note 05) : tête de chien posée sur un mannequin, pour chaque skin : la base de son cou (mesurée sur le modèle) sur le
+    // cou du mannequin ('neck', repère de 'parent'), le museau vers +Z ; elle est assez grande pour que la tête du mannequin (la boîte
+    // 'head', relative à 'neck') tienne tout entière dedans : rien du mannequin ne ressort plus de la tête (avant, la tête était
+    // posée par son origine, que certains modèles ont loin du cou : celle de Snoopy était trop reculée et le mannequin ressortait
+    // par son nez).
+    public static void SpawnOnMannequin(Transform parent, Vector3 neck, Bounds head, float minSize, System.Random rnd)
+    {
+        if (variants == null) Load();
+        if (variants.Count == 0) return;
+        Variant v = variants[rnd.Next(variants.Count)];
+        float size = minSize;
+        for (int k = 0; k < 40 && !Covers(v, head, size); k++) size *= 1.04f;
+        var go = new GameObject("TeteDeChien");
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = neck;
+        go.transform.localRotation = Quaternion.identity;
+        go.transform.localScale = Vector3.one * size;
+        var model = new GameObject("Tete");
+        model.transform.SetParent(go.transform, false);
+        model.transform.localPosition = new Vector3(-v.neck.x, 0f, -v.neck.y);
+        model.AddComponent<MeshFilter>().sharedMesh = v.mesh;
+        var r = model.AddComponent<MeshRenderer>();
+        r.sharedMaterial = v.material;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+    }
+
+    // La boîte 'head' (relative à la base du cou) tient dans la tête à l'échelle 'size' (tranche par tranche, avec 1,5 cm de marge).
+    static bool Covers(Variant v, Bounds head, float size)
+    {
+        const float margin = 0.015f;
+        for (float y = Mathf.Max(0f, head.min.y); y <= head.max.y + 0.001f; y += 0.025f)
+        {
+            int slice = Mathf.FloorToInt(y / size * Slices);
+            if (slice < 0 || slice >= Slices) return false;
+            Rect r = v.slices[slice];
+            if (r.width <= 0f) return false;
+            float x0 = (r.xMin - v.neck.x) * size, x1 = (r.xMax - v.neck.x) * size, z0 = (r.yMin - v.neck.y) * size, z1 = (r.yMax - v.neck.y) * size;
+            if (x0 > head.min.x - margin || x1 < head.max.x + margin || z0 > head.min.z - margin || z1 < head.max.z + margin) return false;
+        }
+        return true;
+    }
+
+    static void Measure(Variant v)
+    {
+        Vector3[] pts = v.mesh.vertices;
+        Bounds b = v.mesh.bounds;
+        Vector2 neck = Vector2.zero;
+        int count = 0;
+        var min = new Vector2[Slices];
+        var max = new Vector2[Slices];
+        for (int k = 0; k < Slices; k++) { min[k] = Vector2.one * 99f; max[k] = -Vector2.one * 99f; }
+        foreach (var p in pts)
+        {
+            if (p.y < b.min.y + 0.06f) { neck += new Vector2(p.x, p.z); count++; }
+            int k = Mathf.Clamp(Mathf.FloorToInt((p.y - b.min.y) / Mathf.Max(0.001f, b.size.y) * Slices), 0, Slices - 1);
+            min[k] = Vector2.Min(min[k], new Vector2(p.x, p.z));
+            max[k] = Vector2.Max(max[k], new Vector2(p.x, p.z));
+        }
+        v.neck = count > 0 ? neck / count : Vector2.zero;
+        v.slices = new Rect[Slices];
+        for (int k = 0; k < Slices; k++) v.slices[k] = max[k].x >= min[k].x ? Rect.MinMaxRect(min[k].x, min[k].y, max[k].x, max[k].y) : new Rect();
+    }
+
     static void Load()
     {
         variants = new List<Variant>();
@@ -74,7 +143,9 @@ public static class DogHeads
             var mesh = Resources.Load<Mesh>("Art/Decor/TetesChiens/Tete" + k);
             if (mesh == null) break;
             var tex = Resources.Load<Texture2D>("Art/Decor/TetesChiens/Tete" + k);
-            variants.Add(new Variant { mesh = mesh, material = GameArt.Lit("TeteDeChien" + k, Color.white, tex, 0.2f) });
+            var variant = new Variant { mesh = mesh, material = GameArt.Lit("TeteDeChien" + k, Color.white, tex, 0.2f) };
+            Measure(variant);
+            variants.Add(variant);
         }
     }
 }

@@ -160,7 +160,15 @@ public class ApartmentDoor : Interactable
         }
         if (locked)
         {
-            door.padlock = GameArt.Prim(PrimitiveType.Cube, door.leaf, new Vector3(width * 0.88f, height * 0.45f, 0.06f), new Vector3(0.1f, 0.12f, 0.05f), ItemPickup.KeyIron);
+            // V0.7.21 (Note 14) : un vrai cadenas de fer rouillé (celui des boîtiers de verre des glyphes), accroché à la poignée,
+            // visible des deux côtés de la porte.
+            door.padlock = new GameObject("Cadenas");
+            door.padlock.transform.SetParent(door.leaf, false);
+            foreach (float side in new[] { 1f, -1f })
+            {
+                var lockPart = Glyph.BuildPadlock(door.padlock.transform, new Vector3(width * 0.88f, height * 0.45f, side * 0.075f));
+                if (side < 0f) lockPart.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            }
             foreach (var c in door.padlock.GetComponentsInChildren<Collider>()) Destroy(c);
             door.blocker = go.AddComponent<BoxCollider>();
             door.blocker.center = new Vector3(0f, height * 0.5f, 0f);
@@ -177,10 +185,33 @@ public class ApartmentDoor : Interactable
         if (!Locked) return;
         Locked = false;
         if (blocker != null) blocker.enabled = false;
-        if (padlock != null) padlock.SetActive(false);
+        // V0.7.21 (Note 14) : le cadenas saute de la poignée et retombe au sol.
+        if (padlock != null)
+        {
+            if (animate) JumpPadlock();
+            padlock.SetActive(false);
+        }
         if (animate) GameAudio.Play3D("key", transform.position + Vector3.up, 0.8f, 15f, 0.05f);
         target = Pushed;
         RefreshOutline();
+    }
+
+    void JumpPadlock()
+    {
+        foreach (Transform part in padlock.transform)
+        {
+            var flying = Instantiate(part.gameObject, part.position, part.rotation);
+            flying.transform.localScale = part.lossyScale;
+            flying.layer = 2;
+            var box = flying.AddComponent<BoxCollider>();
+            box.center = new Vector3(0f, -0.07f, 0f);
+            box.size = new Vector3(0.12f, 0.12f, 0.05f);
+            var rb = flying.AddComponent<Rigidbody>();
+            rb.mass = 0.4f;
+            rb.velocity = part.forward * Random.Range(0.8f, 1.6f) + Vector3.up * Random.Range(2.5f, 3.5f);
+            rb.angularVelocity = Random.insideUnitSphere * 12f;
+            Destroy(flying, 4f);
+        }
     }
 
     void Update()

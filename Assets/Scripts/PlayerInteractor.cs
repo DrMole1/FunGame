@@ -48,6 +48,8 @@ public class PlayerInteractor : MonoBehaviour
         }
     }
 
+    const float SeeThroughDepth = 0.6f;
+
     Interactable FindTarget()
     {
         Camera cam = Camera.main;
@@ -56,7 +58,24 @@ public class PlayerInteractor : MonoBehaviour
         if (!Physics.Raycast(ray, out RaycastHit hit, 14f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide))
             return null;
         var it = hit.collider.GetComponentInParent<Interactable>();
-        if (it == null || !it.CanInteract) return null;
+        // V0.7.21 (Note 08) : un objet interactif à peine derrière ce que touche le regard (le Collier à Laisse au cou d'une cible
+        // humaine, dont la boîte de collision l'englobe ; un pommeau de douche au-dessus d'une baignoire) reste visable.
+        if (it == null || !it.CanInteract)
+        {
+            // Seulement derrière un objet du décor (qui a un rendu), jamais à travers un mur ou un sol (collisions seules).
+            if (hit.collider.GetComponentInChildren<Renderer>() == null) return null;
+            it = null;
+            float bestD = float.MaxValue;
+            foreach (var h in Physics.RaycastAll(ray, hit.distance + SeeThroughDepth, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide))
+            {
+                var cand = h.collider.GetComponentInParent<Interactable>();
+                if (cand == null || !cand.CanInteract || h.distance >= bestD) continue;
+                bestD = h.distance;
+                it = cand;
+                hit = h;
+            }
+            if (it == null) return null;
+        }
         Vector3 pos = transform.position;
         float dist = Vector3.Distance(hit.collider.ClosestPoint(pos), pos);
         return dist <= it.Range ? it : null;
