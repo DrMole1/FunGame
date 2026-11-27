@@ -60,7 +60,9 @@ public static class MeshDecimator
         public int tri, corner;
     }
 
-    public static void Simplify(Mesh mesh, int target)
+    // V0.7.22 : 'lockSeams' : les sommets des coutures de texture ne bougent pas non plus (comme les bords) : le dessin d'un modèle
+    // à l'atlas très découpé (visage peint des poupées russes) n'est plus étiré d'un îlot de texture à l'autre.
+    public static void Simplify(Mesh mesh, int target, bool lockSeams = false)
     {
         if (!mesh.isReadable) return;
         Vector3[] positions = mesh.vertices;
@@ -136,7 +138,7 @@ public static class MeshDecimator
                     if (t.error[j] >= threshold) continue;
                     int i0 = t.v[j], i1 = t.v[(j + 1) % 3];
                     Vert v0 = verts[i0], v1 = verts[i1];
-                    if (v0.border || v1.border || v0.refCount + v1.refCount > MaxValence) continue;
+                    if (v0.border || v1.border || lockSeams && (v0.seam || v1.seam) || v0.refCount + v1.refCount > MaxValence) continue;
                     EdgeError(verts, i0, i1, out Vector3 p);
                     Resize(flags0, v0.refCount);
                     Resize(flags1, v1.refCount);

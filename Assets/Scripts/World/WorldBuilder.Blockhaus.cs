@@ -492,12 +492,29 @@ public static partial class WorldBuilder
                 if (boundary && d == 3 && m.southHeights != null) high = Mathf.Max(high, m.southHeights[c.x]);
                 // V0.7.16 (Note 04) : la paroi du dessous dépasse de 1 cm le sol qu'elle borde (étage du Blockhaus, Échiquier) : leurs
                 // faces ne sont plus dans le même plan (scintillement au seuil des ouvertures et des ponts).
+                // V0.7.22 : un pan de façade grise s'arrête avant le pan voisin de la même paroi s'il est en damier (côté Échiquier ou bord
+                // de la zone) : avant, les deux débordaient l'un sur l'autre de l'épaisseur du mur, deux faces dans le même plan, en gris et
+                // en damier, scintillaient sur toute la hauteur du ravin.
+                bool grey = !boundary && !echiquier;
+                float endLo = Wall * 0.5f, endHi = Wall * 0.5f;
+                if (grey)
+                {
+                    foreach (float sx in new[] { -1f, 1f })
+                    {
+                        var along = new Vector2Int(c.x + (int)side.x * (int)sx, c.y + (int)side.z * (int)sx);
+                        var outer = new Vector2Int(along.x + DI[d], along.y + DJ[d]);
+                        if (!cells.Contains(along) || cells.Contains(outer)) continue;
+                        if (m.InGrid(outer.x, outer.y) && m.InStructure(outer.x, outer.y)) continue;
+                        if (sx < 0f) endLo = -Wall * 0.5f; else endHi = -Wall * 0.5f;
+                    }
+                }
+                float length = Cell + endLo + endHi, shift = (endHi - endLo) * 0.5f;
                 foreach (var (y0, y1) in new[] { (-RavineReach, low + SeamLift), (high, RavineReach) })
                 {
                     if (y1 - y0 < 0.05f) continue;
-                    Vector3 wc = edge + Vector3.up * ((y0 + y1) * 0.5f);
+                    Vector3 wc = edge + side * shift + Vector3.up * ((y0 + y1) * 0.5f);
                     // V0.7.16 (Note 01) : façade du Blockhaus en béton gris ; côté Échiquier, le damier, sans fenêtre factice.
-                    kit.Box(wc, d < 2 ? new Vector3(Wall, y1 - y0, Cell + Wall) : new Vector3(Cell + Wall, y1 - y0, Wall), true, boundary || echiquier ? null : kit.grey);
+                    kit.Box(wc, d < 2 ? new Vector3(Wall, y1 - y0, length) : new Vector3(length, y1 - y0, Wall), true, grey ? kit.grey : null);
                 }
                 if (boundary) continue;
                 // V0.7.15 (Note 02) : façade du Blockhaus en grille régulière : à chaque étage une ouverture (où le joueur passe), et

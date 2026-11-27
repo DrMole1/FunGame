@@ -335,7 +335,9 @@ public static partial class WorldBuilder
             foreach (Rect r in MaskRects(mask, m.origin.x, m.origin.z, Cell)) shell.Floor(r, 0f);
         }
         BuildHallCeilings(m, plan, shell);
-        BuildCemeteryShell(m, plan, root, shell, walls);
+        // V0.7.22 : les murs des cimetières (sous le niveau du Hub, au-dessus des halls, créneaux) sont en briques ordinaires, comme les
+        // murs qu'ils prolongent (avant : briques lumineuses des remparts, une bande claire tranchait au pied et au sommet des murs).
+        BuildCemeteryShell(m, plan, root, shell, shell);
         BuildMoat(m, plan, checker, walls, rnd, root);
         BuildRamparts(m, plan, walls);
         yield return null;
@@ -383,7 +385,7 @@ public static partial class WorldBuilder
             if (plan.yards.Contains(c)) continue;   // V0.7.21 : cimetières à ciel ouvert
             if (plan.rounds.Exists(r => Flat(r.center - p) < r.radius + 1.8f)) continue;
             if (!landings.Contains(c) && rnd.NextDouble() >= 0.35) continue;
-            AddChandelier(root, p + Vector3.up * HallHeight, 14f, 1.2f, rnd);
+            AddChandelier(root, p + Vector3.up * HallHeight, 14f, 1.2f, rnd, headroom: HallHeight);
         }
 
         // Ponts suspendus au-dessus de la douve.
@@ -663,10 +665,11 @@ public static partial class WorldBuilder
         KitDisc(kit, c, R - 0.5f, H + 0.5f, 0.5f, sides);
         KitRoundMerlons(kit, c, R, H + 0.5f, sides);
         // Lustres : sous le premier plafond, et sous le toit (aucun décor ne flotte).
-        AddChandelier(root, c + Vector3.up * lowestCeiling, 16f, 1.4f, rnd);
+        // V0.7.22 (Note 03) : le lustre du rez-de-chaussée est toujours un grand lustre (qui balance une fois sur deux).
+        AddChandelier(root, c + Vector3.up * lowestCeiling, 16f, 1.4f, rnd, GrandChandelierScale, rnd.NextDouble() < 0.5, lowestCeiling - ground);
         // V0.7.21 : le dernier étage a toujours son lustre (avant : seulement s'il y avait un étage intermédiaire), sauf s'il est
         // plongé dans le noir.
-        if (!plan.dark) AddChandelier(root, c + Vector3.up * H, 10f, 1.1f, rnd);
+        if (!plan.dark) AddChandelier(root, c + Vector3.up * H, 10f, 1.1f, rnd, headroom: TowerTopRoom);
         return (c + Vector3.up * top, H - top);
     }
 
@@ -783,6 +786,7 @@ public static partial class WorldBuilder
             bool narrow = NarrowRoom(room, CastleNarrowSide);
             var placed = new List<Vector3>();
             var floorProps = new List<GameObject>();
+            var paintings = new List<int>();
             int count = 2 + room.cells.Count;
             for (int k = 0; k < count; k++)
             {
@@ -795,12 +799,13 @@ public static partial class WorldBuilder
                 var go = GameArt.SpawnModelFloor(model, props, ModelHeight(model));
                 if (go == null) continue;
                 DressProp(go, model, rnd);
+                Texture2D painting = model == "Cadre" ? PreparePainting(go, rnd, paintings) : null;
                 bool ok = spot == Spot.Floor
                     ? PlaceOnFloor(m, room, go, cell, 0f, Rand(rnd, 0f, 360f), placed, rnd) && FitInCell(m, room, go, cell)
                     : PlaceAgainstWall(m, go, cell, rnd.Next(4), spot == Spot.Hung ? Rand(rnd, 1.5f, 2.1f) : 0f, spot == Spot.Near ? 0.25f : 0.02f, placed, rnd);
                 if (!ok) { Object.Destroy(go); continue; }
                 // Portrait d'un chien (skin) dans les tableaux.
-                if (model == "Cadre") AddPortrait(go.transform, rnd);
+                if (model == "Cadre") AddPortrait(go.transform, rnd, painting);
                 if (model == "Grille") SinkGrille(go);
                 if (spot != Spot.Hung) { AddPropCollider(go); floorProps.Add(go); }
                 if (model.StartsWith("Caisse")) AnvilOnCrate(go, props, rnd);
@@ -1192,6 +1197,7 @@ public static partial class WorldBuilder
         List<Bounds> wallBoxes = null)
     {
         int skipped = 0;
+        var paintings = new List<int>();
         int[] cols = TemplateCols[layout], rows = TemplateRows[layout];
         int W = SegSquares(cols), H = SegSquares(rows), CW = SegCells(cols), CH = SegCells(rows);
         string[,] grid = ParseTemplate(layout, out bool[,] inside);
@@ -1282,6 +1288,7 @@ public static partial class WorldBuilder
                 float size = ModelHeight(model);
                 if (model == "Table" || model == "Banc") size = Mathf.Min(size, Mathf.Min(sx, sz));
                 GameObject go;
+                Texture2D painting = null;
                 if (model == "Grille")
                 {
                     // Rangée de grilles : chaque grille couvre sa case le long de la rangée (elles se touchent).
@@ -1305,6 +1312,7 @@ public static partial class WorldBuilder
                     go = GameArt.SpawnModelFloor(model, props, size);
                     if (go == null) continue;
                     DressProp(go, model, rnd);
+                    if (model == "Cadre") painting = PreparePainting(go, rnd, paintings);
                     if (sym == "C")
                     {
                         // Chaise tournée vers la table voisine.
@@ -1344,7 +1352,7 @@ public static partial class WorldBuilder
                     go.transform.position += back * (target - gap - reach);
                 }
                 if (model == "Grille") SinkGrille(go);
-                if (model == "Cadre") AddPortrait(go.transform, rnd);
+                if (model == "Cadre") AddPortrait(go.transform, rnd, painting);
                 else AddPropCollider(go);
                 if (model.StartsWith("Caisse")) AnvilOnCrate(go, props, rnd);
             }
@@ -1534,12 +1542,45 @@ public static partial class WorldBuilder
     }
 
     // Image d'un skin de chien dans un cadre de hall (texture Resources/Art/Portraits si elle existe, sinon une toile sombre).
-    static void AddPortrait(Transform frame, System.Random rnd)
+    // V0.7.22 (Note 09) : tableau des Châteaux : une image tirée au hasard dans Assets/Sprite/Tableaux (TableauxArt), jamais deux fois
+    // la même dans une salle ('used' : images déjà accrochées dans la salle ; toutes prises, on recommence). L'image garde ses
+    // proportions : c'est le cadre qui s'adapte (étiré en largeur). Volume du tableau doublé (x 2^(1/3) en hauteur et en largeur).
+    // À appeler avant de placer le cadre (sa taille change). Retourne l'image (null : ancien portrait de chien).
+    const float PaintingGrow = 1.26f, PaintingInner = 0.7f;
+
+    static Texture2D PreparePainting(GameObject frame, System.Random rnd, List<int> used)
+    {
+        Texture2D[] images = TableauxArt.Images;
+        frame.transform.localScale = Vector3.Scale(frame.transform.localScale, new Vector3(PaintingGrow, PaintingGrow, 1f));
+        if (images.Length == 0) return null;
+        var free = new List<int>();
+        for (int k = 0; k < images.Length; k++) if (images[k] != null && (used == null || !used.Contains(k))) free.Add(k);
+        if (free.Count == 0)
+        {
+            used?.Clear();
+            for (int k = 0; k < images.Length; k++) if (images[k] != null) free.Add(k);
+            if (free.Count == 0) return null;
+        }
+        int pick = free[rnd.Next(free.Count)];
+        used?.Add(pick);
+        Texture2D tex = images[pick];
+        Bounds b = GameArt.LocalBounds(frame.transform);
+        if (b.size.x > 0.01f && b.size.y > 0.01f && tex.height > 0)
+        {
+            // Cadre étiré en largeur pour que son intérieur ait les proportions de l'image.
+            float stretch = (float)tex.width / tex.height / (b.size.x / b.size.y);
+            Vector3 s = frame.transform.localScale;
+            frame.transform.localScale = new Vector3(s.x * stretch, s.y, s.z);
+        }
+        return tex;
+    }
+
+    static void AddPortrait(Transform frame, System.Random rnd, Texture2D image = null)
     {
         Bounds b = GameArt.LocalBounds(frame);
-        var tex = Resources.Load<Texture2D>("Art/Portraits/Portrait" + (rnd.Next(8) + 1));
-        Material mat = tex != null ? GameArt.Lit("Portrait" + tex.name, Color.white, tex, 0.2f) : GameArt.Lit("PortraitSombre", new Color(0.12f, 0.1f, 0.1f), null, 0.2f);
-        var quad = GameArt.Prim(PrimitiveType.Quad, frame, new Vector3(b.center.x, b.center.y, b.max.z - 0.02f), new Vector3(b.size.x * 0.7f, b.size.y * 0.7f, 1f), mat);
+        var tex = image != null ? image : Resources.Load<Texture2D>("Art/Portraits/Portrait" + (rnd.Next(8) + 1));
+        Material mat = tex != null ? GameArt.Lit((image != null ? "Tableau" : "Portrait") + tex.name, Color.white, tex, 0.2f) : GameArt.Lit("PortraitSombre", new Color(0.12f, 0.1f, 0.1f), null, 0.2f);
+        var quad = GameArt.Prim(PrimitiveType.Quad, frame, new Vector3(b.center.x, b.center.y, b.max.z - 0.02f), new Vector3(b.size.x * PaintingInner, b.size.y * PaintingInner, 1f), mat);
         quad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
         foreach (var c in quad.GetComponentsInChildren<Collider>()) Object.Destroy(c);
     }

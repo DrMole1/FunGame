@@ -86,12 +86,18 @@ public static partial class WorldBuilder
                     // prolongé jusqu'à 13 m, et descend jusqu'au sol du cimetière (sauf sous la porte : l'escalier).
                     float wallTop = m.voidCeil;
                     walls.Box(edge + Vector3.up * ((wallTop + RampartHeight) * 0.5f), Size(full, RampartHeight - wallTop));
-                    if (!open) walls.Box(edge + Vector3.up * (ground * 0.5f), Size(full, -ground));
+                    // V0.7.22 : sans face du dessus (au niveau du Hub, sous le mur qu'il prolonge, elle se confondait avec le sol voisin).
+                    void Buried(Vector3 c, Vector3 size)
+                    {
+                        walls.walls.Box(c, size, 0.5f, 63 & ~(1 << 2));
+                        walls.Collider(c, size);
+                    }
+                    if (!open) Buried(edge + Vector3.up * (ground * 0.5f), Size(full, -ground));
                     else
                     {
                         float pier = (full - DoorWidth) * 0.5f;
                         foreach (float s in new[] { -1f, 1f })
-                            walls.Box(edge + side * (s * (DoorWidth * 0.5f + pier * 0.5f)) + Vector3.up * (ground * 0.5f), Size(pier, -ground));
+                            Buried(edge + side * (s * (DoorWidth * 0.5f + pier * 0.5f)) + Vector3.up * (ground * 0.5f), Size(pier, -ground));
                     }
                 }
                 // Créneaux au sommet, mur invisible au-dessus (jusqu'au plafond du Château).

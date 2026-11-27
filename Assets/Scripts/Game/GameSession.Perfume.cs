@@ -81,7 +81,7 @@ public partial class GameSession
         foreach (var p in PlayerPresence.All)
         {
             if (p == null || string.IsNullOrEmpty(p.PlayerId) || !p.isActiveAndEnabled || !p.Alive || PerfumeLeft(p.PlayerId) <= 0f) continue;
-            if (Random.value >= AuraPerSecond * Time.deltaTime) continue;
+            if (Random.value >= AuraPerSecond * ParticleDensity.Factor * Time.deltaTime) continue;
             if (scentParticles == null) scentParticles = BuildScentParticles();
             Vector2 o = Random.insideUnitCircle.normalized * Random.Range(0.35f, 0.7f);
             scentParticles.Emit(new ParticleSystem.EmitParams
@@ -140,7 +140,8 @@ public partial class GameSession
     {
         if (scentParticles == null) scentParticles = BuildScentParticles();
         // V0.7.12 (Note 17) : environ 2,5 volutes par mètre et par seconde, à pleine intensité (4 fois moins qu'avant).
-        float rate = trail.length * ScentPerMeter * trail.weight * Time.deltaTime;
+        // V0.7.22 (Note 05 du Menu Pause) : réglage "Particules" (Normal : ce nombre ; Peu : moitié ; Très Peu : quart).
+        float rate = trail.length * ScentPerMeter * trail.weight * ParticleDensity.Factor * Time.deltaTime;
         int count = Mathf.FloorToInt(rate) + (Random.value < rate - Mathf.Floor(rate) ? 1 : 0);
         for (int k = 0; k < count; k++)
         {

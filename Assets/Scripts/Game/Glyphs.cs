@@ -254,7 +254,8 @@ public class Glyph : Interactable
         float top = -0.012f - ShackleRadius + 0.012f;
         float cy = top - LockHeight * 0.5f;
         GameArt.Prim(PrimitiveType.Cube, root.transform, new Vector3(0f, cy + LockHeight * 0.1f, 0f), new Vector3(LockWidth, LockHeight * 0.8f, LockDepth), iron);
-        var bottom = GameArt.Prim(PrimitiveType.Cylinder, root.transform, new Vector3(0f, cy - LockHeight * 0.28f, 0f), new Vector3(LockWidth, LockDepth * 0.5f, LockWidth * 0.45f), iron);
+        // V0.7.22 : un peu moins épais que le corps (même épaisseur avant : leurs faces avant et arrière se confondaient et scintillaient).
+        var bottom = GameArt.Prim(PrimitiveType.Cylinder, root.transform, new Vector3(0f, cy - LockHeight * 0.28f, 0f), new Vector3(LockWidth, LockDepth * 0.47f, LockWidth * 0.45f), iron);
         bottom.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
         Material hole = GameArt.Lit("TrouSerrure", new Color(0.02f, 0.015f, 0.01f), null, 0f);
         float front = LockDepth * 0.5f + 0.001f;

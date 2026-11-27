@@ -374,19 +374,26 @@ public static partial class WorldBuilder
     // Lustre de fer (modèle Meshy "Lustre", sinon un anneau de bougies) suspendu au plafond, avec sa lumière chaude ; il s'éteint
     // pendant le Couvre Feu, comme les néons.
     // V0.7.21 : 'scale' agrandit le lustre (suspendu d'autant plus bas) ; 'sway' : il balance légèrement (ChandelierSwing).
-    const float GrandHallHeight = 9f, GrandHallSide = 10f, GrandChandelierScale = 3f;
+    // V0.7.22 (11.3) : grands lustres 3,5 fois plus grands, dans les salles de plus de 8 m de haut dont les murs font plus de 9 m de
+    // long et de large (avant : 3 fois, 9 m et 10 m). (Note 01) : les petits lustres sont deux fois plus grands (+100 %).
+    // 'headroom' (si donnée) : hauteur de la pièce sous le lustre ; le lustre est alors réduit (jamais sous sa taille d'origine)
+    // pour que son bas reste au-dessus des têtes.
+    const float GrandHallHeight = 8f, GrandHallSide = 9f, GrandChandelierScale = 3.5f, SmallChandelierScale = 2f;
+    const float ChandelierDrop = 1.3f, ChandelierClearance = 2.4f;
 
-    static void AddChandelier(Transform parent, Vector3 ceilingPos, float range, float intensity, System.Random rnd, float scale = 1f, bool sway = false)
+    static void AddChandelier(Transform parent, Vector3 ceilingPos, float range, float intensity, System.Random rnd, float scale = SmallChandelierScale,
+        bool sway = false, float headroom = 0f)
     {
         intensity *= LampDim;
         range *= LampReach;
         var go = new GameObject("Lustre");
         go.transform.SetParent(parent, false);
-        go.transform.localPosition = ceilingPos + Vector3.down * (1.3f * scale);
+        go.transform.localPosition = ceilingPos + Vector3.down * ChandelierDrop;
+        Transform pivot = null;
         if (sway)
         {
             // Accroché à un pivot au plafond, qui oscille.
-            var pivot = new GameObject("LustrePivot").transform;
+            pivot = new GameObject("LustrePivot").transform;
             pivot.SetParent(parent, false);
             pivot.localPosition = ceilingPos;
             go.transform.SetParent(pivot, true);
@@ -422,7 +429,15 @@ public static partial class WorldBuilder
         var bulb = GameArt.Prim(PrimitiveType.Sphere, go.transform, Vector3.zero, Vector3.one * 0.16f, flame);
         foreach (var c in go.GetComponentsInChildren<Collider>()) Object.Destroy(c);
         glow = bulb.GetComponent<Renderer>();
+        if (headroom > 0f)
+        {
+            // Du plafond au bas du lustre, à sa taille d'origine : la tige, puis le modèle sous le point d'accroche.
+            float reach = ChandelierDrop + Mathf.Max(0f, -GameArt.LocalBounds(go.transform).min.y);
+            scale = Mathf.Max(Mathf.Min(1f, scale), Mathf.Min(scale, (headroom - ChandelierClearance) / reach));
+        }
         if (scale != 1f) go.transform.localScale = Vector3.one * scale;
+        if (pivot != null) go.transform.localPosition = Vector3.down * (ChandelierDrop * scale);
+        else go.transform.localPosition = ceilingPos + Vector3.down * (ChandelierDrop * scale);
         var l = AddLight(go.transform, Vector3.down * 0.3f, new Color(1f, 0.78f, 0.55f), intensity, range);
         // V0.7.20 : lumière de bougies, vacillante.
         var flicker = go.AddComponent<FlickerLight>();

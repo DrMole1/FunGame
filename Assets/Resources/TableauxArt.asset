@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 87589190db8e3734a9619be5162c5b50, type: 3}
+  m_Name: TableauxArt
+  m_EditorClassIdentifier: 
+  images:
+  - {fileID: 2800000, guid: f607ccaa12404ca4e8e600cfebdf8450, type: 3}
+  - {fileID: 2800000, guid: 4d72ea052961e5c4a9252edab3a881ba, type: 3}
+  - {fileID: 2800000, guid: 9721cf9f6a8f54649ae385d5d1de2eed, type: 3}
+  - {fileID: 2800000, guid: 8e3b3f490629613489b1f7cf3a1ba7ff, type: 3}
+  - {fileID: 2800000, guid: 3c6df45835582cd4ca88dd468653ca22, type: 3}
+  - {fileID: 2800000, guid: de0418466528a704d8737ece18c483d8, type: 3}
+  - {fileID: 2800000, guid: 392ad080dafff2e4aa2d7d0e279837d7, type: 3}

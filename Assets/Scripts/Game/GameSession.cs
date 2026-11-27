@@ -396,6 +396,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         digEnds.Clear();
         EndLocalDig();
         ResetCannon();
+        ResetJetons();
         ResetReverseTeleporters();
         ClearNotes();
         LeaveKennel(false);
@@ -760,6 +761,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         UpdateDigs();
         UpdateKennel();
         UpdateCannon();
+        UpdateJetons();
         UpdateToboggans();
         UpdateTeleport();
         UpdateReverseTeleporters();
@@ -2776,6 +2778,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         foreach (string beacon in beaconMessages.Values) net.ToPeer(to, "BV" + beacon.Substring(2));
         SendReverseSnapshot(to);
         SendObjectSnapshot(to);
+        SendJetonSnapshot(to);
         foreach (var kv in dropped) net.ToPeer(to, DropMsg(kv.Key, kv.Value));
         net.ToPeer(to, PogoMsg(""));
         SendGlyphSnapshot(to);
@@ -3070,6 +3073,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         bool host = net.IsHost;
         if (HandleZoneMessage(from, f, host)) return;
         if (HandleCannonMessage(from, f, host)) return;
+        if (HandleJetonMessage(from, f, host)) return;
         if (HandleSuperMoundMessage(from, f, host)) return;
         if (HandleHungerMessage(from, f, host)) return;
         if (HandleReverseMessage(from, f, host)) return;
@@ -3336,6 +3340,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
                 var pos = new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3]));
                 int placedId = PlaceDevice(kind, pos, f.Length >= 6 ? NetworkGame.P(f[5]) : Random.Range(0f, 360f), from, f.Length >= 7 && f[6] == "1");
                 OfferToPions(placedId, kind, pos);
+                // V0.7.22 (8.11) : une Balise posée près d'un Jeton Noir.
+                if (kind == DeviceKind.Beacon) JetonsOnBeaconPlaced(placedId, pos);
                 break;
             }
             // BV : appareil déjà posé (joueur qui arrive), sans animation.

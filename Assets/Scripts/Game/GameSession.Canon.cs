@@ -9,7 +9,7 @@ using UnityEngine;
 // ou une Sanction percuté meurt dans une explosion, ses membres volent en éclats et disparaissent 10 secondes plus tard (sans
 // tache de sang) ; les autres entités meurent simplement. À l'impact, il retrouve son état normal.
 // Messages : CE|canon -> CI|canon / CR|canon (entrer, accepté ou refusé), CX|canon (sortir), CF|canon|cap (tir, à tous),
-// CK|entité -> EX|x|y|z|entité|éclats (entité percutée : 1 = explosion et membres en éclats, 0 = mort simple), CP|joueur|dx|dz -> KB|dx|dz (joueur percuté, repoussé).
+// CK|entité -> EX|x|y|z|entité|éclats (entité percutée : 1 = explosion et membres en éclats, 0 = mort simple, 2 = explosion seule), CP|joueur|dx|dz -> KB|dx|dz (joueur percuté, repoussé).
 public partial class GameSession
 {
     // V0.7.13 (Note 14) : le boulet est plus lourd, il retombe plus vite (gravité 6 -> 9).
@@ -327,8 +327,9 @@ public partial class GameSession
         watching.Remove(id);
     }
 
-    // Entité percutée : explosion et membres en éclats, ou simple mort (un nuage de poussière).
-    void OnEntitySmashed(Vector3 at, int id, bool shatter)
+    // Entité percutée : explosion et membres en éclats, ou simple mort (un nuage de poussière). V0.7.22 (8.11) : 'blast' : explosion
+    // sans membres en éclats (entité Normale percutée par un Jeton Noir).
+    void OnEntitySmashed(Vector3 at, int id, bool shatter, bool blast = false)
     {
         Entity e = null;
         if (id >= 0 && (entities.TryGetValue(id, out e) || lingering.TryGetValue(id, out e)) && e != null)
@@ -342,7 +343,7 @@ public partial class GameSession
             lingering.Remove(id);
             watching.Remove(id);
         }
-        if (shatter || id < 0) Explode(at);
+        if (shatter || blast || id < 0) Explode(at);
         else
         {
             GameAudio.Play3D("pop", at, 0.9f, 20f, 0.1f, 0.6f);
@@ -410,7 +411,7 @@ public partial class GameSession
                 return true;
             case "EX" when f.Length >= 4:
                 OnEntitySmashed(new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3])),
-                    f.Length >= 6 ? NetworkGame.I(f[4]) : -1, f.Length >= 6 && f[5] == "1");
+                    f.Length >= 6 ? NetworkGame.I(f[4]) : -1, f.Length >= 6 && f[5] == "1", f.Length >= 6 && f[5] == "2");
                 return true;
             case "CP" when host && f.Length >= 4:
                 net.ToPeer(f[1], "KB|" + f[2] + "|" + f[3]);

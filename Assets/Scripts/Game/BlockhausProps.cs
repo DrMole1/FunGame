@@ -9,6 +9,8 @@ using UnityEngine;
 // (la face du disque du modèle Douche, tournée vers l'avant et un peu vers le bas) en fins filets blancs qui retombent en arc.
 // V0.7.21 (Note 15) : contour blanc quand on le vise, de près, sous tous les angles ; l'eau naît sur la face percée et s'arrête
 // dans la baignoire (collisions des gouttes).
+// V0.7.22 (Note 05) : l'eau naît plus bas, au centre de la face percée (là où sont les trous) ; elle disparaît dès qu'elle entre dans
+// la baignoire (sa durée de vie s'arrête juste sous le rebord), plus aucune goutte ne passe au travers.
 public class ShowerHead : Interactable
 {
     public static readonly List<ShowerHead> All = new List<ShowerHead>();
@@ -17,15 +19,20 @@ public class ShowerHead : Interactable
     Vector3 nozzle;     // centre de la face percée du pommeau (monde)
     Vector3 sprayDir;   // vers où regarde la face percée (monde)
     float roseRadius, floorY;
+    float killY;        // hauteur où l'eau disparaît (juste sous le rebord de la baignoire ; sinon le sol)
     Vector3 wetCenter;  // milieu de la zone arrosée, au sol
     ParticleSystem water;
     AudioSource sound;
 
     // Face percée du pommeau dans le repère du modèle Douche ramené à 1 (sa plus grande dimension), le mur derrière (-Z) : centre,
     // direction et rayon de la zone des trous, mesurés sur le maillage.
-    static readonly Vector3 RoseCenter = new Vector3(-0.008f, 0.457f, 0.396f), RoseNormal = new Vector3(-0.028f, -0.438f, 0.899f);
+    // V0.7.22 (Note 05) : centre de la face percée remesuré (moyenne des sommets les plus en avant) : avant, (-0,008 ; 0,457 ; 0,396),
+    // sur le haut du disque, au-dessus des trous.
+    static readonly Vector3 RoseCenter = new Vector3(-0.018f, 0.354f, 0.400f), RoseNormal = new Vector3(-0.028f, -0.438f, 0.899f);
     // V0.7.21 (Note 15) : l'eau naît sur la face percée elle-même (avant : 6,4 % de la taille du modèle devant elle, à côté du pommeau).
-    const float RoseFaceOffset = 0.008f, RoseHoles = 0.15f;
+    const float RoseFaceOffset = 0.012f, RoseHoles = 0.1f;
+    // Sous le rebord de la baignoire, l'eau disparaît.
+    const float BathKillDepth = 0.12f;
     // V0.7.21 (Note 15) : zone de sélection élargie autour du pommeau, pour le viser sous tous les angles.
     const float TriggerPadding = 0.35f;
     const float SprayRadius = 0.6f, JetSpeed = 1.3f;
@@ -35,11 +42,24 @@ public class ShowerHead : Interactable
     protected override bool OutlineVisible => true;
     public override float Range => 3.5f;
 
-    public static ShowerHead Attach(GameObject head, int id, Vector3 outward, float floorY)
+    // 'bath' : baignoire sous le pommeau (null : l'eau tombe jusqu'au sol).
+    public static ShowerHead Attach(GameObject head, int id, Vector3 outward, float floorY, GameObject bath = null)
     {
         var shower = head.AddComponent<ShowerHead>();
         shower.Id = id;
         shower.floorY = floorY;
+        shower.killY = floorY;
+        if (bath != null)
+        {
+            Bounds bb = default;
+            bool any = false;
+            foreach (var r in bath.GetComponentsInChildren<Renderer>())
+            {
+                if (!any) { bb = r.bounds; any = true; }
+                else bb.Encapsulate(r.bounds);
+            }
+            if (any) shower.killY = Mathf.Max(floorY, bb.max.y - BathKillDepth);
+        }
         Bounds b = GameArt.LocalBounds(head.transform);
         float s = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
         // Le modèle est posé au sol de son support (SpawnModelFloor) et centré : son repère est celui de la mesure, à l'échelle s.
@@ -101,7 +121,7 @@ public class ShowerHead : Interactable
         main.loop = true;
         main.startSpeed = new ParticleSystem.MinMaxCurve(JetSpeed * 0.9f, JetSpeed * 1.1f);
         main.gravityModifier = 1f;
-        float vy = sprayDir.y * JetSpeed, drop = Mathf.Max(0.3f, nozzle.y - floorY);
+        float vy = sprayDir.y * JetSpeed, drop = Mathf.Max(0.3f, nozzle.y - killY);
         main.startLifetime = (vy + Mathf.Sqrt(vy * vy + 2f * 9.81f * drop)) / 9.81f;
         main.startSize = new ParticleSystem.MinMaxCurve(0.012f, 0.022f);
         main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.92f, 0.94f, 0.96f, 0.55f), new Color(1f, 1f, 1f, 0.85f));

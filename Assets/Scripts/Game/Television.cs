@@ -12,9 +12,10 @@ public class TvScreen : MonoBehaviour
     const int NoiseW = 48, NoiseH = 36;
     const float NoiseRefresh = 0.05f, NoiseRange = 30f;
     // V0.7.19 : l'animation (20 images : la cloche part d'un côté, revient, part de l'autre, revient) ; elle tinte une
-    // fois par tour, au plus loin de son premier élan (image 6). V0.7.20 (Note 01) : deux fois plus rapide (1,2 s au lieu de 2,4 s).
+    // fois par tour. V0.7.20 (Note 01) : deux fois plus rapide (1,2 s au lieu de 2,4 s). V0.7.22 (Note 04) : le tintement tombe au
+    // moment où le battant percute le côté gauche de la cloche (au plus loin de son élan vers la droite, image 15 ; avant : image 6).
     const float BellFps = 20f / 1.2f;
-    const int StrikeFrame = 5;
+    const int StrikeFrame = 14;
 
     public static readonly List<TvScreen> All = new List<TvScreen>();
     public bool Charged { get; private set; }

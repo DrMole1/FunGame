@@ -30,6 +30,7 @@ public class LobbyUI : MonoBehaviour
     readonly System.Collections.Generic.List<Text> grainLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> lightLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> resolutionLabels = new System.Collections.Generic.List<Text>();
+    readonly System.Collections.Generic.List<Text> particleLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> sensitivityLabels = new System.Collections.Generic.List<Text>();
     float copyFeedbackTimer;
     Text versionText;
@@ -400,6 +401,11 @@ public class LobbyUI : MonoBehaviour
             light.fontSize = 15;
             light.horizontalOverflow = HorizontalWrapMode.Overflow;
             lightLabels.Add(light);
+            // V0.7.22 (Note 05 du Menu Pause) : nombre de particules de la traînée de parfum (Très Peu, Peu, Normal).
+            Text particles = VolumeRow(p, "Particules", height, seed + 14, step => ParticleDensity.Value += step);
+            particles.fontSize = 15;
+            particles.horizontalOverflow = HorizontalWrapMode.Overflow;
+            particleLabels.Add(particles);
             // Part de la résolution de l'écran (100 % par défaut). V0.7.6 (14.1) : version navigateur seulement.
 #if !UNITY_STANDALONE || UNITY_EDITOR
             resolutionLabels.Add(VolumeRow(p, "Résolution", height, seed + 12, step => ResolutionScale.Value += step));
@@ -440,6 +446,7 @@ public class LobbyUI : MonoBehaviour
         foreach (var t in grainLabels) t.text = Mathf.RoundToInt(FilmGrain.Value * 100f) + " %";
         foreach (var t in lightLabels) t.text = LightQuality.Label;
         foreach (var t in resolutionLabels) t.text = ResolutionScale.Label;
+        foreach (var t in particleLabels) t.text = ParticleDensity.Label;
     }
 
     // Boutons "<" et ">" d'un sélecteur, en coups de pinceau.
@@ -452,7 +459,7 @@ public class LobbyUI : MonoBehaviour
     void BuildPause(Transform root)
     {
         // À gauche : partie, skin (avant le Bouton Rouge), volumes, quitter.
-        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 690));
+        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 734));
         UiKit.Paint(pausePanel, PanelBlack, 11);
         UiKit.Place(pausePanel, new Vector2(0f, 1f), new Vector2(16, -16));
         UiKit.Column(pausePanel, 34, 8);

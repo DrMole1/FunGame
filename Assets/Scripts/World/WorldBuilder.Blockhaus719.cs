@@ -439,14 +439,14 @@ public static partial class WorldBuilder
         float showerBottom = BlockhausMountHeight("Douche") + 0.3f - GameArt.LocalBounds(shower.transform).size.y * 0.5f;
         var put = PlaceRowAgainstWall(f.m, shower, cell, d, showerBottom, 0.02f, f.placed, rnd, f.y, 1, end);
         if (put == null) { Object.Destroy(shower); return; }
-        MakeShowerInteractive(f, shower, -new Vector3(DI[d], 0f, DJ[d]));
+        MakeShowerInteractive(f, shower, -new Vector3(DI[d], 0f, DJ[d]), bath);
     }
 
-    static void MakeShowerInteractive(StoreyFurnish f, GameObject shower, Vector3 outward)
+    static void MakeShowerInteractive(StoreyFurnish f, GameObject shower, Vector3 outward, GameObject bath = null)
     {
         Physics.SyncTransforms();
         int id = f.m.zone * 1000 + f.refs.showers.Count;
-        f.refs.showers.Add(ShowerHead.Attach(shower, id, outward, f.y));
+        f.refs.showers.Add(ShowerHead.Attach(shower, id, outward, f.y, bath));
     }
 
     // ---------- Salle sur schéma ----------
@@ -614,7 +614,7 @@ public static partial class WorldBuilder
                     Bounds swb = WorldBounds(shower.transform);
                     float sReach = Vector3.Dot(swb.center, back) + Mathf.Abs(back.x) * swb.extents.x + Mathf.Abs(back.z) * swb.extents.z;
                     shower.transform.position += back * ((backX ? plane * back.x : plane * back.z) - 0.02f - sReach);
-                    MakeShowerInteractive(f, shower, facing);
+                    MakeShowerInteractive(f, shower, facing, go);
                 }
             }
     }

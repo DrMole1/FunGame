@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.21";
+    public const string Version = "V0.7.22";
 
     // V0.7.11 (9.1) : les Hubs sont numérotés en chiffres romains (Hub I, Hub II...).
     public static string Roman(int n)
@@ -68,6 +68,16 @@ public static class GameRules
 
     public const float LaserTriggerDistance = 4f;
     public const int LaserDamage = 20;
+
+    // ---------- Jeton Noir (GDD 8.11, V0.7.22 ; ID 11, type Piège) ----------
+    public const int JetonNoirDamage = 50;
+    public const float JetonNoirSpeedFactor = 3.2f;          // vitesse du joueur x 3,2
+    public const float JetonNoirKnockback = 14f;             // joueur percuté : "projeté au loin"
+    public const float JetonNoirRespawnDelay = 90f;          // entité percutée : réapparaît 1 min 30 plus tard, ailleurs
+    // À partir de la Zone 2 : 40 pièces d'échecs décoratives par zone (hors salles uniques) ; 3 à 5 salles uniques (6 sans structure).
+    public const int ChessPiecesPerZone = 40;
+    public const int MinUniqueRooms = 3, MaxUniqueRooms = 5, UniqueRoomsWithoutStructure = 6;
+    public const float UniqueRoomHeight = 8f;
 
     // Course : multiplicateur de la vitesse de base selon le nombre d'objets portés (0 à 5).
     static readonly float[] RunMultipliers = { 1.4f, 1.3f, 1.2f, 1.15f, 1.1f, 1.05f };

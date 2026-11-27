@@ -160,6 +160,7 @@ public class Eye : MonoBehaviour
     Vector3 restDir;
     float blinkTimer;
     Transform lid;
+    const float BlinkTime = 0.15f, BlinkHold = 0.2f, LidSize = 1.25f;
 
     public void Init(Transform eyeBall, Transform eyeLid)
     {
@@ -205,8 +206,11 @@ public class Eye : MonoBehaviour
         blinkTimer -= Time.deltaTime;
         if (lid != null)
         {
-            float open = blinkTimer < 0.15f ? Mathf.Abs(blinkTimer / 0.15f * 2f - 1f) : 1f;
-            lid.localScale = new Vector3(1.08f, Mathf.Lerp(1.08f, 0.02f, open), 1.08f);
+            // V0.7.22 (Note 08) : la paupière, nettement plus grande que le globe (iris et pupille compris), le recouvre tout entier
+            // pendant le clignement : plus de blanc d'œil ni de pupille qui la traversent (avant : 1,08 fois le globe, à facettes, que
+            // l'iris et la pupille perçaient). Elle reste fermée un court instant au milieu du clignement.
+            float open = blinkTimer < BlinkTime ? Mathf.Clamp01((Mathf.Abs(blinkTimer / BlinkTime * 2f - 1f) - BlinkHold) / (1f - BlinkHold)) : 1f;
+            lid.localScale = new Vector3(LidSize, Mathf.Lerp(LidSize, 0.02f, open), LidSize);
             lid.gameObject.SetActive(open < 0.98f);
         }
         if (blinkTimer <= 0f)
@@ -261,6 +265,16 @@ public class FlickerLight : MonoBehaviour
         return Mathf.Clamp(0.86f + slow * 0.3f + quick * 0.22f + tremble * 0.1f - gust * 0.3f, 0.45f, 1.1f);
     }
 
+    // V0.7.22 : lampe gardée pour son ampoule (néon, flamme) mais sans lumière : elle aurait fait dépasser à un mur ou un sol le nombre de
+    // lampes calculées au pixel (WorldBuilder.ThinLights), d'où une coupure nette de l'éclairage d'un bloc à l'autre.
+    bool lightless;
+
+    public void MakeLightless()
+    {
+        lightless = true;
+        if (lightSource != null) lightSource.enabled = false;
+    }
+
     public void Init(Light l, Renderer bulbRenderer, bool flicker)
     {
         lightSource = l;
@@ -275,7 +289,7 @@ public class FlickerLight : MonoBehaviour
     {
         if (enabled == lit) return;
         enabled = lit;
-        lightSource.enabled = lit;
+        lightSource.enabled = lit && !lightless;
     }
 
     bool Frantic
@@ -330,7 +344,7 @@ public class FlickerLight : MonoBehaviour
         if (blackout)
         {
             blackout = false;
-            lightSource.enabled = true;
+            lightSource.enabled = !lightless;
             off = false;
             level = 1f;
             if (bulb != null) bulb.enabled = true;

@@ -305,7 +305,13 @@ public static partial class WorldBuilder
                 int ni = cell.x + DI[d], nj = cell.y + DJ[d];
                 return !m.InGrid(ni, nj) || m.RoomAt(ni, nj) != room || HasWall(m, cell.x, cell.y, d);
             }
-            float lo = -Cell * 0.5f + (WallSide(dLo) ? inset : 0f), hi = Cell * 0.5f - (WallSide(dHi) ? inset : 0f);
+            bool wallLo = WallSide(dLo), wallHi = WallSide(dHi);
+            float lo = -Cell * 0.5f + (wallLo ? inset : 0f), hi = Cell * 0.5f - (wallHi ? inset : 0f);
+            // V0.7.22 : sans face au bout là où la poutre continue dans la cellule voisine : ces bouts, au bord de la cellule, tombaient
+            // dans le plan des pans de mur des salles sur schéma (et des bouts de la poutre voisine) et scintillaient avec eux.
+            int faces = 63 & ~(1 << 2);
+            if (!wallLo) faces &= ~(1 << (alongX ? 1 : 5));
+            if (!wallHi) faces &= ~(1 << (alongX ? 0 : 4));
             if (hi - lo < 0.5f) continue;
             // Positions le long de l'autre axe : une grille commune à toute la salle (les poutres se suivent d'une cellule à l'autre).
             float across0 = alongX ? c.z - Cell * 0.5f : c.x - Cell * 0.5f;
@@ -317,7 +323,7 @@ public static partial class WorldBuilder
                 Vector3 center = alongX ? new Vector3(c.x + mid, y, t) : new Vector3(t, y, c.z + mid);
                 Vector3 size = alongX ? new Vector3(len, BeamHeight, BeamWidth) : new Vector3(BeamWidth, BeamHeight, len);
                 // Sans face du dessus (contre le plafond).
-                mb.Box(center, size, 0.6f, 63 & ~(1 << 2));
+                mb.Box(center, size, 0.6f, faces);
             }
         }
     }

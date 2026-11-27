@@ -105,6 +105,102 @@ public static partial class WorldBuilder
         }
     }
 
+    // V0.7.22 : nombre de lampes calculées au pixel par objet au réglage "Haut" (LightQuality). Au-delà, le rendu éclaire les lampes en
+    // trop de manière approchée (par sommet) : sur les grands pans de 10 m, l'éclairage change d'un coup à la jonction de deux blocs qui
+    // n'ont pas retenu les mêmes lampes (salles du Château riches en lustres et en torches, salles uniques). Les lampes en trop sont
+    // retirées une à une jusqu'à ce qu'aucun mur, sol ou plafond n'en reçoive plus : à chaque fois celle qui touche le plus de pans
+    // surchargés, la plus faible à égalité. Son ampoule (néon, flamme, lustre) reste allumée ; seule sa lumière disparaît.
+    const int MaxLightsPerSurface = 6;
+    // Pans pris en compte : les surfaces assez grandes pour que l'écart se voie.
+    const float ThinSurfaceSize = 2.5f;
+    // Distance (en part de sa portée) sous laquelle une autre lampe gardée doit se trouver pour qu'une lampe soit retirée.
+    const float ThinCoverage = 0.6f;
+
+    static void ThinLights(Transform root)
+    {
+        Physics.SyncTransforms();
+        var lights = new List<Light>();
+        foreach (var l in root.GetComponentsInChildren<Light>(true))
+            if (l.type == LightType.Point && l.renderMode == LightRenderMode.Auto && l.intensity > 0.01f && l.range > 0.01f) lights.Add(l);
+        if (lights.Count <= MaxLightsPerSurface) return;
+        // Ordre fixe (le même chez tous les joueurs) : par position.
+        lights.Sort((a, b) =>
+        {
+            Vector3 pa = a.transform.position, pb = b.transform.position;
+            return pa.x != pb.x ? pa.x.CompareTo(pb.x) : pa.z != pb.z ? pa.z.CompareTo(pb.z) : pa.y.CompareTo(pb.y);
+        });
+        var touching = new List<List<int>>();   // par surface : lampes qui l'atteignent
+        foreach (var mr in root.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (!mr.enabled || mr.GetComponentInParent<FlickerLight>() != null) continue;
+            Bounds b = mr.bounds;
+            if (Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z)) < ThinSurfaceSize) continue;
+            List<int> list = null;
+            for (int k = 0; k < lights.Count; k++)
+            {
+                Light l = lights[k];
+                if (b.SqrDistance(l.transform.position) >= l.range * l.range) continue;
+                (list ??= new List<int>()).Add(k);
+            }
+            if (list != null && list.Count > MaxLightsPerSurface) touching.Add(list);
+        }
+        // Seules les lampes du décor (néons, lustres, torches) sont retirées ; les autres (glyphes...) comptent mais restent.
+        var owners = new FlickerLight[lights.Count];
+        for (int k = 0; k < lights.Count; k++)
+        {
+            var owner = lights[k].GetComponentInParent<FlickerLight>();
+            owners[k] = owner != null && !owner.IgnoreCurfew ? owner : null;
+        }
+        var removed = new bool[lights.Count];
+        var counts = new int[touching.Count];
+        for (int s = 0; s < touching.Count; s++) counts[s] = touching[s].Count;
+        var score = new int[lights.Count];
+        // Une lampe n'est retirée que si une autre, gardée, proche et en vue directe (aucun mur entre elles), éclaire déjà son coin :
+        // aucune pièce ne se retrouve dans le noir.
+        // La lampe qui prend le relais d'une lampe retirée est gardée pour de bon (sinon, de relais en relais, une pièce s'éteindrait).
+        var keep = new bool[lights.Count];
+        int Cover(int k)
+        {
+            Vector3 p = lights[k].transform.position;
+            float reach = lights[k].range * ThinCoverage;
+            for (int j = 0; j < lights.Count; j++)
+            {
+                if (j == k || removed[j]) continue;
+                Vector3 q = lights[j].transform.position;
+                if ((q - p).sqrMagnitude >= reach * reach) continue;
+                if (!Physics.Linecast(p, q, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return j;
+            }
+            return -1;
+        }
+        while (true)
+        {
+            System.Array.Clear(score, 0, score.Length);
+            bool any = false;
+            for (int s = 0; s < touching.Count; s++)
+            {
+                if (counts[s] <= MaxLightsPerSurface) continue;
+                any = true;
+                foreach (int k in touching[s]) if (!removed[k]) score[k]++;
+            }
+            if (!any) break;
+            int best = -1;
+            for (int k = 0; k < lights.Count; k++)
+            {
+                if (removed[k] || keep[k] || score[k] == 0 || owners[k] == null) continue;
+                if (best >= 0 && !(score[k] > score[best] || score[k] == score[best] && Strength(lights[k]) < Strength(lights[best]))) continue;
+                if (Cover(k) < 0) continue;
+                best = k;
+            }
+            if (best < 0) break;
+            keep[Cover(best)] = true;
+            removed[best] = true;
+            for (int s = 0; s < touching.Count; s++) if (touching[s].Contains(best)) counts[s]--;
+            owners[best].MakeLightless();
+        }
+    }
+
+    static float Strength(Light l) => l.intensity * l.range;
+
     struct V
     {
         public Vector3 p, n;
