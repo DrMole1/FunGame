@@ -66,7 +66,8 @@ public class TvScreen : MonoBehaviour
         var r = tv.screen.GetComponent<Renderer>();
         r.sharedMaterial = tv.screenMat;
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        tv.staticLoop = GameAudio.Loop3D("tv_static", root, tv.screen.localPosition, 0.45f, GameRules.TvSoundRange);
+        // V0.7.23 (Note 02) : grésillement un peu moins fort (0,45 -> 0,36).
+        tv.staticLoop = GameAudio.Loop3D("tv_static", root, tv.screen.localPosition, 0.36f, GameRules.TvSoundRange);
         if (tv.staticLoop != null) tv.staticLoop.Play();
         tv.DrawNoise();
         All.Add(tv);

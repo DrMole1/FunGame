@@ -15,7 +15,8 @@ using UnityEngine;
 public static partial class WorldBuilder
 {
     const float CemeteryDepth = 1f;
-    const double DarkTopChance = 0.05;
+    // (Champ statique et non constante : un test peut le forcer avant de générer une zone.)
+    public static double DarkTopChance = 0.05;
     const double AnvilOnCrateChance = 0.1;
     // Taille d'un personnage, et taille des poupées russes (de 1 à 1,7 fois la sienne).
     const float CharacterHeight = 1.8f, DollMaxScale = 1.7f;
@@ -200,7 +201,11 @@ public static partial class WorldBuilder
             pivot.SetParent(go.transform, false);
             pivot.localPosition = new Vector3(b.center.x + sx * eye.x * h, b.min.y + eye.y * h, b.center.z + eye.z * h - ball * 0.35f);
             var white = GameArt.Prim(PrimitiveType.Sphere, pivot, Vector3.zero, Vector3.one * (ball * 2f), sclera);
-            var dot = GameArt.Prim(PrimitiveType.Sphere, pivot, Vector3.forward * (ball * 0.72f), new Vector3(ball * 0.9f, ball * 0.9f, ball * 0.5f), pupil);
+            // V0.7.22 : l'iris blanc de la poupée effrayante est deux fois plus large (posé un peu plus en arrière et plus bombé, pour
+            // épouser l'œil sans s'y enfoncer).
+            var dot = scary
+                ? GameArt.Prim(PrimitiveType.Sphere, pivot, Vector3.forward * (ball * 0.55f), new Vector3(ball * 1.8f, ball * 1.8f, ball * 1f), pupil)
+                : GameArt.Prim(PrimitiveType.Sphere, pivot, Vector3.forward * (ball * 0.72f), new Vector3(ball * 0.9f, ball * 0.9f, ball * 0.5f), pupil);
             foreach (var c in pivot.GetComponentsInChildren<Collider>()) Object.Destroy(c);
             foreach (var r in pivot.GetComponentsInChildren<Renderer>()) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             balls[k] = pivot;

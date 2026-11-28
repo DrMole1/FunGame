@@ -122,6 +122,7 @@ public static class Loc
         R("Très Peu", "Very Few", "Muy Pocas", "Очень мало"),
         R("Peu", "Few", "Pocas", "Мало"),
         R("Normal", "Normal", "Normal", "Обычно"),
+        R("Maximal", "Maximum", "Máximo", "Максимум"),
         R("Chargement…", "Loading…", "Cargando…", "Загрузка…"),
         R("Impossible de rejoindre. La partie a déjà commencé.", "Cannot join. The game has already started.", "No se puede unir. La partida ya ha comenzado.", "Невозможно присоединиться. Игра уже началась."),
         R("Bas", "Low", "Bajo", "Низкое"),

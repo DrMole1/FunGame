@@ -6,7 +6,9 @@ using UnityEngine;
 public class BloodMarks : MonoBehaviour
 {
     const int Capacity = 1500;
-    const float Lifetime = 600f, FadeRefresh = 2f, Lift = 0.02f, GroundProbe = 4f;
+    // V0.7.23 (Note 06) : 3,5 cm au-dessus du sol (avant : 2 cm, à la hauteur de la moquette des Blockhaus, qui n'a pas de collision :
+    // traces et moquette scintillaient l'une contre l'autre).
+    const float Lifetime = 600f, FadeRefresh = 2f, Lift = 0.035f, GroundProbe = 4f;
     // Empreintes : rouge sombre uni. Gouttes : rouge très sombre, la texture l'ombre (bords séchés, centre épais).
     static readonly Color PawBlood = new Color(0.32f, 0.015f, 0.02f, 0.92f);
     static readonly Color DropBlood = new Color(0.27f, 0.008f, 0.012f, 0.98f);

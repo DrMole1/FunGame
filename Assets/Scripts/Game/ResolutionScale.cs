@@ -2,10 +2,12 @@ using UnityEngine;
 
 // Réglage "Résolution" du menu pause : part de la résolution de l'écran utilisée pour dessiner le jeu (dans le navigateur). 100 % par
 // défaut ; plus bas, l'image est moins nette mais la carte graphique travaille beaucoup moins.
+// V0.7.23 (Note 04) : 60, 70, 80, 90 ou 100 % (avant : 50, 75 ou 100 %).
 public static class ResolutionScale
 {
-    const string Key = "resolutionScale";
-    static readonly int[] Percents = { 50, 75, 100 };
+    // Nouvelle clé : les indices de l'ancien réglage n'ont plus le même sens.
+    const string Key = "resolutionScale5";
+    static readonly int[] Percents = { 60, 70, 80, 90, 100 };
 
     static int current = -1;
 

@@ -140,7 +140,8 @@ public partial class GameSession
     {
         if (scentParticles == null) scentParticles = BuildScentParticles();
         // V0.7.12 (Note 17) : environ 2,5 volutes par mètre et par seconde, à pleine intensité (4 fois moins qu'avant).
-        // V0.7.22 (Note 05 du Menu Pause) : réglage "Particules" (Normal : ce nombre ; Peu : moitié ; Très Peu : quart).
+        // V0.7.22 (Note 05 du Menu Pause) : réglage "Particules". V0.7.23 (Note 01) : Maximal : ce nombre ; Normal : moitié ; Peu : quart ;
+        // Très Peu : huitième.
         float rate = trail.length * ScentPerMeter * trail.weight * ParticleDensity.Factor * Time.deltaTime;
         int count = Mathf.FloorToInt(rate) + (Random.value < rate - Mathf.Floor(rate) ? 1 : 0);
         for (int k = 0; k < count; k++)

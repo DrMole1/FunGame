@@ -254,8 +254,23 @@ public class PostFxCamera : MonoBehaviour
         r.sharedMaterial = GameArt.Spark;
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         motes = new ParticleSystem.Particle[DustCount];
+        ApplyDustDensity();
+        ParticleDensity.Changed += ApplyDustDensity;
         dust.Play();
     }
+
+    // V0.7.23 (Note 01) : réglage "Particules" (moins de poussière en "Peu" et "Très Peu").
+    void ApplyDustDensity()
+    {
+        if (dust == null) return;
+        int count = Mathf.Max(1, Mathf.RoundToInt(DustCount * ParticleDensity.DustFactor));
+        var main = dust.main;
+        main.maxParticles = count;
+        var emission = dust.emission;
+        emission.rateOverTime = count / 8f;
+    }
+
+    void OnDestroy() => ParticleDensity.Changed -= ApplyDustDensity;
 
     void UpdateDust()
     {

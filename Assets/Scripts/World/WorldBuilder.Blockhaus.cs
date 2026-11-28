@@ -228,7 +228,10 @@ public static partial class WorldBuilder
                 foreach (var c in site.crossings) bridgeCells.Add(c.At(RavineCells + 1));
             }
             // V0.7.12 : appartements fermés sous cadenas (leur porte est leur seule entrée).
-            LockRooms(m, s, plan.wellCells, plan.locked, rnd, plan.building, s == HubStorey ? bridgeCells : null, plan.templated);
+            // V0.7.23 (11.4) : toujours au moins un appartement fermé par Blockhaus : au dernier étage, s'il n'y en a encore aucun, le
+            // premier appartement qui s'y prête est fermé.
+            LockRooms(m, s, plan.wellCells, plan.locked, rnd, plan.building, s == HubStorey ? bridgeCells : null, plan.templated,
+                s == StoreyLevels.Length - 1 && plan.locked.Count == 0);
             // Les autres portes : 40 % d'arches (sans battant).
             foreach (var e in m.doorEdges)
                 if (!plan.locked.Exists(l => l.storey == s && l.edge.Equals(e)) && rnd.NextDouble() < BlockArchChance) m.archEdges.Add(e);
@@ -394,21 +397,31 @@ public static partial class WorldBuilder
     // Environ 5 % des appartements (hors Neutral Room, appartements de double hauteur, voisins des cages d'escalier et des ponts)
     // n'ont plus qu'une porte, sous cadenas : toutes leurs autres ouvertures (portes, passages vers les appartements voisins, fenêtres)
     // sont murées. Un appartement par lequel il faut passer pour atteindre d'autres pièces n'est jamais fermé.
+    // V0.7.23 : 'force' : si aucun appartement n'a été fermé ici, le premier qui s'y prête l'est (sans tirage).
     static void LockRooms(Maze m, int storey, HashSet<Vector2Int> wellCells, List<LockedRoom> locked, System.Random rnd, HashSet<Vector2Int> building, HashSet<Vector2Int> keep,
-        Dictionary<Room, (int, int)> templated = null)
+        Dictionary<Room, (int, int)> templated = null, bool force = false)
     {
         // V0.7.19 : jamais un appartement sur schéma (il garde son mobilier).
         var rooms = m.rooms.FindAll(r => r.cells.Count > 0 && building.Contains(r.cells[0]) && (templated == null || !templated.ContainsKey(r)));
         Shuffle(rooms, rnd);
+        int before = locked.Count;
+        foreach (Room room in rooms) TryLockRoom(m, storey, wellCells, locked, rnd, building, keep, room, false);
+        if (!force || locked.Count > before) return;
         foreach (Room room in rooms)
+            if (!locked.Exists(l => l.room == room) && TryLockRoom(m, storey, wellCells, locked, rnd, building, keep, room, true)) return;
+    }
+
+    static bool TryLockRoom(Maze m, int storey, HashSet<Vector2Int> wellCells, List<LockedRoom> locked, System.Random rnd, HashSet<Vector2Int> building,
+        HashSet<Vector2Int> keep, Room room, bool always)
+    {
         {
-            if (rnd.NextDouble() >= LockedRoomChance || room.ceil > StoreyHeight + 0.01f) continue;
-            if (room.cells.Exists(c => m.Fixed(c.x, c.y) || m.Reserved(c.x, c.y) || m.keepClear.Contains(c) || keep != null && keep.Contains(c))) continue;
+            if (!always && rnd.NextDouble() >= LockedRoomChance || room.ceil > StoreyHeight + 0.01f) return false;
+            if (room.cells.Exists(c => m.Fixed(c.x, c.y) || m.Reserved(c.x, c.y) || m.keepClear.Contains(c) || keep != null && keep.Contains(c))) return false;
             var cellSet = new HashSet<Vector2Int>(room.cells);
             bool nearWell = false;
             foreach (var c in room.cells)
                 for (int d = 0; d < 4; d++) if (wellCells.Contains(c + new Vector2Int(DI[d], DJ[d]))) nearWell = true;
-            if (nearWell) continue;
+            if (nearWell) return false;
             var doors = new List<(int, int, bool)>();
             foreach (var e in m.doorEdges)
             {
@@ -417,8 +430,8 @@ public static partial class WorldBuilder
                 var b = north ? new Vector2Int(i, j + 1) : new Vector2Int(i + 1, j);
                 if (cellSet.Contains(a) != cellSet.Contains(b)) doors.Add(e);
             }
-            if (doors.Count == 0) continue;
-            if (Components(m, cellSet, building) != Components(m, null, building)) continue;
+            if (doors.Count == 0) return false;
+            if (Components(m, cellSet, building) != Components(m, null, building)) return false;
             var door = doors[rnd.Next(doors.Count)];
             foreach (var c in room.cells)
                 for (int d = 0; d < 4; d++)
@@ -432,6 +445,7 @@ public static partial class WorldBuilder
                     SetWall(m, c.x, c.y, d, true);
                 }
             locked.Add(new LockedRoom { storey = storey, room = room, edge = door });
+            return true;
         }
     }
 

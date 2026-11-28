@@ -46,6 +46,8 @@ public static class SoundBank
         "metronome", "peace_music", "shockwave", "lever", "door_push",
         // V0.7.19 (11.4) : goutte d'eau d'une fuite qui tombe dans sa flaque, eau qui jaillit d'un pommeau de douche (boucle).
         "ploc", "shower",
+        // V0.7.23 (GDD 12) : cloche de la Télévision qui obnubile, Jeton Noir qui casse, se déplace, blesse (enregistrés seulement).
+        "tv_bell", "jeton_break", "jeton_move", "jeton_hit",
     };
 
     // Synthèse des sons étalée sur les premières images : le jeu ne se fige pas au lancement. Un son demandé avant son tour est

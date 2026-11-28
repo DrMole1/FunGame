@@ -12,7 +12,10 @@ public static partial class WorldBuilder
 {
     const float LightChunk = 10f;
 
-    static void SplitLargeMeshes(Transform root)
+    // V0.7.23 (Note 08) : 'storey' > 0 (Blockhaus) : les pans sont aussi découpés par étage (tranches de 'storey' mètres à partir de
+    // 'floor0'). Les finitions, moquettes et façades d'un seul tenant couvraient les trois étages : elles comptaient les lampes de tous
+    // les étages (jusqu'à 24), bien au-delà des lampes calculées au pixel, d'où des coupures nettes de lumière.
+    static void SplitLargeMeshes(Transform root, float storey = 0f, float floor0 = 0f)
     {
         var renderers = new List<MeshRenderer>(root.GetComponentsInChildren<MeshRenderer>(true));
         foreach (var mr in renderers)
@@ -27,12 +30,13 @@ public static partial class WorldBuilder
                 if (!(c is Transform || c is MeshFilter || c is MeshRenderer || c is Collider)) onlyDecor = false;
             if (!onlyDecor) continue;
             Bounds b = mr.bounds;
-            if (Mathf.Max(b.size.x, b.size.z) <= LightChunk * 1.5f) continue;
-            SplitMesh(mr, mf);
+            bool tall = storey > 0f && b.size.y > storey * 1.2f;
+            if (Mathf.Max(b.size.x, b.size.z) <= LightChunk * 1.5f && !tall) continue;
+            SplitMesh(mr, mf, storey, floor0);
         }
     }
 
-    static void SplitMesh(MeshRenderer mr, MeshFilter mf)
+    static void SplitMesh(MeshRenderer mr, MeshFilter mf, float storey, float floor0)
     {
         Mesh mesh = mf.sharedMesh;
         Transform tr = mr.transform;
@@ -41,7 +45,7 @@ public static partial class WorldBuilder
         var srcU = mesh.uv;
         bool hasN = srcN != null && srcN.Length == srcV.Length, hasU = srcU != null && srcU.Length == srcV.Length;
         int[] srcT = mesh.triangles;
-        var parts = new Dictionary<(int, int), Part>();
+        var parts = new Dictionary<(int, int, int), Part>();
 
         // Longueur maximale d'une arête (repère local) : un long triangle est recoupé pour que chaque morceau tombe dans un bloc.
         float scale = Mathf.Max(0.0001f, Mathf.Max(tr.lossyScale.x, tr.lossyScale.z));
@@ -65,7 +69,9 @@ public static partial class WorldBuilder
                     continue;
                 }
                 Vector3 g = tr.TransformPoint((a.p + b.p + c.p) / 3f);
-                var key = (Mathf.FloorToInt(g.x / LightChunk), Mathf.FloorToInt(g.z / LightChunk));
+                // Étage : un sol (à la hauteur de son étage) compte avec lui, pas avec l'étage du dessous (5 cm de marge).
+                int level = storey > 0f ? Mathf.FloorToInt((g.y - floor0 + 0.05f) / storey) : 0;
+                var key = (Mathf.FloorToInt(g.x / LightChunk), Mathf.FloorToInt(g.z / LightChunk), level);
                 if (!parts.TryGetValue(key, out var part)) parts[key] = part = new Part();
                 part.Add(a); part.Add(b); part.Add(c);
             }
@@ -74,14 +80,14 @@ public static partial class WorldBuilder
         foreach (var kv in parts)
         {
             var part = kv.Value;
-            var m = new Mesh { name = mesh.name + "_" + kv.Key.Item1 + "_" + kv.Key.Item2 };
+            var m = new Mesh { name = mesh.name + "_" + kv.Key.Item1 + "_" + kv.Key.Item2 + "_" + kv.Key.Item3 };
             if (part.verts.Count > 65000) m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             m.SetVertices(part.verts);
             if (hasN) m.SetNormals(part.normals);
             if (hasU) m.SetUVs(0, part.uvs);
             m.SetTriangles(part.tris, 0);
             m.RecalculateBounds();
-            var go = new GameObject(mr.name + "_" + kv.Key.Item1 + "_" + kv.Key.Item2);
+            var go = new GameObject(mr.name + "_" + kv.Key.Item1 + "_" + kv.Key.Item2 + "_" + kv.Key.Item3);
             go.layer = mr.gameObject.layer;
             go.transform.SetParent(tr.parent, false);
             go.transform.localPosition = tr.localPosition;
@@ -140,6 +146,8 @@ public static partial class WorldBuilder
             {
                 Light l = lights[k];
                 if (b.SqrDistance(l.transform.position) >= l.range * l.range) continue;
+                // V0.7.23 : une lampe qui ignore le calque de la surface (autre étage du Blockhaus) ne compte pas.
+                if ((l.cullingMask & (1 << mr.gameObject.layer)) == 0) continue;
                 (list ??= new List<int>()).Add(k);
             }
             if (list != null && list.Count > MaxLightsPerSurface) touching.Add(list);
@@ -200,6 +208,60 @@ public static partial class WorldBuilder
     }
 
     static float Strength(Light l) => l.intensity * l.range;
+
+    // V0.7.23 (Note 08) : étages du Blockhaus séparés pour l'éclairage. Une lampe accrochée sous le plafond d'un étage touchait aussi le sol
+    // (la moquette) de l'étage du dessus, à quelques centimètres au-dessus d'elle : sans l'éclairer (elle est dessous), elle prenait l'une
+    // des places des lampes calculées au pixel, et la lumière s'arrêtait net entre deux pans (jusqu'à 18 lampes sur un pan de moquette).
+    // Les surfaces de chaque étage passent sur un calque à lui (26, 27, 28), et ses lampes ignorent ceux des deux autres étages. Les cages
+    // d'escalier et les appartements de double hauteur (ouverts d'un étage à l'autre) gardent le calque par défaut, éclairé par tous.
+    public const int StoreyLayerBase = 26;
+    // Façades du Blockhaus côté ravin (et leurs fenêtres) : les lampes des pièces derrière elles les touchaient sans pouvoir les éclairer
+    // (elles sont de l'autre côté) ; sur leur propre calque, seules les lampes du dehors les comptent.
+    public const int FacadeLayer = 25;
+
+    static void SeparateStoreyLights(Transform root, Maze main, BlockhausPlan plan)
+    {
+        int storeys = StoreyLevels.Length;
+        int allStoreys = 0;
+        for (int s = 0; s < storeys; s++) allStoreys |= 1 << (StoreyLayerBase + s);
+        // Par étage : cellules ouvertes sur un autre étage (cages d'escalier ; appartement de double hauteur, à son étage et à celui du
+        // dessus).
+        var open = new HashSet<Vector2Int>[storeys];
+        for (int s = 0; s < storeys; s++) open[s] = new HashSet<Vector2Int>(plan.wellCells);
+        for (int s = 0; s < storeys && s < plan.storeys.Length; s++)
+            foreach (Room room in plan.storeys[s].rooms)
+                if (room.ceil > StoreyHeight + 0.01f)
+                    for (int t = s; t <= s + 1 && t < storeys; t++) open[t].UnionWith(room.cells);
+        // Étage d'un point de la structure (-1 : hors de la structure, ou dans une partie ouverte d'un étage à l'autre).
+        int StoreyAt(Vector3 p)
+        {
+            if (!main.CellAt(p, out int i, out int j) || !main.InStructure(i, j)) return -1;
+            int s = Mathf.FloorToInt((p.y - StoreyLevels[0] + 0.05f) / StoreyHeight);
+            return s >= 0 && s < storeys && !open[s].Contains(new Vector2Int(i, j)) ? s : -1;
+        }
+        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r.gameObject.layer != 0 || r is ParticleSystemRenderer) continue;
+            if (r.name.Contains("_FacadesBlockhaus") || r.name.Contains("_FenetresRavin"))
+            {
+                r.gameObject.layer = FacadeLayer;
+                continue;
+            }
+            Bounds b = r.bounds;
+            int s = StoreyAt(b.center);
+            if (s < 0) continue;
+            // Tout entier dans son étage (un pan qui déborde sur un autre étage reste éclairé par tous).
+            float floor = StoreyLevels[s];
+            if (b.min.y < floor - 0.1f || b.max.y > floor + StoreyHeight + 0.1f) continue;
+            r.gameObject.layer = StoreyLayerBase + s;
+        }
+        foreach (var l in root.GetComponentsInChildren<Light>(true))
+        {
+            int s = StoreyAt(l.transform.position);
+            if (s < 0) continue;
+            l.cullingMask &= ~(allStoreys & ~(1 << (StoreyLayerBase + s))) & ~(1 << FacadeLayer);
+        }
+    }
 
     struct V
     {

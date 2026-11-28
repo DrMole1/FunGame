@@ -22,8 +22,9 @@ public class WorldStreamer : MonoBehaviour
     bool hasEye;
     float fastUntil;
 
-    // La caméra voit à 45 m et une lampe porte à moins de 10 m : au-delà, elle n'éclaire rien de visible.
-    const float LampRange = 55f;
+    // La caméra voit à 45 m (V0.7.23 : jusqu'à 80 m quand le brouillard est léger, GameSession.UpdateAtmosphere) et une lampe porte à
+    // moins de 10 m : au-delà, elle n'éclaire rien de visible.
+    const float LampRange = 90f;
     const int LampsPerFrame = 64;
 
     static WorldStreamer instance;

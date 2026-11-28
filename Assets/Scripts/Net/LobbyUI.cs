@@ -216,6 +216,10 @@ public class LobbyUI : MonoBehaviour
         if (loading && lobbyPanel.activeSelf) lobbyPanel.SetActive(false);
         bool flagsShown = (lobbyPanel.activeSelf || pauseMenus) && !loading;
         if (langRow.activeSelf != flagsShown) langRow.SetActive(flagsShown);
+        // V0.7.23 (Note 03) : dans le menu pause (sans numéro de version dessous), les drapeaux descendent un peu.
+        var langRect = (RectTransform)langRow.transform;
+        float flagsY = inGame ? FlagsPauseY : FlagsLobbyY;
+        if (!Mathf.Approximately(langRect.anchoredPosition.y, flagsY)) langRect.anchoredPosition = new Vector2(langRect.anchoredPosition.x, flagsY);
         // Souris sur le menu du lobby ou le menu pause : la scène s'assombrit (fondu dans FilmGrain).
         FilmGrain.MenuHover = Hovered(lobbyBackdrop) || Hovered(pausePanel.transform as RectTransform) || Hovered(controlsPanel)
             || controlsUI.Hovered;
@@ -246,13 +250,15 @@ public class LobbyUI : MonoBehaviour
 
     // Drapeaux des langues, juste au-dessus du numéro de version ; même place dans le menu pause.
     // La langue choisie garde l'aura beige.
+    const float FlagsLobbyY = 44f, FlagsPauseY = 22f;
+
     void BuildLanguages(Transform root)
     {
         Lang[] langs = { Lang.En, Lang.Fr, Lang.Es, Lang.Ru };
         const float w = 48f, h = 32f, gap = 10f;
         langRow = new GameObject("Langues", typeof(RectTransform));
         langRow.transform.SetParent(root, false);
-        var rt = UiKit.Place(langRow, new Vector2(1f, 0f), new Vector2(-16f, 44f));
+        var rt = UiKit.Place(langRow, new Vector2(1f, 0f), new Vector2(-16f, FlagsLobbyY));
         rt.sizeDelta = new Vector2(langs.Length * w + (langs.Length - 1) * gap, h);
         for (int i = 0; i < langs.Length; i++)
         {
@@ -401,7 +407,7 @@ public class LobbyUI : MonoBehaviour
             light.fontSize = 15;
             light.horizontalOverflow = HorizontalWrapMode.Overflow;
             lightLabels.Add(light);
-            // V0.7.22 (Note 05 du Menu Pause) : nombre de particules de la traînée de parfum (Très Peu, Peu, Normal).
+            // V0.7.22 (Note 05 du Menu Pause) : nombre de particules (V0.7.23 : Très Peu, Peu, Normal, Maximal).
             Text particles = VolumeRow(p, "Particules", height, seed + 14, step => ParticleDensity.Value += step);
             particles.fontSize = 15;
             particles.horizontalOverflow = HorizontalWrapMode.Overflow;
@@ -458,10 +464,10 @@ public class LobbyUI : MonoBehaviour
 
     void BuildPause(Transform root)
     {
-        // À gauche : partie, skin (avant le Bouton Rouge), volumes, quitter.
+        // À droite (V0.7.23, Note 03 ; avant : à gauche) : partie, skin (avant le Bouton Rouge), volumes et réglages graphiques, quitter.
         pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 734));
         UiKit.Paint(pausePanel, PanelBlack, 11);
-        UiKit.Place(pausePanel, new Vector2(0f, 1f), new Vector2(16, -16));
+        UiKit.Place(pausePanel, new Vector2(1f, 1f), new Vector2(-16, -16));
         UiKit.Column(pausePanel, 34, 8);
         Transform p = pausePanel.transform;
 
@@ -485,15 +491,15 @@ public class LobbyUI : MonoBehaviour
         UiKit.Spacer(p, 4);
         UiKit.Paint(UiKit.Button(p, "Quitter la partie", HostRed, 38, () => net.LeaveGame()), HostRed, 17);
 
-        // À droite : "Échap pour reprendre le jeu" (clignote lentement), puis les contrôles, un par ligne.
-        // Le centre de l'écran reste transparent : on voit le jeu.
-        hintPanel = new GameObject("Droite", typeof(RectTransform));
+        // À gauche (V0.7.23, Note 03 ; avant : à droite) : "Échap pour reprendre le jeu" (clignote lentement), puis les contrôles, un
+        // par ligne. Le centre de l'écran reste transparent : on voit le jeu.
+        hintPanel = new GameObject("Gauche", typeof(RectTransform));
         hintPanel.transform.SetParent(root, false);
-        UiKit.Place(hintPanel, new Vector2(1f, 1f), new Vector2(-16, -16));
+        UiKit.Place(hintPanel, new Vector2(0f, 1f), new Vector2(16, -16));
         ((RectTransform)hintPanel.transform).sizeDelta = new Vector2(400, 520);
 
-        resumeLabel = UiKit.Label(hintPanel.transform, "Échap pour reprendre le jeu", 22, FontStyle.BoldAndItalic, Color.white, 40, TextAnchor.MiddleRight);
-        UiKit.Place(resumeLabel.gameObject, new Vector2(1f, 1f), new Vector2(-12, 0));
+        resumeLabel = UiKit.Label(hintPanel.transform, "Échap pour reprendre le jeu", 22, FontStyle.BoldAndItalic, Color.white, 40, TextAnchor.MiddleLeft);
+        UiKit.Place(resumeLabel.gameObject, new Vector2(0f, 1f), new Vector2(12, 0));
         resumeLabel.rectTransform.sizeDelta = new Vector2(400, 40);
         resumeLabel.raycastTarget = false;
 
@@ -501,7 +507,7 @@ public class LobbyUI : MonoBehaviour
         const int lines = 11;
         var list = UiKit.Panel(hintPanel.transform, "Controles", new Vector2(400, 68 + 26 + lines * 25 + 48));
         UiKit.Paint(list, PanelBlack, 19);
-        controlsPanel = UiKit.Place(list, new Vector2(1f, 1f), new Vector2(0, -52));
+        controlsPanel = UiKit.Place(list, new Vector2(0f, 1f), new Vector2(0, -52));
         UiKit.Column(list, 34, 3);
         UiKit.Label(list.transform, "Contrôles", 16, FontStyle.Bold, UiKit.MutedText, 24, TextAnchor.MiddleLeft);
         for (int i = 0; i < lines; i++)

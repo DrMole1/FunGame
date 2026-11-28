@@ -1584,7 +1584,9 @@ public static partial class WorldBuilder
         }
         MarkIntangibleSpheres(root);
         // V0.7.20 : éclairage lissé : les grandes pièces de la structure redécoupées en blocs de 10 m (WorldBuilder.Lighting).
-        if (castle != null || block != null) SplitLargeMeshes(root);
+        if (castle != null || block != null) SplitLargeMeshes(root, block != null ? StoreyHeight : 0f, block != null ? StoreyLevels[0] : 0f);
+        // V0.7.23 (Note 08) : les lampes d'un étage du Blockhaus n'éclairent que cet étage (WorldBuilder.Lighting).
+        if (block != null) SeparateStoreyLights(root, m, block);
         yield return null;
         // V0.7.22 : aucun mur, sol ou plafond n'est touché par plus de lampes que le rendu n'en calcule au pixel (WorldBuilder.Lighting).
         ThinLights(root);
@@ -2964,12 +2966,14 @@ public static partial class WorldBuilder
 
         // V0.7.22 (11.2) : 40 pièces d'échecs par zone (hors salles uniques), réparties entre les salles d'échecs. 10 % plus grosses,
         // 10 % au plafond ; les tours, fous et dames noirs sont des Jetons Noirs (8.11) : au sol, à leur taille, au centre d'une case.
+        // V0.7.23 (11.2) : 25 seulement si la zone contient une structure (Château ou Blockhaus).
         if (m.zone >= 2 && chessRooms.Count > 0)
         {
             yield return null;
             Physics.SyncTransforms();
             int placed = 0;
-            for (int attempt = 0; attempt < GameRules.ChessPiecesPerZone * 15 && placed < GameRules.ChessPiecesPerZone; attempt++)
+            int wanted = m.structure != null ? GameRules.ChessPiecesWithStructure : GameRules.ChessPiecesPerZone;
+            for (int attempt = 0; attempt < wanted * 15 && placed < wanted; attempt++)
             {
                 var cr = chessRooms[rnd.Next(chessRooms.Count)];
                 Vector3 p = new Vector3(Rand(rnd, cr.minX, cr.maxX), cr.room.floor, Rand(rnd, cr.minZ, cr.maxZ));

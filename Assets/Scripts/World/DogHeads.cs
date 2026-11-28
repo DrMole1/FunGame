@@ -76,16 +76,29 @@ public static class DogHeads
     // 'head', relative à 'neck') tienne tout entière dedans : rien du mannequin ne ressort plus de la tête (avant, la tête était
     // posée par son origine, que certains modèles ont loin du cou : celle de Snoopy était trop reculée et le mannequin ressortait
     // par son nez).
-    public static void SpawnOnMannequin(Transform parent, Vector3 neck, Bounds head, float minSize, System.Random rnd)
+    // V0.7.23 (Note 05) : tête de chien de la taille de celle d'un personnage ('size' : sa hauteur ; avant, elle grossissait jusqu'à
+    // couvrir la tête du mannequin et devenait énorme). Pour cacher la tête du mannequin ('head', relative à la base du cou) sans la
+    // grossir, elle descend sur le cou, jusqu'à la couvrir ; on prend le modèle qui y parvient en descendant le moins.
+    public static void SpawnOnMannequin(Transform parent, Vector3 neck, Bounds head, float size, System.Random rnd)
     {
         if (variants == null) Load();
         if (variants.Count == 0) return;
-        Variant v = variants[rnd.Next(variants.Count)];
-        float size = minSize;
-        for (int k = 0; k < 40 && !Covers(v, head, size); k++) size *= 1.04f;
+        int first = rnd.Next(variants.Count);
+        Variant v = variants[first];
+        float drop = -1f;
+        for (int k = 0; k < variants.Count; k++)
+        {
+            Variant candidate = variants[(first + k) % variants.Count];
+            float d = CoveringDrop(candidate, head, size);
+            if (d < 0f || drop >= 0f && d >= drop - 0.001f) continue;
+            v = candidate;
+            drop = d;
+            if (d < 0.001f) break;
+        }
+        if (drop < 0f) drop = size * MaxNeckDrop;
         var go = new GameObject("TeteDeChien");
         go.transform.SetParent(parent, false);
-        go.transform.localPosition = neck;
+        go.transform.localPosition = neck + Vector3.down * drop;
         go.transform.localRotation = Quaternion.identity;
         go.transform.localScale = Vector3.one * size;
         var model = new GameObject("Tete");
@@ -96,6 +109,20 @@ public static class DogHeads
         r.sharedMaterial = v.material;
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+    }
+
+    // Jusqu'où (au plus 'MaxNeckDrop' de sa hauteur) la tête descend sur le cou pour couvrir la tête du mannequin (-1 : jamais).
+    const float MaxNeckDrop = 0.45f;
+
+    static float CoveringDrop(Variant v, Bounds head, float size)
+    {
+        for (float d = 0f; d <= size * MaxNeckDrop + 0.0001f; d += 0.01f)
+        {
+            var lifted = head;
+            lifted.center += Vector3.up * d;
+            if (Covers(v, lifted, size)) return d;
+        }
+        return -1f;
     }
 
     // La boîte 'head' (relative à la base du cou) tient dans la tête à l'échelle 'size' (tranche par tranche, avec 1,5 cm de marge).

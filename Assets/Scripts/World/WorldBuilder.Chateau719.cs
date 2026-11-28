@@ -53,6 +53,8 @@ public static partial class WorldBuilder
     // V0.7.21 (Note 05) : mesuré sur le modèle Mannequin (hauteur 1,8) : la base du cou à 81,7 % de sa hauteur, au-dessus des
     // épaules ; sa tête (boule de 0,17 m) jusqu'au sommet, un peu en avant. La tête de chien est posée par son propre cou (DogHeads).
     const float MannequinNeck = 0.817f;
+    // V0.7.23 (Note 05) : hauteur de la tête d'un personnage (mesurée sur le modèle des chiens : 0,8 m pour 1,8 m).
+    const float CharacterHeadSize = 0.8f;
     static readonly Vector3 MannequinHeadMin = new Vector3(-0.095f, 0f, -0.075f), MannequinHeadMax = new Vector3(0.095f, 0.335f, 0.11f);
 
     static void AddMannequinDogHead(GameObject mannequin, System.Random rnd)
@@ -61,7 +63,8 @@ public static partial class WorldBuilder
         float k = b.size.y / 1.8f;
         var head = new Bounds();
         head.SetMinMax(MannequinHeadMin * k, MannequinHeadMax * k);
-        DogHeads.SpawnOnMannequin(mannequin.transform, new Vector3(b.center.x, b.min.y + MannequinNeck * b.size.y, b.center.z - 0.02f * k), head, Mathf.Max(0.45f, b.size.y * 0.3f), rnd);
+        // V0.7.23 (Note 05) : la taille d'une tête de personnage (à l'échelle du mannequin, s'il est plus gros).
+        DogHeads.SpawnOnMannequin(mannequin.transform, new Vector3(b.center.x, b.min.y + MannequinNeck * b.size.y, b.center.z - 0.02f * k), head, CharacterHeadSize * k, rnd);
     }
 
     // ---------- Après le mobilier : cimetières, colliers, corniches, plafonds, arches, tours de Kremlin ----------
@@ -132,6 +135,8 @@ public static partial class WorldBuilder
                 if (rnd.NextDouble() < CemeteryMoundChance) CemeteryMoundAt(m, plan, cell, go, placed, refs, rnd);
             }
         }
+        // V0.7.23 : cailloux et rochers au pied des murs (WorldBuilder.Chateau723). Tirage à part : les tombes ne bougent pas.
+        BuildCemeteryRocks(m, plan, props, placed, new System.Random(rnd.Next()));
     }
 
     static Vector3 Flat3(Vector3 v) => new Vector3(v.x, 0f, v.z);

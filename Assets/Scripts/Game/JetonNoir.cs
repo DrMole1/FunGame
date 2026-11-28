@@ -30,6 +30,11 @@ public class JetonNoir : MonoBehaviour
 
     float bumpClock = -1f;
     Vector3 baseScale;
+    // V0.7.23 (GDD 12) : JetonNoir_Deplacement en boucle pendant le déplacement ; objets cassés pendant ce déplacement (le son
+    // JetonNoir_Casser monte d'un cran à chacun).
+    AudioSource moveLoop;
+    int breaks;
+    const float MoveVolume = 0.9f, SoundRange = 30f, BreakPitchStep = 0.12f, BreakPitchMax = 1.8f;
 
     public void Init(int id, int zone, string model)
     {
@@ -61,7 +66,12 @@ public class JetonNoir : MonoBehaviour
         Moving = true;
         Displaced = true;
         MoveSerial++;
-        GameAudio.Play3D("slide_rub", transform.position, 0.9f, 25f, 0.1f, 0.7f);
+        breaks = 0;
+        if (moveLoop == null)
+        {
+            moveLoop = GameAudio.Loop3D("jeton_move", transform, Vector3.up * 0.5f, MoveVolume, SoundRange);
+            if (moveLoop != null) moveLoop.Play();
+        }
     }
 
     public void StopAt(Vector3 at)
@@ -70,14 +80,39 @@ public class JetonNoir : MonoBehaviour
         TargetBeacon = -1;
         Displaced = true;
         transform.position = at;
+        EndMoveSound();
     }
 
-    // Une Balise posée dessus : il grossit légèrement et retrouve son volume, très vite.
+    // Fin du déplacement : la boucle s'éteint en fondu (pas de fin abrupte).
+    void EndMoveSound()
+    {
+        if (moveLoop == null) return;
+        GameAudio.ReleaseLoop(moveLoop);
+        moveLoop = null;
+    }
+
+    // Une Balise posée dessus : il grossit légèrement et retrouve son volume, très vite (la Balise qui éclate joue JetonNoir_Casser).
     public void Bump()
     {
         bumpClock = 0f;
-        GameAudio.Play3D("tour_impact", transform.position + Vector3.up, 0.5f, 18f, 0.1f, 1.4f);
+        breaks = 0;
     }
+
+    // V0.7.23 (GDD 12) : un objet, une Balise ou une entité cassé par ce Jeton (chez chacun) ; dans un même déplacement, chaque objet
+    // de plus rend le son plus aigu.
+    public static void PlayBreak(int jeton, Vector3 at)
+    {
+        float pitch = 1f;
+        if (All.TryGetValue(jeton, out var j) && j != null)
+        {
+            pitch = Mathf.Min(BreakPitchMax, 1f + BreakPitchStep * j.breaks);
+            j.breaks++;
+        }
+        GameAudio.Play3D("jeton_break", at, 1f, SoundRange, 0f, pitch);
+    }
+
+    // V0.7.23 (GDD 12) : un Jeton fait des dégâts à un joueur, ou percute une entité.
+    public static void PlayHit(Vector3 at) => GameAudio.Play3D("jeton_hit", at, 1f, SoundRange, 0.04f);
 
     // Arrivé au bout de son déplacement (chez chacun) ; l'hôte confirme la position finale (message QS).
     public bool Arrived { get; private set; }
@@ -99,7 +134,7 @@ public class JetonNoir : MonoBehaviour
         {
             Moving = false;
             Arrived = true;
-            GameAudio.Play3D("tour_impact", p + Vector3.up * 0.5f, 0.7f, 25f, 0.1f, 0.9f);
+            EndMoveSound();
         }
     }
 

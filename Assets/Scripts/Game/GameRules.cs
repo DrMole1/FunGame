@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.22";
+    public const string Version = "V0.7.23";
 
     // V0.7.11 (9.1) : les Hubs sont numérotés en chiffres romains (Hub I, Hub II...).
     public static string Roman(int n)
@@ -76,6 +76,8 @@ public static class GameRules
     public const float JetonNoirRespawnDelay = 90f;          // entité percutée : réapparaît 1 min 30 plus tard, ailleurs
     // À partir de la Zone 2 : 40 pièces d'échecs décoratives par zone (hors salles uniques) ; 3 à 5 salles uniques (6 sans structure).
     public const int ChessPiecesPerZone = 40;
+    // V0.7.23 (11.2) : dans une zone qui contient une structure (Château ou Blockhaus), seulement 25.
+    public const int ChessPiecesWithStructure = 25;
     public const int MinUniqueRooms = 3, MaxUniqueRooms = 5, UniqueRoomsWithoutStructure = 6;
     public const float UniqueRoomHeight = 8f;
 

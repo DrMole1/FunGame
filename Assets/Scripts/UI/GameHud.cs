@@ -73,6 +73,9 @@ public class GameHud : MonoBehaviour
     GameObject wipeRoot;
     RawImage wipeBlack, wipeVeil;
     Text wipeTitle, wipeGlow, wipeSubtitle;
+    // V0.7.23 (Note 07) : grain sur le rouge du titre GAME OVER (pas sur sa copie animée, en fond).
+    RawImage wipeGrain;
+    const float TitleGrainAlpha = 1f;
     CanvasGroup wipeButton;
     float wipeTime = -1f;
 
@@ -300,7 +303,7 @@ public class GameHud : MonoBehaviour
         box.transform.SetParent(gameOverPanel.transform, false);
         ((RectTransform)box.transform).sizeDelta = new Vector2(520, 340);
         UiKit.Column(box, 10, 14);
-        UiKit.Label(box.transform, "GAME OVER", 64, FontStyle.Bold, new Color(1f, 0.25f, 0.2f), 80);
+        AddTitleGrain(UiKit.Label(box.transform, "GAME OVER", 64, FontStyle.Bold, new Color(1f, 0.25f, 0.2f), 80), 3f);
         gameOverText = UiKit.Label(box.transform, "", 20, FontStyle.Normal, Color.white, 90);
         restartButton = UiKit.Button(box.transform, "Nouvelle partie", UiKit.PrimaryColor, 52, () => onRestart());
         UiKit.Button(box.transform, "Quitter la partie", UiKit.NeutralColor, 46, () => onQuit());
@@ -326,6 +329,7 @@ public class GameHud : MonoBehaviour
         var outline = wipeTitle.gameObject.AddComponent<Outline>();
         outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
         outline.effectDistance = new Vector2(3f, -3f);
+        wipeGrain = AddTitleGrain(wipeTitle, 3f);
         wipeSubtitle = Floating(w, new Vector2(0.5f, 0.5f), new Vector2(0, -60), new Vector2(900, 34), 22);
         wipeSubtitle.fontStyle = FontStyle.Italic;
         Loc.Bind(wipeSubtitle, "Aucun sujet de test en vie. L'expérience peut continuer.");
@@ -335,6 +339,59 @@ public class GameHud : MonoBehaviour
         UiKit.Paint(button, new Color(0.45f, 0.02f, 0.02f), 23);
         wipeButton = button.AddComponent<CanvasGroup>();
         wipeRoot.SetActive(false);
+    }
+
+    // V0.7.23 (Note 07) : grain par-dessus les lettres d'un titre (seulement dans ses lettres : le titre sert de masque) : petits points
+    // sombres et clairs, qui donnent au rouge une texture granuleuse. 'grain' : taille d'un point (unités de l'interface).
+    static Texture2D titleGrain;
+
+    static RawImage AddTitleGrain(Text title, float grain)
+    {
+        if (titleGrain == null)
+        {
+            const int size = 128;
+            titleGrain = new Texture2D(size, size, TextureFormat.RGBA32, false) { name = "GrainTitre", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Point };
+            var rnd = new System.Random(731);
+            var px = new Color32[size * size];
+            for (int i = 0; i < px.Length; i++)
+            {
+                double n = rnd.NextDouble();
+                // Points sombres (sang caillé), points clairs (reflets), le reste transparent.
+                px[i] = n < 0.22 ? new Color32(20, 0, 0, (byte)(90 + rnd.Next(90)))
+                      : n < 0.34 ? new Color32(255, 170, 160, (byte)(40 + rnd.Next(50)))
+                      : n < 0.5 ? new Color32(60, 0, 0, (byte)(40 + rnd.Next(40)))
+                      : new Color32(0, 0, 0, 0);
+            }
+            titleGrain.SetPixels32(px);
+            titleGrain.Apply(false);
+        }
+        title.gameObject.AddComponent<Mask>().showMaskGraphic = true;
+        var go = new GameObject("Grain", typeof(RectTransform), typeof(RawImage));
+        go.transform.SetParent(title.transform, false);
+        var rt = (RectTransform)go.transform;
+        UiKit.Stretch(rt);
+        var img = go.GetComponent<RawImage>();
+        img.texture = titleGrain;
+        img.raycastTarget = false;
+        go.AddComponent<GrainTiling>().pixel = grain * 128f;
+        return img;
+    }
+
+    // Garde la taille des points du grain quelle que soit la taille du titre (fixée par la mise en page).
+    class GrainTiling : MonoBehaviour
+    {
+        public float pixel = 384f;
+        RawImage img;
+        Vector2 last;
+
+        void LateUpdate()
+        {
+            if (img == null) img = GetComponent<RawImage>();
+            Vector2 size = ((RectTransform)transform).rect.size;
+            if (size == last) return;
+            last = size;
+            img.uvRect = new Rect(0f, 0f, Mathf.Max(1f, size.x) / pixel, Mathf.Max(1f, size.y) / pixel);
+        }
     }
 
     static Text WipeTitle(Transform parent, Color color)
@@ -751,6 +808,7 @@ public class GameHud : MonoBehaviour
         wipeTitle.rectTransform.localScale = Vector3.one * scale;
         wipeTitle.rectTransform.anchoredPosition = new Vector2(0, 60) + jitter;
         wipeTitle.color = Color.Lerp(new Color(0.15f, 0f, 0f, 0f), BloodRed, ease);
+        if (wipeGrain != null) wipeGrain.color = new Color(1f, 1f, 1f, TitleGrainAlpha * ease);
         wipeGlow.rectTransform.localScale = Vector3.one * scale * (1.05f + 0.025f * beat);
         wipeGlow.rectTransform.anchoredPosition = new Vector2(0, 60) + jitter * 1.6f;
         wipeGlow.color = new Color(0.9f, 0f, 0f, ease * (0.12f + 0.22f * beat));

@@ -115,3 +115,11 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: 347df9f314254d343934215879620454, type: 3}
   - key: zipper
     clip: {fileID: 8300000, guid: 50558cb85dad7ad47b01cf331d060f82, type: 3}
+  - key: tv_bell
+    clip: {fileID: 8300000, guid: 5b7d5a98898fa0b4d99626f0a742db99, type: 3}
+  - key: jeton_break
+    clip: {fileID: 8300000, guid: 199d46cefde987e4e906a9ffc2dcbe38, type: 3}
+  - key: jeton_move
+    clip: {fileID: 8300000, guid: 738cbb192417fc04e941e8c0dc35e699, type: 3}
+  - key: jeton_hit
+    clip: {fileID: 8300000, guid: ee880397856f453428501403335e47bb, type: 3}

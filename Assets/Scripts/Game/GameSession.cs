@@ -245,8 +245,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = Color.black;
             cam.nearClipPlane = 0.1f;
-            // Au-delà, le brouillard du labyrinthe masque tout : inutile de le dessiner.
-            cam.farClipPlane = 45f;
+            // Au-delà, le brouillard du labyrinthe masque tout : inutile de le dessiner (V0.7.23 : ajusté au brouillard, UpdateAtmosphere).
+            cam.farClipPlane = BaseFar;
         }
     }
 
@@ -810,6 +810,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     float farFogAmount;
     float outdoorBlend;
     const float OutdoorAmbientGain = 5f, OutdoorFogScale = 0.45f;
+    // V0.7.23 (Note 08) : distance de vue (45 m, jusqu'à 80 m) ; brouillard (exponentiel au carré) à 99,5 % au bout de la vue.
+    const float BaseFar = 45f, MaxFar = 80f, FogOpaque = 2.3f;
 
     bool IsOutdoors(Vector3 p)
     {
@@ -847,6 +849,15 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         Color mazeAmbient = WearingGlasses ? Color.Lerp(baseAmbient * bright, PeaceAmbient, 0.6f) : baseAmbient * bright;
         RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, inHub ? HubAmbient : mazeAmbient, k);
         RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, inHub ? HubFog : MazeFog * Mathf.Lerp(1f, OutdoorFogScale, outdoorBlend) / bright, k);
+        // V0.7.23 (Note 08) : le brouillard doit être opaque au bout de la vue. Dehors (ravins, cours) ou avec une forte luminosité, il
+        // laissait voir jusqu'à un quart des murs lumineux à 45 m : la vue s'arrêtait net sur une ligne droite. La caméra voit plus loin
+        // quand le brouillard est léger (jusqu'à 80 m), et au-delà le brouillard s'épaissit juste assez.
+        if (cam != null)
+        {
+            float far = inHub ? BaseFar : Mathf.Clamp(FogOpaque / Mathf.Max(0.0001f, RenderSettings.fogDensity), BaseFar, MaxFar);
+            cam.farClipPlane = far;
+            if (!inHub) RenderSettings.fogDensity = Mathf.Max(RenderSettings.fogDensity, FogOpaque / far);
+        }
         // Pendant la mort, la lampe éclaire encore le corps puis faiblit, jusqu'au noir.
         bool dying = status.Dead && OrbitCamera.DeathView >= 0f;
         playerLight.enabled = net.InGame && (!status.Dead || dying) && !WorldBuilder.IsInHub(player.transform.position);
@@ -2243,6 +2254,8 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     // voit sans obstacle en est obnubilé : la caméra le fixe, et à chaque balancement il entend la cloche (depuis l'écran) et perd
     // de la sérénité. Calculé chez chaque joueur (l'état des Télévisions découle des Balises, déjà partagées) : rien sur le réseau.
     readonly Dictionary<TvScreen, int> tvSwingsSeen = new Dictionary<TvScreen, int>();
+    const float TvBellVolume = 0.8f, TvBellPitchHigh = 1.08f, TvBellPitchLow = 0.92f;
+    bool tvBellHigh;
 
     Vector3? TvLook()
     {
@@ -2260,7 +2273,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             if (!tvSwingsSeen.TryGetValue(tv, out int seen)) seen = tv.Swings;
             if (tv.Swings > seen)
             {
-                GameAudio.Play3D("bell_deco", point, 1f, GameRules.BellSightRange, 0f);
+                // V0.7.23 (GDD 12) : Television_Cloche, 20 % moins fort, une fois plus aigu, une fois plus grave, qui plane à la fin.
+                tvBellHigh = !tvBellHigh;
+                GameAudio.Play3DTail("tv_bell", point, TvBellVolume, GameRules.BellSightRange, tvBellHigh ? TvBellPitchHigh : TvBellPitchLow);
                 OrbitCamera.BellStrike();
                 LoseBellSerenity();
             }

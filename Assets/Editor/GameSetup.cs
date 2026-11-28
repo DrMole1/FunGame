@@ -151,6 +151,11 @@ public static class GameSetup
         ("tete_vue", "Assets/Sounds/TeteDeCloche_Vue.wav"),
         ("zipper", "Assets/Sounds/Zip.wav"),
         // V0.7.9 : plus d'ordres vocaux des glyphes (une icône de l'ordre s'affiche à l'écran).
+        // V0.7.23 : cloche de la Télévision qui obnubile, Jeton Noir (objet cassé, déplacement en boucle, dégâts).
+        ("tv_bell", "Assets/Sounds/Television_Cloche.wav"),
+        ("jeton_break", "Assets/Sounds/JetonNoir_Casser.wav"),
+        ("jeton_move", "Assets/Sounds/JetonNoir_Deplacement.wav"),
+        ("jeton_hit", "Assets/Sounds/JetonNoir_Degat.wav"),
     };
 
     static void CreateSounds()

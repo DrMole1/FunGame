@@ -91,7 +91,8 @@ public class ShowerHead : Interactable
         {
             if (water == null) water = BuildWater();
             water.Play();
-            sound = GameAudio.Loop3D("shower", transform, transform.InverseTransformPoint(nozzle), 0.5f, 14f);
+            // V0.7.23 (Note 02) : eau un peu moins forte (0,5 -> 0,4).
+            sound = GameAudio.Loop3D("shower", transform, transform.InverseTransformPoint(nozzle), 0.4f, 14f);
             if (sound != null) sound.Play();
         }
         else

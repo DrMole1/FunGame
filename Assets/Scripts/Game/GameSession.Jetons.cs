@@ -10,8 +10,12 @@ using UnityEngine;
 // - En chemin : un joueur percuté perd 50 PV et est projeté au loin ; une autre Balise éclate ; tout autre objet posé au sol explose et
 //   disparaît ; une entité Cauchemar, Sanction ou Normale explose et disparaît (Cauchemar et Sanction : membres en éclats, sans sang)
 //   et réapparaît ailleurs 1 min 30 plus tard.
-// Messages : QB|jeton|balise (gonflement), QM|jeton|x|y|z|balise (départ), QS|jeton|x|y|z (arrêt), QX|appareil|0 ou 1 (Balise qui
-// éclate, ou objet qui explose), QF|x|y|z (objet à ramasser qui explose), QP|jeton|x|y|z (position, pour un joueur qui arrive).
+// Messages : QB|jeton|balise (gonflement), QM|jeton|x|y|z|balise (départ), QS|jeton|x|y|z (arrêt), QX|appareil|0 ou 1|jeton (Balise
+// qui éclate, ou objet qui explose), QF|x|y|z|jeton (objet à ramasser qui explose), QK|jeton|x|y|z (entité percutée), QP|jeton|x|y|z
+// (position, pour un joueur qui arrive).
+// V0.7.23 (GDD 12) : sons JetonNoir_Casser (objet, Balise ou entité cassé ; plus aigu à chaque objet d'un même déplacement),
+// JetonNoir_Deplacement (en boucle pendant le déplacement, JetonNoir) et JetonNoir_Degat (joueur blessé ou entité percutée), entendus
+// par tous, spatialisés.
 public partial class GameSession
 {
     // Écart toléré avec l'axe (la moitié d'une case du damier de 1 m) ; au même niveau à 15 cm près.
@@ -22,6 +26,8 @@ public partial class GameSession
     readonly Dictionary<int, int> jetonsMoving = new Dictionary<int, int>();
     // Chaque joueur : déplacements (Jeton, numéro) qui l'ont déjà touché.
     readonly HashSet<(int, int)> jetonHits = new HashSet<(int, int)>();
+    // Chaque joueur : (Jeton, numéro, joueur distant) déjà entendus (le son des dégâts faits aux autres joueurs).
+    readonly HashSet<(int, int, string)> jetonRemoteHits = new HashSet<(int, int, string)>();
 
     void UpdateJetons()
     {
@@ -34,6 +40,7 @@ public partial class GameSession
     {
         jetonsMoving.Clear();
         jetonHits.Clear();
+        jetonRemoteHits.Clear();
     }
 
     // ---------- Pose d'une Balise (hôte) ----------
@@ -51,7 +58,7 @@ public partial class GameSession
             if (new Vector2(d.x, d.z).magnitude < JetonNoir.Radius + 0.25f && d.y > 0.3f && d.y < JetonNoir.Height * 1.3f)
             {
                 net.ToAll("QB|" + j.Id + "|" + beaconId);
-                BreakDevice(beaconId, false);
+                BreakDevice(beaconId, false, j.Id);
                 return;
             }
         }
@@ -163,7 +170,7 @@ public partial class GameSession
                 // Arrivé : la Balise visée éclate (si elle est toujours là).
                 Beacon target = j.TargetBeacon >= 0 ? beacons.Get(j.TargetBeacon) : null;
                 if (target != null && target.Kind == DeviceKind.Beacon && Flat(target.transform.position - j.transform.position) < JetonNoir.Radius + 0.6f)
-                    BreakDevice(target.Id, false);
+                    BreakDevice(target.Id, false, j.Id);
                 StopJeton(j);
             }
         }
@@ -189,7 +196,7 @@ public partial class GameSession
             Vector3 d = b.transform.position - at;
             if (d.y < -0.6f || d.y > JetonNoir.Height || Flat(d) > reach + 0.2f) continue;
             // La Balise visée éclate à l'arrivée ; les autres dès qu'il les touche.
-            BreakDevice(b.Id, b.Kind != DeviceKind.Beacon);
+            BreakDevice(b.Id, b.Kind != DeviceKind.Beacon, j.Id);
         }
         foreach (var kv in new List<KeyValuePair<int, ItemPickup>>(items))
         {
@@ -199,29 +206,30 @@ public partial class GameSession
             if (d.y < -0.6f || d.y > JetonNoir.Height || Flat(d) > reach) continue;
             picked.Add(kv.Key);
             net.ToAll("IR|" + round + "|" + kv.Key);
-            net.ToAll("QF|" + NetworkGame.F(p.x) + "|" + NetworkGame.F(p.y) + "|" + NetworkGame.F(p.z));
+            net.ToAll("QF|" + NetworkGame.F(p.x) + "|" + NetworkGame.F(p.y) + "|" + NetworkGame.F(p.z) + "|" + j.Id);
         }
         foreach (var e in new List<Entity>(entities.Values))
         {
             if (e == null) continue;
             Vector3 d = e.transform.position - at;
             if (d.y < -1f || d.y > JetonNoir.Height || Flat(d) > JetonNoir.Radius + 0.6f) continue;
-            JetonSmashEntity(e);
+            JetonSmashEntity(e, j.Id);
         }
     }
 
     // Appareil posé détruit : une Balise éclate (morceaux), un autre objet explose.
-    void BreakDevice(int id, bool explode)
+    void BreakDevice(int id, bool explode, int jeton)
     {
         if (!beaconMessages.Remove(id)) return;
-        net.ToAll("QX|" + id + "|" + (explode ? 1 : 0));
+        net.ToAll("QX|" + id + "|" + (explode ? 1 : 0) + "|" + jeton);
     }
 
     // Entité percutée (hôte) : elle explose et disparaît (Cauchemar et Sanction : membres en éclats), puis réapparaît ailleurs.
-    void JetonSmashEntity(Entity e)
+    void JetonSmashEntity(Entity e, int jeton)
     {
         int id = e.Id;
         Vector3 pos = e.transform.position;
+        net.ToAll("QK|" + jeton + "|" + NetworkGame.F(pos.x) + "|" + NetworkGame.F(pos.y + 1f) + "|" + NetworkGame.F(pos.z));
         int zone = Mathf.Max(1, e.Zone);
         bool shatter = e.Nightmare || e.Kind == EntityKind.TeteDeCloche;
         if (e.Kind != EntityKind.Reveil && e.Kind != EntityKind.TeteDeCloche) respawns.Add((e.Kind, zone, Time.time + GameRules.JetonNoirRespawnDelay, round));
@@ -235,6 +243,7 @@ public partial class GameSession
 
     void UpdateJetonLocalHits()
     {
+        UpdateJetonRemoteHits();
         if (status.Dead || player == null) return;
         Vector3 me = player.transform.position;
         foreach (var j in JetonNoir.All.Values)
@@ -250,8 +259,27 @@ public partial class GameSession
             // Projeté dans le sens de la course du Jeton, et vers l'extérieur.
             Vector3 push = (travel.normalized * 1.5f + away.normalized).normalized;
             DamageLocal(GameRules.JetonNoirDamage, "Jeton Noir");
-            GameAudio.Play3D("tour_impact", me, 0.9f, 20f, 0.1f, 0.8f);
+            JetonNoir.PlayHit(me + Vector3.up * 0.9f);
             if (!status.Dead && !Teleporting && !CannonFlying && !InCannon) player.Knockback(push, GameRules.JetonNoirKnockback);
+        }
+    }
+
+    // V0.7.23 : un autre joueur percuté (chez chacun) : on entend JetonNoir_Degat, sans rien d'autre (ses dégâts sont comptés chez lui).
+    void UpdateJetonRemoteHits()
+    {
+        if (net.Remotes.Count == 0) return;
+        foreach (var j in JetonNoir.All.Values)
+        {
+            if (j == null || !j.Moving) continue;
+            foreach (var kv in net.Remotes)
+            {
+                var rp = kv.Value;
+                if (rp == null || !rp.gameObject.activeInHierarchy) continue;
+                Vector3 d = rp.transform.position - j.transform.position;
+                if (d.y < 0f || d.y > JetonNoir.Height + 0.9f || Flat(d) > JetonNoir.Radius + 0.45f) continue;
+                if (!jetonRemoteHits.Add((j.Id, j.MoveSerial, kv.Key))) continue;
+                JetonNoir.PlayHit(rp.transform.position + Vector3.up * 0.9f);
+            }
         }
     }
 
@@ -286,12 +314,8 @@ public partial class GameSession
                     Vector3 p = b.transform.position;
                     bool explode = f[2] == "1";
                     JetonNoir.Shatter(p, explode);
-                    if (explode)
-                    {
-                        GameAudio.Play3D("cannon_impact", p, 0.8f, 30f, 0.1f, 1.2f);
-                        Fx.Burst(p + Vector3.up * 0.4f, Fx.Dirt, 14, 3f, 0.1f);
-                    }
-                    else GameAudio.Play3D("orb_break", p, 0.9f, 20f, 0.1f);
+                    if (explode) Fx.Burst(p + Vector3.up * 0.4f, Fx.Dirt, 14, 3f, 0.1f);
+                    JetonNoir.PlayBreak(f.Length >= 4 ? NetworkGame.I(f[3]) : -1, p + Vector3.up * 0.3f);
                 }
                 beacons.Remove(id);
                 return true;
@@ -300,7 +324,15 @@ public partial class GameSession
             {
                 var p = new Vector3(NetworkGame.P(f[1]), NetworkGame.P(f[2]), NetworkGame.P(f[3]));
                 JetonNoir.Shatter(p, true);
-                GameAudio.Play3D("cannon_impact", p, 0.7f, 25f, 0.1f, 1.3f);
+                JetonNoir.PlayBreak(f.Length >= 5 ? NetworkGame.I(f[4]) : -1, p + Vector3.up * 0.3f);
+                return true;
+            }
+            case "QK" when f.Length >= 5:
+            {
+                // Entité percutée : elle casse (JetonNoir_Casser) et encaisse (JetonNoir_Degat) ; l'explosion vient du message EX.
+                var p = new Vector3(NetworkGame.P(f[2]), NetworkGame.P(f[3]), NetworkGame.P(f[4]));
+                JetonNoir.PlayBreak(NetworkGame.I(f[1]), p);
+                JetonNoir.PlayHit(p);
                 return true;
             }
         }

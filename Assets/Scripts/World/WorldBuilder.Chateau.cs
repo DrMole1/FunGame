@@ -50,6 +50,8 @@ public static partial class WorldBuilder
         public float doorAngle, stairInner;
         public float arrivalFrom, arrivalTo;   // V0.7.21 : secteur (degrés) de l'arrivée de l'escalier au dernier étage
         public bool dark;                      // V0.7.21 : dernier étage dans le noir
+        // V0.7.23 : étages intermédiaires (hauteur du sol, angle où l'escalier y arrive), garnis d'amas de stockage.
+        public readonly List<(float y, float access)> midFloors = new List<(float, float)>();
     }
 
     internal class ChateauPlan
@@ -652,6 +654,7 @@ public static partial class WorldBuilder
             {
                 KitDisc(kit, c, rIn - 0.05f, level, TowerFloorThick, sides);
                 lowestCeiling = Mathf.Min(lowestCeiling, level - TowerFloorThick);
+                plan.midFloors.Add((c.y + level, SpiralAngleAt(rIn, TowerStairWidth + rIn, ground, top, doorAngle + 25f, level)));
             }
         // Dernier étage : dalle pleine, ouverte au-dessus de l'arrivée de l'escalier ; puis le toit fermé et les créneaux autour.
         // V0.7.16 (Note 03) : ouverture agrandie : elle couvre les 3,5 derniers mètres de montée (avant : 2,2 m, la tête d'un personnage
@@ -822,7 +825,11 @@ public static partial class WorldBuilder
             // Cachots : une ou deux torches au mur, à flamme blanche.
             if (kv.Value == Dungeon) AddRoomTorches(m, room, props, placed, 1 + rnd.Next(2), rnd);
         }
-        foreach (var round in plan.rounds) FurnishTower(round, props, rnd);
+        foreach (var round in plan.rounds)
+        {
+            FurnishTower(round, props, rnd);
+            FurnishTowerFloors(round, props, rnd);
+        }
         DressCastle(m, root, plan, refs, props);
     }
 

@@ -208,6 +208,22 @@ public class GameAudio : MonoBehaviour
         return src;
     }
 
+    // V0.7.23 : son spatialisé qui « plane » légèrement à la fin, sans arrêt abrupt (cloche de la Télévision) : suivi de quelques copies
+    // retardées, de plus en plus faibles et un peu plus graves (pas de filtre audio en WebGL).
+    static readonly (float delay, float gain)[] TailTaps = { (0.16f, 0.32f), (0.34f, 0.17f), (0.55f, 0.08f) };
+
+    public static AudioSource Play3DTail(string clip, Vector3 position, float volume, float maxDistance, float pitch)
+    {
+        var src = Play3D(clip, position, volume, maxDistance, 0f, pitch);
+        if (src == null) return null;
+        for (int k = 0; k < TailTaps.Length; k++)
+        {
+            var tap = Play3DDelayed(clip, position, volume * TailTaps[k].gain, maxDistance, 0f, TailTaps[k].delay);
+            if (tap != null) tap.pitch = pitch * (1f - 0.01f * (k + 1));
+        }
+        return src;
+    }
+
     // Son spatialisé à décroissance douce : plein près de la source, puis s'éteint progressivement jusqu'à maxDistance.
     static readonly AnimationCurve SmoothRolloff = new AnimationCurve(
         new Keyframe(0f, 1f, 0f, 0f), new Keyframe(0.15f, 0.92f), new Keyframe(0.5f, 0.4f), new Keyframe(1f, 0f, 0f, 0f));
