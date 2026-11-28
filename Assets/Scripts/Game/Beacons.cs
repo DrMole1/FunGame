@@ -19,6 +19,8 @@ public enum DeviceKind : byte
     // V0.7.11 : Métronome (7.12), Super Balle (7.13), Notice (7.17) et Journaux (17.5) posés au sol ; Sac à Os (7.16) : SacOs + nombre
     // d'Os qu'il contient (150 à 165).
     Metronome = 140, SuperBalle = 141, Notice = 142, Journal1 = 143, Journal5 = 147, SacOs = 150, SacOsPlein = 165,
+    // V0.7.24 (17.4, S3) : Cassette VHS posée (dans un casier de la Control Room au début de la partie).
+    Cassette = 148,
 }
 
 // Balise (GDD 7.1) : petite borne posée au sol, ramassable. La Balise du Hub, plus grande, ne se ramasse pas : elle est
@@ -41,6 +43,8 @@ public class Beacon : Interactable
     public const float PlushHeight = 0.9f, DuckHeight = 0.45f, DiscoHeight = 0.8f, DiscoChain = 0.25f, ColoredDuckHeight = 0.6f;
     // V0.7.11 : Métronome, Super Balle ("légèrement plus petite que la taille d'un joueur"), Sac à Os posé.
     public const float MetronomeHeight = 0.6f, SuperBallSize = 1.4f, BagHeight = 0.65f;
+    // V0.7.24 : Cassette VHS couchée à plat (19 x 10 x 2,5 cm, un peu agrandie pour rester visible).
+    public const float CassetteLength = 0.28f, CassetteThickness = 0.04f;
     public static bool IsPaperKind(DeviceKind kind) => kind == DeviceKind.Notice || kind >= DeviceKind.Journal1 && kind <= DeviceKind.Journal5;
     public static bool IsBagKind(DeviceKind kind) => kind >= DeviceKind.SacOs && kind <= DeviceKind.SacOsPlein;
     static readonly Color ChargedTint = Color.white, DischargedTint = new Color(0.42f, 0.42f, 0.46f);
@@ -95,6 +99,7 @@ public class Beacon : Interactable
         if (kind == DeviceKind.Metronome) return ItemType.Metronome;
         if (kind == DeviceKind.SuperBalle) return ItemType.SuperBalle;
         if (kind == DeviceKind.Notice) return ItemType.Notice;
+        if (kind == DeviceKind.Cassette) return ItemType.Cassette;
         if (kind >= DeviceKind.CanardColore && kind <= LastKind) return ItemType.CanardColore + (kind - DeviceKind.CanardColore + 1);
         switch (kind)
         {
@@ -125,6 +130,7 @@ public class Beacon : Interactable
         if (item == ItemType.Metronome) return DeviceKind.Metronome;
         if (item == ItemType.SuperBalle) return DeviceKind.SuperBalle;
         if (item == ItemType.Notice) return DeviceKind.Notice;
+        if (item == ItemType.Cassette) return DeviceKind.Cassette;
         for (var k = DeviceKind.Beacon; k <= DeviceKind.Canard; k++) if (ItemOf(k) == item) return k;
         return DeviceKind.Beacon;
     }
@@ -136,6 +142,7 @@ public class Beacon : Interactable
         if (kind == DeviceKind.Metronome) return MetronomeHeight;
         if (kind == DeviceKind.SuperBalle) return SuperBallSize;
         if (IsBagKind(kind)) return BagHeight;
+        if (kind == DeviceKind.Cassette) return CassetteThickness;
         if (kind >= DeviceKind.CanardColore) return ColoredDuckHeight;
         switch (kind)
         {
@@ -189,6 +196,21 @@ public class Beacon : Interactable
                 GameArt.Prim(PrimitiveType.Cube, visual, new Vector3(0f, height * 0.5f, 0f), new Vector3(height * 0.7f, height, height * 0.4f), GameArt.Lit("SacOsToile", new Color(0.5f, 0.38f, 0.24f), null, 0.2f));
         }
         else if (kind >= DeviceKind.Journal1 && kind <= DeviceKind.Journal5 && GameArt.SpawnModelFloor("Journal", visual, 0.5f) != null) { }
+        else if (kind == DeviceKind.Cassette)
+        {
+            // Modèle Meshy (Resources/Art/Cassette, debout dans le fichier), couché à plat, l'étiquette vers le haut ; repli : boîtier
+            // noir et ses deux bobines.
+            var lying = new GameObject("Couchee").transform;
+            lying.SetParent(visual, false);
+            lying.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+            if (GameArt.SpawnModelFit("Cassette", lying, CassetteLength) != null)
+                lying.localPosition = Vector3.up * -GameArt.LocalBounds(visual).min.y;
+            else
+            {
+                Object.Destroy(lying.gameObject);
+                BuildCassette(visual);
+            }
+        }
         else if (kind == DeviceKind.Protocole || IsPaperKind(kind))
         {
             // À plat sur le sol, le texte vers le ciel, le haut de la feuille vers l'avant de l'appareil.
@@ -291,6 +313,7 @@ public class Beacon : Interactable
         }
         beacon.FitTrigger(kind == DeviceKind.Protocole || IsPaperKind(kind) ? new Vector3(ProtocolBoard.Width + 0.1f, 0.2f, ProtocolBoard.Height + 0.1f)
             : kind == DeviceKind.SuperBalle ? Vector3.one * SuperBallSize * 1.05f
+            : kind == DeviceKind.Cassette ? new Vector3(CassetteLength + 0.08f, 0.14f, CassetteLength + 0.08f)
             : kind == DeviceKind.Teleporter ? new Vector3(0.9f, 0.4f, 0.9f) : kind == DeviceKind.Canon ? new Vector3(1.76f, CanonHeight, 1.76f)
             : kind == DeviceKind.Trampoline ? new Vector3(1.2f, height, 1.2f) : beacon.IsDisco ? new Vector3(0.9f, 0.9f, 0.9f) : new Vector3(0.6f, height, 0.6f));
         // V0.7.12 (9.1) : hors du Hub, une Balise chargée éclaire la zone (un peu moins qu'un néon), clignote près d'un Roi comme
@@ -361,6 +384,18 @@ public class Beacon : Interactable
     // ---------- Objets uniques (repli en primitives si le modèle Meshy manque) ----------
 
     // Poste de télévision cathodique : caisse en bois, écran bombé vers l'avant (+Z), antennes en V.
+    public static void BuildCassette(Transform parent)
+    {
+        float l = CassetteLength, w = l * 0.54f, t = l * 0.13f;
+        Material shell = GameArt.Lit("CassetteBoitier", new Color(0.07f, 0.07f, 0.075f), null, 0.35f);
+        Material label = GameArt.Lit("CassetteEtiquette", new Color(0.86f, 0.84f, 0.78f), null, 0.1f);
+        Material reel = GameArt.Lit("CassetteBobine", new Color(0.03f, 0.025f, 0.02f), null, 0.6f);
+        GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0f, t * 0.5f, 0f), new Vector3(l, t, w), shell);
+        GameArt.Prim(PrimitiveType.Cube, parent, new Vector3(0f, t + 0.001f, w * 0.12f), new Vector3(l * 0.7f, 0.002f, w * 0.3f), label);
+        foreach (float x in new[] { -l * 0.22f, l * 0.22f })
+            GameArt.Prim(PrimitiveType.Cylinder, parent, new Vector3(x, t + 0.001f, -w * 0.18f), new Vector3(w * 0.3f, 0.002f, w * 0.3f), reel);
+    }
+
     static void BuildTelevision(Transform parent, float height)
     {
         float s = height / 1.44f;
@@ -533,7 +568,10 @@ public class Beacon : Interactable
     {
         get
         {
-            return IsHub ? "" : Loc.F("Ramasser {0}", Items.Get(Item).name);
+            if (IsHub) return "";
+            // V0.7.24 : la Cassette en main, viser la Télévision la lui fait lire (pas de texte, GDD 18 Note 10).
+            if (Kind == DeviceKind.Television && GameSession.Instance != null && GameSession.Instance.SelectedItem == ItemType.Cassette) return "";
+            return Loc.F("Ramasser {0}", Items.Get(Item).name);
         }
     }
 

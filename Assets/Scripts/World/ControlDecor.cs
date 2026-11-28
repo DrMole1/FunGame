@@ -521,6 +521,19 @@ public static class Lockers
     // Ouverture des compartiments (hauteur) et épaisseur des montants, mesurées sur le modèle.
     const float OpeningBottom = 0.22f * Scale, OpeningTop = 1.6f * Scale, Post = 0.05f * Scale;
 
+    // V0.7.24 (17.4, S3) : fond de chaque compartiment (monde), là où la Cassette est posée en début de partie, et son cap (le
+    // long du casier).
+    static readonly Vector3[] compartments = new Vector3[TotalDoors];
+    static readonly float[] compartmentYaw = new float[TotalDoors];
+    static readonly bool[] compartmentBuilt = new bool[TotalDoors];
+    public static bool CompartmentPoint(int door, out Vector3 point, out float yaw)
+    {
+        bool ok = door >= 0 && door < TotalDoors && compartmentBuilt[door];
+        point = ok ? compartments[door] : Vector3.zero;
+        yaw = ok ? compartmentYaw[door] : 0f;
+        return ok;
+    }
+
     // 'front' : milieu du bas de la face avant ; les portes regardent vers 'facing'.
     // 'set' : 0 (Vestiaire) ou 1 (Control Room) ; ses portes portent les numéros set * 3 à set * 3 + 2.
     public static void Build(Transform parent, Vector3 front, Vector3 facing, System.Action<Vector3, Vector3> box, int set = 0)
@@ -567,6 +580,10 @@ public static class Lockers
             // Charnière à gauche de chaque compartiment (vu de face).
             Vector3 hinge = new Vector3(-Width * 0.5f + i * w + Post, doorBottom, 0.015f);
             LockerDoor.Create(holder, set * Count + i, hinge, w - Post * 2f, doorTop - doorBottom, paint);
+            int door = set * Count + i;
+            compartments[door] = holder.TransformPoint(new Vector3(-Width * 0.5f + (i + 0.5f) * w, doorBottom + 0.005f, -Depth * 0.45f));
+            compartmentYaw[door] = holder.eulerAngles.y + 90f;
+            compartmentBuilt[door] = true;
         }
     }
 

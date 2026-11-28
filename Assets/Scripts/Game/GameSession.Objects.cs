@@ -17,6 +17,7 @@ public partial class GameSession
         if (!net.IsHost || zones.Count == 0) return;
         Vector3 hubCenter = WorldBuilder.HubCenter(1);
         PlaceDevice(DeviceKind.Protocole, hubCenter + new Vector3(0.9f, 0f, -1.1f), 200f, "");
+        PlaceCassette();
     }
 
     // Hôte : pose un appareil, annoncé à tous et gardé pour les joueurs qui arrivent ; 'placer' : joueur qui l'a posé

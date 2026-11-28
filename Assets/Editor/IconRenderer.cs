@@ -67,6 +67,17 @@ public static class IconRenderer
         ConfigureSprite(IconDir + "/" + ItemType.Balise + ".png");
     }
 
+    // V0.7.24 (17.4, S3) : icône de la Cassette (modèle Meshy, vue de face).
+    [MenuItem("FunGame/Générer l'icône de la Cassette")]
+    public static void RenderCassette()
+    {
+        Render("Cassette", ItemType.Cassette, CassetteView, 0f);
+        AssetDatabase.Refresh();
+        ConfigureSprite(IconDir + "/" + ItemType.Cassette + ".png");
+    }
+
+    public static Vector3 CassetteView = new Vector3(15f, -160f, 0f);
+
     // V0.7.14 : icône de la Super Balle, bien ronde (comme en jeu).
     [MenuItem("FunGame/Générer l'icône de la Super Balle")]
     public static void RenderSuperBall()

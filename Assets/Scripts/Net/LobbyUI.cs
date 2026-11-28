@@ -22,8 +22,7 @@ public class LobbyUI : MonoBehaviour
     Text resumeLabel;
     InputField nameField, codeField;
     Button hostButton, joinButton, soloButton;
-    GameObject copyButton;
-    Text statusText, roomText, countText, copyLabel, lobbySkin, pauseSkin;
+    Text statusText, roomText, countText, lobbySkin, pauseSkin;
     readonly System.Collections.Generic.List<Text> musicLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> sfxLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> brightLabels = new System.Collections.Generic.List<Text>();
@@ -32,7 +31,6 @@ public class LobbyUI : MonoBehaviour
     readonly System.Collections.Generic.List<Text> resolutionLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> particleLabels = new System.Collections.Generic.List<Text>();
     readonly System.Collections.Generic.List<Text> sensitivityLabels = new System.Collections.Generic.List<Text>();
-    float copyFeedbackTimer;
     Text versionText;
     bool inGame;
     // Drapeaux des langues, en bas à droite (lobby et menu pause).
@@ -111,39 +109,19 @@ public class LobbyUI : MonoBehaviour
         inGame = true;
         lobbyPanel.SetActive(false);
         versionText.gameObject.SetActive(false);
-        // Partie solo : pas de code, ni de lien d'invitation, ni de nombre de joueurs.
+        // Partie solo : pas de code, ni de nombre de joueurs. (V0.7.24, Note 01 : plus de bouton "Copier le lien d'invitation".)
         bool solo = string.IsNullOrEmpty(code);
         roomCode = code;
         roomHost = isHost;
         RefreshRoom();
-        copyButton.SetActive(!solo);
         countText.gameObject.SetActive(!solo);
-        FitPausePanel();
-        Loc.Bind(copyLabel, "Copier le lien d'invitation");
         if (EventSystem.current != null) EventSystem.current.SetSelectedGameObject(null);
         RefreshSkin();
     }
 
-    // Menu pause à la hauteur de son contenu (plus court en solo, sans lien d'invitation ni nombre de joueurs) :
-    // la jauge de PV reste visible dessous. (Pas de ContentSizeFitter : le coup de pinceau du fond a sa propre
-    // hauteur préférée, qui l'emporterait.)
-    void FitPausePanel()
-    {
-        var layout = pausePanel.GetComponent<VerticalLayoutGroup>();
-        float h = layout.padding.top + layout.padding.bottom;
-        int shown = 0;
-        foreach (Transform t in pausePanel.transform)
-        {
-            // (Menu encore caché ici : on lit la hauteur déclarée de chaque ligne, pas celle calculée par la mise en page.)
-            var le = t.GetComponent<LayoutElement>();
-            if (!t.gameObject.activeSelf || le == null || le.ignoreLayout) continue;
-            h += Mathf.Max(0f, le.preferredHeight);
-            shown++;
-        }
-        h += layout.spacing * Mathf.Max(0, shown - 1);
-        var rt = (RectTransform)pausePanel.transform;
-        rt.sizeDelta = new Vector2(rt.sizeDelta.x, h);
-    }
+    // V0.7.24 (Note 01) : le panneau de droite dépasse de l'écran en haut et en bas (pics du pinceau cachés) : sa hauteur ne dépend plus
+    // de son contenu (avant : FitPausePanel, à la hauteur de ses lignes).
+    const float PauseOverflow = 80f;
 
     void RefreshRoom()
     {
@@ -183,7 +161,6 @@ public class LobbyUI : MonoBehaviour
         if (pauseSkinLabel.activeSelf == canChange) return;
         pauseSkinLabel.SetActive(canChange);
         pauseSkin.transform.parent.gameObject.SetActive(canChange);
-        FitPausePanel();
     }
 
     void RefreshSkin()
@@ -195,12 +172,6 @@ public class LobbyUI : MonoBehaviour
 
     void Update()
     {
-        if (copyFeedbackTimer > 0f)
-        {
-            copyFeedbackTimer -= Time.unscaledDeltaTime;
-            if (copyFeedbackTimer <= 0f) Loc.Bind(copyLabel, "Copier le lien d'invitation");
-        }
-
         // Menu de pause : visible quand la souris est libérée.
         // Après avoir quitté le Terminal ou un Post-It avec Échap, pas de menu pause : on revient directement au jeu.
         bool paused = inGame && Cursor.lockState != CursorLockMode.Locked && !TerminalUI.IsOpen && !PostItUI.IsOpen && !GameHud.GameOverVisible
@@ -217,9 +188,12 @@ public class LobbyUI : MonoBehaviour
         bool flagsShown = (lobbyPanel.activeSelf || pauseMenus) && !loading;
         if (langRow.activeSelf != flagsShown) langRow.SetActive(flagsShown);
         // V0.7.23 (Note 03) : dans le menu pause (sans numéro de version dessous), les drapeaux descendent un peu.
+        // V0.7.24 : dans le menu pause, ils font partie du panneau noir de droite : tout en bas, centrés sur sa largeur.
         var langRect = (RectTransform)langRow.transform;
-        float flagsY = inGame ? FlagsPauseY : FlagsLobbyY;
-        if (!Mathf.Approximately(langRect.anchoredPosition.y, flagsY)) langRect.anchoredPosition = new Vector2(langRect.anchoredPosition.x, flagsY);
+        SetFlagGap(inGame ? FlagGapPause : FlagGapLobby);
+        Vector2 flagsPos = inGame ? new Vector2(PausePanelRight - (PausePanelWidth - langRect.sizeDelta.x) * 0.5f, FlagsPauseY)
+            : new Vector2(FlagsLobbyX, FlagsLobbyY);
+        if (langRect.anchoredPosition != flagsPos) langRect.anchoredPosition = flagsPos;
         // Souris sur le menu du lobby ou le menu pause : la scène s'assombrit (fondu dans FilmGrain).
         FilmGrain.MenuHover = Hovered(lobbyBackdrop) || Hovered(pausePanel.transform as RectTransform) || Hovered(controlsPanel)
             || controlsUI.Hovered;
@@ -250,15 +224,35 @@ public class LobbyUI : MonoBehaviour
 
     // Drapeaux des langues, juste au-dessus du numéro de version ; même place dans le menu pause.
     // La langue choisie garde l'aura beige.
-    const float FlagsLobbyY = 44f, FlagsPauseY = 22f;
+    const float FlagsLobbyX = -16f, FlagsLobbyY = 44f, FlagsPauseY = 26f;
+    // Écart entre deux drapeaux : plus large dans le menu pause (V0.7.24), où ils ont toute la largeur du panneau.
+    const float FlagW = 48f, FlagH = 32f, FlagGapLobby = 10f, FlagGapPause = 26f;
+    readonly System.Collections.Generic.List<RectTransform> flagRects = new System.Collections.Generic.List<RectTransform>(),
+        auraRects = new System.Collections.Generic.List<RectTransform>();
+    float flagGap = -1f;
+
+    void SetFlagGap(float gap)
+    {
+        if (Mathf.Approximately(gap, flagGap)) return;
+        flagGap = gap;
+        for (int i = 0; i < flagRects.Count; i++)
+        {
+            flagRects[i].anchoredPosition = new Vector2(i * (FlagW + gap), 0f);
+            auraRects[i].anchoredPosition = new Vector2(i * (FlagW + gap) - 4f, 0f);
+        }
+        var rt = (RectTransform)langRow.transform;
+        rt.sizeDelta = new Vector2(flagRects.Count * FlagW + (flagRects.Count - 1) * gap, FlagH);
+    }
+    // Panneau de droite du menu pause : largeur et marge au bord droit de l'écran.
+    const float PausePanelWidth = 390f, PausePanelRight = -16f;
 
     void BuildLanguages(Transform root)
     {
         Lang[] langs = { Lang.En, Lang.Fr, Lang.Es, Lang.Ru };
-        const float w = 48f, h = 32f, gap = 10f;
+        const float w = FlagW, h = FlagH, gap = FlagGapLobby;
         langRow = new GameObject("Langues", typeof(RectTransform));
         langRow.transform.SetParent(root, false);
-        var rt = UiKit.Place(langRow, new Vector2(1f, 0f), new Vector2(-16f, FlagsLobbyY));
+        var rt = UiKit.Place(langRow, new Vector2(1f, 0f), new Vector2(FlagsLobbyX, FlagsLobbyY));
         rt.sizeDelta = new Vector2(langs.Length * w + (langs.Length - 1) * gap, h);
         for (int i = 0; i < langs.Length; i++)
         {
@@ -266,6 +260,7 @@ public class LobbyUI : MonoBehaviour
             var go = new GameObject("Drapeau" + lang, typeof(RectTransform), typeof(Image), typeof(Button));
             go.transform.SetParent(langRow.transform, false);
             var frt = (RectTransform)go.transform;
+            flagRects.Add(frt);
             frt.anchorMin = frt.anchorMax = frt.pivot = new Vector2(0f, 0.5f);
             frt.anchoredPosition = new Vector2(i * (w + gap), 0f);
             frt.sizeDelta = new Vector2(w, h);
@@ -282,6 +277,7 @@ public class LobbyUI : MonoBehaviour
             auraGo.transform.SetParent(langRow.transform, false);
             auraGo.transform.SetSiblingIndex(go.transform.GetSiblingIndex());
             var art = (RectTransform)auraGo.transform;
+            auraRects.Add(art);
             art.anchorMin = art.anchorMax = art.pivot = new Vector2(0f, 0.5f);
             art.anchoredPosition = new Vector2(i * (w + gap) - 4f, 0f);
             art.sizeDelta = new Vector2(w + 8f, h + 8f);
@@ -465,23 +461,19 @@ public class LobbyUI : MonoBehaviour
     void BuildPause(Transform root)
     {
         // À droite (V0.7.23, Note 03 ; avant : à gauche) : partie, skin (avant le Bouton Rouge), volumes et réglages graphiques, quitter.
-        pausePanel = UiKit.Panel(root, "Pause", new Vector2(390, 734));
+        // V0.7.24 (Note 01) : sur toute la hauteur de l'écran, et au-delà : les pics du coup de pinceau (en haut et en bas) sortent de
+        // l'écran. Les réglages sont en haut ; les drapeaux, en bas, ne les recouvrent plus.
+        pausePanel = UiKit.Panel(root, "Pause", new Vector2(PausePanelWidth, 734));
         UiKit.Paint(pausePanel, PanelBlack, 11);
-        UiKit.Place(pausePanel, new Vector2(1f, 1f), new Vector2(-16, -16));
-        UiKit.Column(pausePanel, 34, 8);
+        var pauseRect = UiKit.Place(pausePanel, new Vector2(1f, 1f), new Vector2(PausePanelRight, 0));
+        pauseRect.anchorMin = new Vector2(1f, 0f);
+        pauseRect.offsetMin = new Vector2(pauseRect.offsetMin.x, -PauseOverflow);
+        pauseRect.offsetMax = new Vector2(pauseRect.offsetMax.x, PauseOverflow);
+        UiKit.Column(pausePanel, 34, 8).padding.top = (int)PauseOverflow + 26;
         Transform p = pausePanel.transform;
 
         roomText = UiKit.Label(p, "", 14, FontStyle.Normal, Color.white, 26, TextAnchor.MiddleLeft);
         countText = UiKit.Label(p, "", 15, FontStyle.Normal, UiKit.MutedText, 20, TextAnchor.MiddleLeft);
-        var copy = UiKit.Button(p, "Copier le lien d'invitation", JoinBlue, 38, () =>
-        {
-            net.CopyInviteLink();
-            Loc.Bind(copyLabel, "Lien copié !");
-            copyFeedbackTimer = 2f;
-        });
-        copyLabel = copy.GetComponentInChildren<Text>();
-        copyButton = copy;
-        UiKit.Paint(copy, JoinBlue, 12);
         // V0.6.14 (Note 07 du chapitre 3.1) : le réglage disparaît de ce menu dès que le Bouton Rouge est enclenché, jusqu'à
         // la fin de la partie (UpdatePauseSkin).
         pauseSkinLabel = UiKit.Label(p, "Changer de skin", 15, FontStyle.Bold, UiKit.MutedText, 22, TextAnchor.MiddleLeft).gameObject;
@@ -490,6 +482,10 @@ public class LobbyUI : MonoBehaviour
         VolumeRows(p, 36, 15, true);
         UiKit.Spacer(p, 4);
         UiKit.Paint(UiKit.Button(p, "Quitter la partie", HostRed, 38, () => net.LeaveGame()), HostRed, 17);
+        // Le reste de la hauteur (le panneau couvre tout l'écran) : les lignes restent serrées en haut, au-dessus des drapeaux.
+        var rest = new GameObject("Reste", typeof(RectTransform), typeof(LayoutElement));
+        rest.transform.SetParent(p, false);
+        rest.GetComponent<LayoutElement>().flexibleHeight = 1000;
 
         // À gauche (V0.7.23, Note 03 ; avant : à droite) : "Échap pour reprendre le jeu" (clignote lentement), puis les contrôles, un
         // par ligne. Le centre de l'écran reste transparent : on voit le jeu.

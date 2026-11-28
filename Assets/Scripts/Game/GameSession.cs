@@ -721,6 +721,9 @@ public partial class GameSession : MonoBehaviour, IEntityHost
             FilmGrain.Obsessed = false;
             HoldingProtocol = ArmToGlyph = false;
             if (protocolView != null) protocolView.Show(false);
+            // V0.7.24 (Note 04) : de retour au lobby (partie quittée, expulsion, mort), plus aucun effet des Lunettes PEACE : UpdatePeace
+            // ne tourne qu'en partie, et le voile rose et les arcs-en-ciel restaient figés à l'écran.
+            ClearPeace();
             return;
         }
         UpdateLocalPoses();
@@ -1568,6 +1571,12 @@ public partial class GameSession : MonoBehaviour, IEntityHost
     {
         // V0.7.2 : plus de Chargeur, les Balises des Hubs ne s'actionnent pas.
         if (beacon.IsHub || Eating) return;
+        // V0.7.24 (17.4, S3) : la Cassette en main, la Télévision visée la lit au lieu d'être ramassée.
+        if (beacon.Kind == DeviceKind.Television && SelectedItem == ItemType.Cassette)
+        {
+            UseCassette(beacon);
+            return;
+        }
         if (!HasFreeSlot)
         {
             hud.Toast(Loc.T("Votre inventaire est plein !"));
@@ -2265,7 +2274,7 @@ public partial class GameSession : MonoBehaviour, IEntityHost
         float best = float.MaxValue;
         foreach (var tv in TvScreen.All)
         {
-            if (tv == null || !tv.Charged) { if (tv != null) tvSwingsSeen.Remove(tv); continue; }
+            if (tv == null || !tv.Charged || tv.PlayingCassette) { if (tv != null) tvSwingsSeen.Remove(tv); continue; }
             Vector3 point = tv.ScreenPoint;
             bool facing = Vector3.Dot(head - point, tv.ScreenNormal) > 0.05f && BellInSight(point);
             if (!facing) { tvSwingsSeen.Remove(tv); continue; }

@@ -48,6 +48,8 @@ public static class SoundBank
         "ploc", "shower",
         // V0.7.23 (GDD 12) : cloche de la Télévision qui obnubile, Jeton Noir qui casse, se déplace, blesse (enregistrés seulement).
         "tv_bell", "jeton_break", "jeton_move", "jeton_hit",
+        // V0.7.24 (17.4) : enregistrement de la Cassette lu par une Télévision (français, ou anglais pour les autres langues).
+        "cassette_fr", "cassette_en",
     };
 
     // Synthèse des sons étalée sur les premières images : le jeu ne se fige pas au lancement. Un son demandé avant son tour est

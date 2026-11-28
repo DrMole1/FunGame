@@ -7,6 +7,9 @@ using UnityEngine;
 // V0.7.19 (7.4) : une Télévision en vision directe d'une Balise est chargée (BeaconNetwork) : plus de neige ni de grésillement,
 // l'écran montre une cloche qui balance (Assets/Sprite/Cloche_Balance, via Resources/TvArt). Chaque balancement est compté
 // (Swings) : un joueur face à l'écran (GameSession) en est obnubilé et entend la cloche.
+// V0.7.24 (17.4, S3) : une Cassette lue (PlayCassette) l'interrompt : écran noir, ni neige, ni grésillement, ni cloche (aucun tintement
+// compté) ; l'enregistrement se diffuse à 10 m, en français ou en anglais selon la langue du joueur. 50 s plus tard, elle reprend son
+// cours (neige et grésillement, ou la cloche si elle est chargée).
 public class TvScreen : MonoBehaviour
 {
     const int NoiseW = 48, NoiseH = 36;
@@ -26,6 +29,10 @@ public class TvScreen : MonoBehaviour
     public Vector3 ScreenNormal => transform.forward;
     float chargedAt;
     int lastFrame = -1;
+    float cassetteUntil = -1f;
+    AudioSource cassetteVoice;
+    Texture2D blank;
+    public bool PlayingCassette => cassetteUntil > 0f;
 
     Transform screen;
     Material screenMat;
@@ -82,10 +89,51 @@ public class TvScreen : MonoBehaviour
         Swings = 0;
         lastFrame = -1;
         chargedAt = Time.time;
+        if (PlayingCassette) return;
         if (staticLoop != null) { if (on) staticLoop.Stop(); else staticLoop.Play(); }
         if (on) ShowBellFrame(0);
         else
         {
+            screenMat.mainTexture = noise;
+            screenMat.SetTexture("_EmissionMap", noise);
+            DrawNoise();
+        }
+    }
+
+    public void PlayCassette()
+    {
+        cassetteUntil = Time.time + GameRules.CassetteDuration;
+        if (staticLoop != null) staticLoop.Stop();
+        if (blank == null)
+        {
+            blank = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            blank.SetPixel(0, 0, Color.black);
+            blank.Apply(false);
+        }
+        screenMat.mainTexture = blank;
+        screenMat.SetTexture("_EmissionMap", blank);
+        if (cassetteVoice != null) Destroy(cassetteVoice.gameObject);
+        cassetteVoice = GameAudio.Loop3D(Loc.Current == Lang.Fr ? "cassette_fr" : "cassette_en", transform, screen.localPosition, 1f, GameRules.CassetteRange);
+        if (cassetteVoice != null)
+        {
+            cassetteVoice.loop = false;
+            cassetteVoice.Play();
+        }
+    }
+
+    void EndCassette()
+    {
+        cassetteUntil = -1f;
+        if (cassetteVoice != null) Destroy(cassetteVoice.gameObject);
+        cassetteVoice = null;
+        // Reprise : la cloche depuis le début si elle est chargée, sinon la neige et son grésillement.
+        Swings = 0;
+        lastFrame = -1;
+        chargedAt = Time.time;
+        if (Charged) ShowBellFrame(0);
+        else
+        {
+            if (staticLoop != null) staticLoop.Play();
             screenMat.mainTexture = noise;
             screenMat.SetTexture("_EmissionMap", noise);
             DrawNoise();
@@ -103,6 +151,11 @@ public class TvScreen : MonoBehaviour
 
     void Update()
     {
+        if (PlayingCassette)
+        {
+            if (Time.time >= cassetteUntil) EndCassette();
+            else return;
+        }
         if (Charged)
         {
             var art = TvArt.Get();
@@ -150,6 +203,7 @@ public class TvScreen : MonoBehaviour
     {
         All.Remove(this);
         if (noise != null) Destroy(noise);
+        if (blank != null) Destroy(blank);
         if (screenMat != null) Destroy(screenMat);
     }
 }

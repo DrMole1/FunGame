@@ -337,6 +337,7 @@ public static class Loc
         R("Carte 1", "Card 1", "Tarjeta 1", "Карта 1"),
         R("Utiliser la Carte Magnétique 1", "Use Magnetic Card 1", "Usar la Tarjeta Magnética 1", "Использовать магнитную карту 1"),
         R("Carte Magnétique 2", "Magnetic Card 2", "Tarjeta Magnética 2", "Магнитная карта 2"),
+        R("Cassette", "Cassette", "Casete", "Кассета"),
         R("Carte 2", "Card 2", "Tarjeta 2", "Карта 2"),
         R("Utiliser la Carte Magnétique 2", "Use Magnetic Card 2", "Usar la Tarjeta Magnética 2", "Использовать магнитную карту 2"),
         R("Pousser la porte", "Push the door", "Empujar la puerta", "Толкнуть дверь"),

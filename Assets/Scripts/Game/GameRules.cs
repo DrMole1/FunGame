@@ -4,7 +4,7 @@ using UnityEngine;
 public static class GameRules
 {
     // Version du jeu, affichée en bas à droite du lobby.
-    public const string Version = "V0.7.23";
+    public const string Version = "V0.7.24";
 
     // V0.7.11 (9.1) : les Hubs sont numérotés en chiffres romains (Hub I, Hub II...).
     public static string Roman(int n)
@@ -424,6 +424,8 @@ public static class GameRules
 
     public const float TvHeight = 0.8f * 1.8f, TrampolineHeight = 0.3f * 1.8f, BellHeight = 0.8f * 1.8f;
     public const float TvSoundRange = 10f;
+    // V0.7.24 (17.4, S3) : une Télévision qui lit la Cassette diffuse l'enregistrement à 10 m, puis reprend son cours 50 s plus tard.
+    public const float CassetteRange = 10f, CassetteDuration = 50f;
     // Trampoline : un peu moins que la hauteur entre le sol du Hub et le haut du Chapiteau.
     public const float TrampolineJumpFraction = 0.9f;
     // V0.7.11 (7.6) : Cloches Décoratives en hauteur dans les zones 2+ : 3 en Zone 2, 4 en Zone 3, 5 dans les zones 4 et +.
@@ -455,6 +457,8 @@ public enum ItemType
     CarteMagnetique1 = 30,
     // V0.7.4 (15.4, S2) : Carte Magnétique 2 ; ouvre la porte entre la Control Room et le Vestiaire (pour l'instant : /give S2).
     CarteMagnetique2 = 31,
+    // V0.7.24 (17.4, S3) : Cassette VHS, dans un casier de la Control Room ; jouée par une Télévision (TvScreen.PlayCassette).
+    Cassette = 46,
     // V0.7.11 (7.9) : Parfum Odorant, acheté au Terminal : il parfume l'acheteur (pas d'objet dans l'inventaire).
     ParfumOdorant = 32,
     // V0.7.11 (7.11 à 7.17) : objets des Super Monticules (O13 à O17), Sac à Os et Notice du Hub II (O18, O19).
@@ -585,6 +589,7 @@ public static class Items
         // V0.6.14 (15.4) : objets secrets (S1...), obtenables aussi par /give. Ils ne se vendent pas.
         new ItemDef { type = ItemType.CarteMagnetique1, otherId = "S1", name = "Carte Magnétique 1", shortName = "Carte 1", buyPrice = 0, sellPrice = 0, color = new Color(0.85f, 0.88f, 0.9f) },
         new ItemDef { type = ItemType.CarteMagnetique2, otherId = "S2", name = "Carte Magnétique 2", shortName = "Carte 2", buyPrice = 0, sellPrice = 0, color = new Color(0.75f, 0.82f, 0.95f) },
+        new ItemDef { type = ItemType.Cassette, otherId = "S3", name = "Cassette", shortName = "Cassette", buyPrice = 0, sellPrice = 0, color = new Color(0.12f, 0.12f, 0.13f) },
     };
 
     // Note 06 du chapitre 7 : une peluche vaut une part du quota de la manche en cours au moment où elle est vendue :
@@ -662,6 +667,7 @@ public static class Items
             case ItemType.SuperBalle: return "SuperBalle";
             case ItemType.Collier: return "Collier";
             case ItemType.Lunettes: return "Lunettes";
+            case ItemType.Cassette: return "Cassette";
             default:
                 if (IsBell(type)) return "ClocheDecorative";
                 if (IsDiscoBall(type)) return "BouleDisco";
@@ -714,7 +720,7 @@ public static class Items
     public static bool Stealable(ItemType type) => type == ItemType.Os || IsDuck(type);
 
     public static bool LeftOnDeath(ItemType type) => type != ItemType.None && Get(type) != null && !DestroyedOnDeath(type) && !IsPlaceable(type);
-    public static bool IsSecret(ItemType type) => type == ItemType.CarteMagnetique1 || type == ItemType.CarteMagnetique2;
+    public static bool IsSecret(ItemType type) => type == ItemType.CarteMagnetique1 || type == ItemType.CarteMagnetique2 || type == ItemType.Cassette;
 
     public static ItemDef Get(ItemType type)
     {
@@ -750,7 +756,7 @@ public static class Items
     // Posés au sol comme une Balise, Hub compris : objets uniques, peluches et boules à facettes (V0.6.1), canards (V0.6.3).
     // V0.7.11 : Métronome, Super Balle, Sac à Os, Notice et Journaux aussi (pas le Mégaphone, le Collier ni les Lunettes).
     public static bool IsPlaceable(ItemType type) => IsUnique(type) || IsPlush(type) || IsDiscoBall(type) || IsDuck(type) || type == ItemType.Protocole
-        || type == ItemType.Metronome || type == ItemType.SuperBalle || IsBoneBag(type) || IsReadable(type);
+        || type == ItemType.Metronome || type == ItemType.SuperBalle || IsBoneBag(type) || IsReadable(type) || type == ItemType.Cassette;
 
     // Ils se balancent près d'une Boule de Disco posée.
     public static bool Dances(ItemType type) => IsDuck(type) || IsPlush(type);

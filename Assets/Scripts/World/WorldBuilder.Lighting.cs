@@ -21,6 +21,9 @@ public static partial class WorldBuilder
         foreach (var mr in renderers)
         {
             if (mr == null || mr.transform.childCount > 0) continue;
+            // V0.7.24 (Note 05) : jamais les câbles des glyphes et des leviers (non éclairés) : redécoupé, l'original était détruit, et
+            // le glyphe (ou le levier) qui le tenait ne pouvait plus le rendre blanc lumineux une fois actionné.
+            if (mr.name == "Cable") continue;
             var mf = mr.GetComponent<MeshFilter>();
             // Maillages construits pendant la partie seulement (identifiant négatif), pas les modèles importés.
             if (mf == null || mf.sharedMesh == null || mf.sharedMesh.GetInstanceID() >= 0 || !mf.sharedMesh.isReadable || mf.sharedMesh.subMeshCount != 1) continue;

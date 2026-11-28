@@ -538,6 +538,14 @@ public class GameHud : MonoBehaviour
         peaceTop.uvRect = peaceBottom.uvRect = new Rect(Mathf.Repeat(Time.unscaledTime * 0.05f, 1f), 0f, 1f, 1f);
     }
 
+    public void ClearPeace()
+    {
+        if (peace <= 0f) return;
+        peace = 0f;
+        peaceVeil.color = new Color(1f, 0.45f, 0.72f, 0f);
+        peaceTop.color = peaceBottom.color = new Color(1f, 1f, 1f, 0f);
+    }
+
     const float RainbowBorderHeight = 0.07f;
 
     // Bande arc-en-ciel collée au bord haut (ou bas) de l'écran : rouge au bord, violet vers l'intérieur, qui s'efface vers le centre.

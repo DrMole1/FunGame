@@ -432,6 +432,15 @@ public partial class GameSession
 
     ParticleSystem hearts;
 
+    // Hors partie : effets des Lunettes coupés tout de suite (voile rose, arcs-en-ciel, cœurs, musique douce, vision rose).
+    void ClearPeace()
+    {
+        WearingGlasses = false;
+        GameAudio.PeaceMode = false;
+        if (hud != null) hud.ClearPeace();
+        if (hearts != null) hearts.Clear();
+    }
+
     void UpdatePeace()
     {
         bool on = WearingGlasses && net.InGame;

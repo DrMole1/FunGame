@@ -123,3 +123,7 @@ MonoBehaviour:
     clip: {fileID: 8300000, guid: 738cbb192417fc04e941e8c0dc35e699, type: 3}
   - key: jeton_hit
     clip: {fileID: 8300000, guid: ee880397856f453428501403335e47bb, type: 3}
+  - key: cassette_fr
+    clip: {fileID: 8300000, guid: c851a9f6d19ccfe498b4116108a23863, type: 3}
+  - key: cassette_en
+    clip: {fileID: 8300000, guid: 49bc50169659ffd4a9982730242921ec, type: 3}

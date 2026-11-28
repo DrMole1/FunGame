@@ -1071,6 +1071,24 @@ public static partial class WorldBuilder
                 }
             return true;
         }
+        // Une cellule de la forme, ou une de ses voisines (coins compris), appartient-elle à une salle de forme imposée déjà posée ?
+        bool TouchesUnique(int i0, int j0, int w, int h, bool[,] mask)
+        {
+            for (int a = 0; a < w; a++)
+                for (int b = 0; b < h; b++)
+                {
+                    if (!mask[a, h - 1 - b]) continue;
+                    for (int di = -1; di <= 1; di++)
+                        for (int dj = -1; dj <= 1; dj++)
+                        {
+                            int ni = i0 + a + di, nj = j0 + b + dj;
+                            if (!m.InGrid(ni, nj) || m.room[ni, nj] < 0) continue;
+                            Room other = m.rooms[m.room[ni, nj]];
+                            if (style.bigPlaced.Exists(p => p.room == other)) return true;
+                        }
+                }
+            return false;
+        }
         for (int attempt = 0; attempt < attempts && m.rooms.Count < style.maxRooms && covered < target; attempt++)
         {
             int w, h, i0, j0;
@@ -1100,6 +1118,8 @@ public static partial class WorldBuilder
                         for (int j = 0; j + th <= n; j++)
                         {
                             if (!Fits(i, j, tw, th, turned)) continue;
+                            // V0.7.24 : deux salles uniques de l'Échiquier ne sont jamais adjacentes (ni par un côté, ni par un coin).
+                            if (style.bigPlain && TouchesUnique(i, j, tw, th, turned)) continue;
                             int contact = 0;
                             for (int a = 0; a < tw; a++)
                                 for (int b = 0; b < th; b++)

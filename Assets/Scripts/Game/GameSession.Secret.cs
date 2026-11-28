@@ -75,6 +75,10 @@ public partial class GameSession
     {
         switch (f[0])
         {
+            case "XT" when host:
+            case "XU":
+                HandleCassetteMessage(f, host);
+                return true;
             case "XE" when host:
             {
                 int i = f.Length >= 2 ? NetworkGame.I(f[1]) : -1;

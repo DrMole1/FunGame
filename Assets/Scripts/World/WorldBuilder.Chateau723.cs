@@ -101,9 +101,15 @@ public static partial class WorldBuilder
 
     // ---------- Cailloux des cimetières ----------
 
-    const float RockMinScale = 0.2f, RockMaxScale = 0.35f, RockChance = 0.6f;
+    // V0.7.24 (Note 03) : deux fois plus gros (avant : 0,2 à 0,35 fois la taille d'un personnage), et tout le pied des murs en est
+    // ceinturé : les cailloux se suivent, en se chevauchant un peu.
+    // V0.7.24 : plus serrés (un pas de 50 à 75 % de leur largeur), ils peuvent se toucher et s'imbriquer ; chacun est enfoncé de 15 %
+    // de son épaisseur dans le mur contre lequel il est posé.
+    const float RockMinScale = 0.4f, RockMaxScale = 0.7f, RockStepMin = 0.5f, RockStepMax = 0.75f, RockWallSink = 0.15f;
+    // Deux cailloux ne sont jamais presque au même endroit (coins du cimetière, où deux murs se rejoignent).
+    const float RockMinGap = 0.35f;
 
-    // Le long de chaque mur d'un cimetière (côté gravier), un caillou ou un rocher tous les 0,7 à 1,8 m, six fois sur dix ; jamais devant
+    // Le long de chaque mur d'un cimetière (côté gravier), des cailloux et rochers les uns à la suite des autres (V0.7.24) ; jamais devant
     // une porte, son petit escalier, l'entrée d'une Tour, ni contre une croix, une pierre tombale ou un monticule.
     static void BuildCemeteryRocks(Maze m, ChateauPlan plan, Transform props, List<(Vector3 p, float r)> placed, System.Random rnd)
     {
@@ -115,6 +121,7 @@ public static partial class WorldBuilder
         float ground = -CemeteryDepth;
         float face = Cell * 0.5f - Wall * 0.5f;
         float doorClear = DoorWidth * 0.5f + 0.4f, stairRun = StairRun(CemeteryDepth) + 0.3f;
+        var rocks = new List<(Vector3 p, float r)>();
         foreach (var cell in cells)
         {
             Vector3 cc = m.Center(cell.x, cell.y);
@@ -124,34 +131,42 @@ public static partial class WorldBuilder
                 if (plan.yards.Contains(nb)) continue;
                 Vector3 n = new Vector3(DI[d], 0f, DJ[d]), side = new Vector3(DJ[d], 0f, DI[d]);
                 bool door = m.InGrid(nb.x, nb.y) && !HasWall(m, cell.x, cell.y, d);
-                for (float t = -face + Rand(rnd, 0.2f, 0.8f); t < face - 0.2f; t += Rand(rnd, 0.7f, 1.8f))
+                // Les cailloux se suivent d'un bout à l'autre du mur (un pas d'un peu moins que leur largeur).
+                float t = -face + Rand(rnd, 0f, 0.15f);
+                while (t < face - 0.1f)
                 {
-                    if (rnd.NextDouble() >= RockChance) continue;
-                    if (door && Mathf.Abs(t) < doorClear) continue;
+                    if (door && Mathf.Abs(t) < doorClear) { t += 0.3f; continue; }
                     float h = CharacterHeight * Rand(rnd, RockMinScale, RockMaxScale);
                     var rock = SpawnRock(holder, h, rnd);
                     if (rock == null) return;
                     rock.transform.rotation = Quaternion.Euler(Rand(rnd, -12f, 12f), Rand(rnd, 0f, 360f), Rand(rnd, -12f, 12f));
                     Bounds wb = WorldBounds(rock.transform);
                     float depth = Mathf.Abs(n.x) * wb.extents.x + Mathf.Abs(n.z) * wb.extents.z;
+                    float along = Mathf.Abs(side.x) * wb.extents.x + Mathf.Abs(side.z) * wb.extents.z;
                     float r = Mathf.Max(wb.extents.x, wb.extents.z);
                     // Contre le mur, un peu enfoncé dans le gravier (il n'a pas l'air posé dessus).
-                    Vector3 p = new Vector3(cc.x, ground, cc.z) + n * (face - depth - 0.02f) + side * t;
+                    // Enfoncé dans le mur de 15 % de son épaisseur (2 x 'depth').
+                    Vector3 p = new Vector3(cc.x, ground, cc.z) + n * (face - depth + 2f * depth * RockWallSink) + side * (t + along);
                     Vector3 offset = p - new Vector3(wb.center.x, wb.min.y, wb.center.z);
                     rock.transform.position += offset + Vector3.down * (h * 0.08f);
-                    if (!RockFree(plan, p, r, door ? cc + n * face : (Vector3?)null, n, doorClear, stairRun, placed))
+                    if (door && Mathf.Abs(t + along) < doorClear + along
+                        || !RockFree(plan, p, r, door ? cc + n * face : (Vector3?)null, n, doorClear, stairRun, placed, rocks))
                     {
                         Object.Destroy(rock);
+                        t += 0.3f;
                         continue;
                     }
-                    placed.Add((p, r));
+                    rocks.Add((p, r));
                     AddPropCollider(rock);
+                    t += along * 2f * Rand(rnd, RockStepMin, RockStepMax);
                 }
             }
         }
+        placed.AddRange(rocks);
     }
 
-    static bool RockFree(ChateauPlan plan, Vector3 p, float r, Vector3? door, Vector3 n, float doorClear, float stairRun, List<(Vector3 p, float r)> placed)
+    static bool RockFree(ChateauPlan plan, Vector3 p, float r, Vector3? door, Vector3 n, float doorClear, float stairRun, List<(Vector3 p, float r)> placed,
+        List<(Vector3 p, float r)> rocks)
     {
         foreach (var round in plan.rounds)
         {
@@ -170,6 +185,8 @@ public static partial class WorldBuilder
             if (inward < stairRun + r && across < doorClear + r) return false;
         }
         foreach (var q in placed) if (Flat(q.p - p) < q.r + r + 0.15f) return false;
+        // Entre cailloux : ils peuvent se toucher et se chevaucher, pas se confondre (coins du cimetière).
+        foreach (var q in rocks) if (Flat(q.p - p) < (q.r + r) * RockMinGap) return false;
         return true;
     }
 

@@ -156,6 +156,9 @@ public static class GameSetup
         ("jeton_break", "Assets/Sounds/JetonNoir_Casser.wav"),
         ("jeton_move", "Assets/Sounds/JetonNoir_Deplacement.wav"),
         ("jeton_hit", "Assets/Sounds/JetonNoir_Degat.wav"),
+        // V0.7.24 (17.4) : enregistrement de la Cassette (S3).
+        ("cassette_fr", "Assets/Sounds/Cassette_FR_UPD.wav"),
+        ("cassette_en", "Assets/Sounds/Cassette_EN_UPD.wav"),
     };
 
     static void CreateSounds()

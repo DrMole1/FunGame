@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-// Fenêtre "Modifier Contrôles", au centre de l'écran, ouverte depuis le menu pause : un clic sur la touche d'une action,
+// Fenêtre "Modifier Contrôles", en haut de l'écran (V0.7.24), ouverte depuis le menu pause : un clic sur la touche d'une action,
 // puis la nouvelle touche (clavier ou souris) ; Échap annule, puis ferme la fenêtre. Une touche déjà prise est échangée.
 public class ControlsUI : MonoBehaviour
 {
@@ -35,7 +35,8 @@ public class ControlsUI : MonoBehaviour
         var canvas = UiKit.CreateCanvas(transform, "ControlsCanvas", 110);
         panel = UiKit.Panel(canvas.transform, "ModifierControles", new Vector2(780, 560));
         UiKit.Paint(panel, PanelBlack, 31);
-        UiKit.Place(panel, new Vector2(0.5f, 0.5f), Vector2.zero);
+        // V0.7.24 (Note 02) : en haut de l'écran (avant : au centre), pour laisser voir l'inventaire et la jauge de PV.
+        UiKit.Place(panel, new Vector2(0.5f, 1f), new Vector2(0f, -36f));
         UiKit.Column(panel, 34, 10);
         Transform p = panel.transform;
 
